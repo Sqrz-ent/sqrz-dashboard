@@ -41,6 +41,11 @@ export default function DashboardHome() {
   );
 }
 
+<a href="/profile" style={{ marginTop: 24, display: "inline-block", color: "#f3b130" }}>
+  Go to profile →
+</a>
+
+
 function Card({
   title,
   description,
@@ -63,6 +68,3 @@ function Card({
   );
 }
 
-<a href="/profile" style={{ marginTop: 24, display: "inline-block", color: "#f3b130" }}>
-  Go to profile →
-</a>
