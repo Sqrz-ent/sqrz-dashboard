@@ -36,14 +36,25 @@ export default function DashboardHome() {
             description="Manage payouts and Stripe connection."
           />
         </section>
+
+        {/* 👇 PUT THE LINK HERE */}
+        <a
+          href="/profile"
+          style={{
+            marginTop: 24,
+            display: "inline-block",
+            color: "#f3b130",
+            fontWeight: 700,
+          }}
+        >
+          Go to profile →
+        </a>
       </div>
     </main>
   );
 }
 
-<a href="/profile" style={{ marginTop: 24, display: "inline-block", color: "#f3b130" }}>
-  Go to profile →
-</a>
+
 
 
 function Card({
