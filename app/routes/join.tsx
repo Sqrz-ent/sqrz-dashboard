@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/join";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
 
 type Step = "username" | "email" | "template" | "signup" | "login" | "sent";
+type SlugStatus = "idle" | "checking" | "available" | "taken";
 
 type Template = {
   id: string;
@@ -95,19 +96,30 @@ function ErrorMessage({ message }: { message: string }) {
 
 function UsernameStep({
   slug,
-  setSlug,
+  onSlugChange,
+  slugStatus,
   onSubmit,
   onLoginClick,
-  error,
-  loading,
 }: {
   slug: string;
-  setSlug: (v: string) => void;
+  onSlugChange: (v: string) => void;
+  slugStatus: SlugStatus;
   onSubmit: () => void;
   onLoginClick: () => void;
-  error: string;
-  loading: boolean;
 }) {
+  const canContinue = slugStatus === "available";
+
+  const statusLabel =
+    slug.length > 0 && slug.length < 3
+      ? { text: "At least 3 characters", color: "rgba(255,255,255,0.3)" }
+      : slugStatus === "checking"
+      ? { text: "Checking…", color: "rgba(255,255,255,0.35)" }
+      : slugStatus === "available"
+      ? { text: `✓ ${slug}.sqrz.com is available`, color: "#4ade80" }
+      : slugStatus === "taken"
+      ? { text: "Already taken, try another", color: "#ef4444" }
+      : null;
+
   return (
     <div>
       <h1
@@ -133,19 +145,26 @@ function UsernameStep({
           display: "flex",
           alignItems: "center",
           background: "#1a1a1a",
-          border: "1px solid rgba(245,166,35,0.3)",
+          border: `1px solid ${
+            slugStatus === "available"
+              ? "rgba(74,222,128,0.5)"
+              : slugStatus === "taken"
+              ? "rgba(239,68,68,0.5)"
+              : "rgba(245,166,35,0.3)"
+          }`,
           borderRadius: 12,
           padding: "0 16px",
           marginBottom: 8,
+          transition: "border-color 0.2s",
         }}
       >
         <input
           value={slug}
           onChange={(e) =>
-            setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))
+            onSlugChange(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))
           }
+          onKeyDown={(e) => e.key === "Enter" && canContinue && onSubmit()}
           placeholder="yourname"
-          onKeyDown={(e) => e.key === "Enter" && onSubmit()}
           style={{
             flex: 1,
             background: "transparent",
@@ -161,14 +180,23 @@ function UsernameStep({
         </span>
       </div>
 
-      <ErrorMessage message={error} />
+      {statusLabel && (
+        <p style={{ fontSize: 13, color: statusLabel.color, marginBottom: 12, marginTop: 0 }}>
+          {statusLabel.text}
+        </p>
+      )}
 
       <button
         onClick={onSubmit}
-        disabled={loading}
-        style={{ ...primaryButtonStyle, marginTop: 8 }}
+        disabled={!canContinue}
+        style={{
+          ...primaryButtonStyle,
+          marginTop: 8,
+          opacity: canContinue ? 1 : 0.35,
+          cursor: canContinue ? "pointer" : "default",
+        }}
       >
-        {loading ? "Checking…" : "Check Name"}
+        Continue →
       </button>
 
       <p
@@ -242,6 +270,7 @@ function EmailStep({
   );
 }
 
+// ─── Template picker — hidden from signup flow, code preserved ────────────────
 function TemplateStep({
   templates,
   selectedId,
@@ -510,6 +539,26 @@ function SentStep({
   );
 }
 
+// ─── Action — slug availability check (fires on every keystroke via useFetcher) ──
+
+export async function action({ request }: Route.ActionArgs) {
+  const supabaseServer = createSupabaseServerClient(request);
+  const formData = await request.formData();
+  const slug = (formData.get("slug") as string ?? "").trim().toLowerCase();
+
+  if (!slug || slug.length < 3) {
+    return Response.json({ available: false });
+  }
+
+  const { data } = await supabaseServer
+    .from("profiles")
+    .select("slug")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  return Response.json({ available: !data });
+}
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -551,6 +600,27 @@ export default function Join() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Slug availability via useFetcher — fires on every keystroke
+  const slugFetcher = useFetcher<{ available: boolean }>();
+
+  const slugStatus: SlugStatus =
+    slug.length < 3
+      ? "idle"
+      : slugFetcher.state !== "idle"
+      ? "checking"
+      : slugFetcher.data?.available === true
+      ? "available"
+      : slugFetcher.data?.available === false
+      ? "taken"
+      : "idle";
+
+  function handleSlugChange(val: string) {
+    setSlug(val);
+    if (val.length >= 3) {
+      slugFetcher.submit({ slug: val }, { method: "POST" });
+    }
+  }
+
   function goTo(nextStep: Step) {
     setPhase("out");
     setError("");
@@ -562,34 +632,6 @@ export default function Join() {
   }
 
   // ── Handlers ──────────────────────────────────────────────────────────────
-
-  async function checkSlug() {
-    const normalized = slug.trim().toLowerCase();
-    if (!normalized || normalized.length < 3) {
-      setError("Username must be at least 3 characters");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const { data } = await supabase
-        .from("profiles")
-        .select("slug")
-        .eq("slug", normalized)
-        .maybeSingle();
-
-      if (data) {
-        setError("Already taken, try another");
-      } else {
-        setSlug(normalized);
-        goTo("email");
-      }
-    } catch {
-      setError("Something went wrong, try again");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   async function checkEmail() {
     const normalized = email.trim().toLowerCase();
@@ -609,7 +651,8 @@ export default function Join() {
       const newUser = !data;
       setIsNewUser(newUser);
       setEmail(normalized);
-      goTo("template");
+      // Template step hidden — go directly to signup or login
+      goTo(newUser ? "signup" : "login");
     } catch {
       setError("Something went wrong, try again");
     } finally {
@@ -718,11 +761,10 @@ export default function Join() {
           {step === "username" && (
             <UsernameStep
               slug={slug}
-              setSlug={setSlug}
-              onSubmit={checkSlug}
+              onSlugChange={handleSlugChange}
+              slugStatus={slugStatus}
+              onSubmit={() => goTo("email")}
               onLoginClick={() => goTo("email")}
-              error={error}
-              loading={loading}
             />
           )}
 
@@ -738,7 +780,8 @@ export default function Join() {
             />
           )}
 
-          {step === "template" && (
+          {/* Template step — hidden from signup flow, code preserved */}
+          {false && step === "template" && (
             <TemplateStep
               templates={templates}
               selectedId={templateId}
@@ -747,6 +790,9 @@ export default function Join() {
               onBack={() => goTo("email")}
             />
           )}
+
+          {/* Photo upload step — hidden from signup flow, code preserved */}
+          {/* (photo upload UI goes here when ready) */}
 
           {step === "signup" && (
             <SignupStep

@@ -39,7 +39,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (slug && !profile?.slug) {
       await supabase
         .from("profiles")
-        .update({ slug, user_type: "member" })
+        .update({ slug, name: slug, user_type: "member" })
         .eq("id", user.id);
     }
   }
