@@ -26,14 +26,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
-// Top nav: Dashboard stays as a route link; the rest open panels
-const panelNavItems: { label: string; panel: PanelKey }[] = [
-  { label: "Profile", panel: "profile" },
-  { label: "Service", panel: "service" },
-  { label: "Domain", panel: "domain" },
-  { label: "Media", panel: "media" },
-];
-
 const bottomNavItems = [
   { to: "/", label: "Dashboard", icon: "⊞", end: true },
   { to: "/office", label: "Office", icon: "📋" },
@@ -58,15 +50,6 @@ export default function AppLayout() {
 
   const activeNavStyle: React.CSSProperties = { color: "#ffffff", fontWeight: 600 };
   const inactiveNavStyle: React.CSSProperties = { color: "rgba(255,255,255,0.45)" };
-
-  const panelNavButtonBase: React.CSSProperties = {
-    background: "none",
-    border: "none",
-    padding: 0,
-    fontSize: 14,
-    cursor: "pointer",
-    textDecoration: "none",
-  };
 
   return (
     <div
@@ -111,33 +94,6 @@ export default function AppLayout() {
           Dashboard
         </NavLink>
 
-        {/* Panel triggers */}
-        {panelNavItems.map(({ label, panel }) => (
-          <button
-            key={panel}
-            onClick={() => openPanel(panel)}
-            style={{
-              ...panelNavButtonBase,
-              ...(activePanel === panel ? activeNavStyle : inactiveNavStyle),
-            }}
-          >
-            {label}
-          </button>
-        ))}
-
-        {/* Account — right side, opens panel */}
-        <div style={{ marginLeft: "auto" }}>
-          <button
-            onClick={() => openPanel("account")}
-            style={{
-              ...panelNavButtonBase,
-              fontSize: 14,
-              ...(activePanel === "account" ? activeNavStyle : inactiveNavStyle),
-            }}
-          >
-            {(profile as Record<string, unknown>)?.name as string ?? "Account"} ↓
-          </button>
-        </div>
       </nav>
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
