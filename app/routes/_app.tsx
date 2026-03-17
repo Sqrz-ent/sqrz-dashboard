@@ -11,7 +11,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   } = await supabase.auth.getSession();
 
   if (!session) {
-    return redirect("/join", { headers: responseHeaders });
+    return redirect("/login", { headers: responseHeaders });
   }
 
   const { data: profile } = await supabase

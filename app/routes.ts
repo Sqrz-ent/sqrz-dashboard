@@ -3,6 +3,8 @@ import { type RouteConfig, index, layout, route } from "@react-router/dev/routes
 export default [
   // Auth (public)
   route("join", "routes/join.tsx"),
+  route("login", "routes/login.tsx"),
+  route("reset-password", "routes/reset-password.tsx"),
   route("auth/callback", "routes/auth.callback.tsx"),
 
   // Protected app (session required)
