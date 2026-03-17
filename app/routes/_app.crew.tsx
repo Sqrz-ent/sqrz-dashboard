@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, useLoaderData, useFetcher, Form } from "react-router";
 import type { Route } from "./+types/_app.crew";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -21,7 +21,7 @@ type CrewProfile = {
 };
 
 type LoaderData =
-  | { access: "featured"; profiles: CrewProfile[] }
+  | { access: "featured"; profiles: CrewProfile[]; growStarterPriceId: string }
   | { access: "full"; profiles: CrewProfile[]; total: number; categories: string[] };
 
 type ActionData = { profiles: CrewProfile[]; total: number };
@@ -134,7 +134,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       .order("name", { ascending: true });
 
     return Response.json<LoaderData>(
-      { access: "featured", profiles: (featuredProfiles ?? []) as CrewProfile[] },
+      {
+        access: "featured",
+        profiles: (featuredProfiles ?? []) as CrewProfile[],
+        growStarterPriceId: process.env.STRIPE_GROW_STARTER_PRICE_ID ?? "",
+      },
       { headers: responseHeaders }
     );
   }
@@ -179,15 +183,50 @@ export async function action({ request }: Route.ActionArgs) {
 
 // ─── Featured grid (no plan / crew_access = 'featured') ──────────────────────
 
-function FeaturedGrid({ profiles }: { profiles: CrewProfile[] }) {
+function FeaturedGrid({ profiles, growStarterPriceId }: { profiles: CrewProfile[]; growStarterPriceId: string }) {
+
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
-      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
-        Crew
-      </h1>
-      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 15, marginBottom: 28 }}>
-        Featured creatives available for hire.
-      </p>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          flexWrap: "wrap",
+          gap: 16,
+          marginBottom: 28,
+        }}
+      >
+        <div>
+          <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
+            Crew
+          </h1>
+          <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 15, margin: 0 }}>
+            Featured creatives available for hire.
+          </p>
+        </div>
+
+        {/* Upgrade to Grow — unlocks full crew search */}
+        <Form method="post" action="/api/stripe/checkout">
+          <input type="hidden" name="price_id" value={growStarterPriceId} />
+          <button
+            type="submit"
+            style={{
+              padding: "11px 20px",
+              background: "#F5A623",
+              color: "#111111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Upgrade to Grow — unlock full crew →
+          </button>
+        </Form>
+      </div>
 
       {profiles.length === 0 ? (
         <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 14 }}>No featured profiles yet.</p>
@@ -341,7 +380,7 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
 export default function Crew() {
   const loaderData = useLoaderData<typeof loader>() as LoaderData;
 
-  if (loaderData.access === "featured") return <FeaturedGrid profiles={loaderData.profiles} />;
+  if (loaderData.access === "featured") return <FeaturedGrid profiles={loaderData.profiles} growStarterPriceId={loaderData.growStarterPriceId} />;
 
   const { profiles: initialProfiles, total: initialTotal, categories } = loaderData;
 

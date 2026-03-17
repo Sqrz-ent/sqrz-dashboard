@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useFetcher } from "react-router";
 import { supabase } from "~/lib/supabase.client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -345,6 +346,106 @@ function ProfilePanel({ userId }: { userId: string }) {
   );
 }
 
+// ─── AccountPanel ─────────────────────────────────────────────────────────────
+
+function AccountPanel({ profile }: { profile: Profile | null }) {
+  const connectFetcher = useFetcher();
+
+  const connectStatus = profile?.stripe_connect_status as string | undefined;
+  const isConnected = connectStatus === "active";
+  const isPending = connectStatus === "pending";
+
+  const isSubmitting = connectFetcher.state !== "idle";
+
+  return (
+    <div>
+      {/* ── Subscription ── */}
+      <p style={sectionHeadingStyle}>Subscription</p>
+
+      <div
+        style={{
+          background: "#111111",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          padding: "16px 18px",
+          marginBottom: 24,
+        }}
+      >
+        <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
+          Manage your SQRZ plan via the billing portal.
+        </p>
+        <a
+          href="https://billing.stripe.com/p/login/test_placeholder"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: "inline-block",
+            padding: "10px 18px",
+            background: "rgba(255,255,255,0.07)",
+            color: "#ffffff",
+            border: "1px solid rgba(255,255,255,0.12)",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            textDecoration: "none",
+          }}
+        >
+          Manage billing →
+        </a>
+      </div>
+
+      {/* ── Stripe Connect ── */}
+      <p style={{ ...sectionHeadingStyle, marginTop: 8 }}>Payouts</p>
+
+      <div
+        style={{
+          background: "#111111",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 12,
+          padding: "16px 18px",
+        }}
+      >
+        {isConnected ? (
+          <p style={{ color: "#4ade80", fontSize: 13, margin: 0, fontWeight: 600 }}>
+            ✓ Bank account connected — payouts enabled
+          </p>
+        ) : (
+          <>
+            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
+              {isPending
+                ? "Your bank account connection is pending. Click below to complete onboarding."
+                : "Connect your bank account to receive payouts from bookings."}
+            </p>
+            <connectFetcher.Form method="post" action="/api/stripe/connect">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                style={{
+                  padding: "10px 18px",
+                  background: "#F5A623",
+                  color: "#111111",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: isSubmitting ? "default" : "pointer",
+                  opacity: isSubmitting ? 0.6 : 1,
+                }}
+              >
+                {isSubmitting
+                  ? "Redirecting…"
+                  : isPending
+                  ? "Complete bank setup →"
+                  : "Connect bank account →"}
+              </button>
+            </connectFetcher.Form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── DashboardPanel (centered modal) ─────────────────────────────────────────
 
 export default function DashboardPanel({
@@ -386,7 +487,7 @@ export default function DashboardPanel({
       case "domain":
         return <PlaceholderPanel title="Custom Domain" />;
       case "account":
-        return <PlaceholderPanel title="Account & Billing" />;
+        return <AccountPanel profile={_profile} />;
       default:
         return null;
     }
