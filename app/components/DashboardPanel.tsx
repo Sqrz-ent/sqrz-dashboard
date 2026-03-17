@@ -34,36 +34,35 @@ const fieldStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 11,
   fontWeight: 600,
-  color: "rgba(255,255,255,0.5)",
+  color: "rgba(255,255,255,0.4)",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "0.06em",
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "12px 14px",
+  padding: "11px 13px",
   background: "#111111",
   border: "1px solid rgba(255,255,255,0.1)",
   borderRadius: 10,
-  fontSize: 15,
+  fontSize: 14,
   color: "#ffffff",
   outline: "none",
   boxSizing: "border-box",
 };
 
-const saveButtonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "13px",
-  background: "#F5A623",
-  color: "#111111",
-  border: "none",
-  borderRadius: 12,
-  fontSize: 15,
+const sectionHeadingStyle: React.CSSProperties = {
+  fontSize: 11,
   fontWeight: 700,
-  cursor: "pointer",
-  marginTop: 8,
+  color: "rgba(255,255,255,0.25)",
+  textTransform: "uppercase",
+  letterSpacing: "0.1em",
+  marginBottom: 14,
+  marginTop: 4,
+  paddingBottom: 10,
+  borderBottom: "1px solid rgba(255,255,255,0.06)",
 };
 
 // ─── Placeholder panel ────────────────────────────────────────────────────────
@@ -72,77 +71,147 @@ function PlaceholderPanel({ title }: { title: string }) {
   return (
     <div
       style={{
-        flex: 1,
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         textAlign: "center",
-        padding: "48px 24px",
+        padding: "64px 24px",
         color: "rgba(255,255,255,0.25)",
       }}
     >
       <div style={{ fontSize: 36, marginBottom: 16, opacity: 0.4 }}>🚧</div>
-      <p style={{ fontSize: 15, margin: 0 }}>{title} — coming soon</p>
+      <p style={{ fontSize: 14, margin: 0 }}>{title} — coming soon</p>
     </div>
   );
 }
 
 // ─── ProfilePanel ─────────────────────────────────────────────────────────────
 
-function ProfilePanel({
-  profile,
-  userId,
-}: {
-  profile: Profile | null;
-  userId: string;
-}) {
-  // Split stored `name` into first / last on mount
-  const fullName = (profile?.name as string) ?? "";
-  const nameParts = fullName.trim().split(/\s+/);
-  const initialFirst = nameParts[0] ?? "";
-  const initialLast = nameParts.slice(1).join(" ");
+type ProfileForm = {
+  first_name: string;
+  last_name: string;
+  bio: string;
+  city: string;
+  social_instagram: string;
+  social_youtube: string;
+  social_tiktok: string;
+  widget_spotify: string;
+  widget_soundcloud: string;
+  website_url: string;
+};
 
-  const [firstName, setFirstName] = useState(initialFirst);
-  const [lastName, setLastName] = useState(initialLast);
-  const [bio, setBio] = useState((profile?.bio as string) ?? "");
-  const [city, setCity] = useState((profile?.city as string) ?? "");
-  const [country, setCountry] = useState((profile?.country as string) ?? "");
+const emptyForm: ProfileForm = {
+  first_name: "",
+  last_name: "",
+  bio: "",
+  city: "",
+  social_instagram: "",
+  social_youtube: "",
+  social_tiktok: "",
+  widget_spotify: "",
+  widget_soundcloud: "",
+  website_url: "",
+};
 
+function field(key: keyof ProfileForm, raw: Profile | null): string {
+  return (raw?.[key] as string) ?? "";
+}
+
+function ProfilePanel({ userId }: { userId: string }) {
+  const [form, setForm] = useState<ProfileForm>(emptyForm);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  // Fetch fresh profile data on mount
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    supabase
+      .from("profiles")
+      .select(
+        "first_name, last_name, bio, city, social_instagram, social_youtube, social_tiktok, widget_spotify, widget_soundcloud, website_url"
+      )
+      .eq("id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data) {
+          setForm({
+            first_name: field("first_name", data),
+            last_name: field("last_name", data),
+            bio: field("bio", data),
+            city: field("city", data),
+            social_instagram: field("social_instagram", data),
+            social_youtube: field("social_youtube", data),
+            social_tiktok: field("social_tiktok", data),
+            widget_spotify: field("widget_spotify", data),
+            widget_soundcloud: field("widget_soundcloud", data),
+            website_url: field("website_url", data),
+          });
+        }
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  function set(key: keyof ProfileForm, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+  }
 
   async function handleSave() {
     setSaving(true);
     setSaved(false);
     setSaveError("");
 
-    const name = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
-
     const { error } = await supabase
       .from("profiles")
-      .update({ name, bio: bio.trim(), city: city.trim(), country: country.trim() })
+      .update({
+        first_name: form.first_name.trim(),
+        last_name: form.last_name.trim(),
+        // Keep `name` in sync as the display name
+        name: [form.first_name.trim(), form.last_name.trim()].filter(Boolean).join(" ") || null,
+        bio: form.bio.trim(),
+        city: form.city.trim(),
+        social_instagram: form.social_instagram.trim(),
+        social_youtube: form.social_youtube.trim(),
+        social_tiktok: form.social_tiktok.trim(),
+        widget_spotify: form.widget_spotify.trim(),
+        widget_soundcloud: form.widget_soundcloud.trim(),
+        website_url: form.website_url.trim(),
+      })
       .eq("id", userId);
 
     setSaving(false);
-
     if (error) {
-      setSaveError("Failed to save. Try again.");
+      setSaveError("Save failed — " + error.message);
     } else {
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
     }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ padding: "32px 0", display: "flex", justifyContent: "center" }}>
+        <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 14 }}>Loading…</span>
+      </div>
+    );
   }
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 4 }}>
+      {/* ── Basics ── */}
+      <p style={sectionHeadingStyle}>Basics</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={fieldStyle}>
           <label style={labelStyle}>First name</label>
           <input
-            value={firstName}
-            onChange={(e) => setFirstName(e.target.value)}
+            value={form.first_name}
+            onChange={(e) => set("first_name", e.target.value)}
             placeholder="Will"
             style={inputStyle}
           />
@@ -150,8 +219,8 @@ function ProfilePanel({
         <div style={fieldStyle}>
           <label style={labelStyle}>Last name</label>
           <input
-            value={lastName}
-            onChange={(e) => setLastName(e.target.value)}
+            value={form.last_name}
+            onChange={(e) => set("last_name", e.target.value)}
             placeholder="Villa"
             style={inputStyle}
           />
@@ -161,61 +230,132 @@ function ProfilePanel({
       <div style={fieldStyle}>
         <label style={labelStyle}>Bio</label>
         <textarea
-          value={bio}
-          onChange={(e) => setBio(e.target.value)}
-          placeholder="Sound engineer, DJ, music producer based in…"
-          rows={4}
-          style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }}
+          value={form.bio}
+          onChange={(e) => set("bio", e.target.value)}
+          placeholder="Sound engineer, DJ, producer…"
+          rows={3}
+          style={{ ...inputStyle, resize: "vertical", lineHeight: 1.55 }}
         />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div style={fieldStyle}>
           <label style={labelStyle}>City</label>
           <input
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
+            value={form.city}
+            onChange={(e) => set("city", e.target.value)}
             placeholder="Berlin"
             style={inputStyle}
           />
         </div>
         <div style={fieldStyle}>
-          <label style={labelStyle}>Country</label>
+          <label style={labelStyle}>Website</label>
           <input
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-            placeholder="Germany"
+            value={form.website_url}
+            onChange={(e) => set("website_url", e.target.value)}
+            placeholder="https://…"
             style={inputStyle}
           />
         </div>
       </div>
 
+      {/* ── Social ── */}
+      <p style={{ ...sectionHeadingStyle, marginTop: 8 }}>Social</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Instagram</label>
+          <input
+            value={form.social_instagram}
+            onChange={(e) => set("social_instagram", e.target.value)}
+            placeholder="@handle"
+            style={inputStyle}
+          />
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>TikTok</label>
+          <input
+            value={form.social_tiktok}
+            onChange={(e) => set("social_tiktok", e.target.value)}
+            placeholder="@handle"
+            style={inputStyle}
+          />
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>YouTube</label>
+          <input
+            value={form.social_youtube}
+            onChange={(e) => set("social_youtube", e.target.value)}
+            placeholder="Channel URL"
+            style={inputStyle}
+          />
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>Spotify</label>
+          <input
+            value={form.widget_spotify}
+            onChange={(e) => set("widget_spotify", e.target.value)}
+            placeholder="Artist or playlist URL"
+            style={inputStyle}
+          />
+        </div>
+        <div style={fieldStyle}>
+          <label style={labelStyle}>SoundCloud</label>
+          <input
+            value={form.widget_soundcloud}
+            onChange={(e) => set("widget_soundcloud", e.target.value)}
+            placeholder="Profile URL"
+            style={inputStyle}
+          />
+        </div>
+      </div>
+
+      {/* ── Save ── */}
       {saveError && (
-        <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 8 }}>{saveError}</p>
+        <p style={{ color: "#ef4444", fontSize: 13, marginTop: 4, marginBottom: 10 }}>
+          {saveError}
+        </p>
+      )}
+      {saved && (
+        <p style={{ color: "#4ade80", fontSize: 13, marginTop: 4, marginBottom: 10 }}>
+          ✓ Profile saved
+        </p>
       )}
 
       <button
         onClick={handleSave}
         disabled={saving}
-        style={{ ...saveButtonStyle, opacity: saving ? 0.6 : 1 }}
+        style={{
+          width: "100%",
+          padding: "13px",
+          background: "#F5A623",
+          color: "#111111",
+          border: "none",
+          borderRadius: 12,
+          fontSize: 15,
+          fontWeight: 700,
+          cursor: saving ? "default" : "pointer",
+          opacity: saving ? 0.6 : 1,
+          marginTop: 8,
+        }}
       >
-        {saving ? "Saving…" : saved ? "✓ Saved" : "Save changes"}
+        {saving ? "Saving…" : "Save changes"}
       </button>
     </div>
   );
 }
 
-// ─── DashboardPanel (slide-over shell) ───────────────────────────────────────
+// ─── DashboardPanel (centered modal) ─────────────────────────────────────────
 
 export default function DashboardPanel({
   panel,
-  profile,
+  profile: _profile,
   userId,
   onClose,
 }: DashboardPanelProps) {
-  const panelRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
-  // Escape key closes panel
+  // Escape key
   useEffect(() => {
     if (!panel) return;
     function onKey(e: KeyboardEvent) {
@@ -225,13 +365,9 @@ export default function DashboardPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [panel, onClose]);
 
-  // Lock body scroll while panel is open
+  // Lock body scroll
   useEffect(() => {
-    if (panel) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
+    document.body.style.overflow = panel ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [panel]);
 
@@ -242,7 +378,7 @@ export default function DashboardPanel({
   function renderContent() {
     switch (panel) {
       case "profile":
-        return <ProfilePanel profile={profile} userId={userId} />;
+        return <ProfilePanel userId={userId} />;
       case "service":
         return <PlaceholderPanel title="Services" />;
       case "media":
@@ -258,35 +394,42 @@ export default function DashboardPanel({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop — click outside to close */}
       <div
         onClick={onClose}
         style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(0,0,0,0.6)",
+          background: "rgba(0,0,0,0.72)",
           zIndex: 40,
-          backdropFilter: "blur(2px)",
-          WebkitBackdropFilter: "blur(2px)",
+          backdropFilter: "blur(3px)",
+          WebkitBackdropFilter: "blur(3px)",
+          animation: "fadeIn 0.18s ease",
         }}
       />
 
-      {/* Slide-over panel */}
+      {/* Centered modal */}
       <div
-        ref={panelRef}
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
         style={{
           position: "fixed",
-          top: 0,
-          right: 0,
-          bottom: 0,
-          width: "min(480px, 100vw)",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: "min(620px, calc(100vw - 32px))",
+          maxHeight: "calc(100vh - 64px)",
           background: "#1a1a1a",
-          borderLeft: "1px solid rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 18,
           zIndex: 50,
           display: "flex",
           flexDirection: "column",
           fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-          animation: "slideIn 0.22s ease",
+          animation: "modalIn 0.2s ease",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.6)",
         }}
       >
         {/* Header */}
@@ -295,43 +438,52 @@ export default function DashboardPanel({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "18px 24px",
-            borderBottom: "1px solid rgba(255,255,255,0.08)",
+            padding: "18px 22px 16px",
+            borderBottom: "1px solid rgba(255,255,255,0.07)",
             flexShrink: 0,
           }}
         >
-          <h2 style={{ color: "#ffffff", fontSize: 17, fontWeight: 700, margin: 0 }}>
+          <h2 style={{ color: "#ffffff", fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>
             {title}
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             style={{
-              background: "none",
+              background: "rgba(255,255,255,0.07)",
               border: "none",
-              color: "rgba(255,255,255,0.4)",
-              fontSize: 22,
+              color: "rgba(255,255,255,0.6)",
+              fontSize: 18,
               cursor: "pointer",
-              padding: "0 4px",
+              padding: "0",
+              width: 28,
+              height: 28,
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               lineHeight: 1,
-              borderRadius: 6,
+              flexShrink: 0,
             }}
-            aria-label="Close panel"
           >
             ×
           </button>
         </div>
 
         {/* Scrollable content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 22px 24px" }}>
           {renderContent()}
         </div>
       </div>
 
-      {/* Slide-in animation */}
       <style>{`
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to   { transform: translateX(0);    opacity: 1; }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        @keyframes modalIn {
+          from { opacity: 0; transform: translate(-50%, calc(-50% + 10px)); }
+          to   { opacity: 1; transform: translate(-50%, -50%); }
         }
       `}</style>
     </>
