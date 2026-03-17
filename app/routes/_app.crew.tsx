@@ -20,7 +20,7 @@ type CrewProfile = {
 };
 
 type LoaderData =
-  | { access: "locked" }
+  | { access: "featured"; profiles: CrewProfile[] }
   | { access: "full"; profiles: CrewProfile[]; total: number; categories: string[] };
 
 type ActionData = { profiles: CrewProfile[]; total: number };
@@ -115,21 +115,34 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("user_id", session.user.id)
     .maybeSingle();
 
-  let crewAccess = "locked";
+  let crewAccess = "featured";
   if (userProfile?.plan_id) {
     const { data: plan } = await supabase
       .from("plans")
       .select("crew_access")
       .eq("id", userProfile.plan_id)
       .maybeSingle();
-    crewAccess = (plan?.crew_access as string) ?? "locked";
+    crewAccess = (plan?.crew_access as string) ?? "featured";
   }
 
+  // Featured-only access (no plan or crew_access = 'featured')
   if (crewAccess !== "full") {
-    return Response.json<LoaderData>({ access: "locked" }, { headers: responseHeaders });
+    const { data: featuredProfiles } = await supabase
+      .from("profiles")
+      .select(
+        "id, name, slug, avatar_url, city, user_type, profile_skills ( skill_id, skills ( name, category ) )"
+      )
+      .eq("is_published", true)
+      .eq("is_featured", true)
+      .order("name", { ascending: true });
+
+    return Response.json<LoaderData>(
+      { access: "featured", profiles: (featuredProfiles ?? []) as CrewProfile[] },
+      { headers: responseHeaders }
+    );
   }
 
-  // Load categories and first page in parallel
+  // Full access — load categories and first page in parallel
   const [{ profiles, total }, categoriesResult] = await Promise.all([
     fetchProfiles(supabase, { q: "", category: "", city: "", page: 1 }),
     supabase.from("skills").select("category").eq("is_visible", true),
@@ -167,136 +180,33 @@ export async function action({ request }: Route.ActionArgs) {
   return Response.json<ActionData>(result);
 }
 
-// ─── Upgrade wall ─────────────────────────────────────────────────────────────
+// ─── Featured grid (no plan / crew_access = 'featured') ──────────────────────
 
-const PLACEHOLDER_CARDS = [
-  { name: "Alex R.", city: "Berlin", skills: ["FOH", "Live Sound"] },
-  { name: "Maya K.", city: "New York", skills: ["DJ", "Music Production"] },
-  { name: "Sam D.", city: "London", skills: ["Lighting", "Stage Design"] },
-  { name: "Jordan T.", city: "Amsterdam", skills: ["Tour Management"] },
-  { name: "Priya M.", city: "Barcelona", skills: ["Stagehand", "Backline"] },
-  { name: "Chris B.", city: "Los Angeles", skills: ["Audio Engineering"] },
-  { name: "Nina L.", city: "Paris", skills: ["Playback", "Monitors"] },
-  { name: "Kai W.", city: "Tokyo", skills: ["Video Direction", "LED"] },
-  { name: "Erin O.", city: "Toronto", skills: ["Production Coord."] },
-];
-
-function UpgradeWall() {
+function FeaturedGrid({ profiles }: { profiles: CrewProfile[] }) {
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
-      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 8 }}>
+      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
         Crew
       </h1>
-      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 15, marginBottom: 36 }}>
-        Search and hire verified creatives for your next gig.
+      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 15, marginBottom: 28 }}>
+        Featured creatives available for hire.
       </p>
 
-      <div style={{ position: "relative" }}>
-        {/* Blurred placeholder grid */}
+      {profiles.length === 0 ? (
+        <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 14 }}>No featured profiles yet.</p>
+      ) : (
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
             gap: 14,
-            filter: "blur(5px)",
-            opacity: 0.35,
-            pointerEvents: "none",
-            userSelect: "none",
           }}
         >
-          {PLACEHOLDER_CARDS.map((p, i) => (
-            <div
-              key={i}
-              style={{
-                background: "#1a1a1a",
-                border: "1px solid rgba(245,166,35,0.18)",
-                borderRadius: 14,
-                padding: "18px 16px",
-              }}
-            >
-              <div
-                style={{
-                  width: 52,
-                  height: 52,
-                  borderRadius: "50%",
-                  background: "rgba(245,166,35,0.15)",
-                  marginBottom: 12,
-                }}
-              />
-              <div style={{ color: "#fff", fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
-                {p.name}
-              </div>
-              <div style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, marginBottom: 10 }}>
-                {p.city}
-              </div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {p.skills.map((s) => (
-                  <span
-                    key={s}
-                    style={{
-                      fontSize: 11,
-                      background: "rgba(245,166,35,0.12)",
-                      color: "#F5A623",
-                      borderRadius: 4,
-                      padding: "2px 7px",
-                    }}
-                  >
-                    {s}
-                  </span>
-                ))}
-              </div>
-            </div>
+          {profiles.map((p) => (
+            <ProfileCard key={p.id} profile={p} />
           ))}
         </div>
-
-        {/* Overlay */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              background: "#111111",
-              border: "1px solid rgba(245,166,35,0.35)",
-              borderRadius: 18,
-              padding: "36px 40px",
-              textAlign: "center",
-              maxWidth: 380,
-              boxShadow: "0 8px 40px rgba(0,0,0,0.6)",
-            }}
-          >
-            <div style={{ fontSize: 36, marginBottom: 16 }}>🔒</div>
-            <h2 style={{ color: "#ffffff", fontSize: 18, fontWeight: 700, marginBottom: 10 }}>
-              Upgrade to SQRZ Grow
-            </h2>
-            <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 14, marginBottom: 24, lineHeight: 1.6 }}>
-              Search and hire verified creatives for your next gig.
-            </p>
-            <a
-              href="https://sqrz.com/grow"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: "inline-block",
-                background: "#F5A623",
-                color: "#111111",
-                fontWeight: 700,
-                fontSize: 14,
-                padding: "12px 28px",
-                borderRadius: 10,
-                textDecoration: "none",
-              }}
-            >
-              See Grow plans →
-            </a>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -434,7 +344,7 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
 export default function Crew() {
   const loaderData = useLoaderData<typeof loader>() as LoaderData;
 
-  if (loaderData.access === "locked") return <UpgradeWall />;
+  if (loaderData.access === "featured") return <FeaturedGrid profiles={loaderData.profiles} />;
 
   const { profiles: initialProfiles, total: initialTotal, categories } = loaderData;
 
