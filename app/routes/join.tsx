@@ -4,7 +4,14 @@ import type { Route } from "./+types/join";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
 
-type Step = "username" | "email" | "signup" | "login" | "sent";
+type Step = "username" | "email" | "template" | "signup" | "login" | "sent";
+
+type Template = {
+  id: string;
+  name: string;
+  css_file: string;
+  preview_image: string | null;
+};
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 
@@ -235,6 +242,72 @@ function EmailStep({
   );
 }
 
+function TemplateStep({
+  templates,
+  selectedId,
+  onSelect,
+  onSubmit,
+  onBack,
+}: {
+  templates: Template[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  onSubmit: () => void;
+  onBack: () => void;
+}) {
+  return (
+    <div>
+      <button onClick={onBack} style={backButtonStyle}>
+        ← Back
+      </button>
+
+      <h2 style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
+        Choose your style
+      </h2>
+      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, marginBottom: 24 }}>
+        Pick a profile template. You can change this later.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+        {templates.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => onSelect(t.id)}
+            style={{
+              width: "100%",
+              padding: "16px 20px",
+              background: selectedId === t.id ? "rgba(245,166,35,0.12)" : "#1a1a1a",
+              border: `1.5px solid ${selectedId === t.id ? "#F5A623" : "rgba(255,255,255,0.1)"}`,
+              borderRadius: 12,
+              color: "#ffffff",
+              fontSize: 15,
+              fontWeight: selectedId === t.id ? 600 : 400,
+              cursor: "pointer",
+              textAlign: "left",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>{t.name}</span>
+            {selectedId === t.id && (
+              <span style={{ color: "#F5A623", fontSize: 18 }}>✓</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <button
+        onClick={onSubmit}
+        disabled={!selectedId}
+        style={{ ...primaryButtonStyle, opacity: selectedId ? 1 : 0.4 }}
+      >
+        Continue
+      </button>
+    </div>
+  );
+}
+
 function SignupStep({
   email,
   password,
@@ -448,13 +521,23 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (session) return redirect("/");
 
   const url = new URL(request.url);
-  return { initialSlug: url.searchParams.get("slug") ?? "" };
+
+  const { data: templates } = await supabaseServer
+    .from("templates")
+    .select("id, name, css_file, preview_image")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true });
+
+  return {
+    initialSlug: url.searchParams.get("slug") ?? "",
+    templates: (templates ?? []) as Template[],
+  };
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Join() {
-  const { initialSlug } = useLoaderData<typeof loader>();
+  const { initialSlug, templates } = useLoaderData<typeof loader>();
 
   const [step, setStep] = useState<Step>("username");
   const [phase, setPhase] = useState<"in" | "out">("in");
@@ -463,6 +546,7 @@ export default function Join() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isNewUser, setIsNewUser] = useState(false);
+  const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -525,7 +609,7 @@ export default function Join() {
       const newUser = !data;
       setIsNewUser(newUser);
       setEmail(normalized);
-      goTo(newUser ? "signup" : "login");
+      goTo("template");
     } catch {
       setError("Something went wrong, try again");
     } finally {
@@ -541,7 +625,7 @@ export default function Join() {
         email,
         options: {
           emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
-          ...(forSignup ? { data: { slug } } : {}),
+          ...(forSignup ? { data: { slug, template_id: templateId } } : {}),
         },
       });
       if (otpError) throw otpError;
@@ -565,7 +649,7 @@ export default function Join() {
         email,
         password,
         options: {
-          data: { slug },
+          data: { slug, template_id: templateId },
           emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
         },
       });
@@ -651,6 +735,16 @@ export default function Join() {
               onBack={() => goTo("username")}
               error={error}
               loading={loading}
+            />
+          )}
+
+          {step === "template" && (
+            <TemplateStep
+              templates={templates}
+              selectedId={templateId}
+              onSelect={setTemplateId}
+              onSubmit={() => goTo(isNewUser ? "signup" : "login")}
+              onBack={() => goTo("email")}
             />
           )}
 
