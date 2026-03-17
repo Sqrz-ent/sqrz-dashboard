@@ -48,9 +48,6 @@ export default function AppLayout() {
     setSearchParams({});
   }
 
-  const activeNavStyle: React.CSSProperties = { color: "#ffffff", fontWeight: 600 };
-  const inactiveNavStyle: React.CSSProperties = { color: "rgba(255,255,255,0.45)" };
-
   return (
     <div
       style={{
@@ -80,19 +77,6 @@ export default function AppLayout() {
         >
           [<span style={{ color: "#F5A623" }}> SQRZ </span>]
         </span>
-
-        {/* Dashboard — route link */}
-        <NavLink
-          to="/"
-          end
-          style={({ isActive }) => ({
-            fontSize: 14,
-            textDecoration: "none",
-            ...(isActive && !activePanel ? activeNavStyle : inactiveNavStyle),
-          })}
-        >
-          Dashboard
-        </NavLink>
 
       </nav>
 
