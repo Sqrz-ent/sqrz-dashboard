@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/join";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -602,6 +602,14 @@ export default function Join() {
 
   // Slug availability via useFetcher — fires on every keystroke
   const slugFetcher = useFetcher<{ available: boolean }>();
+
+  // Bug 1: If handle was pre-filled from URL param (?slug=...), trigger check on mount
+  useEffect(() => {
+    if (initialSlug.length >= 3) {
+      slugFetcher.submit({ slug: initialSlug }, { method: "POST" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally runs once on mount only
 
   const slugStatus: SlugStatus =
     slug.length < 3

@@ -27,19 +27,36 @@ export async function loader({ request }: Route.LoaderArgs) {
   } = await supabase.auth.getUser();
 
   if (user) {
-    // Check if the profile row (created by handle_new_user trigger) already has a slug
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("slug, user_type")
-      .eq("id", user.id)
-      .maybeSingle();
-
     const slug = user.user_metadata?.slug as string | undefined;
 
-    if (slug && !profile?.slug) {
+    // Bug 3: Prevent duplicate profiles — if another row already has this email, redirect
+    if (user.email) {
+      const { data: duplicate } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", user.email)
+        .neq("id", user.id)
+        .maybeSingle();
+
+      if (duplicate) {
+        return redirect("/", { headers: responseHeaders });
+      }
+    }
+
+    // Bug 2: Write all required fields on profile creation — never use email as name
+    if (slug) {
       await supabase
         .from("profiles")
-        .update({ slug, name: slug, user_type: "member" })
+        .update({
+          slug,
+          username: slug,
+          name: slug,
+          email: user.email,
+          is_published: false,
+          is_claimed: true,
+          created_by: "signup",
+          user_type: "member",
+        })
         .eq("id", user.id);
     }
   }
