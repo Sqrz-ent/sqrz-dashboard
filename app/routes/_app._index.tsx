@@ -15,7 +15,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: profile } = await supabase
     .from("profiles")
     .select("name, slug, is_published, avatar_url")
-    .eq("id", session.user.id)
+    .eq("user_id", session.user.id)
     .maybeSingle();
 
   return Response.json({ profile }, { headers: responseHeaders });

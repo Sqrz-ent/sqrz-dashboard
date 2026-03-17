@@ -134,7 +134,7 @@ function ProfilePanel({ userId }: { userId: string }) {
       .select(
         "first_name, last_name, bio, city, social_instagram, social_youtube, social_tiktok, widget_spotify, widget_soundcloud, website_url"
       )
-      .eq("id", userId)
+      .eq("user_id", userId)
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
@@ -183,7 +183,7 @@ function ProfilePanel({ userId }: { userId: string }) {
         widget_soundcloud: form.widget_soundcloud.trim(),
         website_url: form.website_url.trim(),
       })
-      .eq("id", userId);
+      .eq("user_id", userId);
 
     setSaving(false);
     if (error) {

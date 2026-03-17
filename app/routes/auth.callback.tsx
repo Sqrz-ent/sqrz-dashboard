@@ -57,7 +57,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           created_by: "signup",
           user_type: "member",
         })
-        .eq("id", user.id);
+        .eq("user_id", user.id);
     }
   }
 
