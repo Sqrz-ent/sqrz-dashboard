@@ -48,6 +48,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       await supabase
         .from("profiles")
         .update({
+          user_id: user.id,
           slug,
           username: slug,
           name: slug,
