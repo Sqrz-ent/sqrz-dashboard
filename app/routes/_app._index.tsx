@@ -1,6 +1,7 @@
 import { redirect, useLoaderData, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { getCurrentProfile } from "~/lib/profile.server";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const responseHeaders = new Headers();
@@ -12,11 +13,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   if (!session) return redirect("/join");
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("name, slug, is_published, avatar_url")
-    .eq("user_id", session.user.id)
-    .maybeSingle();
+  const profile = await getCurrentProfile(supabase, session.user.id);
 
   return Response.json({ profile }, { headers: responseHeaders });
 }

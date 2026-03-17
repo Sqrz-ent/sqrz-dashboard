@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.crew";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { getCurrentProfile } from "~/lib/profile.server";
 
 const PAGE_SIZE = 20;
 
@@ -109,11 +110,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!session) return redirect("/login", { headers: responseHeaders });
 
   // Check plan access
-  const { data: userProfile } = await supabase
-    .from("profiles")
-    .select("plan_id")
-    .eq("user_id", session.user.id)
-    .maybeSingle();
+  const userProfile = await getCurrentProfile(supabase, session.user.id);
 
   let crewAccess = "featured";
   if (userProfile?.plan_id) {

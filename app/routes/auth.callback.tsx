@@ -35,7 +35,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         .from("profiles")
         .select("id")
         .eq("email", user.email)
-        .neq("id", user.id)
+        .neq("user_id", user.id)
         .maybeSingle();
 
       if (duplicate) {
