@@ -10,10 +10,9 @@ export default [
   // Protected app (session required)
   layout("routes/_app.tsx", [
     index("routes/_app._index.tsx"),
+    route("office", "routes/_app.office.tsx"),
+    route("crew", "routes/_app.crew.tsx"),
   ]),
-
-  // Existing routes (kept outside protected layout for now)
-  route("profile", "routes/profile.tsx"),
 
   // Starter template files (kept for reference, not linked in UI)
   route("home", "routes/home.tsx"),

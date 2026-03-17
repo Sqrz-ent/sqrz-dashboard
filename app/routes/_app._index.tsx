@@ -1,4 +1,4 @@
-import { redirect, useLoaderData, Link } from "react-router";
+import { redirect, useLoaderData, Link, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 
@@ -27,11 +27,13 @@ function Card({
   title,
   description,
   to,
+  onClick,
   comingSoon,
 }: {
   title: string;
   description: string;
-  to: string;
+  to?: string;
+  onClick?: () => void;
   comingSoon?: boolean;
 }) {
   const inner = (
@@ -72,8 +74,18 @@ function Card({
   );
 
   if (comingSoon) return <div>{inner}</div>;
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        style={{ display: "block", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
+      >
+        {inner}
+      </button>
+    );
+  }
   return (
-    <Link to={to} style={{ textDecoration: "none" }}>
+    <Link to={to!} style={{ textDecoration: "none" }}>
       {inner}
     </Link>
   );
@@ -83,6 +95,7 @@ function Card({
 
 export default function DashboardIndex() {
   const { profile } = useLoaderData<typeof loader>();
+  const [, setSearchParams] = useSearchParams();
 
   const profileSlug = (profile as Record<string, unknown>)?.slug as string | undefined;
   const profileName = (profile as Record<string, unknown>)?.name as string | undefined;
@@ -113,12 +126,20 @@ export default function DashboardIndex() {
             ✓ Your profile is live
           </span>
         ) : (
-          <Link
-            to="/profile"
-            style={{ color: "#F5A623", fontSize: 13, fontWeight: 500, textDecoration: "none" }}
+          <button
+            onClick={() => setSearchParams({ panel: "profile" })}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "#F5A623",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
           >
             Publish your profile →
-          </Link>
+          </button>
         )}
       </div>
 
@@ -139,7 +160,7 @@ export default function DashboardIndex() {
         <Card
           title="👤 Profile"
           description="Edit your bio, skills, services, and public profile."
-          to="/profile"
+          onClick={() => setSearchParams({ panel: "profile" })}
         />
         <Card
           title="🖼 Media"

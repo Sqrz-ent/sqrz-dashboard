@@ -1,6 +1,7 @@
-import { redirect, Outlet, useLoaderData, NavLink } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const responseHeaders = new Headers();
@@ -23,14 +24,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json({ session, profile }, { headers: responseHeaders });
 }
 
-// ─── Nav items ────────────────────────────────────────────────────────────────
+// ─── Nav config ───────────────────────────────────────────────────────────────
 
-const topNavItems = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/profile", label: "Profile" },
-  { to: "/service", label: "Service" },
-  { to: "/domain", label: "Domain" },
-  { to: "/media", label: "Media" },
+// Top nav: Dashboard stays as a route link; the rest open panels
+const panelNavItems: { label: string; panel: PanelKey }[] = [
+  { label: "Profile", panel: "profile" },
+  { label: "Service", panel: "service" },
+  { label: "Domain", panel: "domain" },
+  { label: "Media", panel: "media" },
 ];
 
 const bottomNavItems = [
@@ -42,10 +43,30 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { profile } = useLoaderData<typeof loader>();
+  const { session, profile } = useLoaderData<typeof loader>();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const activeStyle: React.CSSProperties = { color: "#ffffff", fontWeight: 600 };
-  const inactiveStyle: React.CSSProperties = { color: "rgba(255,255,255,0.45)" };
+  const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
+
+  function openPanel(panel: PanelKey) {
+    setSearchParams({ panel });
+  }
+
+  function closePanel() {
+    setSearchParams({});
+  }
+
+  const activeNavStyle: React.CSSProperties = { color: "#ffffff", fontWeight: 600 };
+  const inactiveNavStyle: React.CSSProperties = { color: "rgba(255,255,255,0.45)" };
+
+  const panelNavButtonBase: React.CSSProperties = {
+    background: "none",
+    border: "none",
+    padding: 0,
+    fontSize: 14,
+    cursor: "pointer",
+    textDecoration: "none",
+  };
 
   return (
     <div
@@ -77,32 +98,45 @@ export default function AppLayout() {
           [<span style={{ color: "#F5A623" }}> SQRZ </span>]
         </span>
 
-        {topNavItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            style={({ isActive }) => ({
-              fontSize: 14,
-              textDecoration: "none",
-              ...(isActive ? activeStyle : inactiveStyle),
-            })}
+        {/* Dashboard — route link */}
+        <NavLink
+          to="/"
+          end
+          style={({ isActive }) => ({
+            fontSize: 14,
+            textDecoration: "none",
+            ...(isActive && !activePanel ? activeNavStyle : inactiveNavStyle),
+          })}
+        >
+          Dashboard
+        </NavLink>
+
+        {/* Panel triggers */}
+        {panelNavItems.map(({ label, panel }) => (
+          <button
+            key={panel}
+            onClick={() => openPanel(panel)}
+            style={{
+              ...panelNavButtonBase,
+              ...(activePanel === panel ? activeNavStyle : inactiveNavStyle),
+            }}
           >
-            {item.label}
-          </NavLink>
+            {label}
+          </button>
         ))}
 
+        {/* Account — right side, opens panel */}
         <div style={{ marginLeft: "auto" }}>
-          <NavLink
-            to="/account"
-            style={({ isActive }) => ({
+          <button
+            onClick={() => openPanel("account")}
+            style={{
+              ...panelNavButtonBase,
               fontSize: 14,
-              textDecoration: "none",
-              ...(isActive ? activeStyle : inactiveStyle),
-            })}
+              ...(activePanel === "account" ? activeNavStyle : inactiveNavStyle),
+            }}
           >
             {(profile as Record<string, unknown>)?.name as string ?? "Account"} ↓
-          </NavLink>
+          </button>
         </div>
       </nav>
 
@@ -110,6 +144,14 @@ export default function AppLayout() {
       <main style={{ paddingBottom: 80 }} className="md:pb-0">
         <Outlet />
       </main>
+
+      {/* ── Panel overlay ───────────────────────────────────────────────────── */}
+      <DashboardPanel
+        panel={activePanel}
+        profile={profile as Record<string, unknown> | null}
+        userId={session.user.id}
+        onClose={closePanel}
+      />
 
       {/* ── Mobile bottom nav ───────────────────────────────────────────────── */}
       <nav
