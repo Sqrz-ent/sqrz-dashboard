@@ -18,7 +18,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (error) {
       console.error("exchangeCodeForSession error:", error.message);
-      return redirect("/join", { headers: responseHeaders });
+      return redirect("/login?error=Authentication+failed", { headers: responseHeaders });
     }
   }
 

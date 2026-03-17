@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { redirect, Link } from "react-router";
+import { redirect, Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/login";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
@@ -56,12 +56,17 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   if (session) return redirect("/", { headers: responseHeaders });
 
-  return null;
+  const url = new URL(request.url);
+  const error = url.searchParams.get("error") ?? null;
+
+  return Response.json({ error }, { headers: responseHeaders });
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Login() {
+  const { error: urlError } = useLoaderData<typeof loader>();
+
   // Magic link state
   const [magicEmail, setMagicEmail] = useState("");
   const [magicSent, setMagicSent] = useState(false);
@@ -151,6 +156,23 @@ export default function Login() {
         >
           Log in to your account
         </h1>
+
+        {urlError && (
+          <p
+            style={{
+              background: "rgba(239,68,68,0.1)",
+              border: "1px solid rgba(239,68,68,0.3)",
+              borderRadius: 10,
+              color: "#ef4444",
+              fontSize: 13,
+              padding: "10px 14px",
+              marginBottom: 24,
+              textAlign: "center",
+            }}
+          >
+            {urlError}
+          </p>
+        )}
 
         {/* ── Option 1: Magic link ─────────────────────────────────────────── */}
         <div
