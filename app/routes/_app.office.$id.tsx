@@ -210,7 +210,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       const bookingPath = `/booking/${params.id}?token=${inviteToken}`;
       const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${encodeURIComponent(bookingPath)}`;
       const { data: linkData } = await admin.auth.admin.generateLink({
-        type: "magiclink",
+        type: "invite",
         email,
         options: { redirectTo },
       });

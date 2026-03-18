@@ -44,13 +44,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data, error } = await supabase.auth.verifyOtp({
       token_hash: token,
-      type: type as any,
+      type: type === "invite" ? "invite" : (type as any),
     });
     if (error) {
       console.error("[callback] verifyOtp error:", error.message);
       return redirect("/login?error=auth_failed", { headers });
     }
     user = data.user;
+    console.log("[callback] verifyOtp user:", user?.id, user?.email);
   }
 
   console.log("[callback] user:", user?.id, user?.email);
