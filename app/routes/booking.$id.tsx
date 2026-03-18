@@ -29,11 +29,16 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   // ── Authenticated path ──
   if (user) {
-    const { data: booking } = await supabase
+    const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .select("*, booking_requests(*), booking_participants(*)")
       .eq("id", params.id)
-      .single();
+      .maybeSingle();
+
+    console.log("[booking] params.id:", params.id);
+    console.log("[booking] user.id:", user?.id);
+    console.log("[booking] booking:", booking?.id);
+    console.log("[booking] error:", bookingError);
 
     if (!booking) {
       return redirect("/login?reason=no_access", { headers });
