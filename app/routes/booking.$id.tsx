@@ -3,6 +3,7 @@ import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
+import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -545,6 +546,13 @@ export default function BookingAccessPage() {
           </>
         )}
       </div>
+
+      {/* Floating chat bubble — email and ownership not available in loader, using safe defaults */}
+      <BookingChat
+        bookingId={(b?.id as string) ?? ""}
+        currentUserEmail=""
+        isOwner={false}
+      />
     </div>
   );
 }

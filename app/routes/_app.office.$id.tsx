@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app.office.$id";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
+import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1047,6 +1048,13 @@ export default function BookingDetailPage() {
           bookingId={b.id}
         />
       )}
+
+      {/* Floating chat bubble — email not in loader, passing "" for now */}
+      <BookingChat
+        bookingId={b.id}
+        currentUserEmail=""
+        isOwner={true}
+      />
     </div>
   );
 }
