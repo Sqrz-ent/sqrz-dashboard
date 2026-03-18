@@ -60,6 +60,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect("/login?error=no_user", { headers });
   }
 
+  // Link auth user to existing profile if not already linked
+  // Covers guests (team invites) and members whose profile was pre-created
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("id, user_type, user_id")
+    .eq("email", user.email!)
+    .maybeSingle();
+
+  if (existingProfile && !existingProfile.user_id) {
+    await supabase
+      .from("profiles")
+      .update({ user_id: user.id })
+      .eq("id", existingProfile.id);
+  }
+
+  // Re-fetch profile by user_id now that it may have just been linked
   const { data: profile } = await supabase
     .from("profiles")
     .select("id, user_type")
