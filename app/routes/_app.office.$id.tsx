@@ -194,15 +194,26 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     // 2. Create booking_participant row with invite token
     const inviteToken = crypto.randomUUID();
-    await supabase.from("booking_participants").insert({
-      booking_id: params.id,
-      profile_id: guestProfileId,
-      name,
-      email,
-      role,
-      is_admin: false,
-      invite_token: inviteToken,
-    });
+    const { data: participant, error: participantError } = await supabase
+      .from("booking_participants")
+      .insert({
+        booking_id: params.id,
+        profile_id: guestProfileId,
+        name,
+        email,
+        role,
+        is_admin: false,
+        invite_token: inviteToken,
+      })
+      .select()
+      .single();
+
+    console.log("[invite] participant created:", participant);
+    console.log("[invite] participant error:", participantError);
+
+    if (participantError) {
+      return Response.json({ error: participantError.message }, { status: 500, headers });
+    }
 
     // 3. Generate magic link + send invite email via Resend
     try {
