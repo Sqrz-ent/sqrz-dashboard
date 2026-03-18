@@ -92,7 +92,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   if (channel) {
     const { data: msgs } = await supabase
       .from("messages")
-      .select("id, profile_id, body, created_at")
+      .select("id, message, sender_name, sender_id, created_at")
       .eq("channel_id", channel.id)
       .order("created_at", { ascending: true });
     messages = (msgs ?? []) as Message[];
@@ -102,6 +102,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     {
       booking,
       profileId: profile.id as string,
+      userEmail: profile.email as string ?? user.email ?? "",
       channelId: channel?.id ?? null,
       initialMessages: messages,
     },
@@ -938,7 +939,7 @@ const TABS = ["Details", "Team", "Payments", "Chat"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function BookingDetailPage() {
-  const { booking, profileId, channelId, initialMessages } =
+  const { booking, profileId, userEmail, channelId, initialMessages } =
     useLoaderData<typeof loader>();
   const [activeTab, setActiveTab] = useState<Tab>("Details");
 
@@ -1049,10 +1050,9 @@ export default function BookingDetailPage() {
         />
       )}
 
-      {/* Floating chat bubble — email not in loader, passing "" for now */}
       <BookingChat
         bookingId={b.id}
-        currentUserEmail=""
+        currentUserEmail={userEmail}
         isOwner={true}
       />
     </div>

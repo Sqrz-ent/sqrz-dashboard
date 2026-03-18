@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 import BookingChat from "~/components/BookingChat";
 
@@ -30,6 +31,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   // ── Authenticated path ──
   if (user) {
+    const profile = await getCurrentProfile(supabase, user.id);
+
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .select("*, booking_requests(*), booking_participants(*)")
@@ -45,6 +48,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       return redirect("/login?reason=no_access", { headers });
     }
 
+    const isOwner = !!(profile && booking.owner_id === profile.id);
+
     const { data: channel } = await supabase
       .from("channels")
       .select("id")
@@ -55,7 +60,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (channel) {
       const { data: msgs } = await supabase
         .from("messages")
-        .select("id, profile_id, body, created_at")
+        .select("id, message, sender_name, sender_id, created_at")
         .eq("channel_id", channel.id)
         .order("created_at", { ascending: true });
       messages = (msgs ?? []) as Message[];
@@ -65,6 +70,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       {
         booking,
         userId: user.id,
+        userEmail: profile?.email ?? user.email ?? "",
+        isOwner,
         channelId: channel?.id ?? null,
         initialMessages: messages,
         accessType: "authenticated",
@@ -100,7 +107,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (channel) {
       const { data: msgs } = await supabase
         .from("messages")
-        .select("id, profile_id, body, created_at")
+        .select("id, message, sender_name, sender_id, created_at")
         .eq("channel_id", channel.id)
         .order("created_at", { ascending: true });
       messages = (msgs ?? []) as Message[];
@@ -110,6 +117,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       {
         booking,
         userId: null,
+        userEmail: participant.email ?? "",
+        isOwner: false,
         channelId: channel?.id ?? null,
         initialMessages: messages,
         accessType: "token",
@@ -390,7 +399,7 @@ function ChatSection({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookingAccessPage() {
-  const { booking, userId, channelId, initialMessages, accessType } =
+  const { booking, userId, userEmail, isOwner, channelId, initialMessages, accessType } =
     useLoaderData<typeof loader>();
 
   const b = booking as Record<string, unknown> | null;
@@ -547,11 +556,10 @@ export default function BookingAccessPage() {
         )}
       </div>
 
-      {/* Floating chat bubble — email and ownership not available in loader, using safe defaults */}
       <BookingChat
         bookingId={(b?.id as string) ?? ""}
-        currentUserEmail=""
-        isOwner={false}
+        currentUserEmail={userEmail ?? ""}
+        isOwner={isOwner ?? false}
       />
     </div>
   );
