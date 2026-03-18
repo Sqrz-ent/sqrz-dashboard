@@ -57,6 +57,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, session.user.id);
   if (!profile) return redirect("/login", { headers: responseHeaders });
 
+  console.log("[office] user.id:", session?.user?.id);
+  console.log("[office] profile:", profile?.id, profile?.email);
+
   const { data: bookings } = await supabase
     .from("bookings")
     .select(`
@@ -66,6 +69,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     `)
     .eq("owner_id", profile.id as string)
     .order("created_at", { ascending: false });
+
+  console.log("[office] bookings count:", bookings?.length);
 
   return Response.json({ bookings: bookings ?? [] }, { headers: responseHeaders });
 }
