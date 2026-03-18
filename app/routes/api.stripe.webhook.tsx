@@ -1,345 +1,161 @@
-import type { Route } from "./+types/api.stripe.webhook";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
-import { stripe, PRICE_TO_PLAN } from "~/lib/stripe.server";
 
-// Stripe timestamps are Unix seconds (number | null | undefined).
-const toISO = (ts: number | null | undefined): string | null =>
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+const PRICE_TO_PLAN: Record<string, number> = {
+  [process.env.STRIPE_BASIC_PRICE_ID_MONTHLY!]: 1,
+  [process.env.STRIPE_BASIC_PRICE_ID_YEARLY!]: 1,
+  [process.env.STRIPE_GROW_PRICE_ID_MONTHLY!]: 2,
+  [process.env.STRIPE_GROW_PRICE_ID_YEARLY!]: 2,
+  [process.env.STRIPE_EARLY_ACCESS_PRICE_ID!]: 4,
+};
+
+const toISO = (ts: number | null | undefined) =>
   ts ? new Date(ts * 1000).toISOString() : null;
 
-export async function action({ request }: Route.ActionArgs) {
+export async function action({ request }: { request: Request }) {
+  const body = await request.text();
   const sig = request.headers.get("stripe-signature");
 
-  // 1. Read raw body — Stripe signature verification requires exact raw bytes.
-  let body: string;
-  try {
-    body = await request.text();
-  } catch (err) {
-    console.error("[webhook] Failed to read request body:", err);
-    return new Response("Failed to read body", { status: 400 });
-  }
-
-  // 2. Verify signature and parse event.
   let event: Stripe.Event;
   try {
-    const secret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!sig || !secret) {
-      throw new Error(
-        `Missing ${!sig ? "stripe-signature header" : "STRIPE_WEBHOOK_SECRET env var"}`
-      );
-    }
-    event = stripe.webhooks.constructEvent(body, sig, secret);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[webhook] Signature verification failed:", msg);
-    return new Response(msg, { status: 400 });
+    event = stripe.webhooks.constructEvent(
+      body,
+      sig!,
+      process.env.STRIPE_WEBHOOK_SECRET!
+    );
+  } catch (err: any) {
+    console.error("[webhook] signature error:", err.message);
+    return new Response(err.message, { status: 400 });
   }
 
-  console.log(`[webhook] Received event: ${event.type} (${event.id})`);
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
-  // 3. Handle event — service role client bypasses RLS.
-  //    Any Supabase error throws so the outer catch returns 400,
-  //    which tells Stripe to retry. 200 is only returned after all writes succeed.
-  try {
-    const supabase = createClient(
-      process.env.SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
+  // Idempotency check
+  const { data: alreadyProcessed } = await supabase
+    .from("stripe_events")
+    .select("id")
+    .eq("event_id", event.id)
+    .maybeSingle();
+
+  if (alreadyProcessed) {
+    console.log("[webhook] duplicate event, skipping:", event.id);
+    return Response.json({ received: true });
+  }
+
+  await supabase
+    .from("stripe_events")
+    .insert({ event_id: event.id });
+
+  console.log("[webhook] processing event:", event.type, event.id);
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object as Stripe.Checkout.Session;
+
+    if (!session.subscription || !session.customer) {
+      console.error("[webhook] missing subscription or customer");
+      return Response.json({ received: true });
+    }
+
+    const subscription = await stripe.subscriptions.retrieve(
+      session.subscription as string
     );
 
-    // ── Idempotency check — skip duplicate event deliveries ─────────────────
-    const { data: existing } = await supabase
-      .from("stripe_events")
-      .select("id")
-      .eq("event_id", event.id)
-      .single();
+    const item = subscription.items.data[0];
+    const priceId = item.price.id;
+    const planId = PRICE_TO_PLAN[priceId] ?? 1;
 
-    if (existing) {
-      console.log(`[webhook] Duplicate event ${event.id} — skipping`);
-      return new Response(JSON.stringify({ received: true, duplicate: true }), { status: 200 });
+    // Find profile by stripe_customer_id or email
+    const customerEmail = session.customer_details?.email;
+    let profileId: string | null = null;
+
+    if (customerEmail) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", customerEmail)
+        .maybeSingle();
+      profileId = profile?.id ?? null;
     }
 
-    await supabase.from("stripe_events").insert({ event_id: event.id });
-
-    switch (event.type) {
-      // ── New subscription created via Checkout ──────────────────────────────
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-
-        if (!session.subscription) break;
-
-        const profileId = session.metadata?.profile_id;
-        const customerId = session.customer as string;
-
-        if (!profileId) {
-          console.warn("[webhook] checkout.session.completed — missing profile_id in metadata", {
-            metadata: session.metadata,
-          });
-          break;
-        }
-
-        // Fetch full subscription — the session object does not include
-        // current_period_start / current_period_end; those live on the subscription.
-        const subscription = await stripe.subscriptions.retrieve(
-          session.subscription as string
-        );
-
-        if (!subscription) {
-          console.error("[webhook] Could not retrieve subscription from Stripe:", session.subscription);
-          return new Response("subscription not found", { status: 400 });
-        }
-
-        const item = subscription.items.data[0];
-        const priceId = item?.price.id ?? "";
-        const planId = PRICE_TO_PLAN[priceId] ?? null;
-
-        const periodStart = toISO((item as Record<string, unknown>)?.current_period_start as number | null ?? subscription.current_period_start);
-        const periodEnd   = toISO((item as Record<string, unknown>)?.current_period_end   as number | null ?? subscription.current_period_end);
-
-        console.log("[webhook] subscription object:", {
-          id: subscription.id,
-          status: subscription.status,
-          item_period_start: (item as Record<string, unknown>)?.current_period_start,
-          sub_period_start: subscription.current_period_start,
-          resolved_start: periodStart,
-          resolved_end: periodEnd,
-        });
-
-        // Check-then-insert/update to avoid duplicate rows.
-        // PGRST116 = no rows found — expected for new subscriptions, not a real error.
-        const { data: existingSub, error: findError } = await supabase
-          .from("subscriptions")
-          .select("id")
-          .eq("stripe_subscription_id", subscription.id)
-          .single();
-
-        console.log("[webhook] existing subscription lookup:", {
-          existing: existingSub,
-          findError,
-          looking_for: subscription.id,
-        });
-
-        if (findError && findError.code !== "PGRST116") {
-          console.error("[webhook] lookup error:", findError);
-          throw new Error(`subscriptions lookup: ${findError.message}`);
-        }
-
-        if (existingSub) {
-          console.log("[webhook] Updating existing subscription row");
-          const { error } = await supabase
-            .from("subscriptions")
-            .update({
-              status: subscription.status,
-              stripe_price_id: priceId,
-              current_period_start: periodStart,
-              current_period_end: periodEnd,
-              cancelled_at: toISO(subscription.canceled_at),
-              updated_at: new Date().toISOString(),
-            })
-            .eq("stripe_subscription_id", subscription.id);
-          if (error) {
-            console.error("[webhook] subscriptions update failed:", error.message, error.details);
-            throw new Error(`subscriptions update: ${error.message}`);
-          }
-        } else {
-          console.log("[webhook] Inserting new subscription row");
-          const { error } = await supabase
-            .from("subscriptions")
-            .insert({
-              stripe_subscription_id: subscription.id,
-              profile_id: profileId,
-              stripe_customer_id: subscription.customer as string,
-              stripe_price_id: priceId,
-              status: subscription.status,
-              current_period_start: periodStart,
-              current_period_end: periodEnd,
-              cancelled_at: toISO(subscription.canceled_at),
-            });
-          if (error) {
-            console.error("[webhook] subscriptions insert failed:", error.message, error.details);
-            throw new Error(`subscriptions insert: ${error.message}`);
-          }
-        }
-
-        console.log("[webhook] subscriptions write succeeded");
-
-        if (planId) {
-          console.log("[webhook] Updating profiles plan_id:", planId, "customer:", customerId);
-          const { error } = await supabase
-            .from("profiles")
-            .update({ plan_id: planId, stripe_customer_id: customerId })
-            .eq("id", profileId);
-          if (error) {
-            console.error("[webhook] profiles update failed:", error.message, error.details);
-            throw new Error(`profiles update: ${error.message}`);
-          }
-          console.log("[webhook] profiles update succeeded — plan_id set to", planId);
-        } else {
-          console.warn("[webhook] No plan mapping found for price:", priceId);
-        }
-
-        console.log(`[webhook] checkout.session.completed — profile ${profileId}, plan ${planId}`);
-        break;
-      }
-
-      // ── Subscription cancelled ─────────────────────────────────────────────
-      case "customer.subscription.deleted": {
-        const sub = event.data.object as Stripe.Subscription;
-        const profileId = sub.metadata?.profile_id;
-
-        const { data: existingSub, error: findError } = await supabase
-          .from("subscriptions")
-          .select("id")
-          .eq("stripe_subscription_id", sub.id)
-          .single();
-
-        console.log("[webhook] existing subscription lookup:", {
-          existing: existingSub,
-          findError,
-          looking_for: sub.id,
-        });
-
-        if (findError && findError.code !== "PGRST116") {
-          console.error("[webhook] lookup error:", findError);
-          throw new Error(`subscriptions lookup: ${findError.message}`);
-        }
-
-        if (existingSub) {
-          const { error } = await supabase
-            .from("subscriptions")
-            .update({ status: "canceled", updated_at: new Date().toISOString() })
-            .eq("stripe_subscription_id", sub.id);
-          if (error) {
-            console.error("[webhook] subscriptions cancel failed:", error.message, error.details);
-            throw new Error(`subscriptions cancel: ${error.message}`);
-          }
-          console.log("[webhook] subscriptions cancel succeeded");
-        } else {
-          console.warn("[webhook] subscription.deleted — no matching row for", sub.id);
-        }
-
-        if (profileId) {
-          const { error } = await supabase
-            .from("profiles")
-            .update({ plan_id: 1 })
-            .eq("id", profileId);
-          if (error) {
-            console.error("[webhook] profiles plan reset failed:", error.message, error.details);
-            throw new Error(`profiles plan reset: ${error.message}`);
-          }
-          console.log("[webhook] profiles plan reset to 1");
-        }
-
-        console.log(`[webhook] subscription.deleted — profile ${profileId}`);
-        break;
-      }
-
-      // ── Subscription updated (renewal, plan change, etc.) ─────────────────
-      case "customer.subscription.updated": {
-        const sub = event.data.object as Stripe.Subscription;
-        const profileId = sub.metadata?.profile_id;
-        const item = sub.items.data[0];
-        const priceId = item?.price.id ?? "";
-        const planId = PRICE_TO_PLAN[priceId] ?? null;
-
-        const periodStart = toISO((item as Record<string, unknown>)?.current_period_start as number | null ?? sub.current_period_start);
-        const periodEnd   = toISO((item as Record<string, unknown>)?.current_period_end   as number | null ?? sub.current_period_end);
-
-        const { data: existingSub, error: findError } = await supabase
-          .from("subscriptions")
-          .select("id")
-          .eq("stripe_subscription_id", sub.id)
-          .single();
-
-        console.log("[webhook] existing subscription lookup:", {
-          existing: existingSub,
-          findError,
-          looking_for: sub.id,
-        });
-
-        if (findError && findError.code !== "PGRST116") {
-          console.error("[webhook] lookup error:", findError);
-          throw new Error(`subscriptions lookup: ${findError.message}`);
-        }
-
-        if (existingSub) {
-          const { error } = await supabase
-            .from("subscriptions")
-            .update({
-              status: sub.status,
-              stripe_price_id: priceId,
-              current_period_start: periodStart,
-              current_period_end: periodEnd,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("stripe_subscription_id", sub.id);
-          if (error) {
-            console.error("[webhook] subscriptions update failed:", error.message, error.details);
-            throw new Error(`subscriptions update: ${error.message}`);
-          }
-          console.log("[webhook] subscriptions update succeeded");
-        } else {
-          console.warn("[webhook] subscription.updated — no matching row for", sub.id);
-        }
-
-        if (profileId && planId) {
-          const { error } = await supabase
-            .from("profiles")
-            .update({ plan_id: planId })
-            .eq("id", profileId);
-          if (error) {
-            console.error("[webhook] profiles plan update failed:", error.message, error.details);
-            throw new Error(`profiles plan update: ${error.message}`);
-          }
-          console.log("[webhook] profiles plan update succeeded — plan_id set to", planId);
-        }
-
-        console.log(`[webhook] subscription.updated — profile ${profileId}, plan ${planId}`);
-        break;
-      }
-
-      // ── Stripe Connect account updated ─────────────────────────────────────
-      case "account.updated": {
-        const account = event.data.object as Stripe.Account;
-
-        if (account.charges_enabled) {
-          console.log("[webhook] Attempting connect status update:", {
-            stripe_connect_id: account.id,
-            stripe_connect_status: "active",
-          });
-
-          const { error } = await supabase
-            .from("profiles")
-            .update({ stripe_connect_status: "active" })
-            .eq("stripe_connect_id", account.id);
-
-          if (error) {
-            console.error("[webhook] connect status update failed:", error.message, error.details);
-            throw new Error(`connect status update: ${error.message}`);
-          }
-
-          console.log(`[webhook] account.updated — connect ${account.id} is now active`);
-        }
-        break;
-      }
-
-      default:
-        console.log(`[webhook] Unhandled event type: ${event.type}`);
+    if (!profileId) {
+      console.error("[webhook] could not find profile for email:", customerEmail);
+      return Response.json({ received: true });
     }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[webhook] Handler error:", msg);
-    return new Response(msg, { status: 400 });
+
+    console.log("[webhook] writing subscription for profile:", profileId);
+
+    const { error: rpcError } = await supabase.rpc("upsert_subscription", {
+      p_stripe_subscription_id: subscription.id,
+      p_stripe_customer_id: subscription.customer as string,
+      p_stripe_price_id: priceId,
+      p_status: subscription.status,
+      p_profile_id: profileId,
+      p_current_period_start: toISO(item.current_period_start),
+      p_current_period_end: toISO(item.current_period_end),
+    });
+
+    if (rpcError) {
+      console.error("[webhook] RPC failed:", rpcError);
+    } else {
+      console.log("[webhook] subscription upserted successfully");
+    }
+
+    // Update plan_id on profile
+    const { error: planError } = await supabase
+      .from("profiles")
+      .update({
+        plan_id: planId,
+        stripe_customer_id: subscription.customer as string,
+      })
+      .eq("id", profileId);
+
+    if (planError) {
+      console.error("[webhook] plan update failed:", planError);
+    } else {
+      console.log("[webhook] plan updated to:", planId);
+    }
   }
 
-  // Only reached after all Supabase writes succeed
-  console.log(`[webhook] All writes complete — returning 200 for ${event.type}`);
-  return new Response(JSON.stringify({ received: true }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+  if (event.type === "customer.subscription.deleted") {
+    const subscription = event.data.object as Stripe.Subscription;
+    const item = subscription.items.data[0];
 
-// No UI — action-only route
-export default function ApiStripeWebhook() {
-  return null;
+    await supabase.rpc("upsert_subscription", {
+      p_stripe_subscription_id: subscription.id,
+      p_stripe_customer_id: subscription.customer as string,
+      p_stripe_price_id: item.price.id,
+      p_status: "cancelled",
+      p_profile_id: null,
+      p_current_period_start: toISO(item.current_period_start),
+      p_current_period_end: toISO(item.current_period_end),
+    });
+
+    // Reset plan to Basic
+    await supabase
+      .from("profiles")
+      .update({ plan_id: 1 })
+      .eq("stripe_customer_id", subscription.customer as string);
+  }
+
+  if (event.type === "customer.subscription.updated") {
+    const subscription = event.data.object as Stripe.Subscription;
+    const item = subscription.items.data[0];
+
+    await supabase.rpc("upsert_subscription", {
+      p_stripe_subscription_id: subscription.id,
+      p_stripe_customer_id: subscription.customer as string,
+      p_stripe_price_id: item.price.id,
+      p_status: subscription.status,
+      p_profile_id: null,
+      p_current_period_start: toISO(item.current_period_start),
+      p_current_period_end: toISO(item.current_period_end),
+    });
+  }
+
+  return Response.json({ received: true });
 }
