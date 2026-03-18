@@ -21,6 +21,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, session.user.id);
 
+  console.log("[loader] profile:", profile?.id, profile?.plan_id);
+
   // Fetch subscription + plan name for AccountPanel
   let subscriptionData: {
     planName: string;
@@ -29,28 +31,25 @@ export async function loader({ request }: Route.LoaderArgs) {
   } = { planName: "SQRZ Basic", status: null, currentPeriodEnd: null };
 
   if (profile) {
-    const profileId = profile.id as string;
-    const planId = profile.plan_id as number | null | undefined;
-
-    const [subResult, planResult] = await Promise.all([
-      supabase
-        .from("subscriptions")
-        .select("status, current_period_end")
-        .eq("profile_id", profileId)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      planId
-        ? supabase.from("plans").select("name").eq("id", planId).maybeSingle()
-        : Promise.resolve({ data: null }),
-    ]);
+    const { data: subscription } = await supabase
+      .from("subscriptions")
+      .select("*, plans(name)")
+      .eq("profile_id", profile.id as string)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     subscriptionData = {
-      planName: (planResult.data as Record<string, unknown> | null)?.name as string ?? "SQRZ Basic",
-      status: (subResult.data as Record<string, unknown> | null)?.status as string ?? null,
-      currentPeriodEnd: (subResult.data as Record<string, unknown> | null)?.current_period_end as string ?? null,
+      planName: (subscription as Record<string, unknown> | null)?.plans
+        ? ((subscription as Record<string, unknown>).plans as Record<string, unknown>).name as string
+        : "SQRZ Basic",
+      status: (subscription as Record<string, unknown> | null)?.status as string ?? null,
+      currentPeriodEnd: (subscription as Record<string, unknown> | null)?.current_period_end as string ?? null,
     };
   }
+
+  console.log("[loader] subscription:", subscriptionData);
 
   return Response.json(
     {

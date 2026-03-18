@@ -168,8 +168,7 @@ export default function DashboardIndex() {
         <Card
           title="⚙️ Account"
           description="Subscription, billing, and account settings."
-          to="/account"
-          comingSoon
+          onClick={() => setSearchParams({ panel: "account" })}
         />
       </div>
     </div>
