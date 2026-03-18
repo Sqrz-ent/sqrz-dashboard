@@ -3,11 +3,9 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { stripe, PRICE_TO_PLAN } from "~/lib/stripe.server";
 
-// Stripe timestamps are Unix seconds (number | null). Returns ISO string or null.
-function toISO(unixSeconds: number | null | undefined): string | null {
-  if (unixSeconds == null || !Number.isFinite(unixSeconds)) return null;
-  return new Date(unixSeconds * 1000).toISOString();
-}
+// Stripe timestamps are Unix seconds (number | null | undefined).
+const toISO = (ts: number | null | undefined): string | null =>
+  ts ? new Date(ts * 1000).toISOString() : null;
 
 export async function action({ request }: Route.ActionArgs) {
   const sig = request.headers.get("stripe-signature");
@@ -70,6 +68,12 @@ export async function action({ request }: Route.ActionArgs) {
         // Fetch full subscription — checkout.session.completed does not
         // include period dates directly; they live on the subscription object.
         const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+        if (!subscription) {
+          console.error("[webhook] Could not retrieve subscription from Stripe:", subscriptionId);
+          return new Response("subscription not found", { status: 400 });
+        }
+
         const priceId = subscription.items.data[0]?.price.id ?? "";
         const planId = PRICE_TO_PLAN[priceId] ?? null;
 
@@ -86,8 +90,9 @@ export async function action({ request }: Route.ActionArgs) {
           stripe_customer_id: subscription.customer as string,
           stripe_price_id: priceId,
           status: subscription.status,
-          current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-          current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+          current_period_start: toISO(subscription.current_period_start),
+          current_period_end: toISO(subscription.current_period_end),
+          cancelled_at: toISO(subscription.canceled_at),
         };
 
         console.log("[webhook] Attempting Supabase write:", {
