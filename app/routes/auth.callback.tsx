@@ -34,7 +34,25 @@ export async function loader({ request }: Route.LoaderArgs) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Decode the `next` redirect param (may contain nested query string like ?token=xxx)
+  const next = url.searchParams.get("next");
+  const decodedNext = next ? decodeURIComponent(next) : null;
+
   if (user) {
+    // Check whether this is a guest user (team invite) or a signup member
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("user_type")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    // Guests go directly to their booking page — skip signup profile writing
+    if (!profile || profile.user_type === "guest") {
+      return redirect(decodedNext ?? "/", { headers: responseHeaders });
+    }
+
+    // ── Member signup path ────────────────────────────────────────────────────
+
     // Read handle and ref from cookies set before the magic link was sent
     const cookieHeader = request.headers.get("Cookie") ?? "";
     const slug =
@@ -60,7 +78,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         .maybeSingle();
 
       if (duplicate) {
-        return redirect("/", { headers: responseHeaders });
+        return redirect(decodedNext ?? "/", { headers: responseHeaders });
       }
     }
 
@@ -84,7 +102,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
-  return redirect("/", { headers: responseHeaders });
+  return redirect(decodedNext ?? "/", { headers: responseHeaders });
 }
 
 // No UI — this route only runs a server loader and redirects
