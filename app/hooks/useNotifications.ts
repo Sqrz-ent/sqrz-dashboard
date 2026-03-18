@@ -78,6 +78,7 @@ export function useNotifications() {
         return;
       }
 
+      console.log("[notifications] profile.id:", profile?.id);
       console.log("Subscribing with profile.id:", profile?.id);
 
       const readIds = getReadIds();
