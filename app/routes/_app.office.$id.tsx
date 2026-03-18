@@ -209,14 +209,17 @@ export async function action({ request, params }: Route.ActionArgs) {
       const admin = createSupabaseAdminClient();
       const next = encodeURIComponent(`/booking/${params.id}?token=${inviteToken}`);
       const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
-      const { data: linkData } = await admin.auth.admin.generateLink({
+      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
         type: "magiclink",
         email,
         options: { redirectTo },
       });
 
+      console.log("[invite] linkError:", linkError);
+      console.log("[invite] action_link:", linkData?.properties?.action_link);
+      console.log("[invite] redirectTo used:", redirectTo);
+
       const actionLink = linkData?.properties?.action_link;
-      console.log("[invite] magic link for", email, ":", actionLink);
 
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
