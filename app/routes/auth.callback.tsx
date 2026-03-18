@@ -32,19 +32,25 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
+  console.log("[callback] user:", user?.id, user?.email);
+  console.log("[callback] userError:", userError);
 
   // Decode the `next` redirect param (may contain nested query string like ?token=xxx)
   const next = url.searchParams.get("next");
+  console.log("[callback] next param:", next);
   const decodedNext = next ? decodeURIComponent(next) : null;
 
   if (user) {
     // Check whether this is a guest user (team invite) or a signup member
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("user_type")
+      .select("id, user_type, slug")
       .eq("user_id", user.id)
       .maybeSingle();
+    console.log("[callback] profile:", profile);
+    console.log("[callback] profileError:", profileError);
 
     // Guests go directly to their booking page — skip signup profile writing
     if (!profile || profile.user_type === "guest") {
