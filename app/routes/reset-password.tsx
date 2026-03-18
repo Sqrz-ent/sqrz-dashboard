@@ -7,13 +7,12 @@ import { supabase } from "~/lib/supabase.client";
 // ─── Loader — redirect to dashboard if already logged in ──────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabaseServer = createSupabaseServerClient(request, responseHeaders);
+  const { supabase: supabaseServer, headers } = createSupabaseServerClient(request);
   const {
     data: { user },
   } = await supabaseServer.auth.getUser();
 
-  if (user) return redirect("/", { headers: responseHeaders });
+  if (user) return redirect("/", { headers });
 
   return null;
 }

@@ -293,7 +293,7 @@ function SentStep({
 // ─── Action — slug availability check (fires on every keystroke via useFetcher) ──
 
 export async function action({ request }: Route.ActionArgs) {
-  const supabaseServer = createSupabaseServerClient(request);
+  const { supabase: supabaseServer } = createSupabaseServerClient(request);
   const formData = await request.formData();
   const slug = (formData.get("slug") as string ?? "").trim().toLowerCase();
 
@@ -313,7 +313,7 @@ export async function action({ request }: Route.ActionArgs) {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const supabaseServer = createSupabaseServerClient(request);
+  const { supabase: supabaseServer } = createSupabaseServerClient(request);
   const {
     data: { user },
   } = await supabaseServer.auth.getUser();

@@ -58,14 +58,13 @@ type Booking = {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers: responseHeaders });
+  if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers: responseHeaders });
+  if (!profile) return redirect("/login", { headers });
 
   const { data: booking } = await supabase
     .from("bookings")
@@ -78,7 +77,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     .eq("owner_id", profile.id as string)
     .single();
 
-  if (!booking) return redirect("/office", { headers: responseHeaders });
+  if (!booking) return redirect("/office", { headers });
 
   // Fetch channel for chat
   const { data: channel } = await supabase
@@ -105,21 +104,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       channelId: channel?.id ?? null,
       initialMessages: messages,
     },
-    { headers: responseHeaders }
+    { headers }
   );
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers: responseHeaders });
+  if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers });
 
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
@@ -131,12 +129,12 @@ export async function action({ request, params }: Route.ActionArgs) {
       .update({ status })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
-    return Response.json({ ok: true }, { headers: responseHeaders });
+    return Response.json({ ok: true }, { headers });
   }
 
   if (intent === "send_message") {
     const body = (formData.get("body") as string | null)?.trim();
-    if (!body) return Response.json({ ok: true }, { headers: responseHeaders });
+    if (!body) return Response.json({ ok: true }, { headers });
 
     let channelId = formData.get("channel_id") as string | null;
 
@@ -158,7 +156,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       });
     }
 
-    return Response.json({ ok: true, channelId }, { headers: responseHeaders });
+    return Response.json({ ok: true, channelId }, { headers });
   }
 
   if (intent === "invite_team_member") {
@@ -167,7 +165,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const role  = ((formData.get("role")  as string) ?? "").trim();
 
     if (!email.includes("@")) {
-      return Response.json({ error: "Invalid email" }, { status: 400, headers: responseHeaders });
+      return Response.json({ error: "Invalid email" }, { status: 400, headers });
     }
 
     // 1. Create or find guest profile
@@ -237,10 +235,10 @@ export async function action({ request, params }: Route.ActionArgs) {
       console.error("[invite] email send failed:", err);
     }
 
-    return Response.json({ ok: true, invited: email }, { headers: responseHeaders });
+    return Response.json({ ok: true, invited: email }, { headers });
   }
 
-  return Response.json({ ok: true }, { headers: responseHeaders });
+  return Response.json({ ok: true }, { headers });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

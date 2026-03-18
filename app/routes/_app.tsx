@@ -8,15 +8,14 @@ import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return redirect("/login", { headers: responseHeaders });
+    return redirect("/login", { headers });
   }
 
   const profile = await getCurrentProfile(supabase, user.id);
@@ -67,7 +66,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       basicYearlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_YEARLY ?? "",
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
     },
-    { headers: responseHeaders }
+    { headers }
   );
 }
 

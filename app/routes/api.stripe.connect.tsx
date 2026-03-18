@@ -5,16 +5,15 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
 
 export async function action({ request }: Route.ActionArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers: responseHeaders });
+  if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers: responseHeaders });
+  if (!profile) return redirect("/login", { headers });
 
   const publicUrl = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
@@ -55,5 +54,5 @@ export async function action({ request }: Route.ActionArgs) {
     type: "account_onboarding",
   });
 
-  return redirect(accountLink.url, { headers: responseHeaders });
+  return redirect(accountLink.url, { headers });
 }

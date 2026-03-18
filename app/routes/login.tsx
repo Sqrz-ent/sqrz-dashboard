@@ -48,18 +48,17 @@ const secondaryButtonStyle: React.CSSProperties = {
 // ─── Loader — redirect to dashboard if already logged in ──────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabaseServer = createSupabaseServerClient(request, responseHeaders);
+  const { supabase: supabaseServer, headers } = createSupabaseServerClient(request);
   const {
     data: { user },
   } = await supabaseServer.auth.getUser();
 
-  if (user) return redirect("/", { headers: responseHeaders });
+  if (user) return redirect("/", { headers });
 
   const url = new URL(request.url);
   const error = url.searchParams.get("error") ?? null;
 
-  return Response.json({ error }, { headers: responseHeaders });
+  return Response.json({ error }, { headers });
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────

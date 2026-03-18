@@ -4,8 +4,7 @@ import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const {
     data: { user },
@@ -15,7 +14,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
 
-  return Response.json({ profile }, { headers: responseHeaders });
+  return Response.json({ profile }, { headers });
 }
 
 // ─── Placeholder cards ────────────────────────────────────────────────────────

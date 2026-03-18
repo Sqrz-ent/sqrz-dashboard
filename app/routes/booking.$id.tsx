@@ -16,8 +16,7 @@ type Message = {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request, params }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
   const url = new URL(request.url);
 
   // Handle PKCE code exchange (magic link redirects here with ?code=)
@@ -37,7 +36,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .single();
 
     if (!booking) {
-      return redirect("/login?reason=no_access", { headers: responseHeaders });
+      return redirect("/login?reason=no_access", { headers });
     }
 
     const { data: channel } = await supabase
@@ -65,7 +64,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         accessType: "authenticated",
         participant: null,
       },
-      { headers: responseHeaders }
+      { headers }
     );
   }
 
@@ -80,7 +79,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .single();
 
     if (!participant) {
-      return redirect("/login?reason=invalid_token", { headers: responseHeaders });
+      return redirect("/login?reason=invalid_token", { headers });
     }
 
     const booking = (participant as Record<string, unknown>).bookings;
@@ -110,29 +109,28 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         accessType: "token",
         participant,
       },
-      { headers: responseHeaders }
+      { headers }
     );
   }
 
   // ── No auth, no token ──
-  return redirect(`/guest-login?booking=${params.id}`, { headers: responseHeaders });
+  return redirect(`/guest-login?booking=${params.id}`, { headers });
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
 export async function action({ request, params }: Route.ActionArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
   if (intent === "send_message") {
     const body = (formData.get("body") as string | null)?.trim();
-    if (!body) return Response.json({ ok: true }, { headers: responseHeaders });
+    if (!body) return Response.json({ ok: true }, { headers });
 
     let channelId = formData.get("channel_id") as string | null;
 
@@ -160,10 +158,10 @@ export async function action({ request, params }: Route.ActionArgs) {
       });
     }
 
-    return Response.json({ ok: true, channelId }, { headers: responseHeaders });
+    return Response.json({ ok: true, channelId }, { headers });
   }
 
-  return Response.json({ ok: true }, { headers: responseHeaders });
+  return Response.json({ ok: true }, { headers });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -48,14 +48,13 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers: responseHeaders });
+  if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers: responseHeaders });
+  if (!profile) return redirect("/login", { headers });
 
   console.log("[office] user.id:", user?.id);
   console.log("[office] profile:", profile?.id, profile?.email);
@@ -73,20 +72,19 @@ export async function loader({ request }: Route.LoaderArgs) {
   console.log("[office] bookings count:", bookings?.length);
   console.log("[office] profile.id used:", profile.id);
 
-  return Response.json({ bookings: bookings ?? [], profile }, { headers: responseHeaders });
+  return Response.json({ bookings: bookings ?? [], profile }, { headers });
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
 
 export async function action({ request }: Route.ActionArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers: responseHeaders });
+  if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers });
 
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
@@ -130,7 +128,7 @@ export async function action({ request }: Route.ActionArgs) {
       .eq("owner_id", profile.id as string);
   }
 
-  return Response.json({ ok: true }, { headers: responseHeaders });
+  return Response.json({ ok: true }, { headers });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

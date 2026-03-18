@@ -5,16 +5,15 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe, getOrCreateStripeCustomer } from "~/lib/stripe.server";
 
 export async function action({ request }: Route.ActionArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers: responseHeaders });
+  if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers: responseHeaders });
+  if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();
   const priceId = formData.get("price_id") as string;
@@ -48,7 +47,7 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Failed to create checkout session" }, { status: 500 });
   }
 
-  return redirect(checkoutSession.url, { headers: responseHeaders });
+  return redirect(checkoutSession.url, { headers });
 }
 
 // No UI — action-only route

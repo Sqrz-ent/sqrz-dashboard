@@ -4,22 +4,21 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
 
 export async function action({ request }: { request: Request }) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers: responseHeaders });
+  if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers: responseHeaders });
+  if (!profile) return redirect("/login", { headers });
 
   const connectId = profile.stripe_connect_id as string | undefined;
   if (!connectId) {
-    return redirect("/?panel=account", { headers: responseHeaders });
+    return redirect("/?panel=account", { headers });
   }
 
   const loginLink = await stripe.accounts.createLoginLink(connectId);
-  return redirect(loginLink.url, { headers: responseHeaders });
+  return redirect(loginLink.url, { headers });
 }

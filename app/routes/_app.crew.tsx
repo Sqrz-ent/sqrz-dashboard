@@ -29,7 +29,7 @@ type ActionData = { profiles: CrewProfile[]; total: number };
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 async function fetchProfiles(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
+  supabase: ReturnType<typeof createSupabaseServerClient>["supabase"],
   {
     q,
     category,
@@ -101,13 +101,12 @@ async function fetchProfiles(
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const responseHeaders = new Headers();
-  const supabase = createSupabaseServerClient(request, responseHeaders);
+  const { supabase, headers } = createSupabaseServerClient(request);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers: responseHeaders });
+  if (!user) return redirect("/login", { headers });
 
   // Check plan access
   const userProfile = await getCurrentProfile(supabase, user.id);
@@ -135,7 +134,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     return Response.json<LoaderData>(
       { access: "featured", profiles: (featuredProfiles ?? []) as CrewProfile[] },
-      { headers: responseHeaders }
+      { headers }
     );
   }
 
@@ -153,14 +152,14 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return Response.json<LoaderData>(
     { access: "full", profiles, total, categories },
-    { headers: responseHeaders }
+    { headers }
   );
 }
 
 // ─── Action — search / filter ─────────────────────────────────────────────────
 
 export async function action({ request }: Route.ActionArgs) {
-  const supabase = createSupabaseServerClient(request);
+  const { supabase } = createSupabaseServerClient(request);
 
   const {
     data: { user },

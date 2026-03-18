@@ -30,11 +30,11 @@ function serializeCookie(
 
 /**
  * Creates a session-aware Supabase server client that reads/writes cookies.
- * Pass responseHeaders if the caller needs to set cookies on the response
- * (e.g. token refresh, auth callback).
+ * Returns { supabase, headers } — callers must forward headers on all responses.
  */
-export function createSupabaseServerClient(request: Request, responseHeaders?: Headers) {
-  return createServerClient(
+export function createSupabaseServerClient(request: Request) {
+  const headers = new Headers();
+  const supabase = createServerClient(
     import.meta.env.VITE_SUPABASE_URL as string,
     import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
     {
@@ -43,9 +43,8 @@ export function createSupabaseServerClient(request: Request, responseHeaders?: H
           return parseCookies(request.headers.get("Cookie") ?? "");
         },
         setAll(cookiesToSet) {
-          if (!responseHeaders) return;
           cookiesToSet.forEach(({ name, value, options }) => {
-            responseHeaders.append(
+            headers.append(
               "Set-Cookie",
               serializeCookie(name, value, options as Record<string, unknown>)
             );
@@ -54,6 +53,7 @@ export function createSupabaseServerClient(request: Request, responseHeaders?: H
       },
     }
   );
+  return { supabase, headers };
 }
 
 /**
