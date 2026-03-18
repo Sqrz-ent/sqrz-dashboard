@@ -1,7 +1,7 @@
 import type { Route } from "./+types/api.stripe.webhook";
 import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 import { stripe, PRICE_TO_PLAN } from "~/lib/stripe.server";
-import { createSupabaseAdminClient } from "~/lib/supabase.server";
 
 export async function action({ request }: Route.ActionArgs) {
   const sig = request.headers.get("stripe-signature");
@@ -32,11 +32,13 @@ export async function action({ request }: Route.ActionArgs) {
     return new Response(msg, { status: 400 });
   }
 
-  // 3. Handle event — use admin client (service role) so RLS does not
-  //    block inserts/updates. Webhook requests come from Stripe and carry
-  //    no user session cookie.
+  // 3. Handle event — use service role client so RLS does not block
+  //    inserts/updates. Webhook requests come from Stripe with no session.
   try {
-    const supabase = createSupabaseAdminClient();
+    const supabase = createClient(
+      process.env.SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     switch (event.type) {
       // ── New subscription created via Checkout ──────────────────────────────

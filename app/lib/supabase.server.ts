@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 
 function parseCookies(cookieHeader: string): Array<{ name: string; value: string }> {
   if (!cookieHeader) return [];
@@ -64,8 +65,6 @@ export function createSupabaseAdminClient() {
   if (!serviceRoleKey) {
     throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
   }
-  // Import createClient lazily to avoid bundling in client code
-  const { createClient } = require("@supabase/supabase-js");
   return createClient(import.meta.env.VITE_SUPABASE_URL as string, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
