@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app.office.$id";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 
@@ -23,6 +23,8 @@ type BookingRequest = {
 type Participant = {
   id: string;
   profile_id: string | null;
+  name: string | null;
+  email: string | null;
   role: string | null;
   pay: number | null;
   pay_status: string | null;
@@ -159,6 +161,69 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ ok: true, channelId }, { headers: responseHeaders });
   }
 
+  if (intent === "invite_team_member") {
+    const name  = ((formData.get("name")  as string) ?? "").trim();
+    const email = ((formData.get("email") as string) ?? "").trim().toLowerCase();
+    const role  = ((formData.get("role")  as string) ?? "").trim();
+
+    if (!email.includes("@")) {
+      return Response.json({ error: "Invalid email" }, { status: 400, headers: responseHeaders });
+    }
+
+    // 1. Create or find guest profile
+    const { data: existing } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    let guestProfileId: string | null = existing?.id ?? null;
+
+    if (!guestProfileId) {
+      const { data: newProfile } = await supabase
+        .from("profiles")
+        .insert({
+          email,
+          name,
+          user_type: "guest",
+          is_published: false,
+          created_by: "team_invite",
+        })
+        .select("id")
+        .single();
+      guestProfileId = newProfile?.id ?? null;
+    }
+
+    // 2. Create booking_participant row with invite token
+    const inviteToken = crypto.randomUUID();
+    await supabase.from("booking_participants").insert({
+      booking_id: params.id,
+      profile_id: guestProfileId,
+      name,
+      email,
+      role,
+      is_admin: false,
+      invite_token: inviteToken,
+    });
+
+    // 3. Send magic link via admin client
+    try {
+      const admin = createSupabaseAdminClient();
+      const publicUrl = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
+      const bookingUrl = `${publicUrl}/booking/${params.id}?token=${inviteToken}`;
+      const { data: linkData } = await admin.auth.admin.generateLink({
+        type: "magiclink",
+        email,
+        options: { redirectTo: bookingUrl },
+      });
+      console.log("[invite] magic link for", email, ":", linkData?.properties?.action_link);
+    } catch (err) {
+      console.error("[invite] generateLink failed:", err);
+    }
+
+    return Response.json({ ok: true, invited: email }, { headers: responseHeaders });
+  }
+
   return Response.json({ ok: true }, { headers: responseHeaders });
 }
 
@@ -203,6 +268,18 @@ const fieldValue: React.CSSProperties = {
   color: "#fff",
   fontSize: 14,
   margin: 0,
+};
+
+const inviteInputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  background: "#111",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 9,
+  color: "#fff",
+  fontSize: 13,
+  outline: "none",
+  boxSizing: "border-box",
 };
 
 const STATUS_OPTS = ["requested", "pending", "confirmed", "completed", "archived"] as const;
@@ -388,13 +465,37 @@ function DetailsTab({
 
 // ─── Tab: Team ────────────────────────────────────────────────────────────────
 
-function TeamTab({ participants }: { participants: Participant[] }) {
+function TeamTab({
+  participants,
+  bookingId,
+}: {
+  participants: Participant[];
+  bookingId: string;
+}) {
+  const fetcher = useFetcher<{ ok?: boolean; invited?: string; error?: string }>();
+  const [showForm, setShowForm] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
   const payStatusColor = (s: string | null) =>
     s === "paid" ? "#4ade80" : s === "pending" ? "#F5A623" : "rgba(255,255,255,0.3)";
 
+  const isSending = fetcher.state !== "idle";
+  const lastInvited = fetcher.state === "idle" && fetcher.data?.invited
+    ? fetcher.data.invited
+    : null;
+
+  // Reset + hide form after successful invite
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok && fetcher.data.invited) {
+      formRef.current?.reset();
+      setShowForm(false);
+    }
+  }, [fetcher.state, fetcher.data]);
+
   return (
     <div>
-      {participants.length === 0 ? (
+      {/* Participant list */}
+      {participants.length === 0 && !lastInvited ? (
         <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
           <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 14, margin: 0 }}>
             No team members yet.
@@ -418,45 +519,173 @@ function TeamTab({ participants }: { participants: Participant[] }) {
             >
               👤
             </div>
-            <div style={{ flex: 1 }}>
-              <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, margin: "0 0 2px" }}>
-                {p.role ?? "Team member"}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, margin: "0 0 1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {p.name ?? p.role ?? "Team member"}
               </p>
-              {p.pay && (
+              {p.email && (
+                <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, margin: "0 0 1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {p.email}
+                </p>
+              )}
+              {p.role && (
                 <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: 0 }}>
-                  ${p.pay.toLocaleString()}
+                  {p.role}
                 </p>
               )}
             </div>
-            {p.pay_status && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: payStatusColor(p.pay_status),
-                  textTransform: "capitalize",
-                }}
-              >
-                {p.pay_status}
-              </span>
-            )}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+              {p.pay && (
+                <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
+                  ${p.pay.toLocaleString()}
+                </span>
+              )}
+              {p.pay_status && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    color: payStatusColor(p.pay_status),
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {p.pay_status}
+                </span>
+              )}
+            </div>
           </div>
         ))
       )}
 
-      {/* Invite placeholder */}
-      <div
-        style={{
-          border: "1px dashed rgba(255,255,255,0.1)",
-          borderRadius: 12,
-          padding: "18px",
-          textAlign: "center",
-        }}
-      >
-        <p style={{ color: "rgba(255,255,255,0.2)", fontSize: 13, margin: 0 }}>
-          Invite team member — coming soon
-        </p>
-      </div>
+      {/* Success message */}
+      {lastInvited && (
+        <div
+          style={{
+            background: "rgba(74,222,128,0.08)",
+            border: "1px solid rgba(74,222,128,0.25)",
+            borderRadius: 10,
+            padding: "10px 14px",
+            marginBottom: 12,
+            fontSize: 13,
+            color: "#4ade80",
+          }}
+        >
+          ✓ Invite sent to {lastInvited}
+        </div>
+      )}
+
+      {/* Invite button */}
+      {!showForm && (
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            width: "100%",
+            padding: "12px",
+            background: "transparent",
+            border: "1px dashed rgba(245,166,35,0.35)",
+            borderRadius: 12,
+            color: "#F5A623",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            letterSpacing: "0.02em",
+          }}
+        >
+          + Invite team member
+        </button>
+      )}
+
+      {/* Inline invite form */}
+      {showForm && (
+        <div
+          style={{
+            ...card,
+            border: "1px solid rgba(245,166,35,0.25)",
+            marginBottom: 0,
+          }}
+        >
+          <p style={{ ...sectionLabel, marginBottom: 14 }}>Invite team member</p>
+
+          <fetcher.Form ref={formRef} method="post">
+            <input type="hidden" name="intent" value="invite_team_member" />
+            <input type="hidden" name="booking_id" value={bookingId} />
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ ...sectionLabel, display: "block", marginBottom: 6 }}>Name</label>
+              <input
+                name="name"
+                type="text"
+                placeholder="Alex Smith"
+                required
+                style={inviteInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ ...sectionLabel, display: "block", marginBottom: 6 }}>Email</label>
+              <input
+                name="email"
+                type="email"
+                placeholder="alex@example.com"
+                required
+                style={inviteInputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ ...sectionLabel, display: "block", marginBottom: 6 }}>Role</label>
+              <input
+                name="role"
+                type="text"
+                placeholder="e.g. Audio Engineer, Light Tech"
+                style={inviteInputStyle}
+              />
+            </div>
+
+            {fetcher.data?.error && (
+              <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 10px" }}>
+                {fetcher.data.error}
+              </p>
+            )}
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="submit"
+                disabled={isSending}
+                style={{
+                  flex: 1,
+                  padding: "11px",
+                  background: "#F5A623",
+                  color: "#111",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: isSending ? "default" : "pointer",
+                  opacity: isSending ? 0.6 : 1,
+                }}
+              >
+                {isSending ? "Sending…" : "Send Invite"}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowForm(false); formRef.current?.reset(); }}
+                style={{
+                  padding: "11px 16px",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "rgba(255,255,255,0.5)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </fetcher.Form>
+        </div>
+      )}
     </div>
   );
 }
@@ -779,7 +1008,7 @@ export default function BookingDetailPage() {
         <DetailsTab booking={b} profileId={profileId as string} />
       )}
       {activeTab === "Team" && (
-        <TeamTab participants={b.booking_participants} />
+        <TeamTab participants={b.booking_participants} bookingId={b.id} />
       )}
       {activeTab === "Payments" && <PaymentsTab />}
       {activeTab === "Chat" && (
