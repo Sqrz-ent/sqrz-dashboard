@@ -45,6 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     // Bug 2: Write all required fields on profile creation — never use email as name
     if (slug) {
+      const refCode = user.user_metadata?.ref_code as string | undefined;
       await supabase
         .from("profiles")
         .update({
@@ -57,6 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           is_claimed: true,
           created_by: "signup",
           user_type: "member",
+          ...(refCode ? { referred_by_code: refCode } : {}),
         })
         .eq("user_id", user.id);
     }

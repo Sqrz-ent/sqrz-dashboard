@@ -119,6 +119,32 @@ export async function action({ request }: { request: Request }) {
     } else {
       console.log("[webhook] plan updated to:", planId);
     }
+
+    // Referral tracking — record conversion and increment use_count
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("referred_by_code")
+      .eq("id", profileId)
+      .maybeSingle();
+
+    if (profileRow?.referred_by_code) {
+      const code = profileRow.referred_by_code as string;
+      const { data: refCodeRow } = await supabase
+        .from("referral_codes")
+        .select("id")
+        .eq("code", code)
+        .maybeSingle();
+
+      if (refCodeRow) {
+        await supabase.from("referral_uses").insert({
+          referral_code_id: refCodeRow.id,
+          referred_profile_id: profileId,
+          converted: true,
+        });
+        await supabase.rpc("increment_referral_use_count", { p_code: code });
+        console.log("[webhook] referral tracked for code:", code);
+      }
+    }
   }
 
   if (event.type === "customer.subscription.deleted") {

@@ -5,12 +5,16 @@ interface UpgradeModalProps {
   onClose: () => void;
   monthlyPriceId: string;
   yearlyPriceId: string;
+  referredByCode: string | null;
+  earlyAccessCouponId: string;
 }
 
 export default function UpgradeModal({
   onClose,
   monthlyPriceId,
   yearlyPriceId,
+  referredByCode,
+  earlyAccessCouponId,
 }: UpgradeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -137,7 +141,7 @@ export default function UpgradeModal({
             </Form>
           </div>
 
-          {/* Yearly */}
+          {/* Yearly — EA pricing if referred, standard otherwise */}
           <div
             style={{
               background: "#111111",
@@ -147,7 +151,6 @@ export default function UpgradeModal({
               position: "relative",
             }}
           >
-            {/* Best value badge */}
             <span
               style={{
                 position: "absolute",
@@ -165,20 +168,40 @@ export default function UpgradeModal({
                 textTransform: "uppercase",
               }}
             >
-              Save 42%
+              {referredByCode ? "Your Invite" : "Save 42%"}
             </span>
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
               Yearly
             </p>
-            <p style={{ color: "#ffffff", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-              $7
-              <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: 400 }}>/mo</span>
-            </p>
-            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 16px" }}>
-              $84 billed yearly
-            </p>
+
+            {referredByCode ? (
+              <>
+                <p style={{ color: "#ffffff", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+                  $29
+                  <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: 400 }}>/yr</span>
+                </p>
+                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 16px" }}>
+                  <s style={{ color: "rgba(255,255,255,0.2)" }}>$84/year</s>
+                  {" "}with your invite
+                </p>
+              </>
+            ) : (
+              <>
+                <p style={{ color: "#ffffff", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+                  $7
+                  <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                </p>
+                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 16px" }}>
+                  $84 billed yearly
+                </p>
+              </>
+            )}
+
             <Form method="post" action="/api/stripe/checkout">
               <input type="hidden" name="price_id" value={yearlyPriceId} />
+              {referredByCode && earlyAccessCouponId && (
+                <input type="hidden" name="coupon_id" value={earlyAccessCouponId} />
+              )}
               <button
                 type="submit"
                 style={{

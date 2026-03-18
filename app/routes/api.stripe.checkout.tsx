@@ -18,6 +18,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const formData = await request.formData();
   const priceId = formData.get("price_id") as string;
+  const couponId = (formData.get("coupon_id") as string | null) || null;
 
   if (!priceId) {
     return Response.json({ error: "Missing price_id" }, { status: 400 });
@@ -32,6 +33,7 @@ export async function action({ request }: Route.ActionArgs) {
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${publicUrl}/?upgraded=true`,
     cancel_url: `${publicUrl}/`,
+    ...(couponId ? { discounts: [{ coupon: couponId }] } : {}),
     metadata: {
       profile_id: profile.id as string,
     },

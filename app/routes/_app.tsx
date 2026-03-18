@@ -27,6 +27,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       profile,
       basicMonthlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_MONTHLY ?? "",
       basicYearlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_YEARLY ?? "",
+      earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
     },
     { headers: responseHeaders }
   );
@@ -43,7 +44,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { session, profile, basicMonthlyPriceId, basicYearlyPriceId } =
+  const { session, profile, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
     useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -134,6 +135,8 @@ export default function AppLayout() {
           onClose={() => setUpgradeOpen(false)}
           monthlyPriceId={basicMonthlyPriceId}
           yearlyPriceId={basicYearlyPriceId}
+          earlyAccessCouponId={earlyAccessCouponId}
+          referredByCode={(profile as Record<string, unknown> | null)?.referred_by_code as string | null ?? null}
         />
       )}
 

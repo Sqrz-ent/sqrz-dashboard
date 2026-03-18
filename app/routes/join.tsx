@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/join";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
 
 type Step = "username" | "email" | "template" | "signup" | "login" | "sent";
@@ -577,16 +577,36 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
+  // Validate optional referral code from URL
+  const refParam = url.searchParams.get("ref") ?? "";
+  let refValid = false;
+  if (refParam) {
+    const admin = createSupabaseAdminClient();
+    const now = new Date().toISOString();
+    const { data: refRow } = await admin
+      .from("referral_codes")
+      .select("id, max_uses, use_count")
+      .eq("code", refParam)
+      .eq("is_active", true)
+      .or(`expires_at.is.null,expires_at.gt.${now}`)
+      .maybeSingle();
+    if (refRow) {
+      refValid = refRow.max_uses == null || (refRow.use_count ?? 0) < refRow.max_uses;
+    }
+  }
+
   return {
     initialSlug: url.searchParams.get("slug") ?? "",
     templates: (templates ?? []) as Template[],
+    refCode: refValid ? refParam : "",
+    refValid,
   };
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Join() {
-  const { initialSlug, templates } = useLoaderData<typeof loader>();
+  const { initialSlug, templates, refCode, refValid } = useLoaderData<typeof loader>();
 
   const [step, setStep] = useState<Step>("username");
   const [phase, setPhase] = useState<"in" | "out">("in");
@@ -676,7 +696,9 @@ export default function Join() {
         email,
         options: {
           emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
-          ...(forSignup ? { data: { slug, template_id: templateId } } : {}),
+          ...(forSignup
+            ? { data: { slug, template_id: templateId, ...(refCode ? { ref_code: refCode } : {}) } }
+            : {}),
         },
       });
       if (otpError) throw otpError;
@@ -700,7 +722,7 @@ export default function Join() {
         email,
         password,
         options: {
-          data: { slug, template_id: templateId },
+          data: { slug, template_id: templateId, ...(refCode ? { ref_code: refCode } : {}) },
           emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
         },
       });
@@ -749,6 +771,25 @@ export default function Join() {
       }}
     >
       <div style={{ width: "100%", maxWidth: 420 }}>
+        {/* Referral banner */}
+        {refValid && (
+          <div
+            style={{
+              background: "rgba(74,222,128,0.08)",
+              border: "1px solid rgba(74,222,128,0.25)",
+              borderRadius: 10,
+              padding: "10px 16px",
+              marginBottom: 24,
+              textAlign: "center",
+              fontSize: 13,
+              color: "#4ade80",
+              fontWeight: 500,
+            }}
+          >
+            🎉 Early Access invite applied
+          </div>
+        )}
+
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
           <span
