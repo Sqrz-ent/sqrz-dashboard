@@ -67,24 +67,33 @@ export async function action({ request }: Route.ActionArgs) {
           break;
         }
 
-        const sub = await stripe.subscriptions.retrieve(subscriptionId);
-        const priceId = sub.items.data[0]?.price.id ?? "";
+        // Fetch full subscription — checkout.session.completed does not
+        // include period dates directly; they live on the subscription object.
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        const priceId = subscription.items.data[0]?.price.id ?? "";
         const planId = PRICE_TO_PLAN[priceId] ?? null;
+
+        console.log("[webhook] Retrieved subscription:", {
+          id: subscription.id,
+          status: subscription.status,
+          current_period_start: subscription.current_period_start,
+          current_period_end: subscription.current_period_end,
+        });
 
         const subPayload = {
           profile_id: profileId,
-          stripe_subscription_id: subscriptionId,
-          stripe_customer_id: customerId,
+          stripe_subscription_id: subscription.id,
+          stripe_customer_id: subscription.customer as string,
           stripe_price_id: priceId,
-          status: sub.status,
-          current_period_start: toISO(sub.current_period_start),
-          current_period_end: toISO(sub.current_period_end),
+          status: subscription.status,
+          current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+          current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
         };
 
         console.log("[webhook] Attempting Supabase write:", {
           profile_id: profileId,
-          stripe_subscription_id: subscriptionId,
-          status: sub.status,
+          stripe_subscription_id: subscription.id,
+          status: subscription.status,
         });
 
         const { error: insertError } = await supabase
