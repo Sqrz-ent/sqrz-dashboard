@@ -23,8 +23,3 @@ export async function action({ request }: { request: Request }) {
   const loginLink = await stripe.accounts.createLoginLink(connectId);
   return redirect(loginLink.url, { headers: responseHeaders });
 }
-
-// No UI — action-only route
-export default function ApiStripeConnectLogin() {
-  return null;
-}

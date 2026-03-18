@@ -56,8 +56,3 @@ export async function action({ request }: Route.ActionArgs) {
 
   return redirect(accountLink.url, { headers: responseHeaders });
 }
-
-// No UI — action-only route
-export default function ApiStripeConnect() {
-  return null;
-}
