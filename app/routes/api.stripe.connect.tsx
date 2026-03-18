@@ -26,6 +26,7 @@ export async function action({ request }: Route.ActionArgs) {
       type: "express",
       email: (profile.email as string) ?? undefined,
       capabilities: {
+        card_payments: { requested: true },
         transfers: { requested: true },
       },
       metadata: {
