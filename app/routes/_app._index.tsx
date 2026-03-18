@@ -8,12 +8,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) return redirect("/join");
+  if (!user) return redirect("/join");
 
-  const profile = await getCurrentProfile(supabase, session.user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
 
   return Response.json({ profile }, { headers: responseHeaders });
 }

@@ -105,12 +105,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) return redirect("/login", { headers: responseHeaders });
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return redirect("/login", { headers: responseHeaders });
 
   // Check plan access
-  const userProfile = await getCurrentProfile(supabase, session.user.id);
+  const userProfile = await getCurrentProfile(supabase, user.id);
 
   let crewAccess = "featured";
   if (userProfile?.plan_id) {
@@ -163,9 +163,9 @@ export async function action({ request }: Route.ActionArgs) {
   const supabase = createSupabaseServerClient(request);
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) return Response.json<ActionData>({ profiles: [], total: 0 }, { status: 401 });
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return Response.json<ActionData>({ profiles: [], total: 0 }, { status: 401 });
 
   const formData = await request.formData();
   const q = (formData.get("q") as string) ?? "";

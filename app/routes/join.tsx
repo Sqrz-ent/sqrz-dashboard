@@ -315,10 +315,10 @@ export async function action({ request }: Route.ActionArgs) {
 export async function loader({ request }: Route.LoaderArgs) {
   const supabaseServer = createSupabaseServerClient(request);
   const {
-    data: { session },
-  } = await supabaseServer.auth.getSession();
+    data: { user },
+  } = await supabaseServer.auth.getUser();
 
-  if (session) return redirect("/");
+  if (user) return redirect("/");
 
   const url = new URL(request.url);
 

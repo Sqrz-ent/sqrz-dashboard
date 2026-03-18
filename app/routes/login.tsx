@@ -51,10 +51,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const responseHeaders = new Headers();
   const supabaseServer = createSupabaseServerClient(request, responseHeaders);
   const {
-    data: { session },
-  } = await supabaseServer.auth.getSession();
+    data: { user },
+  } = await supabaseServer.auth.getUser();
 
-  if (session) return redirect("/", { headers: responseHeaders });
+  if (user) return redirect("/", { headers: responseHeaders });
 
   const url = new URL(request.url);
   const error = url.searchParams.get("error") ?? null;

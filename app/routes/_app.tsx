@@ -12,14 +12,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) {
+  if (!user) {
     return redirect("/login", { headers: responseHeaders });
   }
 
-  const profile = await getCurrentProfile(supabase, session.user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
 
   console.log("[loader] profile:", profile?.id, profile?.plan_id);
 
@@ -60,7 +60,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return Response.json(
     {
-      session,
+      user,
       profile,
       subscriptionData,
       basicMonthlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_MONTHLY ?? "",
@@ -82,7 +82,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { session, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
+  const { user, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
     useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -163,7 +163,7 @@ export default function AppLayout() {
       <DashboardPanel
         panel={activePanel}
         profile={profile as Record<string, unknown> | null}
-        userId={session.user.id}
+        userId={user.id}
         onClose={closePanel}
         subscription={subscriptionData}
         onUpgrade={() => setUpgradeOpen(true)}

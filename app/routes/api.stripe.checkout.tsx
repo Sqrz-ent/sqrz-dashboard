@@ -9,11 +9,11 @@ export async function action({ request }: Route.ActionArgs) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) return redirect("/login", { headers: responseHeaders });
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return redirect("/login", { headers: responseHeaders });
 
-  const profile = await getCurrentProfile(supabase, session.user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers: responseHeaders });
 
   const formData = await request.formData();

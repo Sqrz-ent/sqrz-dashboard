@@ -8,11 +8,11 @@ export async function action({ request }: { request: Request }) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  if (!session) return redirect("/login", { headers: responseHeaders });
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return redirect("/login", { headers: responseHeaders });
 
-  const profile = await getCurrentProfile(supabase, session.user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers: responseHeaders });
 
   const connectId = profile.stripe_connect_id as string | undefined;

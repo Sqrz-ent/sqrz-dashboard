@@ -51,13 +51,13 @@ export async function loader({ request }: Route.LoaderArgs) {
   const responseHeaders = new Headers();
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return redirect("/login", { headers: responseHeaders });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return redirect("/login", { headers: responseHeaders });
 
-  const profile = await getCurrentProfile(supabase, session.user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers: responseHeaders });
 
-  console.log("[office] user.id:", session?.user?.id);
+  console.log("[office] user.id:", user?.id);
   console.log("[office] profile:", profile?.id, profile?.email);
 
   const { data: bookings } = await supabase
@@ -81,10 +81,10 @@ export async function action({ request }: Route.ActionArgs) {
   const responseHeaders = new Headers();
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { user } } = await supabase.auth.getUser();
   if (!session) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
 
-  const profile = await getCurrentProfile(supabase, session.user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers: responseHeaders });
 
   const formData = await request.formData();
