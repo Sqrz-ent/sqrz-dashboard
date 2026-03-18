@@ -23,29 +23,36 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   console.log("[loader] profile:", profile?.id, profile?.plan_id);
 
-  // Fetch subscription + plan name for AccountPanel
+  // Fetch subscription + plan for AccountPanel (parallel queries)
   let subscriptionData: {
     planName: string;
+    planDescription: string | null;
     status: string | null;
     currentPeriodEnd: string | null;
-  } = { planName: "SQRZ Basic", status: null, currentPeriodEnd: null };
+  } = { planName: "No plan", planDescription: null, status: null, currentPeriodEnd: null };
 
   if (profile) {
-    const { data: subscription } = await supabase
-      .from("subscriptions")
-      .select("*, plans(name)")
-      .eq("profile_id", profile.id as string)
-      .eq("status", "active")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const planId = profile.plan_id as number | null | undefined;
+
+    const [subResult, planResult] = await Promise.all([
+      supabase
+        .from("subscriptions")
+        .select("status, current_period_end")
+        .eq("profile_id", profile.id as string)
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      planId
+        ? supabase.from("plans").select("id, name, description").eq("id", planId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
 
     subscriptionData = {
-      planName: (subscription as Record<string, unknown> | null)?.plans
-        ? ((subscription as Record<string, unknown>).plans as Record<string, unknown>).name as string
-        : "SQRZ Basic",
-      status: (subscription as Record<string, unknown> | null)?.status as string ?? null,
-      currentPeriodEnd: (subscription as Record<string, unknown> | null)?.current_period_end as string ?? null,
+      planName: (planResult.data as Record<string, unknown> | null)?.name as string ?? "No plan",
+      planDescription: (planResult.data as Record<string, unknown> | null)?.description as string ?? null,
+      status: (subResult.data as Record<string, unknown> | null)?.status as string ?? null,
+      currentPeriodEnd: (subResult.data as Record<string, unknown> | null)?.current_period_end as string ?? null,
     };
   }
 
@@ -90,9 +97,9 @@ export default function AppLayout() {
     setSearchParams({});
   }
 
-  // Show Upgrade button for free users (plan_id null or 1)
+  // Show Upgrade button only when user has no plan (null or 0)
   const planId = (profile as Record<string, unknown> | null)?.plan_id as number | null | undefined;
-  const showUpgrade = planId == null || planId <= 1;
+  const showUpgrade = !planId || planId === 0;
 
   return (
     <div

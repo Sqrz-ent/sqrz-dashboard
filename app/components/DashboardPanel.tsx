@@ -10,6 +10,7 @@ type Profile = Record<string, unknown>;
 
 export type SubscriptionData = {
   planName: string;
+  planDescription: string | null;
   status: string | null;
   currentPeriodEnd: string | null;
 };
@@ -385,7 +386,7 @@ function AccountPanel({
   const isOpeningDashboard = loginFetcher.state !== "idle";
 
   const planId = profile?.plan_id as number | null | undefined;
-  const showUpgrade = planId == null || planId <= 1;
+  const showUpgrade = !planId || planId === 0;
 
   const subStatusLabel =
     subscription.status === "active" ? "Active"
@@ -422,7 +423,7 @@ function AccountPanel({
         }}
       >
         {/* Plan name + status */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: renewsOn ? 8 : 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <span style={{ color: "#ffffff", fontSize: 14, fontWeight: 600 }}>
             {subscription.planName}
           </span>
@@ -430,6 +431,13 @@ function AccountPanel({
             {subStatusLabel}
           </span>
         </div>
+
+        {/* Plan description */}
+        {subscription.planDescription && (
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: "0 0 10px" }}>
+            {subscription.planDescription}
+          </p>
+        )}
 
         {/* Renewal date */}
         {renewsOn && (
@@ -443,7 +451,7 @@ function AccountPanel({
           <button
             onClick={onUpgrade}
             style={{
-              marginTop: renewsOn ? 0 : 12,
+              marginTop: !subscription.planDescription && !renewsOn ? 12 : 0,
               padding: "10px 18px",
               background: "#F5A623",
               color: "#111111",
