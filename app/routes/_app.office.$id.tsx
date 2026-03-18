@@ -207,10 +207,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     // 3. Generate magic link + send invite email via Resend
     try {
       const admin = createSupabaseAdminClient();
-      const bookingPath = `/booking/${params.id}?token=${inviteToken}`;
-      const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${encodeURIComponent(bookingPath)}`;
+      const next = encodeURIComponent(`/booking/${params.id}?token=${inviteToken}`);
+      const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
       const { data: linkData } = await admin.auth.admin.generateLink({
-        type: "invite",
+        type: "magiclink",
         email,
         options: { redirectTo },
       });
