@@ -137,7 +137,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       {
         access: "featured",
         profiles: (featuredProfiles ?? []) as CrewProfile[],
-        growStarterPriceId: process.env.STRIPE_GROW_STARTER_PRICE_ID ?? "",
+        growStarterPriceId: process.env.STRIPE_GROW_PRICE_ID_MONTHLY ?? "",
       },
       { headers: responseHeaders }
     );
@@ -223,7 +223,7 @@ function FeaturedGrid({ profiles, growStarterPriceId }: { profiles: CrewProfile[
               whiteSpace: "nowrap",
             }}
           >
-            Upgrade to Grow — unlock full crew →
+            Upgrade to SQRZ Grow — unlock full crew →
           </button>
         </Form>
       </div>

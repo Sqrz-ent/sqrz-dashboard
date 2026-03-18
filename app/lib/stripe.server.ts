@@ -12,10 +12,14 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 });
 
 // ─── Price → plan_id map ──────────────────────────────────────────────────────
+// plan_id 1 = SQRZ Basic, 2 = SQRZ Grow, 4 = Early Access
 
 export const PRICE_TO_PLAN: Record<string, number> = {
-  [process.env.STRIPE_GROW_STARTER_PRICE_ID ?? ""]: 2,
-  [process.env.STRIPE_GROW_PRO_PRICE_ID ?? ""]: 3,
+  [process.env.STRIPE_BASIC_PRICE_ID_MONTHLY!]: 1,
+  [process.env.STRIPE_BASIC_PRICE_ID_YEARLY!]: 1,
+  [process.env.STRIPE_GROW_PRICE_ID_MONTHLY!]: 2,
+  [process.env.STRIPE_GROW_PRICE_ID_YEARLY!]: 2,
+  [process.env.STRIPE_EARLY_ACCESS_PRICE_ID!]: 4,
 };
 
 // ─── Helper: get or create Stripe customer ────────────────────────────────────
