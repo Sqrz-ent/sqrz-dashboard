@@ -206,19 +206,34 @@ export async function action({ request, params }: Route.ActionArgs) {
       invite_token: inviteToken,
     });
 
-    // 3. Send magic link via admin client
+    // 3. Generate magic link + send invite email via Resend
     try {
       const admin = createSupabaseAdminClient();
-      const publicUrl = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
-      const bookingUrl = `${publicUrl}/booking/${params.id}?token=${inviteToken}`;
+      const bookingUrl = `https://dashboard.sqrz.com/booking/${params.id}?token=${inviteToken}`;
       const { data: linkData } = await admin.auth.admin.generateLink({
         type: "magiclink",
         email,
         options: { redirectTo: bookingUrl },
       });
-      console.log("[invite] magic link for", email, ":", linkData?.properties?.action_link);
+
+      const actionLink = linkData?.properties?.action_link;
+      console.log("[invite] magic link for", email, ":", actionLink);
+
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: "SQRZ <bookings@sqrz.com>",
+        to: email,
+        subject: "You've been invited to a booking",
+        html: `
+          <p>Hi ${name},</p>
+          <p>You've been invited to collaborate on a booking.</p>
+          <p><a href="${actionLink}">Click here to access the booking</a></p>
+          <p>The SQRZ Team</p>
+        `,
+      });
     } catch (err) {
-      console.error("[invite] generateLink failed:", err);
+      console.error("[invite] email send failed:", err);
     }
 
     return Response.json({ ok: true, invited: email }, { headers: responseHeaders });
