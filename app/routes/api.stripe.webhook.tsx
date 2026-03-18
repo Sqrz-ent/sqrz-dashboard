@@ -46,6 +46,20 @@ export async function action({ request }: Route.ActionArgs) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    // ── Idempotency check — skip duplicate event deliveries ─────────────────
+    const { data: existing } = await supabase
+      .from("stripe_events")
+      .select("id")
+      .eq("event_id", event.id)
+      .single();
+
+    if (existing) {
+      console.log(`[webhook] Duplicate event ${event.id} — skipping`);
+      return new Response(JSON.stringify({ received: true, duplicate: true }), { status: 200 });
+    }
+
+    await supabase.from("stripe_events").insert({ event_id: event.id });
+
     switch (event.type) {
       // ── New subscription created via Checkout ──────────────────────────────
       case "checkout.session.completed": {
@@ -74,24 +88,35 @@ export async function action({ request }: Route.ActionArgs) {
           return new Response("subscription not found", { status: 400 });
         }
 
-        const priceId = subscription.items.data[0]?.price.id ?? "";
+        const item = subscription.items.data[0];
+        const priceId = item?.price.id ?? "";
         const planId = PRICE_TO_PLAN[priceId] ?? null;
+
+        // In newer Stripe API versions period dates live on the item, not the root.
+        const periodStart = (item as Record<string, unknown>)?.current_period_start as number | null | undefined
+          ?? subscription.current_period_start;
+        const periodEnd = (item as Record<string, unknown>)?.current_period_end as number | null | undefined
+          ?? subscription.current_period_end;
 
         console.log("[webhook] subscription object:", {
           id: subscription.id,
           status: subscription.status,
-          current_period_start: subscription.current_period_start,
-          current_period_end: subscription.current_period_end,
+          item_period_start: (item as Record<string, unknown>)?.current_period_start,
+          item_period_end: (item as Record<string, unknown>)?.current_period_end,
+          sub_period_start: subscription.current_period_start,
+          sub_period_end: subscription.current_period_end,
+          resolved_start: periodStart,
+          resolved_end: periodEnd,
         });
 
         const subPayload = {
-          profile_id: profileId,
           stripe_subscription_id: subscription.id,
+          profile_id: profileId,
           stripe_customer_id: subscription.customer as string,
           stripe_price_id: priceId,
           status: subscription.status,
-          current_period_start: toISO(subscription.current_period_start),
-          current_period_end: toISO(subscription.current_period_end),
+          current_period_start: toISO(periodStart),
+          current_period_end: toISO(periodEnd),
           cancelled_at: toISO(subscription.canceled_at),
           updated_at: new Date().toISOString(),
         };
