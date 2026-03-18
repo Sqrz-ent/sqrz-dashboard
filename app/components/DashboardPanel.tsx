@@ -8,11 +8,19 @@ export type PanelKey = "profile" | "service" | "media" | "domain" | "account";
 
 type Profile = Record<string, unknown>;
 
+export type SubscriptionData = {
+  planName: string;
+  status: string | null;
+  currentPeriodEnd: string | null;
+};
+
 interface DashboardPanelProps {
   panel: PanelKey | null;
   profile: Profile | null;
   userId: string;
   onClose: () => void;
+  subscription: SubscriptionData;
+  onUpgrade: () => void;
 }
 
 // ─── Panel titles ─────────────────────────────────────────────────────────────
@@ -348,7 +356,24 @@ function ProfilePanel({ userId }: { userId: string }) {
 
 // ─── AccountPanel ─────────────────────────────────────────────────────────────
 
-function AccountPanel({ profile }: { profile: Profile | null }) {
+function formatPeriodEnd(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function AccountPanel({
+  profile,
+  subscription,
+  onUpgrade,
+}: {
+  profile: Profile | null;
+  subscription: SubscriptionData;
+  onUpgrade: () => void;
+}) {
   const connectFetcher = useFetcher();
   const loginFetcher = useFetcher();
 
@@ -358,6 +383,29 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
 
   const isConnecting = connectFetcher.state !== "idle";
   const isOpeningDashboard = loginFetcher.state !== "idle";
+
+  const planId = profile?.plan_id as number | null | undefined;
+  const showUpgrade = planId == null || planId <= 1;
+
+  const subStatusLabel =
+    subscription.status === "active" ? "Active"
+    : subscription.status === "trialing" ? "Trialing"
+    : subscription.status === "past_due" ? "Past due"
+    : subscription.status === "cancelled" ? "Cancelled"
+    : subscription.status
+      ? subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)
+      : "Free";
+
+  const subStatusColor =
+    subscription.status === "active" || subscription.status === "trialing"
+      ? "#4ade80"
+      : subscription.status === "past_due"
+      ? "#fb923c"
+      : subscription.status === "cancelled"
+      ? "#ef4444"
+      : "rgba(255,255,255,0.4)";
+
+  const renewsOn = formatPeriodEnd(subscription.currentPeriodEnd);
 
   return (
     <div>
@@ -373,27 +421,42 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
           marginBottom: 24,
         }}
       >
-        <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
-          Manage your SQRZ plan via the billing portal.
-        </p>
-        <a
-          href="https://billing.stripe.com/p/login/test_placeholder"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "inline-block",
-            padding: "10px 18px",
-            background: "rgba(255,255,255,0.07)",
-            color: "#ffffff",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 600,
-            textDecoration: "none",
-          }}
-        >
-          Manage billing →
-        </a>
+        {/* Plan name + status */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: renewsOn ? 8 : 0 }}>
+          <span style={{ color: "#ffffff", fontSize: 14, fontWeight: 600 }}>
+            {subscription.planName}
+          </span>
+          <span style={{ color: subStatusColor, fontSize: 12, fontWeight: 600 }}>
+            {subStatusLabel}
+          </span>
+        </div>
+
+        {/* Renewal date */}
+        {renewsOn && (
+          <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, margin: "0 0 14px" }}>
+            Renews on {renewsOn}
+          </p>
+        )}
+
+        {/* Upgrade button */}
+        {showUpgrade && (
+          <button
+            onClick={onUpgrade}
+            style={{
+              marginTop: renewsOn ? 0 : 12,
+              padding: "10px 18px",
+              background: "#F5A623",
+              color: "#111111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Upgrade plan →
+          </button>
+        )}
       </div>
 
       {/* ── Payments / Stripe Connect ── */}
@@ -428,7 +491,7 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
                   textDecoration: "underline",
                 }}
               >
-                {isOpeningDashboard ? "Opening…" : "Manage →"}
+                {isOpeningDashboard ? "Opening…" : "Manage payouts →"}
               </button>
             </loginFetcher.Form>
           </div>
@@ -461,7 +524,7 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
           /* ── Not connected ── */
           <>
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
-              Connect your bank account to receive payouts from bookings.
+              Connect your bank account to receive payments from bookings.
             </p>
             <connectFetcher.Form method="post" action="/api/stripe/connect">
               <button
@@ -496,6 +559,8 @@ export default function DashboardPanel({
   profile: _profile,
   userId,
   onClose,
+  subscription,
+  onUpgrade,
 }: DashboardPanelProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -530,7 +595,7 @@ export default function DashboardPanel({
       case "domain":
         return <PlaceholderPanel title="Custom Domain" />;
       case "account":
-        return <AccountPanel profile={_profile} />;
+        return <AccountPanel profile={_profile} subscription={subscription} onUpgrade={onUpgrade} />;
       default:
         return null;
     }

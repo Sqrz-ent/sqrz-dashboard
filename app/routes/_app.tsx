@@ -21,10 +21,42 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, session.user.id);
 
+  // Fetch subscription + plan name for AccountPanel
+  let subscriptionData: {
+    planName: string;
+    status: string | null;
+    currentPeriodEnd: string | null;
+  } = { planName: "SQRZ Basic", status: null, currentPeriodEnd: null };
+
+  if (profile) {
+    const profileId = profile.id as string;
+    const planId = profile.plan_id as number | null | undefined;
+
+    const [subResult, planResult] = await Promise.all([
+      supabase
+        .from("subscriptions")
+        .select("status, current_period_end")
+        .eq("profile_id", profileId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      planId
+        ? supabase.from("plans").select("name").eq("id", planId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    subscriptionData = {
+      planName: (planResult.data as Record<string, unknown> | null)?.name as string ?? "SQRZ Basic",
+      status: (subResult.data as Record<string, unknown> | null)?.status as string ?? null,
+      currentPeriodEnd: (subResult.data as Record<string, unknown> | null)?.current_period_end as string ?? null,
+    };
+  }
+
   return Response.json(
     {
       session,
       profile,
+      subscriptionData,
       basicMonthlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_MONTHLY ?? "",
       basicYearlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_YEARLY ?? "",
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
@@ -44,7 +76,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { session, profile, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
+  const { session, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
     useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -127,6 +159,8 @@ export default function AppLayout() {
         profile={profile as Record<string, unknown> | null}
         userId={session.user.id}
         onClose={closePanel}
+        subscription={subscriptionData}
+        onUpgrade={() => setUpgradeOpen(true)}
       />
 
       {/* ── Upgrade modal ────────────────────────────────────────────────────── */}
