@@ -2,10 +2,18 @@ import { redirect } from "react-router";
 import type { Route } from "./+types/auth.callback";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 
+function parseCookie(header: string, name: string): string {
+  const match = header
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : "";
+}
+
 /**
  * Handles the redirect back from Supabase after a magic link click.
- * Exchanges the one-time code for a session cookie, then ensures
- * the profile row has the slug the user chose at signup.
+ * Exchanges the one-time code for a session, then writes the profile row
+ * using the handle and ref code stored in cookies before the user left.
  */
 export async function loader({ request }: Route.LoaderArgs) {
   const responseHeaders = new Headers();
@@ -27,9 +35,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   } = await supabase.auth.getUser();
 
   if (user) {
-    const slug = user.user_metadata?.slug as string | undefined;
+    // Read handle and ref from cookies set before the magic link was sent
+    const cookieHeader = request.headers.get("Cookie") ?? "";
+    const slug =
+      parseCookie(cookieHeader, "sqrz_pending_handle") ||
+      (user.user_metadata?.slug as string | undefined) ||
+      "";
+    const refCode =
+      parseCookie(cookieHeader, "sqrz_pending_ref") ||
+      (user.user_metadata?.ref_code as string | undefined) ||
+      "";
 
-    // Bug 3: Prevent duplicate profiles — if another row already has this email, redirect
+    // Clear the pending cookies
+    responseHeaders.append("Set-Cookie", "sqrz_pending_handle=; path=/; max-age=0; SameSite=Lax");
+    responseHeaders.append("Set-Cookie", "sqrz_pending_ref=; path=/; max-age=0; SameSite=Lax");
+
+    // Prevent duplicate profiles — if another row already has this email, just redirect in
     if (user.email) {
       const { data: duplicate } = await supabase
         .from("profiles")
@@ -43,9 +64,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       }
     }
 
-    // Bug 2: Write all required fields on profile creation — never use email as name
+    // Write all required fields to the profile row
     if (slug) {
-      const refCode = user.user_metadata?.ref_code as string | undefined;
       await supabase
         .from("profiles")
         .update({

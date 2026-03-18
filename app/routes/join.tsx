@@ -4,7 +4,7 @@ import type { Route } from "./+types/join";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
 
-type Step = "username" | "email" | "template" | "signup" | "login" | "sent";
+type Step = "username" | "email" | "sent";
 type SlugStatus = "idle" | "checking" | "available" | "taken";
 
 type Template = {
@@ -42,18 +42,6 @@ const primaryButtonStyle: React.CSSProperties = {
   marginBottom: 8,
 };
 
-const secondaryButtonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "14px",
-  background: "transparent",
-  color: "#ffffff",
-  border: "1px solid rgba(255,255,255,0.2)",
-  borderRadius: 12,
-  fontSize: 16,
-  fontWeight: 600,
-  cursor: "pointer",
-};
-
 const backButtonStyle: React.CSSProperties = {
   background: "none",
   border: "none",
@@ -72,18 +60,6 @@ const ghostButtonStyle: React.CSSProperties = {
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
-
-function Divider() {
-  return (
-    <div
-      style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0" }}
-    >
-      <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.1)" }} />
-      <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>or</span>
-      <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.1)" }} />
-    </div>
-  );
-}
 
 function ErrorMessage({ message }: { message: string }) {
   if (!message) return null;
@@ -264,233 +240,8 @@ function EmailStep({
       <ErrorMessage message={error} />
 
       <button onClick={onSubmit} disabled={loading} style={primaryButtonStyle}>
-        {loading ? "Checking…" : "Continue"}
+        {loading ? "Sending…" : "Send magic link"}
       </button>
-    </div>
-  );
-}
-
-// ─── Template picker — hidden from signup flow, code preserved ────────────────
-function TemplateStep({
-  templates,
-  selectedId,
-  onSelect,
-  onSubmit,
-  onBack,
-}: {
-  templates: Template[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  onSubmit: () => void;
-  onBack: () => void;
-}) {
-  return (
-    <div>
-      <button onClick={onBack} style={backButtonStyle}>
-        ← Back
-      </button>
-
-      <h2 style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
-        Choose your style
-      </h2>
-      <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 14, marginBottom: 24 }}>
-        Pick a profile template. You can change this later.
-      </p>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-        {templates.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => onSelect(t.id)}
-            style={{
-              width: "100%",
-              padding: "16px 20px",
-              background: selectedId === t.id ? "rgba(245,166,35,0.12)" : "#1a1a1a",
-              border: `1.5px solid ${selectedId === t.id ? "#F5A623" : "rgba(255,255,255,0.1)"}`,
-              borderRadius: 12,
-              color: "#ffffff",
-              fontSize: 15,
-              fontWeight: selectedId === t.id ? 600 : 400,
-              cursor: "pointer",
-              textAlign: "left",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>{t.name}</span>
-            {selectedId === t.id && (
-              <span style={{ color: "#F5A623", fontSize: 18 }}>✓</span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      <button
-        onClick={onSubmit}
-        disabled={!selectedId}
-        style={{ ...primaryButtonStyle, opacity: selectedId ? 1 : 0.4 }}
-      >
-        Continue
-      </button>
-    </div>
-  );
-}
-
-function SignupStep({
-  email,
-  password,
-  setPassword,
-  onMagicLink,
-  onCreateAccount,
-  onBack,
-  error,
-  loading,
-}: {
-  email: string;
-  password: string;
-  setPassword: (v: string) => void;
-  onMagicLink: () => void;
-  onCreateAccount: () => void;
-  onBack: () => void;
-  error: string;
-  loading: boolean;
-}) {
-  return (
-    <div>
-      <button onClick={onBack} style={backButtonStyle}>
-        ← Back
-      </button>
-
-      <h2 style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, marginBottom: 20 }}>
-        Create your account
-      </h2>
-
-      <div
-        style={{
-          ...inputStyle,
-          color: "rgba(255,255,255,0.45)",
-          padding: "14px 16px",
-          marginBottom: 20,
-          cursor: "default",
-        }}
-      >
-        {email}
-      </div>
-
-      <button onClick={onMagicLink} disabled={loading} style={primaryButtonStyle}>
-        {loading ? "Sending…" : "Send Magic Link"}
-      </button>
-      <p
-        style={{
-          color: "rgba(255,255,255,0.4)",
-          fontSize: 12,
-          textAlign: "center",
-          marginTop: 4,
-          marginBottom: 0,
-        }}
-      >
-        We'll email you a login link. No password needed.
-      </p>
-
-      <Divider />
-
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Set a password instead (optional)"
-        style={inputStyle}
-      />
-
-      {password.length > 0 && (
-        <button onClick={onCreateAccount} disabled={loading} style={secondaryButtonStyle}>
-          {loading ? "Creating…" : "Create Account"}
-        </button>
-      )}
-
-      <ErrorMessage message={error} />
-    </div>
-  );
-}
-
-function LoginStep({
-  email,
-  password,
-  setPassword,
-  onMagicLink,
-  onLogin,
-  onBack,
-  error,
-  loading,
-}: {
-  email: string;
-  password: string;
-  setPassword: (v: string) => void;
-  onMagicLink: () => void;
-  onLogin: () => void;
-  onBack: () => void;
-  error: string;
-  loading: boolean;
-}) {
-  return (
-    <div>
-      <button onClick={onBack} style={backButtonStyle}>
-        ← Back
-      </button>
-
-      <h2 style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, marginBottom: 20 }}>
-        Welcome back
-      </h2>
-
-      <div
-        style={{
-          ...inputStyle,
-          color: "rgba(255,255,255,0.45)",
-          padding: "14px 16px",
-          marginBottom: 20,
-          cursor: "default",
-        }}
-      >
-        {email}
-      </div>
-
-      <button onClick={onMagicLink} disabled={loading} style={primaryButtonStyle}>
-        {loading ? "Sending…" : "Send Magic Link"}
-      </button>
-      <p
-        style={{
-          color: "rgba(255,255,255,0.4)",
-          fontSize: 12,
-          textAlign: "center",
-          marginTop: 4,
-          marginBottom: 0,
-        }}
-      >
-        We'll email you a login link.
-      </p>
-
-      <Divider />
-
-      <input
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        placeholder="Password"
-        onKeyDown={(e) => e.key === "Enter" && onLogin()}
-        style={inputStyle}
-        autoFocus={false}
-      />
-
-      <button
-        onClick={onLogin}
-        disabled={loading || !password}
-        style={secondaryButtonStyle}
-      >
-        {loading ? "Logging in…" : "Log In"}
-      </button>
-
-      <ErrorMessage message={error} />
     </div>
   );
 }
@@ -510,7 +261,7 @@ function SentStep({
     <div style={{ textAlign: "center" }}>
       <div style={{ fontSize: 52, marginBottom: 16 }}>✉️</div>
       <h2 style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
-        Check your inbox
+        Check your email
       </h2>
       <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 4, fontSize: 15 }}>
         We sent a magic link to
@@ -606,16 +357,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Join() {
-  const { initialSlug, templates, refCode, refValid } = useLoaderData<typeof loader>();
+  const { initialSlug, refCode, refValid } = useLoaderData<typeof loader>();
 
   const [step, setStep] = useState<Step>("username");
   const [phase, setPhase] = useState<"in" | "out">("in");
 
   const [slug, setSlug] = useState(initialSlug);
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [isNewUser, setIsNewUser] = useState(false);
-  const [templateId, setTemplateId] = useState(templates[0]?.id ?? "");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -623,7 +371,7 @@ export default function Join() {
   // Slug availability via useFetcher — fires on every keystroke
   const slugFetcher = useFetcher<{ available: boolean }>();
 
-  // Bug 1: If handle was pre-filled from URL param (?slug=...), trigger check on mount
+  // If handle was pre-filled from URL param (?slug=...), trigger availability check on mount
   useEffect(() => {
     if (initialSlug.length >= 3) {
       slugFetcher.submit({ slug: initialSlug }, { method: "POST" });
@@ -652,7 +400,6 @@ export default function Join() {
   function goTo(nextStep: Step) {
     setPhase("out");
     setError("");
-    setPassword("");
     setTimeout(() => {
       setStep(nextStep);
       setPhase("in");
@@ -661,7 +408,7 @@ export default function Join() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  async function checkEmail() {
+  async function sendMagicLink() {
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) {
       setError("Enter a valid email address");
@@ -670,87 +417,24 @@ export default function Join() {
     setLoading(true);
     setError("");
     try {
-      const { data } = await supabase
-        .from("profiles")
-        .select("email")
-        .eq("email", normalized)
-        .maybeSingle();
+      // Persist handle and ref in cookies before the user leaves the site via magic link
+      const expires = new Date(Date.now() + 3600 * 1000).toUTCString();
+      document.cookie = `sqrz_pending_handle=${encodeURIComponent(slug)}; path=/; expires=${expires}; SameSite=Lax`;
+      if (refCode) {
+        document.cookie = `sqrz_pending_ref=${encodeURIComponent(refCode)}; path=/; expires=${expires}; SameSite=Lax`;
+      }
 
-      const newUser = !data;
-      setIsNewUser(newUser);
-      setEmail(normalized);
-      // Template step hidden — go directly to signup or login
-      goTo(newUser ? "signup" : "login");
-    } catch {
-      setError("Something went wrong, try again");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function sendMagicLink(forSignup: boolean) {
-    setLoading(true);
-    setError("");
-    try {
       const { error: otpError } = await supabase.auth.signInWithOtp({
-        email,
+        email: normalized,
         options: {
           emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
-          ...(forSignup
-            ? { data: { slug, template_id: templateId, ...(refCode ? { ref_code: refCode } : {}) } }
-            : {}),
         },
       });
       if (otpError) throw otpError;
+      setEmail(normalized);
       goTo("sent");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function createAccount() {
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const { error: signupError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { slug, template_id: templateId, ...(refCode ? { ref_code: refCode } : {}) },
-          emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
-        },
-      });
-      if (signupError) throw signupError;
-      goTo("sent");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loginWithPassword() {
-    if (!password) {
-      setError("Enter your password");
-      return;
-    }
-    setLoading(true);
-    setError("");
-    try {
-      const { error: loginError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (loginError) throw loginError;
-      window.location.href = "/";
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Incorrect email or password");
     } finally {
       setLoading(false);
     }
@@ -822,48 +506,8 @@ export default function Join() {
               slug={slug}
               email={email}
               setEmail={setEmail}
-              onSubmit={checkEmail}
+              onSubmit={sendMagicLink}
               onBack={() => goTo("username")}
-              error={error}
-              loading={loading}
-            />
-          )}
-
-          {/* Template step — hidden from signup flow, code preserved */}
-          {false && step === "template" && (
-            <TemplateStep
-              templates={templates}
-              selectedId={templateId}
-              onSelect={setTemplateId}
-              onSubmit={() => goTo(isNewUser ? "signup" : "login")}
-              onBack={() => goTo("email")}
-            />
-          )}
-
-          {/* Photo upload step — hidden from signup flow, code preserved */}
-          {/* (photo upload UI goes here when ready) */}
-
-          {step === "signup" && (
-            <SignupStep
-              email={email}
-              password={password}
-              setPassword={setPassword}
-              onMagicLink={() => sendMagicLink(true)}
-              onCreateAccount={createAccount}
-              onBack={() => goTo("email")}
-              error={error}
-              loading={loading}
-            />
-          )}
-
-          {step === "login" && (
-            <LoginStep
-              email={email}
-              password={password}
-              setPassword={setPassword}
-              onMagicLink={() => sendMagicLink(false)}
-              onLogin={loginWithPassword}
-              onBack={() => goTo("email")}
               error={error}
               loading={loading}
             />
@@ -872,7 +516,7 @@ export default function Join() {
           {step === "sent" && (
             <SentStep
               email={email}
-              onResend={() => sendMagicLink(isNewUser)}
+              onResend={sendMagicLink}
               onChangeEmail={() => goTo("email")}
               loading={loading}
             />
