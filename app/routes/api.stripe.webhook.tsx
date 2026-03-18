@@ -77,10 +77,11 @@ export async function action({ request }: Route.ActionArgs) {
         const priceId = subscription.items.data[0]?.price.id ?? "";
         const planId = PRICE_TO_PLAN[priceId] ?? null;
 
-        console.log("Stripe subscription period:", {
-          start: subscription.current_period_start,
-          end: subscription.current_period_end,
+        console.log("[webhook] subscription object:", {
+          id: subscription.id,
           status: subscription.status,
+          current_period_start: subscription.current_period_start,
+          current_period_end: subscription.current_period_end,
         });
 
         const subPayload = {
