@@ -198,7 +198,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       .from("booking_participants")
       .insert({
         booking_id: params.id,
-        profile_id: guestProfileId,
+        user_id: null,
         name,
         email,
         role,
