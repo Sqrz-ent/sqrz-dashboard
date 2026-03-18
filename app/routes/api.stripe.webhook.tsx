@@ -104,12 +104,24 @@ export async function action({ request }: Route.ActionArgs) {
           resolved_end: periodEnd,
         });
 
-        // Check-then-insert/update to avoid duplicate rows
-        const { data: existingSub } = await supabase
+        // Check-then-insert/update to avoid duplicate rows.
+        // PGRST116 = no rows found — expected for new subscriptions, not a real error.
+        const { data: existingSub, error: findError } = await supabase
           .from("subscriptions")
           .select("id")
           .eq("stripe_subscription_id", subscription.id)
           .single();
+
+        console.log("[webhook] existing subscription lookup:", {
+          existing: existingSub,
+          findError,
+          looking_for: subscription.id,
+        });
+
+        if (findError && findError.code !== "PGRST116") {
+          console.error("[webhook] lookup error:", findError);
+          throw new Error(`subscriptions lookup: ${findError.message}`);
+        }
 
         if (existingSub) {
           console.log("[webhook] Updating existing subscription row");
@@ -174,11 +186,22 @@ export async function action({ request }: Route.ActionArgs) {
         const sub = event.data.object as Stripe.Subscription;
         const profileId = sub.metadata?.profile_id;
 
-        const { data: existingSub } = await supabase
+        const { data: existingSub, error: findError } = await supabase
           .from("subscriptions")
           .select("id")
           .eq("stripe_subscription_id", sub.id)
           .single();
+
+        console.log("[webhook] existing subscription lookup:", {
+          existing: existingSub,
+          findError,
+          looking_for: sub.id,
+        });
+
+        if (findError && findError.code !== "PGRST116") {
+          console.error("[webhook] lookup error:", findError);
+          throw new Error(`subscriptions lookup: ${findError.message}`);
+        }
 
         if (existingSub) {
           const { error } = await supabase
@@ -221,11 +244,22 @@ export async function action({ request }: Route.ActionArgs) {
         const periodStart = toISO((item as Record<string, unknown>)?.current_period_start as number | null ?? sub.current_period_start);
         const periodEnd   = toISO((item as Record<string, unknown>)?.current_period_end   as number | null ?? sub.current_period_end);
 
-        const { data: existingSub } = await supabase
+        const { data: existingSub, error: findError } = await supabase
           .from("subscriptions")
           .select("id")
           .eq("stripe_subscription_id", sub.id)
           .single();
+
+        console.log("[webhook] existing subscription lookup:", {
+          existing: existingSub,
+          findError,
+          looking_for: sub.id,
+        });
+
+        if (findError && findError.code !== "PGRST116") {
+          console.error("[webhook] lookup error:", findError);
+          throw new Error(`subscriptions lookup: ${findError.message}`);
+        }
 
         if (existingSub) {
           const { error } = await supabase
