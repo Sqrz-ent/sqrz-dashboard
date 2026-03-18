@@ -50,27 +50,27 @@ export async function action({ request }: Route.ActionArgs) {
       // ── New subscription created via Checkout ──────────────────────────────
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        if (session.mode !== "subscription") break;
+
+        if (!session.subscription) break;
 
         const profileId = session.metadata?.profile_id;
-        const subscriptionId = session.subscription as string;
         const customerId = session.customer as string;
 
-        if (!profileId || !subscriptionId) {
-          console.warn("[webhook] checkout.session.completed — missing profileId or subscriptionId", {
-            profileId,
-            subscriptionId,
+        if (!profileId) {
+          console.warn("[webhook] checkout.session.completed — missing profile_id in metadata", {
             metadata: session.metadata,
           });
           break;
         }
 
-        // Fetch full subscription — checkout.session.completed does not
-        // include period dates directly; they live on the subscription object.
-        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        // Fetch full subscription — the session object does not include
+        // current_period_start / current_period_end; those live on the subscription.
+        const subscription = await stripe.subscriptions.retrieve(
+          session.subscription as string
+        );
 
         if (!subscription) {
-          console.error("[webhook] Could not retrieve subscription from Stripe:", subscriptionId);
+          console.error("[webhook] Could not retrieve subscription from Stripe:", session.subscription);
           return new Response("subscription not found", { status: 400 });
         }
 
@@ -93,6 +93,7 @@ export async function action({ request }: Route.ActionArgs) {
           current_period_start: toISO(subscription.current_period_start),
           current_period_end: toISO(subscription.current_period_end),
           cancelled_at: toISO(subscription.canceled_at),
+          updated_at: new Date().toISOString(),
         };
 
         console.log("[webhook] Attempting Supabase write:", {
