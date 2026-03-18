@@ -27,21 +27,24 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   );
 
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      console.error("[callback] exchange error:", error.message);
-      return redirect("/login?error=auth_failed", { headers });
-    }
+  if (!code) {
+    return redirect("/login?error=no_code", { headers });
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  console.log("[callback] user after exchange:", user?.id, user?.email);
+  const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
+
+  if (error) {
+    console.error("[callback] exchange error:", error.message);
+    return redirect("/login?error=auth_failed", { headers });
+  }
+
+  // Use the user from the exchange response directly — getUser() on the
+  // same request would read the old empty cookie state before Set-Cookie fires
+  const user = exchangeData?.user;
+  console.log("[callback] user from exchange:", user?.id, user?.email);
 
   if (!user) {
-    console.error("[callback] no user after exchange");
+    console.error("[callback] no user in exchange response");
     return redirect("/login?error=no_user", { headers });
   }
 
