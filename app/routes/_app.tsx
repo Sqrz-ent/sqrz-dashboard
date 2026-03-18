@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { redirect, Outlet, useLoaderData, NavLink, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import NotificationBell from "~/components/NotificationBell";
+import UpgradeModal from "~/components/UpgradeModal";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const responseHeaders = new Headers();
@@ -19,7 +21,15 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, session.user.id);
 
-  return Response.json({ session, profile }, { headers: responseHeaders });
+  return Response.json(
+    {
+      session,
+      profile,
+      basicMonthlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_MONTHLY ?? "",
+      basicYearlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_YEARLY ?? "",
+    },
+    { headers: responseHeaders }
+  );
 }
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
@@ -33,8 +43,10 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { session, profile } = useLoaderData<typeof loader>();
+  const { session, profile, basicMonthlyPriceId, basicYearlyPriceId } =
+    useLoaderData<typeof loader>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
@@ -45,6 +57,10 @@ export default function AppLayout() {
   function closePanel() {
     setSearchParams({});
   }
+
+  // Show Upgrade button for free users (plan_id null or 1)
+  const planId = (profile as Record<string, unknown> | null)?.plan_id as number | null | undefined;
+  const showUpgrade = planId == null || planId <= 1;
 
   return (
     <div
@@ -76,7 +92,25 @@ export default function AppLayout() {
           [<span style={{ color: "#F5A623" }}> SQRZ </span>]
         </span>
 
-        <div style={{ marginLeft: "auto" }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {showUpgrade && (
+            <button
+              onClick={() => setUpgradeOpen(true)}
+              style={{
+                background: "transparent",
+                border: "1px solid rgba(245,166,35,0.5)",
+                color: "#F5A623",
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 20,
+                padding: "5px 13px",
+                cursor: "pointer",
+                letterSpacing: "0.02em",
+              }}
+            >
+              Upgrade
+            </button>
+          )}
           <NotificationBell />
         </div>
       </nav>
@@ -93,6 +127,15 @@ export default function AppLayout() {
         userId={session.user.id}
         onClose={closePanel}
       />
+
+      {/* ── Upgrade modal ────────────────────────────────────────────────────── */}
+      {upgradeOpen && (
+        <UpgradeModal
+          onClose={() => setUpgradeOpen(false)}
+          monthlyPriceId={basicMonthlyPriceId}
+          yearlyPriceId={basicYearlyPriceId}
+        />
+      )}
 
       {/* ── Mobile bottom nav ───────────────────────────────────────────────── */}
       <nav
