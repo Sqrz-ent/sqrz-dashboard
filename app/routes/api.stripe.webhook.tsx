@@ -3,6 +3,12 @@ import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { stripe, PRICE_TO_PLAN } from "~/lib/stripe.server";
 
+// Stripe timestamps are Unix seconds (number | null). Returns ISO string or null.
+function toISO(unixSeconds: number | null | undefined): string | null {
+  if (unixSeconds == null || !Number.isFinite(unixSeconds)) return null;
+  return new Date(unixSeconds * 1000).toISOString();
+}
+
 export async function action({ request }: Route.ActionArgs) {
   const sig = request.headers.get("stripe-signature");
 
@@ -66,8 +72,8 @@ export async function action({ request }: Route.ActionArgs) {
           stripe_customer_id: customerId,
           stripe_price_id: priceId,
           status: sub.status,
-          current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
-          current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+          current_period_start: toISO(sub.current_period_start),
+          current_period_end: toISO(sub.current_period_end),
         });
 
         if (insertError) {
@@ -130,8 +136,8 @@ export async function action({ request }: Route.ActionArgs) {
           .update({
             status: sub.status,
             stripe_price_id: priceId,
-            current_period_start: new Date(sub.current_period_start * 1000).toISOString(),
-            current_period_end: new Date(sub.current_period_end * 1000).toISOString(),
+            current_period_start: toISO(sub.current_period_start),
+            current_period_end: toISO(sub.current_period_end),
           })
           .eq("stripe_subscription_id", sub.id);
 
