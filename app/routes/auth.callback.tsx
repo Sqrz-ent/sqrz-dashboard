@@ -5,6 +5,8 @@ import type { Route } from "./+types/auth.callback";
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const token = url.searchParams.get("token");
+  const type = url.searchParams.get("type");
   const next = url.searchParams.get("next");
 
   const headers = new Headers();
@@ -27,24 +29,33 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   );
 
-  if (!code) {
-    return redirect("/login?error=no_code", { headers });
+  let user = null;
+
+  if (code) {
+    // PKCE flow (standard magic link, Google OAuth)
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) {
+      console.error("[callback] exchange error:", error.message);
+      return redirect("/login?error=auth_failed", { headers });
+    }
+    user = data.user;
+  } else if (token && type) {
+    // Token flow (admin-generated magic links via generateLink())
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await supabase.auth.verifyOtp({
+      token_hash: token,
+      type: type as any,
+    });
+    if (error) {
+      console.error("[callback] verifyOtp error:", error.message);
+      return redirect("/login?error=auth_failed", { headers });
+    }
+    user = data.user;
   }
 
-  const { data: exchangeData, error } = await supabase.auth.exchangeCodeForSession(code);
-
-  if (error) {
-    console.error("[callback] exchange error:", error.message);
-    return redirect("/login?error=auth_failed", { headers });
-  }
-
-  // Use the user from the exchange response directly — getUser() on the
-  // same request would read the old empty cookie state before Set-Cookie fires
-  const user = exchangeData?.user;
-  console.log("[callback] user from exchange:", user?.id, user?.email);
+  console.log("[callback] user:", user?.id, user?.email);
 
   if (!user) {
-    console.error("[callback] no user in exchange response");
     return redirect("/login?error=no_user", { headers });
   }
 
