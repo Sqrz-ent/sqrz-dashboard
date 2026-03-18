@@ -17,6 +17,7 @@ export default [
   // Stripe API routes (server-only, action handlers)
   route("api/stripe/checkout", "routes/api.stripe.checkout.tsx"),
   route("api/stripe/connect", "routes/api.stripe.connect.tsx"),
+  route("api/stripe/connect/login", "routes/api.stripe.connect.login.tsx"),
   route("api/stripe/webhook", "routes/api.stripe.webhook.tsx"),
 
   // Starter template files (kept for reference, not linked in UI)

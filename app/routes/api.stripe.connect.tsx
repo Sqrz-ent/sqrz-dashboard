@@ -17,16 +17,17 @@ export async function action({ request }: Route.ActionArgs) {
   if (!profile) return redirect("/login", { headers: responseHeaders });
 
   const publicUrl = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
-  const returnUrl = `${publicUrl}/?panel=account`;
-  const refreshUrl = `${publicUrl}/api/stripe/connect`;
 
   let connectId = profile.stripe_connect_id as string | undefined;
 
-  // Create a new Connect Express account if none exists
   if (!connectId) {
+    // Create new Stripe Express account
     const account = await stripe.accounts.create({
       type: "express",
       email: (profile.email as string) ?? undefined,
+      capabilities: {
+        transfers: { requested: true },
+      },
       metadata: {
         profile_id: profile.id as string,
         slug: (profile.slug as string) ?? "",
@@ -35,6 +36,7 @@ export async function action({ request }: Route.ActionArgs) {
 
     connectId = account.id;
 
+    // Persist immediately so the webhook can match it
     await supabase
       .from("profiles")
       .update({
@@ -44,11 +46,11 @@ export async function action({ request }: Route.ActionArgs) {
       .eq("id", profile.id);
   }
 
-  // Create an account onboarding link
+  // Create onboarding link (works for both new and incomplete accounts)
   const accountLink = await stripe.accountLinks.create({
     account: connectId,
-    refresh_url: refreshUrl,
-    return_url: returnUrl,
+    refresh_url: `${publicUrl}/settings?connect=refresh`,
+    return_url: `${publicUrl}/settings?connect=success`,
     type: "account_onboarding",
   });
 

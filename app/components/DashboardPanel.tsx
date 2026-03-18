@@ -350,12 +350,14 @@ function ProfilePanel({ userId }: { userId: string }) {
 
 function AccountPanel({ profile }: { profile: Profile | null }) {
   const connectFetcher = useFetcher();
+  const loginFetcher = useFetcher();
 
-  const connectStatus = profile?.stripe_connect_status as string | undefined;
-  const isConnected = connectStatus === "active";
+  const connectStatus = (profile?.stripe_connect_status as string | undefined) ?? "not_connected";
+  const isActive = connectStatus === "active";
   const isPending = connectStatus === "pending";
 
-  const isSubmitting = connectFetcher.state !== "idle";
+  const isConnecting = connectFetcher.state !== "idle";
+  const isOpeningDashboard = loginFetcher.state !== "idle";
 
   return (
     <div>
@@ -394,8 +396,8 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
         </a>
       </div>
 
-      {/* ── Stripe Connect ── */}
-      <p style={{ ...sectionHeadingStyle, marginTop: 8 }}>Payouts</p>
+      {/* ── Payments / Stripe Connect ── */}
+      <p style={{ ...sectionHeadingStyle, marginTop: 8 }}>Payments</p>
 
       <div
         style={{
@@ -405,21 +407,66 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
           padding: "16px 18px",
         }}
       >
-        {isConnected ? (
-          <p style={{ color: "#4ade80", fontSize: 13, margin: 0, fontWeight: 600 }}>
-            ✓ Bank account connected — payouts enabled
-          </p>
-        ) : (
+        {isActive ? (
+          /* ── Active ── */
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <p style={{ color: "#4ade80", fontSize: 13, margin: 0, fontWeight: 600 }}>
+              ✓ Payments active
+            </p>
+            <loginFetcher.Form method="post" action="/api/stripe/connect/login">
+              <button
+                type="submit"
+                disabled={isOpeningDashboard}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: isOpeningDashboard ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.45)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: isOpeningDashboard ? "default" : "pointer",
+                  padding: 0,
+                  textDecoration: "underline",
+                }}
+              >
+                {isOpeningDashboard ? "Opening…" : "Manage →"}
+              </button>
+            </loginFetcher.Form>
+          </div>
+        ) : isPending ? (
+          /* ── Pending ── */
           <>
             <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
-              {isPending
-                ? "Your bank account connection is pending. Click below to complete onboarding."
-                : "Connect your bank account to receive payouts from bookings."}
+              Onboarding in progress…
             </p>
             <connectFetcher.Form method="post" action="/api/stripe/connect">
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isConnecting}
+                style={{
+                  padding: "10px 18px",
+                  background: "rgba(255,255,255,0.07)",
+                  color: isConnecting ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: isConnecting ? "default" : "pointer",
+                }}
+              >
+                {isConnecting ? "Redirecting…" : "Continue setup →"}
+              </button>
+            </connectFetcher.Form>
+          </>
+        ) : (
+          /* ── Not connected ── */
+          <>
+            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
+              Connect your bank account to receive payouts from bookings.
+            </p>
+            <connectFetcher.Form method="post" action="/api/stripe/connect">
+              <button
+                type="submit"
+                disabled={isConnecting}
                 style={{
                   padding: "10px 18px",
                   background: "#F5A623",
@@ -428,15 +475,11 @@ function AccountPanel({ profile }: { profile: Profile | null }) {
                   borderRadius: 10,
                   fontSize: 13,
                   fontWeight: 700,
-                  cursor: isSubmitting ? "default" : "pointer",
-                  opacity: isSubmitting ? 0.6 : 1,
+                  cursor: isConnecting ? "default" : "pointer",
+                  opacity: isConnecting ? 0.6 : 1,
                 }}
               >
-                {isSubmitting
-                  ? "Redirecting…"
-                  : isPending
-                  ? "Complete bank setup →"
-                  : "Connect bank account →"}
+                {isConnecting ? "Redirecting…" : "Connect Bank Account →"}
               </button>
             </connectFetcher.Form>
           </>
