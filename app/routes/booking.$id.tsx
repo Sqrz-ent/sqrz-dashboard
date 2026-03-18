@@ -10,8 +10,9 @@ import BookingChat from "~/components/BookingChat";
 
 type Message = {
   id: string;
-  profile_id: string | null;
-  body: string | null;
+  message: string | null;
+  sender_id: string | null;
+  sender_name: string | null;
   created_at: string;
 };
 
@@ -306,7 +307,7 @@ function ChatSection({
           </p>
         ) : (
           messages.map((msg) => {
-            const isMine = userId && msg.profile_id === userId;
+            const isMine = userId && msg.sender_id === userId;
             return (
               <div
                 key={msg.id}
@@ -324,7 +325,7 @@ function ChatSection({
                     lineHeight: 1.5,
                   }}
                 >
-                  <p style={{ margin: 0 }}>{msg.body}</p>
+                  <p style={{ margin: 0 }}>{msg.message}</p>
                   <p style={{ fontSize: 10, opacity: 0.55, margin: "4px 0 0", textAlign: isMine ? "right" : "left" }}>
                     {new Date(msg.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                   </p>

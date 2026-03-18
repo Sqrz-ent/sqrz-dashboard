@@ -34,8 +34,9 @@ type Participant = {
 
 type Message = {
   id: string;
-  profile_id: string | null;
-  body: string | null;
+  message: string | null;
+  sender_id: string | null;
+  sender_name: string | null;
   created_at: string;
 };
 
@@ -833,7 +834,7 @@ function ChatTab({
           </p>
         ) : (
           messages.map((msg) => {
-            const isMine = msg.profile_id === profileId;
+            const isMine = msg.sender_id === profileId;
             return (
               <div
                 key={msg.id}
@@ -855,7 +856,7 @@ function ChatTab({
                     lineHeight: 1.5,
                   }}
                 >
-                  <p style={{ margin: 0 }}>{msg.body}</p>
+                  <p style={{ margin: 0 }}>{msg.message}</p>
                   <p
                     style={{
                       fontSize: 10,

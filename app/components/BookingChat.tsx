@@ -37,7 +37,16 @@ export default function BookingChat({
   const [unreadCount, setUnreadCount] = useState(0);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [authUser, setAuthUser] = useState<{ id: string; email: string } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  // ── Resolve auth user on mount ────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setAuthUser({ id: user.id, email: user.email ?? currentUserEmail });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Step 1: fetch channels on mount ──────────────────────────────────────────
   useEffect(() => {
@@ -73,7 +82,7 @@ export default function BookingChat({
 
     // Realtime subscription
     const channel = supabase
-      .channel(`booking-chat-float:${activeChannelId}`)
+      .channel("messages")
       .on(
         "postgres_changes",
         {
@@ -83,8 +92,7 @@ export default function BookingChat({
           filter: `channel_id=eq.${activeChannelId}`,
         },
         (payload) => {
-          const newMsg = payload.new as Message;
-          setMessages((prev) => [...prev, newMsg]);
+          setMessages((prev) => [...prev, payload.new as Message]);
           if (!open) {
             setUnreadCount((n) => n + 1);
           }
@@ -137,8 +145,8 @@ export default function BookingChat({
       booking_id: bookingId,
       channel_id: channelId,
       message: content,
-      sender_id: currentUserEmail || null,
-      sender_name: currentUserEmail || null,
+      sender_id: authUser?.id ?? null,
+      sender_name: authUser?.email ?? currentUserEmail ?? null,
     });
     setText("");
     setSending(false);
@@ -318,8 +326,8 @@ export default function BookingChat({
             ) : (
               messages.map((msg) => {
                 const isMine =
-                  currentUserEmail &&
-                  msg.sender_id === currentUserEmail;
+                  authUser &&
+                  msg.sender_id === authUser.id;
                 const rawLabel = msg.sender_name ?? msg.sender_id ?? "Unknown";
                 const senderLabel =
                   rawLabel.length > 22
