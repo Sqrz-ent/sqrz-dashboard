@@ -60,19 +60,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   console.log("[office] user.id:", user?.id);
   console.log("[office] profile:", profile?.id, profile?.email);
 
-  const { data: bookings } = await supabase
+  const { data: bookings, error: bookingsError } = await supabase
     .from("bookings")
     .select(`
       id, title, service, status, date_start, date_end,
-      city, venue, rate, currency,
-      booking_requests(from_profile_id, message, service, budget_min, budget_max)
+      city, venue, rate, currency
     `)
     .eq("owner_id", profile.id as string)
     .order("created_at", { ascending: false });
 
+  console.log("[office] bookings error:", bookingsError);
   console.log("[office] bookings count:", bookings?.length);
+  console.log("[office] profile.id used:", profile.id);
 
-  return Response.json({ bookings: bookings ?? [] }, { headers: responseHeaders });
+  return Response.json({ bookings: bookings ?? [], profile }, { headers: responseHeaders });
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
