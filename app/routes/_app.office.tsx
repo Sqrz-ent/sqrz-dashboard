@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { redirect, useLoaderData, useSearchParams, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app.office";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ export async function action({ request }: Route.ActionArgs) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!session) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
 
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers: responseHeaders });
@@ -98,6 +98,30 @@ export async function action({ request }: Route.ActionArgs) {
       .update({ status: "pending" })
       .eq("id", bookingId)
       .eq("owner_id", profile.id as string);
+
+    // Send magic link access email to the booking requester
+    try {
+      const admin = createSupabaseAdminClient();
+      // Find the booking_request to get the requester's email
+      const { data: bookingRequest } = await admin
+        .from("booking_requests")
+        .select("from_email, from_profile_id")
+        .eq("booking_id", bookingId)
+        .maybeSingle();
+
+      const recipientEmail = bookingRequest?.from_email ?? null;
+      if (recipientEmail) {
+        await admin.auth.admin.generateLink({
+          type: "magiclink",
+          email: recipientEmail,
+          options: {
+            redirectTo: `https://dashboard.sqrz.com/booking/${bookingId}`,
+          },
+        });
+      }
+    } catch {
+      // Non-fatal — booking was accepted; magic link failure logged silently
+    }
   } else if (intent === "decline") {
     await supabase
       .from("bookings")
@@ -207,6 +231,13 @@ const metaValue: React.CSSProperties = {
 
 function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => void }) {
   const fetcher = useFetcher<{ ok?: boolean }>();
+  const [copied, setCopied] = useState(false);
+
+  function copyLink() {
+    navigator.clipboard.writeText(`https://dashboard.sqrz.com/booking/${booking.id}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   // Escape key
   useEffect(() => {
@@ -360,12 +391,27 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
             </div>
           )}
 
-          <Link
-            to={`/office/${booking.id}`}
-            style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, textDecoration: "none" }}
-          >
-            Open full page →
-          </Link>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <Link
+              to={`/office/${booking.id}`}
+              style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, textDecoration: "none" }}
+            >
+              Open full page →
+            </Link>
+            <button
+              onClick={copyLink}
+              style={{
+                background: "none",
+                border: "none",
+                color: copied ? "#4ade80" : "rgba(255,255,255,0.35)",
+                fontSize: 12,
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              {copied ? "✓ Copied!" : "Share booking link →"}
+            </button>
+          </div>
         </div>
 
         {/* Footer — accept/decline only for requested */}

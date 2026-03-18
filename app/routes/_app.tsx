@@ -163,7 +163,7 @@ export default function AppLayout() {
       <DashboardPanel
         panel={activePanel}
         profile={profile as Record<string, unknown> | null}
-        userId={user.id}
+        userId={(user as { id: string }).id}
         onClose={closePanel}
         subscription={subscriptionData}
         onUpgrade={() => setUpgradeOpen(true)}

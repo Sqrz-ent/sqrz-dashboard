@@ -114,7 +114,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   const supabase = createSupabaseServerClient(request, responseHeaders);
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!session) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers: responseHeaders });
 
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers: responseHeaders });

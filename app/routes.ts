@@ -6,6 +6,10 @@ export default [
   route("login", "routes/login.tsx"),
   route("reset-password", "routes/reset-password.tsx"),
   route("auth/callback", "routes/auth.callback.tsx"),
+  route("guest-login", "routes/guest-login.tsx"),
+
+  // Standalone booking access (no dashboard chrome)
+  route("booking/:id", "routes/booking.$id.tsx"),
 
   // Protected app (session required)
   layout("routes/_app.tsx", [
