@@ -10,12 +10,12 @@ interface Channel {
   booking_id: string;
 }
 
-// Uses the real DB schema: profile_id stores the sender identifier, body stores content
 interface Message {
   id: string;
   channel_id: string;
-  profile_id: string | null; // stores email when inserted via BookingChat
-  body: string | null;
+  sender_id: string | null;
+  sender_name: string | null;
+  message: string | null;
   created_at: string;
 }
 
@@ -64,7 +64,7 @@ export default function BookingChat({
     // Fetch initial messages
     supabase
       .from("messages")
-      .select("id, channel_id, profile_id, body, created_at")
+      .select("id, channel_id, message, sender_name, sender_id, created_at")
       .eq("channel_id", activeChannelId)
       .order("created_at", { ascending: true })
       .then(({ data }) => {
@@ -134,9 +134,11 @@ export default function BookingChat({
 
     setSending(true);
     await supabase.from("messages").insert({
+      booking_id: bookingId,
       channel_id: channelId,
-      profile_id: currentUserEmail || null,
-      body: content,
+      message: content,
+      sender_id: currentUserEmail || null,
+      sender_name: currentUserEmail || null,
     });
     setText("");
     setSending(false);
@@ -317,12 +319,12 @@ export default function BookingChat({
               messages.map((msg) => {
                 const isMine =
                   currentUserEmail &&
-                  msg.profile_id === currentUserEmail;
-                const senderLabel = msg.profile_id
-                  ? msg.profile_id.length > 22
-                    ? msg.profile_id.slice(0, 20) + "…"
-                    : msg.profile_id
-                  : "Unknown";
+                  msg.sender_id === currentUserEmail;
+                const rawLabel = msg.sender_name ?? msg.sender_id ?? "Unknown";
+                const senderLabel =
+                  rawLabel.length > 22
+                    ? rawLabel.slice(0, 20) + "…"
+                    : rawLabel;
 
                 return (
                   <div
@@ -364,7 +366,7 @@ export default function BookingChat({
                           {senderLabel}
                         </p>
                       )}
-                      <p style={{ margin: 0 }}>{msg.body}</p>
+                      <p style={{ margin: 0 }}>{msg.message}</p>
                       <p
                         style={{
                           fontSize: 10,
