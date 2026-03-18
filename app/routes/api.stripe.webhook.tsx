@@ -36,7 +36,7 @@ export async function action({ request }: Route.ActionArgs) {
   //    inserts/updates. Webhook requests come from Stripe with no session.
   try {
     const supabase = createClient(
-      import.meta.env.VITE_SUPABASE_URL as string,
+      process.env.SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
