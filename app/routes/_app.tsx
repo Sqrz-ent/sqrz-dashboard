@@ -151,7 +151,12 @@ export default function AppLayout() {
           zIndex: 10,
         }}
       >
-        <img src="/sqrz_logo.png" alt="SQRZ" style={{ height: "36px", width: "auto", marginRight: 8, display: "block" }} />
+        <img
+          src="/sqrz_logo.png"
+          alt="SQRZ"
+          style={{ height: "36px", width: "auto", display: "block", marginRight: 8 }}
+          onError={(e) => { e.currentTarget.style.display = "none"; }}
+        />
 
         {/* Top nav tabs */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
