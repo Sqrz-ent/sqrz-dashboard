@@ -121,9 +121,9 @@ export default function AppLayout() {
   return (
     <div
       style={{
-        background: "#111111",
+        background: "var(--bg)",
         minHeight: "100vh",
-        color: "#e5e7eb",
+        color: "var(--text)",
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
       }}
     >
@@ -135,15 +135,15 @@ export default function AppLayout() {
           gap: 28,
           padding: "0 28px",
           height: 56,
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: "1px solid var(--border)",
           position: "sticky",
           top: 0,
-          background: "#111111",
+          background: "var(--bg)",
           zIndex: 10,
         }}
       >
         <span
-          style={{ color: "#ffffff", fontSize: 16, fontWeight: 800, letterSpacing: "0.2em", marginRight: 8 }}
+          style={{ color: "var(--text)", fontSize: 16, fontWeight: 800, letterSpacing: "0.2em", marginRight: 8 }}
         >
           [<span style={{ color: "#F5A623" }}> SQRZ </span>]
         </span>
@@ -174,7 +174,7 @@ export default function AppLayout() {
             style={{
               background: "none",
               border: "none",
-              color: "rgba(255,255,255,0.5)",
+              color: "var(--text-muted)",
               fontSize: 18,
               cursor: "pointer",
               padding: "4px 6px",
@@ -222,8 +222,8 @@ export default function AppLayout() {
           bottom: 0,
           left: 0,
           right: 0,
-          background: "#111111",
-          borderTop: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--bg)",
+          borderTop: "1px solid var(--border)",
           display: "flex",
           justifyContent: "space-around",
           padding: "10px 0 max(10px, env(safe-area-inset-bottom))",
@@ -242,7 +242,7 @@ export default function AppLayout() {
               gap: 3,
               textDecoration: "none",
               fontSize: 11,
-              color: isActive ? "#F5A623" : "rgba(255,255,255,0.4)",
+              color: isActive ? "#F5A623" : "var(--text-muted)",
             })}
           >
             <span style={{ fontSize: 18 }}>{item.icon}</span>
@@ -261,7 +261,7 @@ export default function AppLayout() {
             gap: 3,
             textDecoration: "none",
             fontSize: 11,
-            color: "rgba(255,255,255,0.4)",
+            color: "var(--text-muted)",
           }}
         >
           <span style={{ fontSize: 18 }}>💼</span>
