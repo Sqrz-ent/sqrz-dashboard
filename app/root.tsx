@@ -29,6 +29,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('sqrz_theme')||'dark';document.documentElement.classList.add(t);}catch(e){}`,
+          }}
+        />
         <Meta />
         <Links />
       </head>

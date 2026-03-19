@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { redirect, Outlet, useLoaderData, NavLink, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -86,6 +86,24 @@ export default function AppLayout() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const saved = localStorage.getItem("sqrz_theme") as "dark" | "light" | null;
+    const initial = saved ?? "dark";
+    setTheme(initial);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(initial);
+  }, []);
+
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("sqrz_theme", next);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(next);
+  }
+
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
   function openPanel(panel: PanelKey) {
@@ -150,6 +168,23 @@ export default function AppLayout() {
             </button>
           )}
           <NotificationBell />
+          <button
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+            style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255,255,255,0.5)",
+              fontSize: 18,
+              cursor: "pointer",
+              padding: "4px 6px",
+              lineHeight: 1,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            {theme === "dark" ? "☀️" : "🌙"}
+          </button>
         </div>
       </nav>
 

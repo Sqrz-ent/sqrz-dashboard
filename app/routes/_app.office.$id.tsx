@@ -3,7 +3,6 @@ import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app.office.$id";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { supabase as browserSupabase } from "~/lib/supabase.client";
 import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -30,14 +29,6 @@ type Participant = {
   pay: number | null;
   pay_status: string | null;
   invite_token: string | null;
-};
-
-type Message = {
-  id: string;
-  message: string | null;
-  sender_id: string | null;
-  sender_name: string | null;
-  created_at: string;
 };
 
 type Booking = {
@@ -81,31 +72,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   if (!booking) return redirect("/office", { headers });
 
-  // Fetch channel for chat
-  const { data: channel } = await supabase
-    .from("channels")
-    .select("id")
-    .eq("booking_id", params.id)
-    .maybeSingle();
-
-  // Fetch initial messages if channel exists
-  let messages: Message[] = [];
-  if (channel) {
-    const { data: msgs } = await supabase
-      .from("messages")
-      .select("id, message, sender_name, sender_id, created_at")
-      .eq("channel_id", channel.id)
-      .order("created_at", { ascending: true });
-    messages = (msgs ?? []) as Message[];
-  }
-
   return Response.json(
     {
       booking,
       profileId: profile.id as string,
       userEmail: profile.email as string ?? user.email ?? "",
-      channelId: channel?.id ?? null,
-      initialMessages: messages,
     },
     { headers }
   );
@@ -133,33 +104,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
     return Response.json({ ok: true }, { headers });
-  }
-
-  if (intent === "send_message") {
-    const body = (formData.get("body") as string | null)?.trim();
-    if (!body) return Response.json({ ok: true }, { headers });
-
-    let channelId = formData.get("channel_id") as string | null;
-
-    // Create channel if it doesn't exist yet
-    if (!channelId) {
-      const { data: newChannel } = await supabase
-        .from("channels")
-        .insert({ booking_id: params.id })
-        .select("id")
-        .single();
-      channelId = newChannel?.id ?? null;
-    }
-
-    if (channelId) {
-      await supabase.from("messages").insert({
-        channel_id: channelId,
-        profile_id: profile.id as string,
-        body,
-      });
-    }
-
-    return Response.json({ ok: true, channelId }, { headers });
   }
 
   if (intent === "invite_team_member") {
@@ -740,207 +684,13 @@ function PaymentsTab() {
   );
 }
 
-// ─── Tab: Chat ────────────────────────────────────────────────────────────────
-
-function ChatTab({
-  channelId: initialChannelId,
-  initialMessages,
-  profileId,
-  bookingId,
-}: {
-  channelId: string | null;
-  initialMessages: Message[];
-  profileId: string;
-  bookingId: string;
-}) {
-  const [messages, setMessages] = useState<Message[]>(initialMessages);
-  const [channelId, setChannelId] = useState(initialChannelId);
-  const fetcher = useFetcher<{ ok?: boolean; channelId?: string }>();
-  const formRef = useRef<HTMLFormElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  // Real-time subscription
-  useEffect(() => {
-    if (!channelId) return;
-
-    const channel = browserSupabase
-      .channel(`messages:${channelId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `channel_id=eq.${channelId}`,
-        },
-        (payload) => {
-          setMessages((prev) => [...prev, payload.new as Message]);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      browserSupabase.removeChannel(channel);
-    };
-  }, [channelId]);
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  // Reset form + capture new channelId after send
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok) {
-      formRef.current?.reset();
-      if (fetcher.data.channelId && !channelId) {
-        setChannelId(fetcher.data.channelId);
-      }
-    }
-  }, [fetcher.state, fetcher.data, channelId]);
-
-  const isSending = fetcher.state !== "idle";
-
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (formRef.current) fetcher.submit(formRef.current);
-    }
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: 480 }}>
-      {/* Messages */}
-      <div
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: "4px 0 8px",
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        {messages.length === 0 ? (
-          <p
-            style={{
-              color: "rgba(255,255,255,0.2)",
-              fontSize: 13,
-              textAlign: "center",
-              margin: "auto",
-              padding: "32px 0",
-            }}
-          >
-            No messages yet. Start the conversation.
-          </p>
-        ) : (
-          messages.map((msg) => {
-            const isMine = msg.sender_id === profileId;
-            return (
-              <div
-                key={msg.id}
-                style={{
-                  display: "flex",
-                  justifyContent: isMine ? "flex-end" : "flex-start",
-                  marginBottom: 10,
-                }}
-              >
-                <div
-                  style={{
-                    maxWidth: "72%",
-                    background: isMine ? "#F5A623" : "#1a1a1a",
-                    color: isMine ? "#111" : "rgba(255,255,255,0.85)",
-                    border: isMine ? "none" : "1px solid rgba(255,255,255,0.07)",
-                    borderRadius: isMine ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                    padding: "9px 13px",
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  <p style={{ margin: 0 }}>{msg.message}</p>
-                  <p
-                    style={{
-                      fontSize: 10,
-                      opacity: 0.55,
-                      margin: "4px 0 0",
-                      textAlign: isMine ? "right" : "left",
-                    }}
-                  >
-                    {new Date(msg.created_at).toLocaleTimeString("en-US", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                </div>
-              </div>
-            );
-          })
-        )}
-        <div ref={bottomRef} />
-      </div>
-
-      {/* Input */}
-      <fetcher.Form
-        ref={formRef}
-        method="post"
-        style={{
-          display: "flex",
-          gap: 8,
-          paddingTop: 12,
-          borderTop: "1px solid rgba(255,255,255,0.07)",
-        }}
-      >
-        <input type="hidden" name="intent" value="send_message" />
-        <input type="hidden" name="channel_id" value={channelId ?? ""} />
-        <input type="hidden" name="booking_id" value={bookingId} />
-        <textarea
-          name="body"
-          placeholder="Type a message… (Enter to send)"
-          rows={1}
-          onKeyDown={handleKeyDown}
-          style={{
-            flex: 1,
-            background: "#111",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 10,
-            padding: "10px 13px",
-            color: "#fff",
-            fontSize: 13,
-            resize: "none",
-            outline: "none",
-            lineHeight: 1.5,
-            fontFamily: "inherit",
-          }}
-        />
-        <button
-          type="submit"
-          disabled={isSending}
-          style={{
-            padding: "10px 16px",
-            background: "#F5A623",
-            color: "#111",
-            border: "none",
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: isSending ? "default" : "pointer",
-            opacity: isSending ? 0.6 : 1,
-            alignSelf: "flex-end",
-          }}
-        >
-          Send
-        </button>
-      </fetcher.Form>
-    </div>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const TABS = ["Details", "Team", "Payments", "Chat"] as const;
+const TABS = ["Details", "Team", "Payments"] as const;
 type Tab = (typeof TABS)[number];
 
 export default function BookingDetailPage() {
-  const { booking, profileId, userEmail, channelId, initialMessages } =
+  const { booking, profileId, userEmail } =
     useLoaderData<typeof loader>();
   const [activeTab, setActiveTab] = useState<Tab>("Details");
 
@@ -1042,14 +792,6 @@ export default function BookingDetailPage() {
         <TeamTab participants={b.booking_participants} bookingId={b.id} />
       )}
       {activeTab === "Payments" && <PaymentsTab />}
-      {activeTab === "Chat" && (
-        <ChatTab
-          channelId={channelId as string | null}
-          initialMessages={initialMessages as Message[]}
-          profileId={profileId as string}
-          bookingId={b.id}
-        />
-      )}
 
       <BookingChat
         bookingId={b.id}
