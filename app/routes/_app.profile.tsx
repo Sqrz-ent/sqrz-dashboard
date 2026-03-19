@@ -1,0 +1,807 @@
+import { useState, useRef } from "react";
+import { redirect, useLoaderData, useFetcher } from "react-router";
+import type { Route } from "./+types/_app.profile";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { getCurrentProfile } from "~/lib/profile.server";
+import { supabase as browserSupabase } from "~/lib/supabase.client";
+
+const ACCENT = "#F5A623";
+const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
+const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
+
+const card: React.CSSProperties = {
+  background: "var(--surface)",
+  border: "1px solid rgba(245,166,35,0.28)",
+  borderRadius: 16,
+  padding: "22px 24px",
+  marginBottom: 20,
+  position: "relative",
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontFamily: FONT_DISPLAY,
+  fontSize: 30,
+  fontWeight: 800,
+  color: ACCENT,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.03em",
+  margin: "0 0 18px",
+  lineHeight: 1.1,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 13px",
+  background: "var(--bg)",
+  border: "1px solid var(--border)",
+  borderRadius: 10,
+  fontSize: 14,
+  color: "var(--text)",
+  outline: "none",
+  boxSizing: "border-box" as const,
+  fontFamily: FONT_BODY,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "var(--text-muted)",
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.07em",
+  display: "block",
+  marginBottom: 6,
+};
+
+const saveBtn: React.CSSProperties = {
+  padding: "10px 22px",
+  background: ACCENT,
+  color: "#111",
+  border: "none",
+  borderRadius: 10,
+  fontSize: 14,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: FONT_BODY,
+  marginTop: 14,
+};
+
+function CompletionBadge({ filled, total }: { filled: number; total: number }) {
+  const done = filled === total;
+  return (
+    <span style={{
+      position: "absolute", top: 16, right: 18,
+      fontSize: 11, fontWeight: 700,
+      color: done ? ACCENT : "var(--text-muted)",
+      fontFamily: FONT_BODY,
+    }}>
+      {done ? "✓ Complete" : `${filled}/${total}`}
+    </span>
+  );
+}
+
+function MenuDots({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <button onClick={() => setOpen(v => !v)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 18, padding: "2px 6px", lineHeight: 1 }}>⋮</button>
+      {open && (
+        <div style={{ position: "absolute", right: 0, top: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, zIndex: 10, minWidth: 110, boxShadow: "0 4px 20px rgba(0,0,0,0.15)" }}>
+          <button onClick={() => { onEdit(); setOpen(false); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>Edit</button>
+          <button onClick={() => { onDelete(); setOpen(false); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 13, color: "#ef4444", cursor: "pointer", fontFamily: FONT_BODY }}>Delete</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const { supabase, headers } = createSupabaseServerClient(request);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return redirect("/login", { headers });
+
+  const profile = await getCurrentProfile(supabase, user.id);
+  if (!profile) return redirect("/login", { headers });
+
+  const [skillsRes, videosRes, refsRes] = await Promise.all([
+    supabase
+      .from("profile_skills")
+      .select("skill_id, skills(id, name, category)")
+      .eq("profile_id", profile.id as string),
+    supabase
+      .from("profile_videos")
+      .select("*")
+      .eq("profile_id", profile.id as string)
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("profile_references")
+      .select("*")
+      .eq("profile_id", profile.id as string)
+      .order("sort_order", { ascending: true }),
+  ]);
+
+  return Response.json(
+    {
+      profile,
+      skills: skillsRes.data ?? [],
+      videos: videosRes.data ?? [],
+      references: refsRes.data ?? [],
+    },
+    { headers }
+  );
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const { supabase, headers } = createSupabaseServerClient(request);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return redirect("/login", { headers });
+
+  const profile = await getCurrentProfile(supabase, user.id);
+  if (!profile) return redirect("/login", { headers });
+
+  const formData = await request.formData();
+  const intent = formData.get("intent") as string;
+
+  if (intent === "update_basic") {
+    const { error } = await supabase.from("profiles").update({
+      first_name: formData.get("first_name") as string,
+      last_name: formData.get("last_name") as string,
+      bio: formData.get("bio") as string,
+      city: formData.get("city") as string,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_socials") {
+    const { error } = await supabase.from("profiles").update({
+      website_url: formData.get("website_url") as string,
+      social_youtube: formData.get("social_youtube") as string,
+      social_facebook: formData.get("social_facebook") as string,
+      social_instagram: formData.get("social_instagram") as string,
+      social_linkedin: formData.get("social_linkedin") as string,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_widgets") {
+    const { error } = await supabase.from("profiles").update({
+      widget_spotify: formData.get("widget_spotify") as string,
+      widget_soundcloud: formData.get("widget_soundcloud") as string,
+      widget_bandsintown: formData.get("widget_bandsintown") as string,
+      widget_muso: formData.get("widget_muso") as string,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_business") {
+    const { error } = await supabase.from("profiles").update({
+      company_name: formData.get("company_name") as string,
+      company_address: formData.get("company_address") as string,
+      company_tax_id: formData.get("company_tax_id") as string,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "toggle_publish") {
+    const { error } = await supabase.from("profiles").update({
+      is_published: !(profile.is_published as boolean),
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  const adminClient = createSupabaseAdminClient();
+
+  if (intent === "add_video") {
+    const url = formData.get("url") as string;
+    const title = (formData.get("title") as string) || url;
+    const { error } = await adminClient.from("profile_videos").insert({
+      profile_id: profile.id as string,
+      url,
+      title,
+      sort_order: 0,
+    });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "delete_video") {
+    const id = formData.get("id") as string;
+    const { error } = await adminClient.from("profile_videos").delete().eq("id", id);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "add_reference") {
+    const isCurrent = formData.get("is_current") === "true";
+    const { error } = await adminClient.from("profile_references").insert({
+      profile_id: profile.id as string,
+      company: formData.get("company") as string,
+      role: formData.get("role") as string,
+      date_start: formData.get("date_start") as string || null,
+      date_end: isCurrent ? null : (formData.get("date_end") as string || null),
+      is_current: isCurrent,
+      sort_order: 0,
+    });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "delete_reference") {
+    const id = formData.get("id") as string;
+    const { error } = await adminClient.from("profile_references").delete().eq("id", id);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  return Response.json({ ok: false, error: "Unknown intent" }, { headers });
+}
+
+export default function ProfilePage() {
+  const { profile, skills, videos, references } = useLoaderData<typeof loader>() as {
+    profile: Record<string, unknown>;
+    skills: Record<string, unknown>[];
+    videos: Record<string, unknown>[];
+    references: Record<string, unknown>[];
+  };
+
+  const basicFetcher = useFetcher();
+  const socialsFetcher = useFetcher();
+  const widgetsFetcher = useFetcher();
+  const businessFetcher = useFetcher();
+  const publishFetcher = useFetcher();
+  const videoFetcher = useFetcher();
+  const refFetcher = useFetcher();
+
+  // Avatar state
+  const [avatarUploading, setAvatarUploading] = useState(false);
+  const [avatarStatus, setAvatarStatus] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Social edit states
+  const [socialEdit, setSocialEdit] = useState<Record<string, boolean>>({});
+  const [socialValues, setSocialValues] = useState({
+    website_url: (profile.website_url as string) ?? "",
+    social_youtube: (profile.social_youtube as string) ?? "",
+    social_facebook: (profile.social_facebook as string) ?? "",
+    social_instagram: (profile.social_instagram as string) ?? "",
+    social_linkedin: (profile.social_linkedin as string) ?? "",
+  });
+
+  // Widget edit states
+  const [widgetEdit, setWidgetEdit] = useState<Record<string, boolean>>({});
+  const [widgetValues, setWidgetValues] = useState({
+    widget_spotify: (profile.widget_spotify as string) ?? "",
+    widget_soundcloud: (profile.widget_soundcloud as string) ?? "",
+    widget_bandsintown: (profile.widget_bandsintown as string) ?? "",
+    widget_muso: (profile.widget_muso as string) ?? "",
+  });
+
+  // Video add state
+  const [videoUrl, setVideoUrl] = useState("");
+  const [videoTitle, setVideoTitle] = useState("");
+
+  // Reference add state
+  const [showRefForm, setShowRefForm] = useState(false);
+  const [refForm, setRefForm] = useState({ company: "", role: "", date_start: "", date_end: "", is_current: false });
+
+  const profileId = profile.id as string;
+  const slug = (profile.slug as string) ?? "";
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarUploading(true);
+    setAvatarStatus("Uploading…");
+    const ext = file.name.split(".").pop();
+    const path = `${profileId}/avatar.${ext}`;
+    const { error: uploadError } = await browserSupabase.storage.from("avatars").upload(path, file, { upsert: true });
+    if (uploadError) {
+      setAvatarStatus("Upload failed.");
+      setAvatarUploading(false);
+      return;
+    }
+    const { data: urlData } = browserSupabase.storage.from("avatars").getPublicUrl(path);
+    const publicUrl = urlData.publicUrl;
+    await browserSupabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", profileId);
+    setAvatarStatus("Photo updated!");
+    setAvatarUploading(false);
+    setTimeout(() => setAvatarStatus(""), 3000);
+  }
+
+  // Completion counts
+  const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
+  const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
+  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso].filter(Boolean).length;
+  const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id].filter(Boolean).length;
+
+  const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
+    { key: "website_url", emoji: "🌐", label: "Website" },
+    { key: "social_youtube", emoji: "▶️", label: "YouTube" },
+    { key: "social_facebook", emoji: "📘", label: "Facebook" },
+    { key: "social_instagram", emoji: "📸", label: "Instagram" },
+    { key: "social_linkedin", emoji: "💼", label: "LinkedIn" },
+  ];
+
+  const widgetFields: { key: keyof typeof widgetValues; emoji: string; label: string }[] = [
+    { key: "widget_spotify", emoji: "🎵", label: "Spotify" },
+    { key: "widget_soundcloud", emoji: "☁️", label: "SoundCloud" },
+    { key: "widget_bandsintown", emoji: "🎤", label: "Bandsintown" },
+    { key: "widget_muso", emoji: "🎼", label: "Muso" },
+  ];
+
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <h1 style={sectionTitle}>Your Profile</h1>
+
+      {/* Section 0: Profile Picture */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Profile Picture</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          {profile.avatar_url ? (
+            <img
+              src={profile.avatar_url as string}
+              alt="Avatar"
+              style={{ width: 120, height: 120, borderRadius: "50%", objectFit: "cover", border: `2px solid ${ACCENT}` }}
+            />
+          ) : (
+            <div style={{ width: 120, height: 120, borderRadius: "50%", background: "var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 48 }}>
+              🧑
+            </div>
+          )}
+          <div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={avatarUploading}
+              style={{ ...saveBtn, marginTop: 0, opacity: avatarUploading ? 0.6 : 1 }}
+            >
+              {avatarUploading ? "Uploading…" : "Choose photo"}
+            </button>
+            <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
+            {avatarStatus && (
+              <p style={{ margin: "8px 0 0", fontSize: 12, color: ACCENT, fontFamily: FONT_BODY }}>{avatarStatus}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 1: Basic Info */}
+      <div style={card}>
+        <CompletionBadge filled={basicFilled} total={4} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Basic Info</h2>
+        <basicFetcher.Form method="post">
+          <input type="hidden" name="intent" value="update_basic" />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+            <div>
+              <label style={labelStyle}>First Name</label>
+              <input name="first_name" defaultValue={(profile.first_name as string) ?? ""} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Last Name</label>
+              <input name="last_name" defaultValue={(profile.last_name as string) ?? ""} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Bio</label>
+            <textarea
+              name="bio"
+              defaultValue={(profile.bio as string) ?? ""}
+              rows={4}
+              style={{ ...inputStyle, resize: "vertical" }}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>City</label>
+            <input name="city" defaultValue={(profile.city as string) ?? ""} style={inputStyle} />
+          </div>
+          <button type="submit" style={saveBtn} disabled={basicFetcher.state !== "idle"}>
+            {basicFetcher.state !== "idle" ? "Saving…" : "Save"}
+          </button>
+        </basicFetcher.Form>
+      </div>
+
+      {/* Section 2: Skills */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Skills</h2>
+        {skills.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+            {skills.map((ps) => {
+              const skill = ps.skills as Record<string, unknown> | null;
+              if (!skill) return null;
+              return (
+                <span
+                  key={ps.skill_id as string}
+                  style={{
+                    padding: "5px 12px",
+                    background: "rgba(245,166,35,0.12)",
+                    border: `1px solid rgba(245,166,35,0.3)`,
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: ACCENT,
+                    fontFamily: FONT_BODY,
+                  }}
+                >
+                  {skill.name as string}
+                  {skill.category ? (
+                    <span style={{ color: "var(--text-muted)", fontWeight: 400, marginLeft: 4 }}>· {skill.category as string}</span>
+                  ) : null}
+                </span>
+              );
+            })}
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>No skills added yet.</p>
+        )}
+        <span style={{
+          display: "inline-block",
+          padding: "4px 10px",
+          background: "rgba(245,166,35,0.1)",
+          border: `1px solid rgba(245,166,35,0.2)`,
+          borderRadius: 8,
+          fontSize: 11,
+          fontWeight: 700,
+          color: "var(--text-muted)",
+          fontFamily: FONT_BODY,
+          letterSpacing: "0.05em",
+          textTransform: "uppercase",
+        }}>
+          Coming Soon — Add skills
+        </span>
+      </div>
+
+      {/* Section 3: Socials */}
+      <div style={card}>
+        <CompletionBadge filled={socialFilled} total={5} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Socials</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {socialFields.map(({ key, emoji, label }) => {
+            const val = socialValues[key];
+            const editing = !!socialEdit[key];
+            return (
+              <div key={key}>
+                <div
+                  onClick={() => !editing && setSocialEdit(s => ({ ...s, [key]: true }))}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 0",
+                    cursor: editing ? "default" : "pointer",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <span style={{ fontSize: 18, minWidth: 24 }}>{emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: val ? ACCENT : "var(--text-muted)" }}>
+                      {label}
+                    </span>
+                    {val && !editing && (
+                      <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>{val}</span>
+                    )}
+                  </div>
+                  {!editing && (
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{val ? "Edit" : "Add"}</span>
+                  )}
+                </div>
+                {editing && (
+                  <div style={{ padding: "10px 0 14px 34px" }}>
+                    <input
+                      style={inputStyle}
+                      value={socialValues[key]}
+                      onChange={e => setSocialValues(v => ({ ...v, [key]: e.target.value }))}
+                      placeholder={`Enter ${label} URL`}
+                      autoFocus
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button
+                        style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px" }}
+                        onClick={() => {
+                          setSocialEdit(s => ({ ...s, [key]: false }));
+                          const fd = new FormData();
+                          fd.append("intent", "update_socials");
+                          Object.entries(socialValues).forEach(([k, v]) => fd.append(k, v));
+                          socialsFetcher.submit(fd, { method: "post" });
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        style={{ padding: "8px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
+                        onClick={() => setSocialEdit(s => ({ ...s, [key]: false }))}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Section 4: Widgets */}
+      <div style={card}>
+        <CompletionBadge filled={widgetFilled} total={4} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Widgets</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {widgetFields.map(({ key, emoji, label }) => {
+            const val = widgetValues[key];
+            const editing = !!widgetEdit[key];
+            return (
+              <div key={key}>
+                <div
+                  onClick={() => !editing && setWidgetEdit(s => ({ ...s, [key]: true }))}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 0",
+                    cursor: editing ? "default" : "pointer",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <span style={{ fontSize: 18, minWidth: 24 }}>{emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: val ? ACCENT : "var(--text-muted)" }}>
+                      {label}
+                    </span>
+                    {val && !editing && (
+                      <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>{val}</span>
+                    )}
+                  </div>
+                  {!editing && (
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{val ? "Edit" : "Add"}</span>
+                  )}
+                </div>
+                {editing && (
+                  <div style={{ padding: "10px 0 14px 34px" }}>
+                    <input
+                      style={inputStyle}
+                      value={widgetValues[key]}
+                      onChange={e => setWidgetValues(v => ({ ...v, [key]: e.target.value }))}
+                      placeholder={`Enter ${label} embed URL`}
+                      autoFocus
+                    />
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <button
+                        style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px" }}
+                        onClick={() => {
+                          setWidgetEdit(s => ({ ...s, [key]: false }));
+                          const fd = new FormData();
+                          fd.append("intent", "update_widgets");
+                          Object.entries(widgetValues).forEach(([k, v]) => fd.append(k, v));
+                          widgetsFetcher.submit(fd, { method: "post" });
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        style={{ padding: "8px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
+                        onClick={() => setWidgetEdit(s => ({ ...s, [key]: false }))}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 12, marginBottom: 0, fontFamily: FONT_BODY }}>More coming soon</p>
+      </div>
+
+      {/* Section 5: Videos */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Videos</h2>
+        {videos.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>No videos added yet.</p>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            {videos.map((video) => (
+              <div key={video.id as string} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{video.title as string}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{video.url as string}</div>
+                </div>
+                <MenuDots
+                  onEdit={() => {}}
+                  onDelete={() => {
+                    const fd = new FormData();
+                    fd.append("intent", "delete_video");
+                    fd.append("id", video.id as string);
+                    videoFetcher.submit(fd, { method: "post" });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>YouTube URL</label>
+            <input
+              style={inputStyle}
+              value={videoUrl}
+              onChange={e => setVideoUrl(e.target.value)}
+              placeholder="https://youtube.com/watch?v=..."
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Title</label>
+            <input
+              style={inputStyle}
+              value={videoTitle}
+              onChange={e => setVideoTitle(e.target.value)}
+              placeholder="Video title (optional)"
+            />
+          </div>
+          <button
+            style={{ ...saveBtn, marginTop: 0, alignSelf: "flex-start" }}
+            onClick={() => {
+              if (!videoUrl.trim()) return;
+              const fd = new FormData();
+              fd.append("intent", "add_video");
+              fd.append("url", videoUrl);
+              fd.append("title", videoTitle || videoUrl);
+              videoFetcher.submit(fd, { method: "post" });
+              setVideoUrl("");
+              setVideoTitle("");
+            }}
+            disabled={videoFetcher.state !== "idle"}
+          >
+            {videoFetcher.state !== "idle" ? "Adding…" : "Add Video"}
+          </button>
+        </div>
+      </div>
+
+      {/* Section 6: References */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>References</h2>
+        {references.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>No references added yet.</p>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            {references.map((ref) => (
+              <div key={ref.id as string} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{ref.company as string}</div>
+                  <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
+                    {ref.role as string} · {ref.date_start as string}{" "}
+                    → {ref.is_current ? "Present" : (ref.date_end as string) ?? ""}
+                  </div>
+                </div>
+                <MenuDots
+                  onEdit={() => {}}
+                  onDelete={() => {
+                    const fd = new FormData();
+                    fd.append("intent", "delete_reference");
+                    fd.append("id", ref.id as string);
+                    refFetcher.submit(fd, { method: "post" });
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY, marginBottom: showRefForm ? 14 : 0 }}
+          onClick={() => setShowRefForm(v => !v)}
+        >
+          {showRefForm ? "Cancel" : "+ Add Reference"}
+        </button>
+        {showRefForm && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Company</label>
+                <input style={inputStyle} value={refForm.company} onChange={e => setRefForm(f => ({ ...f, company: e.target.value }))} placeholder="Company name" />
+              </div>
+              <div>
+                <label style={labelStyle}>Role</label>
+                <input style={inputStyle} value={refForm.role} onChange={e => setRefForm(f => ({ ...f, role: e.target.value }))} placeholder="Your role" />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Start Date</label>
+                <input type="date" style={inputStyle} value={refForm.date_start} onChange={e => setRefForm(f => ({ ...f, date_start: e.target.value }))} />
+              </div>
+              <div>
+                <label style={labelStyle}>End Date</label>
+                <input type="date" style={inputStyle} value={refForm.date_end} onChange={e => setRefForm(f => ({ ...f, date_end: e.target.value }))} disabled={refForm.is_current} />
+              </div>
+            </div>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
+              <input
+                type="checkbox"
+                checked={refForm.is_current}
+                onChange={e => setRefForm(f => ({ ...f, is_current: e.target.checked }))}
+              />
+              Currently working here
+            </label>
+            <button
+              style={{ ...saveBtn, marginTop: 0, alignSelf: "flex-start" }}
+              onClick={() => {
+                if (!refForm.company.trim() || !refForm.role.trim()) return;
+                const fd = new FormData();
+                fd.append("intent", "add_reference");
+                fd.append("company", refForm.company);
+                fd.append("role", refForm.role);
+                fd.append("date_start", refForm.date_start);
+                fd.append("date_end", refForm.date_end);
+                fd.append("is_current", String(refForm.is_current));
+                refFetcher.submit(fd, { method: "post" });
+                setRefForm({ company: "", role: "", date_start: "", date_end: "", is_current: false });
+                setShowRefForm(false);
+              }}
+              disabled={refFetcher.state !== "idle"}
+            >
+              {refFetcher.state !== "idle" ? "Saving…" : "Add Reference"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Section 7: Business Details */}
+      <div style={card}>
+        <CompletionBadge filled={businessFilled} total={3} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
+        <businessFetcher.Form method="post">
+          <input type="hidden" name="intent" value="update_business" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Company Name</label>
+              <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Company Address</label>
+              <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Tax ID</label>
+              <input name="company_tax_id" defaultValue={(profile.company_tax_id as string) ?? ""} style={inputStyle} />
+            </div>
+          </div>
+          <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>
+            {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
+          </button>
+        </businessFetcher.Form>
+      </div>
+
+      {/* Section 8: Publish */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Publish</h2>
+        <a
+          href={`https://${slug}.sqrz.com`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: 13, color: ACCENT, fontFamily: FONT_BODY, display: "block", marginBottom: 16 }}
+        >
+          {slug}.sqrz.com ↗
+        </a>
+        <button
+          onClick={() => {
+            const fd = new FormData();
+            fd.append("intent", "toggle_publish");
+            publishFetcher.submit(fd, { method: "post" });
+          }}
+          disabled={publishFetcher.state !== "idle"}
+          style={{
+            padding: "13px 28px",
+            background: profile.is_published ? "var(--surface)" : ACCENT,
+            color: profile.is_published ? "var(--text)" : "#111",
+            border: profile.is_published ? "1px solid var(--border)" : "none",
+            borderRadius: 12,
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+          }}
+        >
+          {publishFetcher.state !== "idle"
+            ? "Updating…"
+            : profile.is_published
+            ? "✓ Profile is Live — Unpublish"
+            : "Publish Profile →"}
+        </button>
+      </div>
+    </div>
+  );
+}

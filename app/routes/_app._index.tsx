@@ -1,4 +1,4 @@
-import { redirect, useLoaderData, Link, useSearchParams } from "react-router";
+import { redirect, useLoaderData, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -90,7 +90,6 @@ function Card({
 
 export default function DashboardIndex() {
   const { profile } = useLoaderData<typeof loader>();
-  const [, setSearchParams] = useSearchParams();
 
   const profileSlug = (profile as Record<string, unknown>)?.slug as string | undefined;
   const profileName = (profile as Record<string, unknown>)?.name as string | undefined;
@@ -121,20 +120,17 @@ export default function DashboardIndex() {
             ✓ Your profile is live
           </span>
         ) : (
-          <button
-            onClick={() => setSearchParams({ panel: "profile" })}
+          <Link
+            to="/profile"
             style={{
-              background: "none",
-              border: "none",
-              padding: 0,
               color: "#F5A623",
               fontSize: 13,
               fontWeight: 500,
-              cursor: "pointer",
+              textDecoration: "none",
             }}
           >
             Publish your profile →
-          </button>
+          </Link>
         )}
       </div>
 
@@ -155,7 +151,7 @@ export default function DashboardIndex() {
         <Card
           title="👤 Profile"
           description="Edit your bio, skills, services, and public profile."
-          onClick={() => setSearchParams({ panel: "profile" })}
+          to="/profile"
         />
         <Card
           title="🖼 Media"
@@ -166,7 +162,7 @@ export default function DashboardIndex() {
         <Card
           title="⚙️ Account"
           description="Subscription, billing, and account settings."
-          onClick={() => setSearchParams({ panel: "account" })}
+          to="/account"
         />
       </div>
     </div>

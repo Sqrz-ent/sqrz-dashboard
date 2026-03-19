@@ -72,6 +72,15 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
+const topNavItems = [
+  { to: "/", label: "Dashboard", end: true },
+  { to: "/profile", label: "Profile" },
+  { to: "/service", label: "Service" },
+  { to: "/domain", label: "Domain" },
+  { to: "/media", label: "Media" },
+  { to: "/account", label: "Account" },
+];
+
 const bottomNavItems = [
   { to: "/", label: "Dashboard", icon: "⊞", end: true },
   { to: "/office", label: "Office", icon: "📋" },
@@ -147,6 +156,30 @@ export default function AppLayout() {
         >
           [<span style={{ color: "#F5A623" }}> SQRZ </span>]
         </span>
+
+        {/* Top nav tabs */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          {topNavItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              style={({ isActive }) => ({
+                textDecoration: "none",
+                fontSize: 13,
+                fontWeight: 500,
+                color: isActive ? "#F5A623" : "var(--text-muted)",
+                padding: "6px 12px",
+                borderRadius: 8,
+                borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
+                letterSpacing: "0.01em",
+                transition: "color 0.15s",
+              })}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {showUpgrade && (

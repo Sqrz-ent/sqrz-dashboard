@@ -17,6 +17,11 @@ export default [
     route("office", "routes/_app.office.tsx"),
     route("office/:id", "routes/_app.office.$id.tsx"),
     route("crew", "routes/_app.crew.tsx"),
+    route("profile", "routes/_app.profile.tsx"),
+    route("service", "routes/_app.service.tsx"),
+    route("domain", "routes/_app.domain.tsx"),
+    route("media", "routes/_app.media.tsx"),
+    route("account", "routes/_app.account.tsx"),
   ]),
 
   // Stripe API routes (server-only, action handlers)
