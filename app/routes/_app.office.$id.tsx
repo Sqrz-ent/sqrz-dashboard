@@ -31,6 +31,16 @@ type Participant = {
   invite_token: string | null;
 };
 
+type Payment = {
+  id: number;
+  title: string | null;
+  amount: number | null;
+  currency: string | null;
+  status: string | null;
+  stripe_invoice_url: string | null;
+  created_at: string;
+};
+
 type Booking = {
   id: string;
   title: string | null;
@@ -43,6 +53,7 @@ type Booking = {
   address: string | null;
   rate: number | null;
   currency: string | null;
+  require_hotel: boolean | null;
   owner_id: string;
   booking_requests: BookingRequest[];
   booking_participants: Participant[];
@@ -52,31 +63,34 @@ type Booking = {
 
 export async function loader({ request, params }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
-
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const { data: booking } = await supabase
-    .from("bookings")
-    .select(`
-      *,
-      booking_requests(*),
-      booking_participants(*)
-    `)
-    .eq("id", params.id)
-    .eq("owner_id", profile.id as string)
-    .single();
+  const [bookingRes, paymentsRes] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select("*, booking_requests(*), booking_participants(*)")
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string)
+      .single(),
+    supabase
+      .from("payments")
+      .select("id, title, amount, currency, status, stripe_invoice_url, created_at")
+      .eq("booking_id", params.id)
+      .order("created_at", { ascending: false }),
+  ]);
 
-  if (!booking) return redirect("/office", { headers });
+  if (!bookingRes.data) return redirect("/office", { headers });
 
   return Response.json(
     {
-      booking,
+      booking: bookingRes.data,
+      payments: paymentsRes.data ?? [],
       profileId: profile.id as string,
-      userEmail: profile.email as string ?? user.email ?? "",
+      userEmail: (profile.email as string) ?? user.email ?? "",
     },
     { headers }
   );
@@ -86,7 +100,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
 export async function action({ request, params }: Route.ActionArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
-
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
@@ -106,16 +119,72 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ ok: true }, { headers });
   }
 
+  if (intent === "send_proposal") {
+    const rate = parseFloat(formData.get("rate") as string) || null;
+    const currency = (formData.get("currency") as string) || "EUR";
+    const message = (formData.get("message") as string) || "";
+    const requireHotel = formData.get("require_hotel") === "true";
+
+    const { error } = await supabase
+      .from("bookings")
+      .update({ rate, currency, require_hotel: requireHotel, status: "pending" })
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string);
+
+    if (error) return Response.json({ error: error.message }, { status: 500, headers });
+
+    // Look up buyer email from booking_request → from_profile_id
+    try {
+      const { data: req } = await supabase
+        .from("booking_requests")
+        .select("from_profile_id, service")
+        .eq("booking_id", params.id)
+        .limit(1)
+        .maybeSingle();
+
+      if (req?.from_profile_id) {
+        const { data: buyer } = await supabase
+          .from("profiles")
+          .select("email, name")
+          .eq("id", req.from_profile_id)
+          .maybeSingle();
+
+        if (buyer?.email) {
+          const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+          const { Resend } = await import("resend");
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          await resend.emails.send({
+            from: "SQRZ <bookings@sqrz.com>",
+            to: buyer.email,
+            subject: "You have a new proposal on SQRZ",
+            html: `
+              <p>Hi ${buyer.name ?? "there"},</p>
+              <p>You have received a proposal for your booking request.</p>
+              <p><strong>Rate:</strong> ${sym}${rate?.toLocaleString() ?? "TBD"}</p>
+              ${message ? `<p><strong>Note:</strong> ${message}</p>` : ""}
+              <p><a href="https://dashboard.sqrz.com/booking/${params.id}">View booking →</a></p>
+              <p>The SQRZ Team</p>
+            `,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[proposal] email send failed:", err);
+    }
+
+    return Response.json({ ok: true }, { headers });
+  }
+
   if (intent === "invite_team_member") {
     const name  = ((formData.get("name")  as string) ?? "").trim();
     const email = ((formData.get("email") as string) ?? "").trim().toLowerCase();
     const role  = ((formData.get("role")  as string) ?? "").trim();
+    const pay   = parseFloat(formData.get("pay") as string) || null;
 
     if (!email.includes("@")) {
       return Response.json({ error: "Invalid email" }, { status: 400, headers });
     }
 
-    // 1. Create or find guest profile
     const { data: existing } = await supabase
       .from("profiles")
       .select("id")
@@ -127,57 +196,34 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (!guestProfileId) {
       const { data: newProfile } = await supabase
         .from("profiles")
-        .insert({
-          email,
-          name,
-          user_type: "guest",
-          is_published: false,
-          created_by: "team_invite",
-        })
+        .insert({ email, name, user_type: "guest", is_published: false, created_by: "team_invite" })
         .select("id")
         .single();
       guestProfileId = newProfile?.id ?? null;
     }
 
-    // 2. Create booking_participant row with invite token
     const inviteToken = crypto.randomUUID();
     const { data: participant, error: participantError } = await supabase
       .from("booking_participants")
-      .insert({
-        booking_id: params.id,
-        user_id: null,
-        name,
-        email,
-        role,
-        is_admin: false,
-        invite_token: inviteToken,
-      })
+      .insert({ booking_id: params.id, user_id: null, name, email, role, pay, is_admin: false, invite_token: inviteToken })
       .select()
       .single();
-
-    console.log("[invite] participant created:", participant);
-    console.log("[invite] participant error:", participantError);
 
     if (participantError) {
       return Response.json({ error: participantError.message }, { status: 500, headers });
     }
 
-    // 3. Generate magic link + send invite email via Resend
+    console.log("[invite] participant:", participant?.id);
+
     try {
       const admin = createSupabaseAdminClient();
       const next = encodeURIComponent(`/booking/${params.id}?token=${inviteToken}`);
       const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
-      const { data: linkData, error: linkError } = await admin.auth.admin.generateLink({
+      const { data: linkData } = await admin.auth.admin.generateLink({
         type: "magiclink",
         email,
         options: { redirectTo },
       });
-
-      console.log("[invite] linkError:", linkError);
-      console.log("[invite] action_link:", linkData?.properties?.action_link);
-      console.log("[invite] redirectTo used:", redirectTo);
-
-      const actionLink = linkData?.properties?.action_link;
 
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
@@ -188,7 +234,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         html: `
           <p>Hi ${name},</p>
           <p>You've been invited to collaborate on a booking.</p>
-          <p><a href="${actionLink}">Click here to access the booking</a></p>
+          <p><a href="${linkData?.properties?.action_link}">Click here to access the booking</a></p>
           <p>The SQRZ Team</p>
         `,
       });
@@ -202,15 +248,12 @@ export async function action({ request, params }: Route.ActionArgs) {
   return Response.json({ ok: true }, { headers });
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers + tokens ─────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-US", {
-    weekday: "short",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
+    weekday: "short", month: "long", day: "numeric", year: "numeric",
   });
 }
 
@@ -220,17 +263,23 @@ function formatRate(rate: number | null, currency: string | null): string {
   return `${sym}${rate.toLocaleString()}`;
 }
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+function currencySym(c: string | null) {
+  return c === "EUR" ? "€" : c === "GBP" ? "£" : "$";
+}
+
+const ACCENT = "#F5A623";
+const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
+const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 
 const card: React.CSSProperties = {
   background: "#1a1a1a",
   border: "1px solid rgba(255,255,255,0.07)",
   borderRadius: 12,
   padding: "16px 18px",
-  marginBottom: 16,
+  marginBottom: 14,
 };
 
-const sectionLabel: React.CSSProperties = {
+const label: React.CSSProperties = {
   color: "rgba(255,255,255,0.3)",
   fontSize: 11,
   fontWeight: 700,
@@ -239,13 +288,13 @@ const sectionLabel: React.CSSProperties = {
   margin: "0 0 4px",
 };
 
-const fieldValue: React.CSSProperties = {
+const val: React.CSSProperties = {
   color: "#fff",
   fontSize: 14,
   margin: 0,
 };
 
-const inviteInputStyle: React.CSSProperties = {
+const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
   background: "#111",
@@ -255,14 +304,13 @@ const inviteInputStyle: React.CSSProperties = {
   fontSize: 13,
   outline: "none",
   boxSizing: "border-box",
+  fontFamily: FONT_BODY,
 };
 
-const STATUS_OPTS = ["requested", "pending", "confirmed", "completed", "archived"] as const;
-
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  requested: { bg: "rgba(245,166,35,0.12)",  text: "#F5A623" },
-  pending:   { bg: "rgba(96,165,250,0.12)",  text: "#60a5fa" },
-  confirmed: { bg: "rgba(74,222,128,0.12)",  text: "#4ade80" },
+  requested: { bg: "rgba(245,166,35,0.12)", text: ACCENT },
+  pending:   { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
+  confirmed: { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
   completed: { bg: "rgba(255,255,255,0.06)", text: "rgba(255,255,255,0.4)" },
   archived:  { bg: "rgba(255,255,255,0.04)", text: "rgba(255,255,255,0.25)" },
 };
@@ -270,82 +318,53 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 function StatusBadge({ status }: { status: string }) {
   const c = STATUS_COLORS[status] ?? STATUS_COLORS.archived;
   return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "3px 10px",
-        borderRadius: 6,
-        fontSize: 12,
-        fontWeight: 600,
-        background: c.bg,
-        color: c.text,
-        textTransform: "capitalize",
-      }}
-    >
+    <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: c.bg, color: c.text, textTransform: "capitalize" }}>
       {status}
     </span>
   );
 }
 
-// ─── Tab: Details ─────────────────────────────────────────────────────────────
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 26, fontWeight: 800, color: ACCENT, textTransform: "uppercase", letterSpacing: "0.03em", margin: "0 0 16px", lineHeight: 1.1 }}>
+      {children}
+    </h2>
+  );
+}
 
-function DetailsTab({
-  booking,
-  profileId,
-}: {
-  booking: Booking;
-  profileId: string;
-}) {
-  const statusFetcher = useFetcher<{ ok?: boolean }>();
+// ─── Details section ──────────────────────────────────────────────────────────
+
+function DetailsSection({ booking }: { booking: Booking }) {
   const req = booking.booking_requests?.[0];
 
   return (
-    <div>
-      {/* Status */}
+    <section id="details" style={{ paddingBottom: 40 }}>
+      <SectionHeading>Details</SectionHeading>
+
+      {/* Status + service */}
       <div style={card}>
-        <p style={sectionLabel}>Status</p>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: booking.service ? 14 : 0 }}>
           <StatusBadge status={booking.status} />
-          <statusFetcher.Form method="post" style={{ marginLeft: "auto" }}>
-            <input type="hidden" name="intent" value="update_status" />
-            <select
-              name="status"
-              defaultValue={booking.status}
-              onChange={(e) =>
-                statusFetcher.submit(e.currentTarget.form!, { method: "post" })
-              }
-              style={{
-                background: "#111",
-                border: "1px solid rgba(255,255,255,0.1)",
-                borderRadius: 8,
-                color: "#fff",
-                fontSize: 13,
-                padding: "6px 10px",
-                cursor: "pointer",
-                outline: "none",
-              }}
-            >
-              {STATUS_OPTS.map((s) => (
-                <option key={s} value={s}>
-                  {s.charAt(0).toUpperCase() + s.slice(1)}
-                </option>
-              ))}
-            </select>
-          </statusFetcher.Form>
         </div>
+        {booking.service && (
+          <div>
+            <p style={label}>Service</p>
+            <p style={val}>{booking.service}</p>
+          </div>
+        )}
       </div>
 
       {/* Dates */}
       <div style={card}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
           <div>
-            <p style={sectionLabel}>Start date</p>
-            <p style={fieldValue}>{formatDate(booking.date_start)}</p>
+            <p style={label}>Start date</p>
+            <p style={val}>{formatDate(booking.date_start)}</p>
           </div>
           {booking.date_end && booking.date_end !== booking.date_start && (
             <div>
-              <p style={sectionLabel}>End date</p>
-              <p style={fieldValue}>{formatDate(booking.date_end)}</p>
+              <p style={label}>End date</p>
+              <p style={val}>{formatDate(booking.date_end)}</p>
             </div>
           )}
         </div>
@@ -354,37 +373,34 @@ function DetailsTab({
       {/* Location */}
       {(booking.city || booking.venue || booking.address) && (
         <div style={card}>
-          <p style={{ ...sectionLabel, marginBottom: 12 }}>Location</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: booking.address ? 14 : 0 }}>
             {booking.venue && (
               <div>
-                <p style={sectionLabel}>Venue</p>
-                <p style={fieldValue}>{booking.venue}</p>
+                <p style={label}>Venue</p>
+                <p style={val}>{booking.venue}</p>
               </div>
             )}
             {booking.city && (
               <div>
-                <p style={sectionLabel}>City</p>
-                <p style={fieldValue}>{booking.city}</p>
+                <p style={label}>City</p>
+                <p style={val}>{booking.city}</p>
               </div>
             )}
           </div>
           {booking.address && (
-            <div style={{ marginTop: 12 }}>
-              <p style={sectionLabel}>Address</p>
-              <p style={{ ...fieldValue, color: "rgba(255,255,255,0.7)", fontSize: 13 }}>
-                {booking.address}
-              </p>
+            <div>
+              <p style={label}>Address</p>
+              <p style={{ ...val, color: "rgba(255,255,255,0.6)", fontSize: 13 }}>{booking.address}</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Rate */}
-      {booking.rate && (
+      {/* Rate (if already set) */}
+      {booking.rate != null && (
         <div style={card}>
-          <p style={sectionLabel}>Rate</p>
-          <p style={{ ...fieldValue, color: "#F5A623", fontSize: 18, fontWeight: 700, marginTop: 4 }}>
+          <p style={label}>Agreed Rate</p>
+          <p style={{ ...val, color: ACCENT, fontSize: 18, fontWeight: 700, marginTop: 4 }}>
             {formatRate(booking.rate, booking.currency)}
           </p>
         </div>
@@ -393,411 +409,558 @@ function DetailsTab({
       {/* Original request */}
       {req && (
         <div style={card}>
-          <p style={{ ...sectionLabel, marginBottom: 12 }}>Original request</p>
+          <p style={{ ...label, marginBottom: 14 }}>Booking request</p>
           {req.service && (
             <div style={{ marginBottom: 12 }}>
-              <p style={sectionLabel}>Service</p>
-              <p style={fieldValue}>{req.service}</p>
+              <p style={label}>Service requested</p>
+              <p style={val}>{req.service}</p>
             </div>
           )}
           {(req.budget_min || req.budget_max) && (
             <div style={{ marginBottom: 12 }}>
-              <p style={sectionLabel}>Budget</p>
-              <p style={fieldValue}>
+              <p style={label}>Budget</p>
+              <p style={val}>
                 {[
                   req.budget_min ? formatRate(req.budget_min, req.currency ?? booking.currency) : null,
                   req.budget_max ? formatRate(req.budget_max, req.currency ?? booking.currency) : null,
-                ]
-                  .filter(Boolean)
-                  .join(" – ")}
+                ].filter(Boolean).join(" – ")}
               </p>
             </div>
           )}
           {req.message && (
             <div>
-              <p style={sectionLabel}>Message</p>
-              <p
-                style={{
-                  color: "rgba(255,255,255,0.7)",
-                  fontSize: 13,
-                  lineHeight: 1.65,
-                  margin: "6px 0 0",
-                  background: "#111",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  borderRadius: 10,
-                  padding: "12px 14px",
-                }}
-              >
+              <p style={label}>Message</p>
+              <p style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, lineHeight: 1.65, margin: "6px 0 0", background: "#111", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "12px 14px" }}>
                 {req.message}
               </p>
             </div>
           )}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-// ─── Tab: Team ────────────────────────────────────────────────────────────────
+// ─── Proposal section ─────────────────────────────────────────────────────────
 
-function TeamTab({
-  participants,
-  bookingId,
-}: {
-  participants: Participant[];
-  bookingId: string;
-}) {
-  const fetcher = useFetcher<{ ok?: boolean; invited?: string; error?: string }>();
-  const [showForm, setShowForm] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+function ProposalSection({ booking }: { booking: Booking }) {
+  const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const [form, setForm] = useState({
+    rate: String(booking.rate ?? ""),
+    currency: booking.currency ?? "EUR",
+    message: "",
+    require_travel: false,
+    require_hotel: booking.require_hotel ?? false,
+    require_food: false,
+  });
 
-  const payStatusColor = (s: string | null) =>
-    s === "paid" ? "#4ade80" : s === "pending" ? "#F5A623" : "rgba(255,255,255,0.3)";
-
-  const isSending = fetcher.state !== "idle";
-  const lastInvited = fetcher.state === "idle" && fetcher.data?.invited
-    ? fetcher.data.invited
-    : null;
-
-  // Reset + hide form after successful invite
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok && fetcher.data.invited) {
-      formRef.current?.reset();
-      setShowForm(false);
-    }
-  }, [fetcher.state, fetcher.data]);
+  const sent = fetcher.state === "idle" && fetcher.data?.ok;
 
   return (
-    <div>
-      {/* Participant list */}
-      {participants.length === 0 && !lastInvited ? (
-        <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
-          <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 14, margin: 0 }}>
-            No team members yet.
+    <section id="proposal" style={{ paddingBottom: 40 }}>
+      <SectionHeading>Proposal</SectionHeading>
+
+      {sent ? (
+        <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
+          <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
+            ✓ Proposal sent — booking is now pending.
           </p>
         </div>
       ) : (
-        participants.map((p) => (
-          <div key={p.id} style={{ ...card, display: "flex", alignItems: "center", gap: 14 }}>
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                background: "rgba(245,166,35,0.15)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                flexShrink: 0,
-              }}
-            >
-              👤
+        <div style={card}>
+          {/* Rate + currency */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 14 }}>
+            <div>
+              <p style={{ ...label, marginBottom: 6 }}>Your Rate</p>
+              <input
+                type="number"
+                style={inputStyle}
+                value={form.rate}
+                onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+                placeholder="1500"
+              />
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, margin: "0 0 1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {p.name ?? p.role ?? "Team member"}
-              </p>
-              {p.email && (
-                <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, margin: "0 0 1px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {p.email}
-                </p>
-              )}
-              {p.role && (
-                <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: 0 }}>
-                  {p.role}
-                </p>
-              )}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
-              {p.pay && (
-                <span style={{ color: "rgba(255,255,255,0.5)", fontSize: 12 }}>
-                  ${p.pay.toLocaleString()}
-                </span>
-              )}
-              {p.pay_status && (
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    color: payStatusColor(p.pay_status),
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {p.pay_status}
-                </span>
-              )}
+            <div>
+              <p style={{ ...label, marginBottom: 6 }}>Currency</p>
+              <select
+                style={{ ...inputStyle }}
+                value={form.currency}
+                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+              >
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+                <option value="GBP">GBP</option>
+              </select>
             </div>
           </div>
-        ))
-      )}
 
-      {/* Success message */}
+          {/* Message */}
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ ...label, marginBottom: 6 }}>Message (optional)</p>
+            <textarea
+              rows={3}
+              style={{ ...inputStyle, resize: "vertical" }}
+              value={form.message}
+              onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+              placeholder="Add a note to your proposal…"
+            />
+          </div>
+
+          {/* Rider checkboxes */}
+          <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+            {(
+              [
+                { key: "require_travel", label: "Require Travel" },
+                { key: "require_hotel", label: "Require Hotel" },
+                { key: "require_food", label: "Require Food" },
+              ] as const
+            ).map(({ key, label: lbl }) => (
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "rgba(255,255,255,0.7)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                <input
+                  type="checkbox"
+                  checked={form[key]}
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
+                  style={{ accentColor: ACCENT, width: 15, height: 15 }}
+                />
+                {lbl}
+              </label>
+            ))}
+          </div>
+
+          {fetcher.data?.error && (
+            <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
+          )}
+
+          {/* Send button */}
+          <button
+            onClick={() => {
+              const fd = new FormData();
+              fd.append("intent", "send_proposal");
+              fd.append("rate", form.rate);
+              fd.append("currency", form.currency);
+              fd.append("message", form.message);
+              fd.append("require_hotel", String(form.require_hotel));
+              fetcher.submit(fd, { method: "post" });
+            }}
+            disabled={fetcher.state !== "idle"}
+            style={{
+              width: "100%",
+              padding: "13px",
+              background: ACCENT,
+              color: "#111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: fetcher.state !== "idle" ? "default" : "pointer",
+              opacity: fetcher.state !== "idle" ? 0.7 : 1,
+              fontFamily: FONT_BODY,
+              marginBottom: 12,
+            }}
+          >
+            {fetcher.state !== "idle" ? "Sending…" : "Send Proposal"}
+          </button>
+
+          {/* Beta payment link */}
+          <p style={{ margin: 0, textAlign: "center" }}>
+            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.2)", cursor: "not-allowed", fontFamily: FONT_BODY }}>
+              Secure Deal with Payment (Beta) — coming soon
+            </span>
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ─── Team section ─────────────────────────────────────────────────────────────
+
+function TeamSection({ participants, bookingId }: { participants: Participant[]; bookingId: string }) {
+  const fetcher = useFetcher<{ ok?: boolean; invited?: string; error?: string }>();
+  const formRef = useRef<HTMLFormElement>(null);
+  const isSending = fetcher.state !== "idle";
+  const lastInvited = fetcher.state === "idle" && fetcher.data?.invited ? fetcher.data.invited : null;
+
+  useEffect(() => {
+    if (fetcher.state === "idle" && fetcher.data?.ok && fetcher.data.invited) {
+      formRef.current?.reset();
+    }
+  }, [fetcher.state, fetcher.data]);
+
+  const payStatusColor = (s: string | null) =>
+    s === "paid" ? "#4ade80" : s === "pending" ? ACCENT : "rgba(255,255,255,0.3)";
+
+  return (
+    <section id="team" style={{ paddingBottom: 40 }}>
+      <SectionHeading>Team</SectionHeading>
+
+      {/* Invite form */}
+      <div style={{ ...card, border: "1px solid rgba(245,166,35,0.2)", marginBottom: 16 }}>
+        <p style={{ ...label, marginBottom: 14 }}>Invite participant</p>
+        <fetcher.Form ref={formRef} method="post">
+          <input type="hidden" name="intent" value="invite_team_member" />
+          <input type="hidden" name="booking_id" value={bookingId} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <p style={{ ...label, marginBottom: 5 }}>Name</p>
+              <input name="name" type="text" placeholder="Alex Smith" required style={inputStyle} />
+            </div>
+            <div>
+              <p style={{ ...label, marginBottom: 5 }}>Email</p>
+              <input name="email" type="email" placeholder="alex@example.com" required style={inputStyle} />
+            </div>
+            <div>
+              <p style={{ ...label, marginBottom: 5 }}>Role</p>
+              <input name="role" type="text" placeholder="Audio Engineer" style={inputStyle} />
+            </div>
+            <div>
+              <p style={{ ...label, marginBottom: 5 }}>Pay</p>
+              <input name="pay" type="number" placeholder="500" style={inputStyle} />
+            </div>
+          </div>
+          {fetcher.data?.error && (
+            <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 10px" }}>{fetcher.data.error}</p>
+          )}
+          <button
+            type="submit"
+            disabled={isSending}
+            style={{
+              display: "block",
+              margin: "4px auto 0",
+              padding: "11px 28px",
+              background: ACCENT,
+              color: "#111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: isSending ? "default" : "pointer",
+              opacity: isSending ? 0.6 : 1,
+              fontFamily: FONT_BODY,
+            }}
+          >
+            {isSending ? "Inviting…" : "Invite Participant"}
+          </button>
+        </fetcher.Form>
+      </div>
+
+      {/* Success toast */}
       {lastInvited && (
-        <div
-          style={{
-            background: "rgba(74,222,128,0.08)",
-            border: "1px solid rgba(74,222,128,0.25)",
-            borderRadius: 10,
-            padding: "10px 14px",
-            marginBottom: 12,
-            fontSize: 13,
-            color: "#4ade80",
-          }}
-        >
+        <div style={{ background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#4ade80" }}>
           ✓ Invite sent to {lastInvited}
         </div>
       )}
 
-      {/* Invite button */}
-      {!showForm && (
-        <button
-          onClick={() => setShowForm(true)}
-          style={{
-            width: "100%",
-            padding: "12px",
-            background: "transparent",
-            border: "1px dashed rgba(245,166,35,0.35)",
-            borderRadius: 12,
-            color: "#F5A623",
-            fontSize: 13,
-            fontWeight: 600,
-            cursor: "pointer",
-            letterSpacing: "0.02em",
-          }}
-        >
-          + Invite team member
-        </button>
-      )}
-
-      {/* Inline invite form */}
-      {showForm && (
-        <div
-          style={{
-            ...card,
-            border: "1px solid rgba(245,166,35,0.25)",
-            marginBottom: 0,
-          }}
-        >
-          <p style={{ ...sectionLabel, marginBottom: 14 }}>Invite team member</p>
-
-          <fetcher.Form ref={formRef} method="post">
-            <input type="hidden" name="intent" value="invite_team_member" />
-            <input type="hidden" name="booking_id" value={bookingId} />
-
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ ...sectionLabel, display: "block", marginBottom: 6 }}>Name</label>
-              <input
-                name="name"
-                type="text"
-                placeholder="Alex Smith"
-                required
-                style={inviteInputStyle}
-              />
+      {/* Participant cards */}
+      {participants.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "28px 24px", color: "rgba(255,255,255,0.2)", fontSize: 14 }}>
+          No participants yet.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+          {participants.map((p) => (
+            <div key={p.id} style={{ ...card, marginBottom: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(245,166,35,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>
+                  👤
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ color: "#fff", fontSize: 13, fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {p.name ?? "Team member"}
+                  </p>
+                  {p.role && (
+                    <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.role}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {p.pay_status && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: payStatusColor(p.pay_status), textTransform: "capitalize" }}>
+                  {p.pay_status}
+                  {p.pay ? ` · ${currencySym(null)}${p.pay.toLocaleString()}` : ""}
+                </span>
+              )}
+              <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
+                <button style={{ flex: 1, padding: "6px 0", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 7, fontSize: 11, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                  Message
+                </button>
+                <button style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, fontSize: 11, color: "rgba(255,255,255,0.35)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                  Invoice
+                </button>
+              </div>
             </div>
-
-            <div style={{ marginBottom: 10 }}>
-              <label style={{ ...sectionLabel, display: "block", marginBottom: 6 }}>Email</label>
-              <input
-                name="email"
-                type="email"
-                placeholder="alex@example.com"
-                required
-                style={inviteInputStyle}
-              />
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ ...sectionLabel, display: "block", marginBottom: 6 }}>Role</label>
-              <input
-                name="role"
-                type="text"
-                placeholder="e.g. Audio Engineer, Light Tech"
-                style={inviteInputStyle}
-              />
-            </div>
-
-            {fetcher.data?.error && (
-              <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 10px" }}>
-                {fetcher.data.error}
-              </p>
-            )}
-
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="submit"
-                disabled={isSending}
-                style={{
-                  flex: 1,
-                  padding: "11px",
-                  background: "#F5A623",
-                  color: "#111",
-                  border: "none",
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: isSending ? "default" : "pointer",
-                  opacity: isSending ? 0.6 : 1,
-                }}
-              >
-                {isSending ? "Sending…" : "Send Invite"}
-              </button>
-              <button
-                type="button"
-                onClick={() => { setShowForm(false); formRef.current?.reset(); }}
-                style={{
-                  padding: "11px 16px",
-                  background: "rgba(255,255,255,0.06)",
-                  color: "rgba(255,255,255,0.5)",
-                  border: "1px solid rgba(255,255,255,0.1)",
-                  borderRadius: 10,
-                  fontSize: 13,
-                  cursor: "pointer",
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </fetcher.Form>
+          ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-// ─── Tab: Payments ────────────────────────────────────────────────────────────
+// ─── Payments section ─────────────────────────────────────────────────────────
 
-function PaymentsTab() {
+function PaymentsSection({ payments }: { payments: Payment[] }) {
   return (
-    <div
-      style={{
-        ...card,
-        textAlign: "center",
-        padding: "48px 24px",
-      }}
-    >
-      <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.4 }}>💳</div>
-      <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 14, margin: 0 }}>
-        Payments — coming soon
-      </p>
-    </div>
+    <section id="payments" style={{ paddingBottom: 40 }}>
+      <SectionHeading>Payments</SectionHeading>
+
+      {payments.length === 0 ? (
+        <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
+          <p style={{ color: "rgba(255,255,255,0.2)", fontSize: 14, margin: 0 }}>No invoices yet.</p>
+        </div>
+      ) : (
+        payments.map((p) => {
+          const isPaid = p.status === "paid";
+          const isPending = p.status === "pending";
+          const statusColor = isPaid ? ACCENT : isPending ? "#facc15" : "rgba(255,255,255,0.3)";
+          return (
+            <div key={p.id} style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ color: "#fff", fontSize: 14, fontWeight: 600, margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  Invoice: {p.title ?? "—"}
+                </p>
+                {p.amount != null && (
+                  <p style={{ color: ACCENT, fontSize: 13, fontWeight: 600, margin: 0 }}>
+                    {currencySym(p.currency)}{p.amount.toLocaleString()}
+                  </p>
+                )}
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "capitalize", color: statusColor, padding: "3px 8px", borderRadius: 6, border: `1px solid ${statusColor}30`, background: `${statusColor}12`, flexShrink: 0 }}>
+                {p.status ?? "unknown"}
+              </span>
+              {p.stripe_invoice_url ? (
+                <a
+                  href={p.stripe_invoice_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textDecoration: "none", padding: "6px 10px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, display: "flex", alignItems: "center", gap: 4, flexShrink: 0, fontFamily: FONT_BODY }}
+                >
+                  Invoice ↗
+                </a>
+              ) : (
+                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.15)", padding: "6px 10px", flexShrink: 0 }}>
+                  Invoice ↗
+                </span>
+              )}
+            </div>
+          );
+        })
+      )}
+    </section>
+  );
+}
+
+// ─── Actions section ──────────────────────────────────────────────────────────
+
+function ActionsSection({ booking }: { booking: Booking }) {
+  const fetcher = useFetcher();
+
+  function submitStatus(status: string) {
+    const fd = new FormData();
+    fd.append("intent", "update_status");
+    fd.append("status", status);
+    fetcher.submit(fd, { method: "post" });
+  }
+
+  const isRequested = booking.status === "requested";
+  const actionLink: React.CSSProperties = {
+    background: "none",
+    border: "none",
+    color: ACCENT,
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: "pointer",
+    padding: "10px 0",
+    fontFamily: FONT_BODY,
+    textAlign: "left",
+    display: "block",
+    width: "100%",
+    borderBottom: "1px solid rgba(255,255,255,0.05)",
+  };
+
+  return (
+    <section id="actions" style={{ paddingBottom: 80 }}>
+      <SectionHeading>Actions</SectionHeading>
+      <div style={card}>
+        {isRequested ? (
+          <>
+            <button
+              style={actionLink}
+              onClick={() => {
+                const el = document.getElementById("proposal");
+                if (!el) return;
+                const top = el.getBoundingClientRect().top + window.scrollY - 120;
+                window.scrollTo({ top, behavior: "smooth" });
+              }}
+            >
+              Send Proposal →
+            </button>
+            <button
+              style={{ ...actionLink, color: "rgba(255,255,255,0.35)", borderBottom: "none" }}
+              onClick={() => submitStatus("archived")}
+              disabled={fetcher.state !== "idle"}
+            >
+              Decline Request
+            </button>
+          </>
+        ) : (
+          <>
+            {booking.status !== "confirmed" && (
+              <button style={actionLink} onClick={() => submitStatus("confirmed")} disabled={fetcher.state !== "idle"}>
+                Mark Confirmed
+              </button>
+            )}
+            {booking.status !== "completed" && (
+              <button
+                style={{ ...actionLink, borderBottom: booking.status !== "archived" ? undefined : "none" }}
+                onClick={() => submitStatus("completed")}
+                disabled={fetcher.state !== "idle"}
+              >
+                Mark Completed
+              </button>
+            )}
+            {booking.status !== "archived" && (
+              <button
+                style={{ ...actionLink, color: "rgba(255,255,255,0.35)", borderBottom: "none" }}
+                onClick={() => submitStatus("archived")}
+                disabled={fetcher.state !== "idle"}
+              >
+                Archive
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const TABS = ["Details", "Team", "Payments"] as const;
-type Tab = (typeof TABS)[number];
-
 export default function BookingDetailPage() {
-  const { booking, profileId, userEmail } =
-    useLoaderData<typeof loader>();
-  const [activeTab, setActiveTab] = useState<Tab>("Details");
-
+  const { booking, payments, profileId, userEmail } = useLoaderData<typeof loader>();
   const b = booking as unknown as Booking;
+  const isRequested = b.status === "requested";
+
+  const sections = isRequested
+    ? [
+        { id: "details",  label: "Details" },
+        { id: "proposal", label: "Proposal" },
+        { id: "actions",  label: "Actions" },
+      ]
+    : [
+        { id: "details",  label: "Details" },
+        { id: "team",     label: "Team" },
+        { id: "payments", label: "Payments" },
+        { id: "actions",  label: "Actions" },
+      ];
+
+  const [activeSection, setActiveSection] = useState(sections[0].id);
+
+  // Scrollspy via scroll listener
+  useEffect(() => {
+    const OFFSET = 120;
+    function onScroll() {
+      let current = sections[0].id;
+      for (const { id } of sections) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= OFFSET) {
+          current = id;
+        }
+      }
+      setActiveSection(current);
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isRequested]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function scrollToSection(id: string) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY - 116;
+    window.scrollTo({ top, behavior: "smooth" });
+  }
 
   return (
-    <div
-      style={{
-        maxWidth: 720,
-        margin: "0 auto",
-        padding: "28px 24px",
-        fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-      }}
-    >
-      {/* Back link */}
-      <Link
-        to="/office"
+    <div style={{ maxWidth: 720, margin: "0 auto", fontFamily: FONT_BODY }}>
+      {/* Sticky section nav */}
+      <div
         style={{
-          color: "rgba(255,255,255,0.35)",
-          fontSize: 13,
-          textDecoration: "none",
-          display: "inline-block",
-          marginBottom: 20,
+          position: "sticky",
+          top: 56,
+          zIndex: 20,
+          background: "var(--bg)",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          display: "flex",
+          alignItems: "center",
+          gap: 0,
+          padding: "0 24px",
         }}
       >
-        ← Back to pipeline
-      </Link>
-
-      {/* Header */}
-      <div style={{ marginBottom: 24 }}>
-        <h1
-          style={{
-            color: "#fff",
-            fontSize: 22,
-            fontWeight: 700,
-            margin: "0 0 8px",
-            lineHeight: 1.3,
-          }}
+        <Link
+          to="/office"
+          style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textDecoration: "none", paddingRight: 20, borderRight: "1px solid rgba(255,255,255,0.08)", marginRight: 12, lineHeight: "50px" }}
         >
+          ← Back
+        </Link>
+        {sections.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => scrollToSection(id)}
+            style={{
+              background: "none",
+              border: "none",
+              borderBottom: activeSection === id ? `2px solid ${ACCENT}` : "2px solid transparent",
+              color: activeSection === id ? ACCENT : "rgba(255,255,255,0.4)",
+              fontSize: 13,
+              fontWeight: activeSection === id ? 700 : 500,
+              padding: "14px 14px",
+              cursor: "pointer",
+              transition: "color 0.15s",
+              fontFamily: FONT_BODY,
+              lineHeight: "22px",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Page header */}
+      <div style={{ padding: "28px 24px 8px" }}>
+        <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
           {b.title ?? b.service ?? "Booking"}
         </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <StatusBadge status={b.status} />
           {b.city && (
-            <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>
-              📍 {b.city}
-            </span>
+            <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>📍 {b.city}</span>
           )}
           {b.date_start && (
             <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>
-              {new Date(b.date_start).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
+              {new Date(b.date_start).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </span>
           )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div
-        style={{
-          display: "flex",
-          gap: 0,
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
-          marginBottom: 24,
-        }}
-      >
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              background: "none",
-              border: "none",
-              borderBottom: activeTab === tab
-                ? "2px solid #F5A623"
-                : "2px solid transparent",
-              color: activeTab === tab ? "#F5A623" : "rgba(255,255,255,0.4)",
-              fontSize: 13,
-              fontWeight: activeTab === tab ? 700 : 500,
-              padding: "10px 16px",
-              cursor: "pointer",
-              transition: "color 0.15s",
-              marginBottom: -1,
-            }}
-          >
-            {tab}
-          </button>
-        ))}
+      {/* Sections */}
+      <div style={{ padding: "24px 24px 0" }}>
+        <DetailsSection booking={b} />
+
+        {isRequested && <ProposalSection booking={b} />}
+
+        {!isRequested && (
+          <>
+            <TeamSection participants={b.booking_participants} bookingId={b.id} />
+            <PaymentsSection payments={payments as unknown as Payment[]} />
+          </>
+        )}
+
+        <ActionsSection booking={b} />
       </div>
 
-      {/* Tab content */}
-      {activeTab === "Details" && (
-        <DetailsTab booking={b} profileId={profileId as string} />
-      )}
-      {activeTab === "Team" && (
-        <TeamTab participants={b.booking_participants} bookingId={b.id} />
-      )}
-      {activeTab === "Payments" && <PaymentsTab />}
-
-      <BookingChat
-        bookingId={b.id}
-        currentUserEmail={userEmail}
-        isOwner={true}
-      />
+      <BookingChat bookingId={b.id} currentUserEmail={userEmail} isOwner={true} />
     </div>
   );
 }
