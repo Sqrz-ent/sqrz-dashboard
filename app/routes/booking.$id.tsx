@@ -145,29 +145,29 @@ export default function BookingAccessPage() {
   return (
     <div
       style={{
-        background: "#111111",
+        background: "var(--bg)",
         minHeight: "100vh",
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-        color: "#e5e7eb",
+        color: "var(--text)",
       }}
     >
       {/* Top bar */}
       <div
         style={{
           padding: "16px 24px",
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
         }}
       >
-        <span style={{ color: "#ffffff", fontSize: 15, fontWeight: 800, letterSpacing: "0.2em" }}>
+        <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 800, letterSpacing: "0.2em" }}>
           [<span style={{ color: "#F5A623" }}> SQRZ </span>]
         </span>
         {accessType === "authenticated" && (
           <a
             href="/"
-            style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, textDecoration: "none" }}
+            style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}
           >
             ← Dashboard
           </a>
@@ -187,7 +187,7 @@ export default function BookingAccessPage() {
             gap: 16,
           }}
         >
-          <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, margin: 0 }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
             You're viewing this booking as a guest.
           </p>
           <a
@@ -208,7 +208,7 @@ export default function BookingAccessPage() {
       {/* Content */}
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px" }}>
         {!b ? (
-          <p style={{ color: "rgba(255,255,255,0.4)", textAlign: "center" }}>Booking not found.</p>
+          <p style={{ color: "var(--text-muted)", textAlign: "center" }}>Booking not found.</p>
         ) : (
           <>
             {/* Header */}
@@ -216,17 +216,17 @@ export default function BookingAccessPage() {
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
                 <StatusBadge status={(b.status as string) ?? "pending"} />
               </div>
-              <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: "0 0 6px" }}>
+              <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 6px" }}>
                 {(b.title as string) ?? (b.service as string) ?? "Booking"}
               </h1>
               <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {(b.date_start as string) && (
-                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
                     📅 {formatDate(b.date_start as string)}
                   </span>
                 )}
                 {(b.city as string) && (
-                  <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
                     📍 {b.city as string}{b.venue ? `, ${b.venue}` : ""}
                   </span>
                 )}
@@ -236,8 +236,8 @@ export default function BookingAccessPage() {
             {/* Details card */}
             <div
               style={{
-                background: "#1a1a1a",
-                border: "1px solid rgba(255,255,255,0.07)",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
                 borderRadius: 16,
                 padding: "20px 22px",
                 marginBottom: 20,
@@ -246,13 +246,13 @@ export default function BookingAccessPage() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
                 {(b.service as string) && (
                   <div>
-                    <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Service</p>
-                    <p style={{ color: "#fff", fontSize: 14, margin: 0 }}>{b.service as string}</p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Service</p>
+                    <p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.service as string}</p>
                   </div>
                 )}
                 {(b.rate as number) && (
                   <div>
-                    <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Rate</p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Rate</p>
                     <p style={{ color: "#F5A623", fontSize: 14, fontWeight: 700, margin: 0 }}>
                       {formatRate(b.rate as number, b.currency as string)}
                     </p>
@@ -260,22 +260,22 @@ export default function BookingAccessPage() {
                 )}
                 {(b.venue as string) && (
                   <div>
-                    <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Venue</p>
-                    <p style={{ color: "#fff", fontSize: 14, margin: 0 }}>{b.venue as string}</p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Venue</p>
+                    <p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue as string}</p>
                   </div>
                 )}
                 {(b.city as string) && (
                   <div>
-                    <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>City</p>
-                    <p style={{ color: "#fff", fontSize: 14, margin: 0 }}>{b.city as string}</p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>City</p>
+                    <p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.city as string}</p>
                   </div>
                 )}
               </div>
 
               {(req?.message as string | null) && (
-                <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                  <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Message</p>
-                  <p style={{ color: "rgba(255,255,255,0.7)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>
+                <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+                  <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Message</p>
+                  <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>
                     {req?.message as string}
                   </p>
                 </div>

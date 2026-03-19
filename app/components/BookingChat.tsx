@@ -168,8 +168,8 @@ export default function BookingChat({
 
   // ── Styles ───────────────────────────────────────────────────────────────────
   const accent = "#F5A623";
-  const dark = "#111111";
-  const panelBg = "#1a1a1a";
+  const dark = "var(--surface)";
+  const panelBg = "var(--surface)";
   const fontFamily =
     "'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif";
 
@@ -185,7 +185,7 @@ export default function BookingChat({
             width: 320,
             height: 480,
             background: panelBg,
-            border: "1px solid rgba(255,255,255,0.1)",
+            border: "1px solid var(--border)",
             borderRadius: 16,
             zIndex: 1000,
             display: "flex",
@@ -199,7 +199,7 @@ export default function BookingChat({
           <div
             style={{
               padding: "14px 16px",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              borderBottom: "1px solid var(--border)",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
@@ -208,7 +208,7 @@ export default function BookingChat({
           >
             <span
               style={{
-                color: "#fff",
+                color: "var(--text)",
                 fontSize: 14,
                 fontWeight: 700,
                 letterSpacing: "0.01em",
@@ -221,7 +221,7 @@ export default function BookingChat({
               style={{
                 background: "none",
                 border: "none",
-                color: "rgba(255,255,255,0.4)",
+                color: "var(--text-muted)",
                 fontSize: 18,
                 cursor: "pointer",
                 padding: "0 2px",
@@ -239,7 +239,7 @@ export default function BookingChat({
               style={{
                 display: "flex",
                 gap: 0,
-                borderBottom: "1px solid rgba(255,255,255,0.08)",
+                borderBottom: "1px solid var(--border)",
                 flexShrink: 0,
                 overflowX: "auto",
               }}
@@ -258,7 +258,7 @@ export default function BookingChat({
                     color:
                       activeChannelId === ch.id
                         ? accent
-                        : "rgba(255,255,255,0.4)",
+                        : "var(--text-muted)",
                     fontSize: 12,
                     fontWeight: activeChannelId === ch.id ? 700 : 500,
                     padding: "8px 14px",
@@ -279,7 +279,7 @@ export default function BookingChat({
             <div
               style={{
                 padding: "6px 12px",
-                borderBottom: "1px solid rgba(255,255,255,0.05)",
+                borderBottom: "1px solid var(--border)",
                 flexShrink: 0,
               }}
             >
@@ -315,7 +315,7 @@ export default function BookingChat({
             {messages.length === 0 ? (
               <p
                 style={{
-                  color: "rgba(255,255,255,0.2)",
+                  color: "var(--text-muted)",
                   fontSize: 12,
                   textAlign: "center",
                   margin: "auto",
@@ -347,10 +347,10 @@ export default function BookingChat({
                       style={{
                         maxWidth: "78%",
                         background: isMine ? accent : dark,
-                        color: isMine ? "#111" : "rgba(255,255,255,0.85)",
+                        color: isMine ? "#111" : "var(--text)",
                         border: isMine
                           ? "none"
-                          : "1px solid rgba(255,255,255,0.07)",
+                          : "1px solid var(--border)",
                         borderRadius: isMine
                           ? "14px 14px 4px 14px"
                           : "14px 14px 14px 4px",
@@ -364,7 +364,7 @@ export default function BookingChat({
                           style={{
                             fontSize: 10,
                             fontWeight: 700,
-                            color: "rgba(255,255,255,0.4)",
+                            color: "var(--text-muted)",
                             margin: "0 0 3px",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
@@ -400,7 +400,7 @@ export default function BookingChat({
           <div
             style={{
               padding: "10px 12px",
-              borderTop: "1px solid rgba(255,255,255,0.08)",
+              borderTop: "1px solid var(--border)",
               display: "flex",
               gap: 8,
               flexShrink: 0,
@@ -419,11 +419,11 @@ export default function BookingChat({
               disabled={sending}
               style={{
                 flex: 1,
-                background: "#0e0e0e",
-                border: "1px solid rgba(255,255,255,0.1)",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
                 borderRadius: 9,
                 padding: "9px 11px",
-                color: "#fff",
+                color: "var(--text)",
                 fontSize: 12,
                 outline: "none",
                 fontFamily,
@@ -487,7 +487,7 @@ export default function BookingChat({
               width: 18,
               height: 18,
               background: "#ef4444",
-              color: "#fff",
+              color: "var(--text)",
               fontSize: 10,
               fontWeight: 700,
               borderRadius: "50%",

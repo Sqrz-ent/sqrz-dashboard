@@ -272,15 +272,15 @@ const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 
 const card: React.CSSProperties = {
-  background: "#1a1a1a",
-  border: "1px solid rgba(255,255,255,0.07)",
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
   borderRadius: 12,
   padding: "16px 18px",
   marginBottom: 14,
 };
 
 const label: React.CSSProperties = {
-  color: "rgba(255,255,255,0.3)",
+  color: "var(--text-muted)",
   fontSize: 11,
   fontWeight: 700,
   textTransform: "uppercase",
@@ -289,7 +289,7 @@ const label: React.CSSProperties = {
 };
 
 const val: React.CSSProperties = {
-  color: "#fff",
+  color: "var(--text)",
   fontSize: 14,
   margin: 0,
 };
@@ -297,10 +297,10 @@ const val: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
-  background: "#111",
-  border: "1px solid rgba(255,255,255,0.1)",
+  background: "var(--surface)",
+  border: "1px solid var(--border)",
   borderRadius: 9,
-  color: "#fff",
+  color: "var(--text)",
   fontSize: 13,
   outline: "none",
   boxSizing: "border-box",
@@ -390,7 +390,7 @@ function DetailsSection({ booking }: { booking: Booking }) {
           {booking.address && (
             <div>
               <p style={label}>Address</p>
-              <p style={{ ...val, color: "rgba(255,255,255,0.6)", fontSize: 13 }}>{booking.address}</p>
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{booking.address}</p>
             </div>
           )}
         </div>
@@ -430,7 +430,7 @@ function DetailsSection({ booking }: { booking: Booking }) {
           {req.message && (
             <div>
               <p style={label}>Message</p>
-              <p style={{ color: "rgba(255,255,255,0.65)", fontSize: 13, lineHeight: 1.65, margin: "6px 0 0", background: "#111", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "12px 14px" }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: "6px 0 0", background: "#111", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
                 {req.message}
               </p>
             </div>
@@ -515,7 +515,7 @@ function ProposalSection({ booking }: { booking: Booking }) {
                 { key: "require_food", label: "Require Food" },
               ] as const
             ).map(({ key, label: lbl }) => (
-              <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "rgba(255,255,255,0.7)", cursor: "pointer", fontFamily: FONT_BODY }}>
+              <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>
                 <input
                   type="checkbox"
                   checked={form[key]}
@@ -563,7 +563,7 @@ function ProposalSection({ booking }: { booking: Booking }) {
 
           {/* Beta payment link */}
           <p style={{ margin: 0, textAlign: "center" }}>
-            <span style={{ fontSize: 12, color: "rgba(255,255,255,0.2)", cursor: "not-allowed", fontFamily: FONT_BODY }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)", cursor: "not-allowed", fontFamily: FONT_BODY }}>
               Secure Deal with Payment (Beta) — coming soon
             </span>
           </p>
@@ -653,7 +653,7 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
 
       {/* Participant cards */}
       {participants.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "28px 24px", color: "rgba(255,255,255,0.2)", fontSize: 14 }}>
+        <div style={{ textAlign: "center", padding: "28px 24px", color: "var(--text-muted)", fontSize: 14 }}>
           No participants yet.
         </div>
       ) : (
@@ -665,11 +665,11 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
                   👤
                 </div>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ color: "#fff", fontSize: 13, fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {p.name ?? "Team member"}
                   </p>
                   {p.role && (
-                    <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 11, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {p.role}
                     </p>
                   )}
@@ -682,10 +682,10 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
                 </span>
               )}
               <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-                <button style={{ flex: 1, padding: "6px 0", background: "rgba(255,255,255,0.06)", border: "none", borderRadius: 7, fontSize: 11, color: "rgba(255,255,255,0.5)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                <button style={{ flex: 1, padding: "6px 0", background: "var(--surface-muted)", border: "none", borderRadius: 7, fontSize: 11, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>
                   Message
                 </button>
-                <button style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, fontSize: 11, color: "rgba(255,255,255,0.35)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                <button style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px solid var(--border)", borderRadius: 7, fontSize: 11, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>
                   Invoice
                 </button>
               </div>
@@ -706,7 +706,7 @@ function PaymentsSection({ payments }: { payments: Payment[] }) {
 
       {payments.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
-          <p style={{ color: "rgba(255,255,255,0.2)", fontSize: 14, margin: 0 }}>No invoices yet.</p>
+          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No invoices yet.</p>
         </div>
       ) : (
         payments.map((p) => {
@@ -716,7 +716,7 @@ function PaymentsSection({ payments }: { payments: Payment[] }) {
           return (
             <div key={p.id} style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ color: "#fff", fontSize: 14, fontWeight: 600, margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   Invoice: {p.title ?? "—"}
                 </p>
                 {p.amount != null && (
@@ -733,12 +733,12 @@ function PaymentsSection({ payments }: { payments: Payment[] }) {
                   href={p.stripe_invoice_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, textDecoration: "none", padding: "6px 10px", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 7, display: "flex", alignItems: "center", gap: 4, flexShrink: 0, fontFamily: FONT_BODY }}
+                  style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none", padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 7, display: "flex", alignItems: "center", gap: 4, flexShrink: 0, fontFamily: FONT_BODY }}
                 >
                   Invoice ↗
                 </a>
               ) : (
-                <span style={{ fontSize: 12, color: "rgba(255,255,255,0.15)", padding: "6px 10px", flexShrink: 0 }}>
+                <span style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 10px", flexShrink: 0 }}>
                   Invoice ↗
                 </span>
               )}
@@ -775,7 +775,7 @@ function ActionsSection({ booking }: { booking: Booking }) {
     textAlign: "left",
     display: "block",
     width: "100%",
-    borderBottom: "1px solid rgba(255,255,255,0.05)",
+    borderBottom: "1px solid var(--border)",
   };
 
   return (
@@ -796,7 +796,7 @@ function ActionsSection({ booking }: { booking: Booking }) {
               Send Proposal →
             </button>
             <button
-              style={{ ...actionLink, color: "rgba(255,255,255,0.35)", borderBottom: "none" }}
+              style={{ ...actionLink, color: "var(--text-muted)", borderBottom: "none" }}
               onClick={() => submitStatus("archived")}
               disabled={fetcher.state !== "idle"}
             >
@@ -821,7 +821,7 @@ function ActionsSection({ booking }: { booking: Booking }) {
             )}
             {booking.status !== "archived" && (
               <button
-                style={{ ...actionLink, color: "rgba(255,255,255,0.35)", borderBottom: "none" }}
+                style={{ ...actionLink, color: "var(--text-muted)", borderBottom: "none" }}
                 onClick={() => submitStatus("archived")}
                 disabled={fetcher.state !== "idle"}
               >
@@ -890,7 +890,7 @@ export default function BookingDetailPage() {
           top: 56,
           zIndex: 20,
           background: "var(--bg)",
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          borderBottom: "1px solid var(--border)",
           display: "flex",
           alignItems: "center",
           gap: 0,
@@ -899,7 +899,7 @@ export default function BookingDetailPage() {
       >
         <Link
           to="/office"
-          style={{ color: "rgba(255,255,255,0.3)", fontSize: 13, textDecoration: "none", paddingRight: 20, borderRight: "1px solid rgba(255,255,255,0.08)", marginRight: 12, lineHeight: "50px" }}
+          style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none", paddingRight: 20, borderRight: "1px solid var(--border)", marginRight: 12, lineHeight: "50px" }}
         >
           ← Back
         </Link>
@@ -911,7 +911,7 @@ export default function BookingDetailPage() {
               background: "none",
               border: "none",
               borderBottom: activeSection === id ? `2px solid ${ACCENT}` : "2px solid transparent",
-              color: activeSection === id ? ACCENT : "rgba(255,255,255,0.4)",
+              color: activeSection === id ? ACCENT : "var(--text-muted)",
               fontSize: 13,
               fontWeight: activeSection === id ? 700 : 500,
               padding: "14px 14px",
@@ -928,16 +928,16 @@ export default function BookingDetailPage() {
 
       {/* Page header */}
       <div style={{ padding: "28px 24px 8px" }}>
-        <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
+        <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
           {b.title ?? b.service ?? "Booking"}
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <StatusBadge status={b.status} />
           {b.city && (
-            <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>📍 {b.city}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city}</span>
           )}
           {b.date_start && (
-            <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13 }}>
+            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
               {new Date(b.date_start).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </span>
           )}

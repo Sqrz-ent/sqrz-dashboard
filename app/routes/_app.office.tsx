@@ -178,8 +178,8 @@ function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => vo
       onClick={onClick}
       style={{
         width: "100%",
-        background: "#1a1a1a",
-        border: "1px solid rgba(255,255,255,0.07)",
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
         borderRadius: 10,
         padding: "12px 14px",
         textAlign: "left",
@@ -188,15 +188,15 @@ function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => vo
         display: "block",
       }}
     >
-      <p style={{ color: "#fff", fontSize: 13, fontWeight: 600, margin: "0 0 5px", lineHeight: 1.35 }}>
+      <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 5px", lineHeight: 1.35 }}>
         {booking.title ?? booking.service ?? "Untitled"}
       </p>
       {booking.city && (
-        <p style={{ color: "rgba(255,255,255,0.38)", fontSize: 12, margin: "0 0 5px" }}>
+        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 5px" }}>
           📍 {booking.city}{booking.venue ? ` · ${booking.venue}` : ""}
         </p>
       )}
-      <p style={{ color: "rgba(255,255,255,0.28)", fontSize: 11, margin: "0 0 10px" }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 10px" }}>
         {formatDate(booking.date_start)}
       </p>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -211,7 +211,7 @@ function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => vo
 // ─── Shared label/value styles ────────────────────────────────────────────────
 
 const metaLabel: React.CSSProperties = {
-  color: "rgba(255,255,255,0.3)",
+  color: "var(--text-muted)",
   fontSize: 11,
   fontWeight: 600,
   textTransform: "uppercase",
@@ -220,7 +220,7 @@ const metaLabel: React.CSSProperties = {
 };
 
 const metaValue: React.CSSProperties = {
-  color: "#fff",
+  color: "var(--text)",
   fontSize: 13,
   margin: 0,
 };
@@ -282,8 +282,8 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
           transform: "translate(-50%, -50%)",
           width: "min(540px, calc(100vw - 32px))",
           maxHeight: "calc(100vh - 64px)",
-          background: "#1a1a1a",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
           borderRadius: 18,
           zIndex: 50,
           display: "flex",
@@ -297,7 +297,7 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
         <div
           style={{
             padding: "18px 22px 14px",
-            borderBottom: "1px solid rgba(255,255,255,0.07)",
+            borderBottom: "1px solid var(--border)",
             display: "flex",
             alignItems: "flex-start",
             justifyContent: "space-between",
@@ -305,7 +305,7 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
           }}
         >
           <div>
-            <h2 style={{ color: "#fff", fontSize: 16, fontWeight: 700, margin: "0 0 6px" }}>
+            <h2 style={{ color: "var(--text)", fontSize: 16, fontWeight: 700, margin: "0 0 6px" }}>
               {booking.title ?? booking.service ?? "Booking"}
             </h2>
             <StatusBadge status={booking.status} />
@@ -313,9 +313,9 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
           <button
             onClick={onClose}
             style={{
-              background: "rgba(255,255,255,0.07)",
+              background: "var(--surface-muted)",
               border: "none",
-              color: "rgba(255,255,255,0.6)",
+              color: "var(--text-muted)",
               width: 28,
               height: 28,
               borderRadius: 8,
@@ -374,12 +374,12 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
               <p style={metaLabel}>Request message</p>
               <p
                 style={{
-                  color: "rgba(255,255,255,0.7)",
+                  color: "var(--text-muted)",
                   fontSize: 13,
                   lineHeight: 1.6,
                   margin: 0,
-                  background: "#111",
-                  border: "1px solid rgba(255,255,255,0.07)",
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
                   borderRadius: 10,
                   padding: "12px 14px",
                 }}
@@ -392,7 +392,7 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <Link
               to={`/office/${booking.id}`}
-              style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, textDecoration: "none" }}
+              style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none" }}
             >
               Open full page →
             </Link>
@@ -401,7 +401,7 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
               style={{
                 background: "none",
                 border: "none",
-                color: copied ? "#4ade80" : "rgba(255,255,255,0.35)",
+                color: copied ? "#4ade80" : "var(--text-muted)",
                 fontSize: 12,
                 cursor: "pointer",
                 padding: 0,
@@ -417,7 +417,7 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
           <div
             style={{
               padding: "14px 22px",
-              borderTop: "1px solid rgba(255,255,255,0.07)",
+              borderTop: "1px solid var(--border)",
               display: "flex",
               gap: 10,
             }}
@@ -453,9 +453,9 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
                 style={{
                   width: "100%",
                   padding: "11px",
-                  background: "rgba(255,255,255,0.07)",
-                  color: busy ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "var(--surface-muted)",
+                  color: busy ? "var(--text-muted)" : "var(--text)",
+                  border: "1px solid var(--border)",
                   borderRadius: 10,
                   fontSize: 13,
                   fontWeight: 600,
@@ -506,10 +506,10 @@ export default function OfficePage() {
       }}
     >
       {/* Header */}
-      <h1 style={{ color: "#fff", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
+      <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
         Office
       </h1>
-      <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 14, margin: "0 0 28px" }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 28px" }}>
         Your booking pipeline
       </p>
 
@@ -531,8 +531,8 @@ export default function OfficePage() {
               style={{
                 minWidth: 232,
                 flex: "0 0 232px",
-                background: "#161616",
-                border: "1px solid rgba(255,255,255,0.06)",
+                background: "var(--surface-muted)",
+                border: "1px solid var(--border)",
                 borderRadius: 14,
                 padding: "14px 12px",
               }}
@@ -577,7 +577,7 @@ export default function OfficePage() {
               {colBookings.length === 0 ? (
                 <p
                   style={{
-                    color: "rgba(255,255,255,0.12)",
+                    color: "var(--text-muted)",
                     fontSize: 12,
                     textAlign: "center",
                     padding: "20px 0",
