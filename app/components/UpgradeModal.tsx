@@ -61,8 +61,8 @@ export default function UpgradeModal({
           left: "50%",
           transform: "translate(-50%, -50%)",
           width: "min(480px, calc(100vw - 32px))",
-          background: "#1a1a1a",
-          border: "1px solid rgba(255,255,255,0.1)",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
           borderRadius: 18,
           boxShadow: "0 24px 64px rgba(0,0,0,0.7)",
           zIndex: 51,
@@ -73,10 +73,10 @@ export default function UpgradeModal({
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
           <div>
-            <h2 style={{ color: "#ffffff", fontSize: 20, fontWeight: 700, margin: 0 }}>
+            <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
               Upgrade to SQRZ Basic
             </h2>
-            <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, margin: "6px 0 0" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "6px 0 0" }}>
               Unlock your full profile, custom domain, and more.
             </p>
           </div>
@@ -86,7 +86,7 @@ export default function UpgradeModal({
             style={{
               background: "none",
               border: "none",
-              color: "rgba(255,255,255,0.3)",
+              color: "var(--text-muted)",
               fontSize: 22,
               cursor: "pointer",
               lineHeight: 1,
@@ -104,20 +104,20 @@ export default function UpgradeModal({
           {/* Monthly */}
           <div
             style={{
-              background: "#111111",
-              border: "1px solid rgba(245,166,35,0.25)",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
               borderRadius: 14,
               padding: "18px 16px",
             }}
           >
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
               Monthly
             </p>
-            <p style={{ color: "#ffffff", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+            <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
               $12
-              <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
             </p>
-            <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 16px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
               Billed monthly
             </p>
             <Form method="post" action="/api/stripe/checkout">
@@ -144,7 +144,7 @@ export default function UpgradeModal({
           {/* Yearly — EA pricing if referred, standard otherwise */}
           <div
             style={{
-              background: "#111111",
+              background: "var(--bg)",
               border: "1px solid rgba(245,166,35,0.4)",
               borderRadius: 14,
               padding: "18px 16px",
@@ -170,28 +170,28 @@ export default function UpgradeModal({
             >
               {referredByCode ? "Your Invite" : "Save 42%"}
             </span>
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
               Yearly
             </p>
 
             {referredByCode ? (
               <>
-                <p style={{ color: "#ffffff", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+                <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
                   $29
-                  <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: 400 }}>/yr</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/yr</span>
                 </p>
-                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 16px" }}>
-                  <s style={{ color: "rgba(255,255,255,0.2)" }}>$84/year</s>
+                <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
+                  <s style={{ color: "var(--text-muted)" }}>$84/year</s>
                   {" "}with your invite
                 </p>
               </>
             ) : (
               <>
-                <p style={{ color: "#ffffff", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+                <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
                   $7
-                  <span style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
                 </p>
-                <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, margin: "0 0 16px" }}>
+                <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
                   $84 billed yearly
                 </p>
               </>
@@ -222,7 +222,7 @@ export default function UpgradeModal({
           </div>
         </div>
 
-        <p style={{ color: "rgba(255,255,255,0.2)", fontSize: 11, textAlign: "center", margin: "18px 0 0" }}>
+        <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center", margin: "18px 0 0" }}>
           Cancel anytime · Secure checkout via Stripe
         </p>
       </div>

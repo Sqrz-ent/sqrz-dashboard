@@ -36,7 +36,7 @@ function ToastItem({
     <div
       onClick={onDismiss}
       style={{
-        background: "#1a1a1a",
+        background: "var(--surface)",
         border: "1px solid rgba(245,166,35,0.4)",
         borderRadius: 12,
         padding: "14px 16px",
@@ -54,7 +54,7 @@ function ToastItem({
       <div style={{ flex: 1, minWidth: 0 }}>
         <p
           style={{
-            color: "#ffffff",
+            color: "var(--text)",
             fontSize: 13,
             fontWeight: 600,
             margin: "0 0 3px",
@@ -62,7 +62,7 @@ function ToastItem({
         >
           New booking request
         </p>
-        <p style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, margin: 0 }}>
+        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
           {notifLabel(toast.service, toast.city)}
         </p>
       </div>
@@ -74,7 +74,7 @@ function ToastItem({
         style={{
           background: "none",
           border: "none",
-          color: "rgba(255,255,255,0.3)",
+          color: "var(--text-muted)",
           fontSize: 18,
           cursor: "pointer",
           padding: 0,
@@ -133,7 +133,7 @@ export default function NotificationBell() {
             cursor: "pointer",
             padding: "6px 8px",
             borderRadius: 8,
-            color: open ? "#F5A623" : "rgba(255,255,255,0.55)",
+            color: open ? "#F5A623" : "var(--text-muted)",
             fontSize: 18,
             lineHeight: 1,
             position: "relative",
@@ -175,8 +175,8 @@ export default function NotificationBell() {
               top: "calc(100% + 8px)",
               right: 0,
               width: 320,
-              background: "#1a1a1a",
-              border: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
               borderRadius: 14,
               boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
               zIndex: 100,
@@ -188,13 +188,13 @@ export default function NotificationBell() {
             <div
               style={{
                 padding: "13px 16px 11px",
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                borderBottom: "1px solid var(--border)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
               }}
             >
-              <span style={{ color: "#ffffff", fontSize: 13, fontWeight: 700 }}>
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
                 Notifications
               </span>
               {unreadCount > 0 && (
@@ -220,7 +220,7 @@ export default function NotificationBell() {
                   style={{
                     padding: "36px 16px",
                     textAlign: "center",
-                    color: "rgba(255,255,255,0.2)",
+                    color: "var(--text-muted)",
                     fontSize: 13,
                   }}
                 >
@@ -240,7 +240,7 @@ export default function NotificationBell() {
                     <div
                       style={{
                         padding: "11px 16px",
-                        borderBottom: "1px solid rgba(255,255,255,0.04)",
+                        borderBottom: "1px solid var(--border)",
                         background: n.read ? "transparent" : "rgba(245,166,35,0.04)",
                         display: "flex",
                         alignItems: "flex-start",
@@ -261,7 +261,7 @@ export default function NotificationBell() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <p
                           style={{
-                            color: "#ffffff",
+                            color: "var(--text)",
                             fontSize: 13,
                             fontWeight: n.read ? 400 : 600,
                             margin: "0 0 3px",
@@ -275,7 +275,7 @@ export default function NotificationBell() {
                         </p>
                         <p
                           style={{
-                            color: "rgba(255,255,255,0.35)",
+                            color: "var(--text-muted)",
                             fontSize: 11,
                             margin: 0,
                           }}
@@ -294,7 +294,7 @@ export default function NotificationBell() {
               <div
                 style={{
                   padding: "10px 16px",
-                  borderTop: "1px solid rgba(255,255,255,0.06)",
+                  borderTop: "1px solid var(--border)",
                 }}
               >
                 <button
@@ -302,7 +302,7 @@ export default function NotificationBell() {
                   style={{
                     background: "none",
                     border: "none",
-                    color: "rgba(255,255,255,0.35)",
+                    color: "var(--text-muted)",
                     fontSize: 12,
                     cursor: "pointer",
                     padding: 0,

@@ -46,7 +46,7 @@ const fieldStyle: React.CSSProperties = {
 const labelStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
-  color: "rgba(255,255,255,0.4)",
+  color: "var(--text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.06em",
 };
@@ -54,11 +54,11 @@ const labelStyle: React.CSSProperties = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "11px 13px",
-  background: "#111111",
-  border: "1px solid rgba(255,255,255,0.1)",
+  background: "var(--bg)",
+  border: "1px solid var(--border)",
   borderRadius: 10,
   fontSize: 14,
-  color: "#ffffff",
+  color: "var(--text)",
   outline: "none",
   boxSizing: "border-box",
 };
@@ -66,13 +66,13 @@ const inputStyle: React.CSSProperties = {
 const sectionHeadingStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
-  color: "rgba(255,255,255,0.25)",
+  color: "var(--text-muted)",
   textTransform: "uppercase",
   letterSpacing: "0.1em",
   marginBottom: 14,
   marginTop: 4,
   paddingBottom: 10,
-  borderBottom: "1px solid rgba(255,255,255,0.06)",
+  borderBottom: "1px solid var(--border)",
 };
 
 // ─── Placeholder panel ────────────────────────────────────────────────────────
@@ -87,7 +87,7 @@ function PlaceholderPanel({ title }: { title: string }) {
         justifyContent: "center",
         textAlign: "center",
         padding: "64px 24px",
-        color: "rgba(255,255,255,0.25)",
+        color: "var(--text-muted)",
       }}
     >
       <div style={{ fontSize: 36, marginBottom: 16, opacity: 0.4 }}>🚧</div>
@@ -206,7 +206,7 @@ function ProfilePanel({ userId }: { userId: string }) {
   if (loading) {
     return (
       <div style={{ padding: "32px 0", display: "flex", justifyContent: "center" }}>
-        <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 14 }}>Loading…</span>
+        <span style={{ color: "var(--text-muted)", fontSize: 14 }}>Loading…</span>
       </div>
     );
   }
@@ -404,7 +404,7 @@ function AccountPanel({
       ? "#fb923c"
       : subscription.status === "cancelled"
       ? "#ef4444"
-      : "rgba(255,255,255,0.4)";
+      : "var(--text-muted)";
 
   const renewsOn = formatPeriodEnd(subscription.currentPeriodEnd);
 
@@ -415,8 +415,8 @@ function AccountPanel({
 
       <div
         style={{
-          background: "#111111",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--bg)",
+          border: "1px solid var(--border)",
           borderRadius: 12,
           padding: "16px 18px",
           marginBottom: 24,
@@ -424,7 +424,7 @@ function AccountPanel({
       >
         {/* Plan name + status */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ color: "#ffffff", fontSize: 14, fontWeight: 600 }}>
+          <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 600 }}>
             {subscription.planName}
           </span>
           <span style={{ color: subStatusColor, fontSize: 12, fontWeight: 600 }}>
@@ -434,14 +434,14 @@ function AccountPanel({
 
         {/* Plan description */}
         {subscription.planDescription && (
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 12, margin: "0 0 10px" }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 10px" }}>
             {subscription.planDescription}
           </p>
         )}
 
         {/* Renewal date */}
         {renewsOn && (
-          <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, margin: "0 0 14px" }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 14px" }}>
             Renews on {renewsOn}
           </p>
         )}
@@ -472,8 +472,8 @@ function AccountPanel({
 
       <div
         style={{
-          background: "#111111",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--bg)",
+          border: "1px solid var(--border)",
           borderRadius: 12,
           padding: "16px 18px",
         }}
@@ -491,7 +491,7 @@ function AccountPanel({
                 style={{
                   background: "none",
                   border: "none",
-                  color: isOpeningDashboard ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.45)",
+                  color: isOpeningDashboard ? "var(--text-muted)" : "var(--text)",
                   fontSize: 12,
                   fontWeight: 600,
                   cursor: isOpeningDashboard ? "default" : "pointer",
@@ -506,7 +506,7 @@ function AccountPanel({
         ) : isPending ? (
           /* ── Pending ── */
           <>
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 12px" }}>
               Onboarding in progress…
             </p>
             <connectFetcher.Form method="post" action="/api/stripe/connect">
@@ -531,7 +531,7 @@ function AccountPanel({
         ) : (
           /* ── Not connected ── */
           <>
-            <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: "0 0 12px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 12px" }}>
               Connect your bank account to receive payments from bookings.
             </p>
             <connectFetcher.Form method="post" action="/api/stripe/connect">
@@ -638,8 +638,8 @@ export default function DashboardPanel({
           transform: "translate(-50%, -50%)",
           width: "min(620px, calc(100vw - 32px))",
           maxHeight: "calc(100vh - 64px)",
-          background: "#1a1a1a",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
           borderRadius: 18,
           zIndex: 50,
           display: "flex",
@@ -656,20 +656,20 @@ export default function DashboardPanel({
             alignItems: "center",
             justifyContent: "space-between",
             padding: "18px 22px 16px",
-            borderBottom: "1px solid rgba(255,255,255,0.07)",
+            borderBottom: "1px solid var(--border)",
             flexShrink: 0,
           }}
         >
-          <h2 style={{ color: "#ffffff", fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>
+          <h2 style={{ color: "var(--text)", fontSize: 16, fontWeight: 700, margin: 0, letterSpacing: "-0.01em" }}>
             {title}
           </h2>
           <button
             onClick={onClose}
             aria-label="Close"
             style={{
-              background: "rgba(255,255,255,0.07)",
+              background: "var(--surface-muted)",
               border: "none",
-              color: "rgba(255,255,255,0.6)",
+              color: "var(--text-muted)",
               fontSize: 18,
               cursor: "pointer",
               padding: "0",

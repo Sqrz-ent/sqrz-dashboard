@@ -35,20 +35,19 @@ function Card({
   const inner = (
     <div
       style={{
-        background: "#1a1a1a",
-        border: "1px solid rgba(245,166,35,0.18)",
+        background: comingSoon ? "var(--surface-muted)" : "var(--surface)",
+        border: "1px solid var(--border)",
         borderRadius: 16,
         padding: "20px 22px",
         height: "100%",
-        opacity: comingSoon ? 0.5 : 1,
         cursor: comingSoon ? "default" : "pointer",
         transition: "border-color 0.15s",
       }}
     >
-      <h2 style={{ color: "#ffffff", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
+      <h2 style={{ color: "var(--text)", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
         {title}
       </h2>
-      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, margin: 0 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
         {description}
       </p>
       {comingSoon && (
@@ -100,7 +99,7 @@ export default function DashboardIndex() {
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px" }}>
       {/* Header */}
-      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
+      <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
         Welcome to SQRZ{profileName ? `, ${profileName}` : ""}
       </h1>
 
