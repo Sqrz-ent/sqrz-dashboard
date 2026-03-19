@@ -2,7 +2,7 @@
   "name": "SQRZ Dashboard",
   "short_name": "SQRZ",
   "description": "Your SQRZ creator dashboard",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#111111",
   "theme_color": "#F5A623",
