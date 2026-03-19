@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app.profile";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
+import Modal from "~/components/Modal";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -234,6 +235,15 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "update_video") {
+    const id = formData.get("id") as string;
+    const { error } = await adminClient.from("profile_videos").update({
+      url: formData.get("url") as string,
+      title: formData.get("title") as string,
+    }).eq("id", id);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   if (intent === "add_reference") {
     const isCurrent = formData.get("is_current") === "true";
     const { error } = await adminClient.from("profile_references").insert({
@@ -251,6 +261,19 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "delete_reference") {
     const id = formData.get("id") as string;
     const { error } = await adminClient.from("profile_references").delete().eq("id", id);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_reference") {
+    const id = formData.get("id") as string;
+    const isCurrent = formData.get("is_current") === "true";
+    const { error } = await adminClient.from("profile_references").update({
+      company: formData.get("company") as string,
+      role: formData.get("role") as string,
+      date_start: (formData.get("date_start") as string) || null,
+      date_end: isCurrent ? null : ((formData.get("date_end") as string) || null),
+      is_current: isCurrent,
+    }).eq("id", id);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -371,13 +394,65 @@ export default function ProfilePage() {
     widget_muso: (profile.widget_muso as string) ?? "",
   });
 
-  // Video add state
-  const [videoUrl, setVideoUrl] = useState("");
-  const [videoTitle, setVideoTitle] = useState("");
-
-  // Reference add state
-  const [showRefForm, setShowRefForm] = useState(false);
+  // Modal state
+  const [skillsModalOpen, setSkillsModalOpen] = useState(false);
+  const [langsModalOpen, setLangsModalOpen] = useState(false);
+  const [videoModal, setVideoModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
+  const [refModal, setRefModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
+  const [videoForm, setVideoForm] = useState({ url: "", title: "" });
   const [refForm, setRefForm] = useState({ company: "", role: "", date_start: "", date_end: "", is_current: false });
+
+  function openVideoModal(editing?: Record<string, unknown>) {
+    setVideoForm({
+      url: (editing?.url as string) ?? "",
+      title: (editing?.title as string) ?? "",
+    });
+    setVideoModal({ open: true, editing: editing ?? null });
+  }
+
+  function openRefModal(editing?: Record<string, unknown>) {
+    setRefForm({
+      company: (editing?.company as string) ?? "",
+      role: (editing?.role as string) ?? "",
+      date_start: (editing?.date_start as string) ?? "",
+      date_end: (editing?.date_end as string) ?? "",
+      is_current: (editing?.is_current as boolean) ?? false,
+    });
+    setRefModal({ open: true, editing: editing ?? null });
+  }
+
+  function handleVideoSubmit() {
+    if (!videoForm.url.trim()) return;
+    const fd = new FormData();
+    if (videoModal.editing) {
+      fd.append("intent", "update_video");
+      fd.append("id", videoModal.editing.id as string);
+    } else {
+      fd.append("intent", "add_video");
+    }
+    fd.append("url", videoForm.url);
+    fd.append("title", videoForm.title || videoForm.url);
+    videoFetcher.submit(fd, { method: "post" });
+    setVideoModal({ open: false, editing: null });
+  }
+
+  function handleRefSubmit() {
+    if (!refForm.company.trim() || !refForm.role.trim()) return;
+    const fd = new FormData();
+    if (refModal.editing) {
+      fd.append("intent", "update_reference");
+      fd.append("id", refModal.editing.id as string);
+    } else {
+      fd.append("intent", "add_reference");
+    }
+    fd.append("company", refForm.company);
+    fd.append("role", refForm.role);
+    fd.append("date_start", refForm.date_start);
+    fd.append("date_end", refForm.date_end);
+    fd.append("is_current", String(refForm.is_current));
+    refFetcher.submit(fd, { method: "post" });
+    setRefModal({ open: false, editing: null });
+  }
 
   const profileId = profile.id as string;
   const slug = (profile.slug as string) ?? "";
@@ -497,132 +572,73 @@ export default function ProfilePage() {
       {/* Section 2: Skills */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Skills</h2>
-        {/* Category tabs */}
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-          {SKILL_CATEGORIES.map((cat) => {
-            const isActive = activeSkillTab === cat;
-            return (
-              <button
-                key={cat}
-                onClick={() => setActiveSkillTab(cat)}
-                style={{
-                  padding: "5px 12px",
-                  borderRadius: 20,
-                  border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                  background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
-                  color: isActive ? ACCENT : "var(--text-muted)",
-                  fontSize: 12,
-                  fontWeight: isActive ? 700 : 500,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                  letterSpacing: "0.01em",
-                  transition: "all 0.12s",
-                }}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
-        {/* Skills grid for active tab */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {allSkills
-            .filter((s) => s.category === activeSkillTab)
-            .map((skill) => {
-              const isSelected = selectedSkillIds.has(skill.id);
-              return (
-                <button
+        {selectedSkillIds.size > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {allSkills
+              .filter((s) => selectedSkillIds.has(s.id))
+              .map((skill) => (
+                <span
                   key={skill.id}
-                  onClick={() => toggleSkill(skill.id)}
                   style={{
-                    padding: "6px 13px",
+                    padding: "5px 12px",
+                    background: "rgba(245,166,35,0.1)",
+                    border: `1.5px solid ${ACCENT}`,
                     borderRadius: 20,
-                    border: isSelected ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                    background: isSelected ? "rgba(245,166,35,0.1)" : "transparent",
-                    color: isSelected ? ACCENT : "var(--text-muted)",
                     fontSize: 13,
-                    fontWeight: isSelected ? 600 : 400,
-                    cursor: "pointer",
+                    fontWeight: 600,
+                    color: ACCENT,
                     fontFamily: FONT_BODY,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                    transition: "all 0.12s",
                   }}
                 >
                   {skill.name}
-                  {isSelected && (
-                    <span style={{ fontSize: 11, lineHeight: 1, opacity: 0.8 }}>✕</span>
-                  )}
-                </button>
-              );
-            })}
-        </div>
-        {selectedSkillIds.size > 0 && (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
-            {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? "s" : ""} selected
-          </p>
+                </span>
+              ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No skills added yet.</p>
         )}
+        <button
+          onClick={() => setSkillsModalOpen(true)}
+          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+        >
+          Edit Skills
+        </button>
       </div>
 
       {/* Section 2b: Languages */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Languages</h2>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {/* Selected languages first */}
-          {allLanguages
-            .filter((l) => selectedLangIds.has(l.id))
-            .map((lang) => (
-              <button
-                key={lang.id}
-                onClick={() => toggleLanguage(lang.id)}
-                style={{
-                  padding: "6px 13px",
-                  borderRadius: 20,
-                  border: `1.5px solid ${ACCENT}`,
-                  background: "rgba(245,166,35,0.1)",
-                  color: ACCENT,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
-                {lang.name}
-                <span style={{ fontSize: 11, lineHeight: 1, opacity: 0.8 }}>✕</span>
-              </button>
-            ))}
-          {/* Unselected languages */}
-          {allLanguages
-            .filter((l) => !selectedLangIds.has(l.id))
-            .map((lang) => (
-              <button
-                key={lang.id}
-                onClick={() => toggleLanguage(lang.id)}
-                style={{
-                  padding: "6px 13px",
-                  borderRadius: 20,
-                  border: "1.5px solid var(--border)",
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  fontWeight: 400,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                {lang.name}
-              </button>
-            ))}
-        </div>
-        {selectedLangIds.size > 0 && (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
-            {selectedLangIds.size} language{selectedLangIds.size !== 1 ? "s" : ""} selected
-          </p>
+        {selectedLangIds.size > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {allLanguages
+              .filter((l) => selectedLangIds.has(l.id))
+              .map((lang) => (
+                <span
+                  key={lang.id}
+                  style={{
+                    padding: "5px 12px",
+                    background: "rgba(245,166,35,0.1)",
+                    border: `1.5px solid ${ACCENT}`,
+                    borderRadius: 20,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: ACCENT,
+                    fontFamily: FONT_BODY,
+                  }}
+                >
+                  {lang.name}
+                </span>
+              ))}
+          </div>
+        ) : (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No languages added yet.</p>
         )}
+        <button
+          onClick={() => setLangsModalOpen(true)}
+          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+        >
+          Edit Languages
+        </button>
       </div>
 
       {/* Section 3: Socials */}
@@ -772,7 +788,7 @@ export default function ProfilePage() {
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Videos</h2>
         {videos.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>No videos added yet.</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No videos added yet.</p>
         ) : (
           <div style={{ marginBottom: 16 }}>
             {videos.map((video) => (
@@ -782,7 +798,7 @@ export default function ProfilePage() {
                   <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{video.url as string}</div>
                 </div>
                 <MenuDots
-                  onEdit={() => {}}
+                  onEdit={() => openVideoModal(video)}
                   onDelete={() => {
                     const fd = new FormData();
                     fd.append("intent", "delete_video");
@@ -794,49 +810,19 @@ export default function ProfilePage() {
             ))}
           </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div>
-            <label style={labelStyle}>YouTube URL</label>
-            <input
-              style={inputStyle}
-              value={videoUrl}
-              onChange={e => setVideoUrl(e.target.value)}
-              placeholder="https://youtube.com/watch?v=..."
-            />
-          </div>
-          <div>
-            <label style={labelStyle}>Title</label>
-            <input
-              style={inputStyle}
-              value={videoTitle}
-              onChange={e => setVideoTitle(e.target.value)}
-              placeholder="Video title (optional)"
-            />
-          </div>
-          <button
-            style={{ ...saveBtn, marginTop: 0, alignSelf: "flex-start" }}
-            onClick={() => {
-              if (!videoUrl.trim()) return;
-              const fd = new FormData();
-              fd.append("intent", "add_video");
-              fd.append("url", videoUrl);
-              fd.append("title", videoTitle || videoUrl);
-              videoFetcher.submit(fd, { method: "post" });
-              setVideoUrl("");
-              setVideoTitle("");
-            }}
-            disabled={videoFetcher.state !== "idle"}
-          >
-            {videoFetcher.state !== "idle" ? "Adding…" : "Add Video"}
-          </button>
-        </div>
+        <button
+          onClick={() => openVideoModal()}
+          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+        >
+          + Add Video
+        </button>
       </div>
 
       {/* Section 6: References */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>References</h2>
         {references.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>No references added yet.</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No references added yet.</p>
         ) : (
           <div style={{ marginBottom: 16 }}>
             {references.map((ref) => (
@@ -849,7 +835,7 @@ export default function ProfilePage() {
                   </div>
                 </div>
                 <MenuDots
-                  onEdit={() => {}}
+                  onEdit={() => openRefModal(ref)}
                   onDelete={() => {
                     const fd = new FormData();
                     fd.append("intent", "delete_reference");
@@ -862,62 +848,11 @@ export default function ProfilePage() {
           </div>
         )}
         <button
-          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY, marginBottom: showRefForm ? 14 : 0 }}
-          onClick={() => setShowRefForm(v => !v)}
+          onClick={() => openRefModal()}
+          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
         >
-          {showRefForm ? "Cancel" : "+ Add Reference"}
+          + Add Reference
         </button>
-        {showRefForm && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div>
-                <label style={labelStyle}>Company</label>
-                <input style={inputStyle} value={refForm.company} onChange={e => setRefForm(f => ({ ...f, company: e.target.value }))} placeholder="Company name" />
-              </div>
-              <div>
-                <label style={labelStyle}>Role</label>
-                <input style={inputStyle} value={refForm.role} onChange={e => setRefForm(f => ({ ...f, role: e.target.value }))} placeholder="Your role" />
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              <div>
-                <label style={labelStyle}>Start Date</label>
-                <input type="date" style={inputStyle} value={refForm.date_start} onChange={e => setRefForm(f => ({ ...f, date_start: e.target.value }))} />
-              </div>
-              <div>
-                <label style={labelStyle}>End Date</label>
-                <input type="date" style={inputStyle} value={refForm.date_end} onChange={e => setRefForm(f => ({ ...f, date_end: e.target.value }))} disabled={refForm.is_current} />
-              </div>
-            </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
-              <input
-                type="checkbox"
-                checked={refForm.is_current}
-                onChange={e => setRefForm(f => ({ ...f, is_current: e.target.checked }))}
-              />
-              Currently working here
-            </label>
-            <button
-              style={{ ...saveBtn, marginTop: 0, alignSelf: "flex-start" }}
-              onClick={() => {
-                if (!refForm.company.trim() || !refForm.role.trim()) return;
-                const fd = new FormData();
-                fd.append("intent", "add_reference");
-                fd.append("company", refForm.company);
-                fd.append("role", refForm.role);
-                fd.append("date_start", refForm.date_start);
-                fd.append("date_end", refForm.date_end);
-                fd.append("is_current", String(refForm.is_current));
-                refFetcher.submit(fd, { method: "post" });
-                setRefForm({ company: "", role: "", date_start: "", date_end: "", is_current: false });
-                setShowRefForm(false);
-              }}
-              disabled={refFetcher.state !== "idle"}
-            >
-              {refFetcher.state !== "idle" ? "Saving…" : "Add Reference"}
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Section 7: Business Details */}
@@ -983,6 +918,229 @@ export default function ProfilePage() {
             : "Publish Profile →"}
         </button>
       </div>
+
+      {/* Skills Modal */}
+      <Modal isOpen={skillsModalOpen} onClose={() => setSkillsModalOpen(false)} title="Edit Skills">
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+          {SKILL_CATEGORIES.map((cat) => {
+            const isActive = activeSkillTab === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setActiveSkillTab(cat)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                  background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
+                  color: isActive ? ACCENT : "var(--text-muted)",
+                  fontSize: 12,
+                  fontWeight: isActive ? 700 : 500,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {allSkills
+            .filter((s) => s.category === activeSkillTab)
+            .map((skill) => {
+              const isSelected = selectedSkillIds.has(skill.id);
+              return (
+                <button
+                  key={skill.id}
+                  onClick={() => toggleSkill(skill.id)}
+                  style={{
+                    padding: "6px 13px",
+                    borderRadius: 20,
+                    border: isSelected ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                    background: isSelected ? "rgba(245,166,35,0.1)" : "transparent",
+                    color: isSelected ? ACCENT : "var(--text-muted)",
+                    fontSize: 13,
+                    fontWeight: isSelected ? 600 : 400,
+                    cursor: "pointer",
+                    fontFamily: FONT_BODY,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  {skill.name}
+                  {isSelected && <span style={{ fontSize: 11, opacity: 0.8 }}>✕</span>}
+                </button>
+              );
+            })}
+        </div>
+        {selectedSkillIds.size > 0 && (
+          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
+            {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? "s" : ""} selected
+          </p>
+        )}
+      </Modal>
+
+      {/* Languages Modal */}
+      <Modal isOpen={langsModalOpen} onClose={() => setLangsModalOpen(false)} title="Edit Languages">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {allLanguages
+            .filter((l) => selectedLangIds.has(l.id))
+            .map((lang) => (
+              <button
+                key={lang.id}
+                onClick={() => toggleLanguage(lang.id)}
+                style={{
+                  padding: "6px 13px",
+                  borderRadius: 20,
+                  border: `1.5px solid ${ACCENT}`,
+                  background: "rgba(245,166,35,0.1)",
+                  color: ACCENT,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+              >
+                {lang.name}
+                <span style={{ fontSize: 11, opacity: 0.8 }}>✕</span>
+              </button>
+            ))}
+          {allLanguages
+            .filter((l) => !selectedLangIds.has(l.id))
+            .map((lang) => (
+              <button
+                key={lang.id}
+                onClick={() => toggleLanguage(lang.id)}
+                style={{
+                  padding: "6px 13px",
+                  borderRadius: 20,
+                  border: "1.5px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 400,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                {lang.name}
+              </button>
+            ))}
+        </div>
+        {selectedLangIds.size > 0 && (
+          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
+            {selectedLangIds.size} language{selectedLangIds.size !== 1 ? "s" : ""} selected
+          </p>
+        )}
+      </Modal>
+
+      {/* Video Modal */}
+      <Modal
+        isOpen={videoModal.open}
+        onClose={() => setVideoModal({ open: false, editing: null })}
+        title={videoModal.editing ? "Edit Video" : "Add Video"}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={labelStyle}>YouTube URL</label>
+            <input
+              style={inputStyle}
+              value={videoForm.url}
+              onChange={(e) => setVideoForm((f) => ({ ...f, url: e.target.value }))}
+              placeholder="https://youtube.com/watch?v=..."
+              autoFocus
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Title (optional)</label>
+            <input
+              style={inputStyle}
+              value={videoForm.title}
+              onChange={(e) => setVideoForm((f) => ({ ...f, title: e.target.value }))}
+              placeholder="Video title"
+            />
+          </div>
+          <button
+            onClick={handleVideoSubmit}
+            disabled={videoFetcher.state !== "idle"}
+            style={{ ...saveBtn, marginTop: 0, alignSelf: "flex-start" }}
+          >
+            {videoFetcher.state !== "idle" ? "Saving…" : videoModal.editing ? "Save Changes" : "Add Video"}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Reference Modal */}
+      <Modal
+        isOpen={refModal.open}
+        onClose={() => setRefModal({ open: false, editing: null })}
+        title={refModal.editing ? "Edit Reference" : "Add Reference"}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Company</label>
+              <input
+                style={inputStyle}
+                value={refForm.company}
+                onChange={(e) => setRefForm((f) => ({ ...f, company: e.target.value }))}
+                placeholder="Company name"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Role</label>
+              <input
+                style={inputStyle}
+                value={refForm.role}
+                onChange={(e) => setRefForm((f) => ({ ...f, role: e.target.value }))}
+                placeholder="Your role"
+              />
+            </div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Start Date</label>
+              <input
+                type="date"
+                style={inputStyle}
+                value={refForm.date_start}
+                onChange={(e) => setRefForm((f) => ({ ...f, date_start: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>End Date</label>
+              <input
+                type="date"
+                style={inputStyle}
+                value={refForm.date_end}
+                onChange={(e) => setRefForm((f) => ({ ...f, date_end: e.target.value }))}
+                disabled={refForm.is_current}
+              />
+            </div>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
+            <input
+              type="checkbox"
+              checked={refForm.is_current}
+              onChange={(e) => setRefForm((f) => ({ ...f, is_current: e.target.checked }))}
+            />
+            Currently working here
+          </label>
+          <button
+            onClick={handleRefSubmit}
+            disabled={refFetcher.state !== "idle"}
+            style={{ ...saveBtn, marginTop: 4, alignSelf: "flex-start" }}
+          >
+            {refFetcher.state !== "idle" ? "Saving…" : refModal.editing ? "Save Changes" : "Add Reference"}
+          </button>
+        </div>
+      </Modal>
     </div>
   );
 }
