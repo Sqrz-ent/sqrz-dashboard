@@ -31,10 +31,10 @@ type Booking = {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const COLUMNS = [
-  { key: "requested", label: "Requested", accent: "#F5A623" },
-  { key: "pending",   label: "Pending",   accent: "#60a5fa" },
-  { key: "confirmed", label: "Confirmed", accent: "#4ade80" },
-  { key: "completed", label: "Completed", accent: "var(--text-muted)" },
+  { key: "requested", label: "Requested" },
+  { key: "pending",   label: "Pending"   },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "completed", label: "Completed" },
 ] as const;
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
@@ -548,7 +548,7 @@ export default function OfficePage() {
               >
                 <span
                   style={{
-                    color: col.accent,
+                    color: "var(--text)",
                     fontSize: 11,
                     fontWeight: 700,
                     textTransform: "uppercase",
@@ -560,8 +560,8 @@ export default function OfficePage() {
                 {colBookings.length > 0 && (
                   <span
                     style={{
-                      background: col.accent,
-                      color: col.key === "completed" ? "var(--text-muted)" : "#111",
+                      background: "#F5A623",
+                      color: "#fff",
                       fontSize: 11,
                       fontWeight: 700,
                       borderRadius: 20,
