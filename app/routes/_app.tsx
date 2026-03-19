@@ -151,11 +151,7 @@ export default function AppLayout() {
           zIndex: 10,
         }}
       >
-        <span
-          style={{ color: "var(--text)", fontSize: 16, fontWeight: 800, letterSpacing: "0.2em", marginRight: 8 }}
-        >
-          [<span style={{ color: "#F5A623" }}> SQRZ </span>]
-        </span>
+        <img src="/sqrz_logo.png" alt="SQRZ" style={{ height: 36, width: "auto", marginRight: 8, display: "block" }} />
 
         {/* Top nav tabs */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
