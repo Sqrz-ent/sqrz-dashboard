@@ -151,7 +151,7 @@ export default function AppLayout() {
           zIndex: 10,
         }}
       >
-        <img src="/sqrz_logo.png" alt="SQRZ" style={{ height: 36, width: "auto", marginRight: 8, display: "block" }} />
+        <img src="/sqrz_logo.png" alt="SQRZ" style={{ height: "36px", width: "auto", marginRight: 8, display: "block" }} />
 
         {/* Top nav tabs */}
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
