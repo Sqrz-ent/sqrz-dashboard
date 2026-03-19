@@ -138,7 +138,7 @@ export default function AppLayout() {
     >
       {/* ── Desktop top nav ─────────────────────────────────────────────────── */}
       <nav
-        className="hidden md:flex"
+        className="flex"
         style={{
           alignItems: "center",
           gap: 28,
