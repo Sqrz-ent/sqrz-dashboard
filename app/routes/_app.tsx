@@ -152,7 +152,7 @@ export default function AppLayout() {
         }}
       >
         <img
-          src="/sqrz_logo.png"
+          src="/sqrz-logo.png"
           alt="SQRZ"
           style={{ height: "36px", width: "auto", display: "block", marginRight: 8 }}
           onError={(e) => { e.currentTarget.style.display = "none"; }}
