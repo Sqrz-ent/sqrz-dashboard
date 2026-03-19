@@ -29,6 +29,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#F5A623" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="SQRZ" />
+        <link rel="apple-touch-icon" href="/sqrz-favicon.png" />
         <script
           dangerouslySetInnerHTML={{
             __html: `try{var t=localStorage.getItem('sqrz_theme')||'dark';document.documentElement.classList.add(t);}catch(e){}`,
