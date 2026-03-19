@@ -9,6 +9,13 @@ const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
+const SKILL_CATEGORIES = [
+  "Performing Arts & Entertainment",
+  "Media & Creative Arts",
+  "Web & App Development",
+  "Academic & Scholar",
+] as const;
+
 const card: React.CSSProperties = {
   background: "var(--surface)",
   border: "1px solid rgba(245,166,35,0.28)",
@@ -102,10 +109,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const [skillsRes, videosRes, refsRes] = await Promise.all([
+  const [profileSkillsRes, videosRes, refsRes, allSkillsRes, allLangsRes, profileLangsRes] = await Promise.all([
     supabase
       .from("profile_skills")
-      .select("skill_id, skills(id, name, category)")
+      .select("skill_id")
       .eq("profile_id", profile.id as string),
     supabase
       .from("profile_videos")
@@ -117,12 +124,31 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("*")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
+    supabase
+      .from("skills")
+      .select("id, name, category")
+      .eq("type", "skill")
+      .eq("is_visible", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("skills")
+      .select("id, name")
+      .eq("type", "language")
+      .eq("is_visible", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("profile_languages")
+      .select("skill_id")
+      .eq("profile_id", profile.id as string),
   ]);
 
   return Response.json(
     {
       profile,
-      skills: skillsRes.data ?? [],
+      skillIds: (profileSkillsRes.data ?? []).map((r) => (r as { skill_id: number }).skill_id),
+      allSkills: allSkillsRes.data ?? [],
+      languageIds: (profileLangsRes.data ?? []).map((r) => (r as { skill_id: number }).skill_id),
+      allLanguages: allLangsRes.data ?? [],
       videos: videosRes.data ?? [],
       references: refsRes.data ?? [],
     },
@@ -228,13 +254,54 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "add_skill") {
+    const skillId = Number(formData.get("skill_id"));
+    const { error } = await adminClient.from("profile_skills").insert({
+      profile_id: profile.id as string,
+      skill_id: skillId,
+    });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "remove_skill") {
+    const skillId = Number(formData.get("skill_id"));
+    const { error } = await adminClient
+      .from("profile_skills")
+      .delete()
+      .eq("profile_id", profile.id as string)
+      .eq("skill_id", skillId);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "add_language") {
+    const skillId = Number(formData.get("skill_id"));
+    const { error } = await adminClient.from("profile_languages").insert({
+      profile_id: profile.id as string,
+      skill_id: skillId,
+    });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "remove_language") {
+    const skillId = Number(formData.get("skill_id"));
+    const { error } = await adminClient
+      .from("profile_languages")
+      .delete()
+      .eq("profile_id", profile.id as string)
+      .eq("skill_id", skillId);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   return Response.json({ ok: false, error: "Unknown intent" }, { headers });
 }
 
 export default function ProfilePage() {
-  const { profile, skills, videos, references } = useLoaderData<typeof loader>() as {
+  const { profile, skillIds, allSkills, languageIds, allLanguages, videos, references } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
-    skills: Record<string, unknown>[];
+    skillIds: number[];
+    allSkills: { id: number; name: string; category: string }[];
+    languageIds: number[];
+    allLanguages: { id: number; name: string }[];
     videos: Record<string, unknown>[];
     references: Record<string, unknown>[];
   };
@@ -246,6 +313,39 @@ export default function ProfilePage() {
   const publishFetcher = useFetcher();
   const videoFetcher = useFetcher();
   const refFetcher = useFetcher();
+  const skillFetcher = useFetcher();
+  const langFetcher = useFetcher();
+
+  // Skills + languages state
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(() => new Set(skillIds));
+  const [selectedLangIds, setSelectedLangIds] = useState<Set<number>>(() => new Set(languageIds));
+  const [activeSkillTab, setActiveSkillTab] = useState<string>(SKILL_CATEGORIES[0]);
+
+  function toggleSkill(skillId: number) {
+    const isSelected = selectedSkillIds.has(skillId);
+    setSelectedSkillIds((prev) => {
+      const next = new Set(prev);
+      if (isSelected) next.delete(skillId); else next.add(skillId);
+      return next;
+    });
+    const fd = new FormData();
+    fd.append("intent", isSelected ? "remove_skill" : "add_skill");
+    fd.append("skill_id", String(skillId));
+    skillFetcher.submit(fd, { method: "post" });
+  }
+
+  function toggleLanguage(skillId: number) {
+    const isSelected = selectedLangIds.has(skillId);
+    setSelectedLangIds((prev) => {
+      const next = new Set(prev);
+      if (isSelected) next.delete(skillId); else next.add(skillId);
+      return next;
+    });
+    const fd = new FormData();
+    fd.append("intent", isSelected ? "remove_language" : "add_language");
+    fd.append("skill_id", String(skillId));
+    langFetcher.submit(fd, { method: "post" });
+  }
 
   // Avatar state
   const [avatarUploading, setAvatarUploading] = useState(false);
@@ -397,51 +497,132 @@ export default function ProfilePage() {
       {/* Section 2: Skills */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Skills</h2>
-        {skills.length > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-            {skills.map((ps) => {
-              const skill = ps.skills as Record<string, unknown> | null;
-              if (!skill) return null;
+        {/* Category tabs */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+          {SKILL_CATEGORIES.map((cat) => {
+            const isActive = activeSkillTab === cat;
+            return (
+              <button
+                key={cat}
+                onClick={() => setActiveSkillTab(cat)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: 20,
+                  border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                  background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
+                  color: isActive ? ACCENT : "var(--text-muted)",
+                  fontSize: 12,
+                  fontWeight: isActive ? 700 : 500,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                  letterSpacing: "0.01em",
+                  transition: "all 0.12s",
+                }}
+              >
+                {cat}
+              </button>
+            );
+          })}
+        </div>
+        {/* Skills grid for active tab */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {allSkills
+            .filter((s) => s.category === activeSkillTab)
+            .map((skill) => {
+              const isSelected = selectedSkillIds.has(skill.id);
               return (
-                <span
-                  key={ps.skill_id as string}
+                <button
+                  key={skill.id}
+                  onClick={() => toggleSkill(skill.id)}
                   style={{
-                    padding: "5px 12px",
-                    background: "rgba(245,166,35,0.12)",
-                    border: `1px solid rgba(245,166,35,0.3)`,
+                    padding: "6px 13px",
                     borderRadius: 20,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: ACCENT,
+                    border: isSelected ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                    background: isSelected ? "rgba(245,166,35,0.1)" : "transparent",
+                    color: isSelected ? ACCENT : "var(--text-muted)",
+                    fontSize: 13,
+                    fontWeight: isSelected ? 600 : 400,
+                    cursor: "pointer",
                     fontFamily: FONT_BODY,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    transition: "all 0.12s",
                   }}
                 >
-                  {skill.name as string}
-                  {skill.category ? (
-                    <span style={{ color: "var(--text-muted)", fontWeight: 400, marginLeft: 4 }}>· {skill.category as string}</span>
-                  ) : null}
-                </span>
+                  {skill.name}
+                  {isSelected && (
+                    <span style={{ fontSize: 11, lineHeight: 1, opacity: 0.8 }}>✕</span>
+                  )}
+                </button>
               );
             })}
-          </div>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>No skills added yet.</p>
+        </div>
+        {selectedSkillIds.size > 0 && (
+          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
+            {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? "s" : ""} selected
+          </p>
         )}
-        <span style={{
-          display: "inline-block",
-          padding: "4px 10px",
-          background: "rgba(245,166,35,0.1)",
-          border: `1px solid rgba(245,166,35,0.2)`,
-          borderRadius: 8,
-          fontSize: 11,
-          fontWeight: 700,
-          color: "var(--text-muted)",
-          fontFamily: FONT_BODY,
-          letterSpacing: "0.05em",
-          textTransform: "uppercase",
-        }}>
-          Coming Soon — Add skills
-        </span>
+      </div>
+
+      {/* Section 2b: Languages */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Languages</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {/* Selected languages first */}
+          {allLanguages
+            .filter((l) => selectedLangIds.has(l.id))
+            .map((lang) => (
+              <button
+                key={lang.id}
+                onClick={() => toggleLanguage(lang.id)}
+                style={{
+                  padding: "6px 13px",
+                  borderRadius: 20,
+                  border: `1.5px solid ${ACCENT}`,
+                  background: "rgba(245,166,35,0.1)",
+                  color: ACCENT,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+              >
+                {lang.name}
+                <span style={{ fontSize: 11, lineHeight: 1, opacity: 0.8 }}>✕</span>
+              </button>
+            ))}
+          {/* Unselected languages */}
+          {allLanguages
+            .filter((l) => !selectedLangIds.has(l.id))
+            .map((lang) => (
+              <button
+                key={lang.id}
+                onClick={() => toggleLanguage(lang.id)}
+                style={{
+                  padding: "6px 13px",
+                  borderRadius: 20,
+                  border: "1.5px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 400,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                {lang.name}
+              </button>
+            ))}
+        </div>
+        {selectedLangIds.size > 0 && (
+          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
+            {selectedLangIds.size} language{selectedLangIds.size !== 1 ? "s" : ""} selected
+          </p>
+        )}
       </div>
 
       {/* Section 3: Socials */}
