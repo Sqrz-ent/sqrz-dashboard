@@ -110,7 +110,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   requested: { bg: "rgba(245,166,35,0.12)", text: "#F5A623" },
   pending:   { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
   confirmed: { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
-  completed: { bg: "rgba(255,255,255,0.06)", text: "rgba(255,255,255,0.4)" },
+  completed: { bg: "var(--surface-muted)", text: "var(--text-muted)" },
 };
 
 function StatusBadge({ status }: { status: string }) {

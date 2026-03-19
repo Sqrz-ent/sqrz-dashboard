@@ -311,8 +311,8 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   requested: { bg: "rgba(245,166,35,0.12)", text: ACCENT },
   pending:   { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
   confirmed: { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
-  completed: { bg: "rgba(255,255,255,0.06)", text: "rgba(255,255,255,0.4)" },
-  archived:  { bg: "rgba(255,255,255,0.04)", text: "rgba(255,255,255,0.25)" },
+  completed: { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  archived:  { bg: "var(--surface-muted)", text: "var(--text-muted)" },
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -430,7 +430,7 @@ function DetailsSection({ booking }: { booking: Booking }) {
           {req.message && (
             <div>
               <p style={label}>Message</p>
-              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: "6px 0 0", background: "#111", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: "6px 0 0", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
                 {req.message}
               </p>
             </div>
@@ -588,7 +588,7 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
   }, [fetcher.state, fetcher.data]);
 
   const payStatusColor = (s: string | null) =>
-    s === "paid" ? "#4ade80" : s === "pending" ? ACCENT : "rgba(255,255,255,0.3)";
+    s === "paid" ? "#4ade80" : s === "pending" ? ACCENT : "var(--text-muted)";
 
   return (
     <section id="team" style={{ paddingBottom: 40 }}>
@@ -712,7 +712,7 @@ function PaymentsSection({ payments }: { payments: Payment[] }) {
         payments.map((p) => {
           const isPaid = p.status === "paid";
           const isPending = p.status === "pending";
-          const statusColor = isPaid ? ACCENT : isPending ? "#facc15" : "rgba(255,255,255,0.3)";
+          const statusColor = isPaid ? ACCENT : isPending ? "#facc15" : "var(--text-muted)";
           return (
             <div key={p.id} style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>

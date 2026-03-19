@@ -181,15 +181,15 @@ export async function action({ request }: Route.ActionArgs) {
 function FeaturedGrid({ profiles }: { profiles: CrewProfile[] }) {
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
-      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
+      <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
         Crew
       </h1>
-      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 15, marginBottom: 28 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
         Featured creatives available for hire.
       </p>
 
       {profiles.length === 0 ? (
-        <p style={{ color: "rgba(255,255,255,0.25)", fontSize: 14 }}>No featured profiles yet.</p>
+        <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No featured profiles yet.</p>
       ) : (
         <div
           style={{
@@ -232,8 +232,8 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
     >
       <div
         style={{
-          background: "#1a1a1a",
-          border: "1px solid rgba(255,255,255,0.07)",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
           borderRadius: 14,
           padding: "18px 16px",
           cursor: "pointer",
@@ -244,7 +244,7 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
           ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(245,166,35,0.4)")
         }
         onMouseLeave={(e) =>
-          ((e.currentTarget as HTMLDivElement).style.borderColor = "rgba(255,255,255,0.07)")
+          ((e.currentTarget as HTMLDivElement).style.borderColor = "var(--border)")
         }
       >
         {/* Avatar */}
@@ -282,7 +282,7 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
         )}
 
         {/* Name */}
-        <div style={{ color: "#ffffff", fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
+        <div style={{ color: "var(--text)", fontWeight: 600, fontSize: 14, marginBottom: 2 }}>
           {profile.name ?? profile.slug}
         </div>
 
@@ -295,7 +295,7 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
 
         {/* City */}
         {profile.city && (
-          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 12, marginBottom: 10 }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
             📍 {profile.city}
           </div>
         )}
@@ -321,7 +321,7 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
               <span
                 style={{
                   fontSize: 11,
-                  color: "rgba(255,255,255,0.3)",
+                  color: "var(--text-muted)",
                   padding: "2px 4px",
                 }}
               >
@@ -402,10 +402,10 @@ export default function Crew() {
   }
 
   const inputBase: React.CSSProperties = {
-    background: "#1a1a1a",
-    border: "1px solid rgba(255,255,255,0.1)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
     borderRadius: 10,
-    color: "#ffffff",
+    color: "var(--text)",
     fontSize: 14,
     padding: "10px 14px",
     outline: "none",
@@ -414,10 +414,10 @@ export default function Crew() {
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
       {/* Header */}
-      <h1 style={{ color: "#ffffff", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
+      <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
         Crew
       </h1>
-      <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 15, marginBottom: 28 }}>
+      <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
         Search and hire verified creatives for your next gig.
       </p>
 
@@ -461,12 +461,12 @@ export default function Crew() {
       </div>
 
       {/* Result count */}
-      <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, marginBottom: 20 }}>
+      <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
         {isSearching ? (
           "Searching…"
         ) : (
           <>
-            <span style={{ color: "#ffffff", fontWeight: 600 }}>{total}</span>{" "}
+            <span style={{ color: "var(--text)", fontWeight: 600 }}>{total}</span>{" "}
             {total === 1 ? "profile" : "profiles"} found
             {totalPages > 1 && (
               <span>
@@ -483,7 +483,7 @@ export default function Crew() {
           style={{
             textAlign: "center",
             padding: "64px 24px",
-            color: "rgba(255,255,255,0.25)",
+            color: "var(--text-muted)",
           }}
         >
           <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
@@ -521,9 +521,9 @@ export default function Crew() {
             disabled={page <= 1}
             style={{
               background: "none",
-              border: "1px solid rgba(255,255,255,0.15)",
+              border: "1px solid var(--border)",
               borderRadius: 8,
-              color: page <= 1 ? "rgba(255,255,255,0.2)" : "#ffffff",
+              color: page <= 1 ? "var(--text-muted)" : "var(--text)",
               fontSize: 14,
               padding: "8px 16px",
               cursor: page <= 1 ? "default" : "pointer",
@@ -532,7 +532,7 @@ export default function Crew() {
             ← Previous
           </button>
 
-          <span style={{ color: "rgba(255,255,255,0.4)", fontSize: 13 }}>
+          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
             {page} / {totalPages}
           </span>
 
@@ -541,9 +541,9 @@ export default function Crew() {
             disabled={page >= totalPages}
             style={{
               background: "none",
-              border: "1px solid rgba(255,255,255,0.15)",
+              border: "1px solid var(--border)",
               borderRadius: 8,
-              color: page >= totalPages ? "rgba(255,255,255,0.2)" : "#ffffff",
+              color: page >= totalPages ? "var(--text-muted)" : "var(--text)",
               fontSize: 14,
               padding: "8px 16px",
               cursor: page >= totalPages ? "default" : "pointer",

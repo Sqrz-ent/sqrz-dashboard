@@ -34,15 +34,15 @@ const COLUMNS = [
   { key: "requested", label: "Requested", accent: "#F5A623" },
   { key: "pending",   label: "Pending",   accent: "#60a5fa" },
   { key: "confirmed", label: "Confirmed", accent: "#4ade80" },
-  { key: "completed", label: "Completed", accent: "rgba(255,255,255,0.35)" },
+  { key: "completed", label: "Completed", accent: "var(--text-muted)" },
 ] as const;
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   requested: { bg: "rgba(245,166,35,0.12)",  text: "#F5A623" },
   pending:   { bg: "rgba(96,165,250,0.12)",  text: "#60a5fa" },
   confirmed: { bg: "rgba(74,222,128,0.12)",  text: "#4ade80" },
-  completed: { bg: "rgba(255,255,255,0.06)", text: "rgba(255,255,255,0.4)" },
-  archived:  { bg: "rgba(255,255,255,0.04)", text: "rgba(255,255,255,0.25)" },
+  completed: { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  archived:  { bg: "var(--surface-muted)", text: "var(--text-muted)" },
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -561,7 +561,7 @@ export default function OfficePage() {
                   <span
                     style={{
                       background: col.accent,
-                      color: col.key === "completed" ? "rgba(255,255,255,0.6)" : "#111",
+                      color: col.key === "completed" ? "var(--text-muted)" : "#111",
                       fontSize: 11,
                       fontWeight: 700,
                       borderRadius: 20,

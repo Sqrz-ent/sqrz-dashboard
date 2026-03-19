@@ -515,9 +515,9 @@ function AccountPanel({
                 disabled={isConnecting}
                 style={{
                   padding: "10px 18px",
-                  background: "rgba(255,255,255,0.07)",
-                  color: isConnecting ? "rgba(255,255,255,0.3)" : "rgba(255,255,255,0.7)",
-                  border: "1px solid rgba(255,255,255,0.12)",
+                  background: "var(--surface-muted)",
+                  color: isConnecting ? "var(--text-muted)" : "var(--text)",
+                  border: "1px solid var(--border)",
                   borderRadius: 10,
                   fontSize: 13,
                   fontWeight: 600,
