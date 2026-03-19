@@ -138,19 +138,23 @@ export default function AppLayout() {
     >
       {/* ── Desktop top nav ─────────────────────────────────────────────────── */}
       <nav
-        className="flex"
-        style={{
-          alignItems: "center",
-          gap: 28,
-          padding: "0 28px",
-          height: 56,
-          borderBottom: "1px solid var(--border)",
-          position: "sticky",
-          top: 0,
-          background: "var(--bg)",
-          zIndex: 10,
-        }}
-      >
+  className="flex"
+  style={{
+    alignItems: "center",
+    gap: 16,
+    padding: "0 16px",
+    height: 56,
+    borderBottom: "1px solid var(--border)",
+    position: "sticky",
+    top: 0,
+    background: "var(--bg)",
+    zIndex: 10,
+
+    width: "100vw",          // ✅ force max width
+    maxWidth: "100vw",       // ✅ safety
+    overflowX: "auto",       // ✅ allow scroll instead of overflow
+  }}
+>
         <img
           src="/sqrz-logo.png"
           alt="SQRZ"
@@ -159,7 +163,15 @@ export default function AppLayout() {
         />
 
         {/* Top nav tabs */}
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    flexWrap: "nowrap",     // ✅ prevents wrapping
+    minWidth: "max-content" // ✅ keeps items inline
+  }}
+>
           {topNavItems.map((item) => (
             <NavLink
               key={item.to}
