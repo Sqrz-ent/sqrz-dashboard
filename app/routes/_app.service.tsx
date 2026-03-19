@@ -119,14 +119,19 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "add_service") {
     const priceOnRequest = formData.get("price_on_request") === "true";
+    const bookingType = formData.get("booking_type") as string || "quote";
+    const isInstant = bookingType === "instant";
     const { error } = await adminClient.from("profile_services").insert({
       profile_id: profile.id as string,
       title: formData.get("title") as string,
       description: formData.get("description") as string,
-      price_min: priceOnRequest ? null : (parseFloat(formData.get("price_min") as string) || null),
-      price_max: priceOnRequest ? null : (parseFloat(formData.get("price_max") as string) || null),
-      price_label: priceOnRequest ? "Price on request" : ((formData.get("price_label") as string) || null),
-      currency: priceOnRequest ? null : ((formData.get("currency") as string) || "EUR"),
+      price_min: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_min") as string) || null),
+      price_max: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_max") as string) || null),
+      price_label: priceOnRequest && !isInstant ? "Price on request" : ((formData.get("price_label") as string) || null),
+      currency: (isInstant || priceOnRequest) ? null : ((formData.get("currency") as string) || "EUR"),
+      booking_type: bookingType,
+      instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
+      instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
       is_active: true,
       sort_order: 0,
     });
@@ -136,13 +141,18 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "update_service") {
     const id = formData.get("id") as string;
     const priceOnRequest = formData.get("price_on_request") === "true";
+    const bookingType = formData.get("booking_type") as string || "quote";
+    const isInstant = bookingType === "instant";
     const { error } = await adminClient.from("profile_services").update({
       title: formData.get("title") as string,
       description: formData.get("description") as string,
-      price_min: priceOnRequest ? null : (parseFloat(formData.get("price_min") as string) || null),
-      price_max: priceOnRequest ? null : (parseFloat(formData.get("price_max") as string) || null),
-      price_label: priceOnRequest ? "Price on request" : ((formData.get("price_label") as string) || null),
-      currency: priceOnRequest ? null : ((formData.get("currency") as string) || "EUR"),
+      price_min: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_min") as string) || null),
+      price_max: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_max") as string) || null),
+      price_label: priceOnRequest && !isInstant ? "Price on request" : ((formData.get("price_label") as string) || null),
+      currency: (isInstant || priceOnRequest) ? null : ((formData.get("currency") as string) || "EUR"),
+      booking_type: bookingType,
+      instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
+      instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
     }).eq("id", id);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -166,6 +176,9 @@ type Service = {
   currency: string | null;
   is_active: boolean;
   sort_order: number;
+  booking_type: "instant" | "quote";
+  instant_price: number | null;
+  instant_currency: string | null;
 };
 
 function ServiceModal({
@@ -173,34 +186,44 @@ function ServiceModal({
   onClose,
   editing,
   fetcher,
+  isPremium,
 }: {
   isOpen: boolean;
   onClose: () => void;
   editing: Service | null;
   fetcher: ReturnType<typeof useFetcher>;
+  isPremium: boolean;
 }) {
   const [priceOnRequest, setPriceOnRequest] = useState(false);
+  const [isInstant, setIsInstant] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
     price_min: "",
     price_max: "",
     currency: "EUR",
+    instant_price: "",
+    instant_currency: "EUR",
   });
 
   useEffect(() => {
     if (editing) {
-      setPriceOnRequest(editing.price_label === "Price on request");
+      const instant = editing.booking_type === "instant";
+      setIsInstant(instant);
+      setPriceOnRequest(!instant && editing.price_label === "Price on request");
       setForm({
         title: editing.title ?? "",
         description: editing.description ?? "",
         price_min: String(editing.price_min ?? ""),
         price_max: String(editing.price_max ?? ""),
         currency: editing.currency ?? "EUR",
+        instant_price: String(editing.instant_price ?? ""),
+        instant_currency: editing.instant_currency ?? "EUR",
       });
     } else {
+      setIsInstant(false);
       setPriceOnRequest(false);
-      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR" });
+      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR", instant_price: "", instant_currency: "EUR" });
     }
   }, [editing, isOpen]);
 
@@ -211,8 +234,12 @@ function ServiceModal({
     if (editing) fd.append("id", editing.id);
     fd.append("title", form.title);
     fd.append("description", form.description);
-    fd.append("price_on_request", String(priceOnRequest));
-    if (!priceOnRequest) {
+    fd.append("booking_type", isInstant ? "instant" : "quote");
+    fd.append("price_on_request", String(priceOnRequest && !isInstant));
+    if (isInstant) {
+      fd.append("instant_price", form.instant_price);
+      fd.append("instant_currency", form.instant_currency);
+    } else if (!priceOnRequest) {
       fd.append("price_min", form.price_min);
       fd.append("price_max", form.price_max);
       fd.append("currency", form.currency);
@@ -244,15 +271,21 @@ function ServiceModal({
             placeholder="Describe what's included…"
           />
         </div>
-        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
-          <input
-            type="checkbox"
-            checked={priceOnRequest}
-            onChange={(e) => setPriceOnRequest(e.target.checked)}
-          />
-          Price on request
-        </label>
-        {!priceOnRequest && (
+
+        {/* Price on request — hidden when instant booking is on */}
+        {!isInstant && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
+            <input
+              type="checkbox"
+              checked={priceOnRequest}
+              onChange={(e) => setPriceOnRequest(e.target.checked)}
+            />
+            Price on request
+          </label>
+        )}
+
+        {/* Price range — hidden when price-on-request or instant booking */}
+        {!priceOnRequest && !isInstant && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 10 }}>
             <div>
               <label style={labelStyle}>Min Price</label>
@@ -288,6 +321,97 @@ function ServiceModal({
             </div>
           </div>
         )}
+
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
+
+        {/* Instant Booking toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: isPremium ? "var(--text)" : "var(--text-muted)", fontFamily: FONT_BODY }}>
+              Instant Booking
+            </span>
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase" as const,
+              padding: "2px 7px",
+              borderRadius: 20,
+              border: isPremium ? `1px solid rgba(245,166,35,0.5)` : "1px solid var(--border)",
+              color: isPremium ? ACCENT : "var(--text-muted)",
+              background: isPremium ? "rgba(245,166,35,0.08)" : "transparent",
+              fontFamily: FONT_BODY,
+            }}>
+              Premium
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => isPremium && setIsInstant((v) => !v)}
+            aria-pressed={isInstant}
+            style={{
+              width: 42,
+              height: 24,
+              borderRadius: 12,
+              border: "none",
+              background: isInstant ? ACCENT : "var(--border)",
+              cursor: isPremium ? "pointer" : "not-allowed",
+              position: "relative",
+              transition: "background 0.15s",
+              opacity: isPremium ? 1 : 0.45,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{
+              position: "absolute",
+              top: 3,
+              left: isInstant ? 21 : 3,
+              width: 18,
+              height: 18,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "left 0.15s",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+            }} />
+          </button>
+        </div>
+
+        {!isPremium && (
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-4px 0 0", fontFamily: FONT_BODY }}>
+            Upgrade to a paid plan to enable instant booking.
+          </p>
+        )}
+
+        {/* Fixed price — shown only when instant booking is on */}
+        {isInstant && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
+            <div>
+              <label style={labelStyle}>Fixed Price</label>
+              <input
+                type="number"
+                style={inputStyle}
+                value={form.instant_price}
+                onChange={(e) => setForm((f) => ({ ...f, instant_price: e.target.value }))}
+                placeholder="150"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Currency</label>
+              <select
+                style={{ ...inputStyle }}
+                value={form.instant_currency}
+                onChange={(e) => setForm((f) => ({ ...f, instant_currency: e.target.value }))}
+              >
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+                <option value="GBP">GBP</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={handleSubmit}
           disabled={fetcher.state !== "idle"}
@@ -316,6 +440,8 @@ export default function ServicePage() {
   });
 
   const servicesActive = profile.services_active as boolean;
+  const planId = profile.plan_id as number | null | undefined;
+  const isPremium = !!planId && planId > 0;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -424,6 +550,7 @@ export default function ServicePage() {
         onClose={() => setServiceModal({ open: false, editing: null })}
         editing={serviceModal.editing}
         fetcher={serviceFetcher}
+        isPremium={isPremium}
       />
     </div>
   );
