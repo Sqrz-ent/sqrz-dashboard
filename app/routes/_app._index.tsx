@@ -1,169 +1,398 @@
+import { useState } from "react";
 import { redirect, useLoaderData, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
+const ACCENT = "#F5A623";
+const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
+
+// Social fields to check for "has at least 1 social"
+const SOCIAL_FIELDS = [
+  "instagram", "tiktok", "youtube", "twitter", "spotify",
+  "soundcloud", "facebook", "website", "linkedin",
+];
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type UpcomingBooking = {
+  id: string;
+  title: string | null;
+  service: string | null;
+  date_start: string | null;
+  city: string | null;
+};
+
+// ─── Loader ───────────────────────────────────────────────────────────────────
+
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/join");
 
   const profile = await getCurrentProfile(supabase, user.id);
+  if (!profile) return redirect("/join");
 
-  return Response.json({ profile }, { headers });
+  const profileId = profile.id as string;
+
+  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, planRes] =
+    await Promise.all([
+      supabase
+        .from("bookings")
+        .select("id", { count: "exact", head: true })
+        .eq("owner_id", profileId)
+        .in("status", ["requested", "pending", "confirmed"]),
+      supabase
+        .from("bookings")
+        .select("id, title, service, date_start, city")
+        .eq("owner_id", profileId)
+        .eq("status", "confirmed")
+        .gt("date_start", new Date().toISOString())
+        .order("date_start", { ascending: true })
+        .limit(3),
+      supabase
+        .from("profile_skills")
+        .select("skill_id", { count: "exact", head: true })
+        .eq("profile_id", profileId),
+      supabase
+        .from("profile_services")
+        .select("id", { count: "exact", head: true })
+        .eq("profile_id", profileId),
+      profile.plan_id
+        ? supabase.from("plans").select("name").eq("id", profile.plan_id as number).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+  return Response.json(
+    {
+      profile,
+      activeBookingsCount: activeBookingsRes.count ?? 0,
+      upcomingBookings: upcomingBookingsRes.data ?? [],
+      hasSkills: (skillsRes.count ?? 0) > 0,
+      hasServices: (servicesRes.count ?? 0) > 0,
+      planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
+    },
+    { headers }
+  );
 }
 
-// ─── Placeholder cards ────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function Card({
-  title,
-  description,
-  to,
-  onClick,
-  comingSoon,
-}: {
-  title: string;
-  description: string;
-  to?: string;
-  onClick?: () => void;
-  comingSoon?: boolean;
-}) {
-  const inner = (
-    <div
-      style={{
-        background: comingSoon ? "var(--surface-muted)" : "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: 16,
-        padding: "20px 22px",
-        height: "100%",
-        cursor: comingSoon ? "default" : "pointer",
-        transition: "border-color 0.15s",
-      }}
-    >
-      <h2 style={{ color: "var(--text)", fontSize: 15, fontWeight: 600, marginBottom: 6 }}>
-        {title}
-      </h2>
-      <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-        {description}
-      </p>
-      {comingSoon && (
-        <span
-          style={{
-            display: "inline-block",
-            marginTop: 10,
-            fontSize: 11,
-            color: "#F5A623",
-            border: "1px solid rgba(245,166,35,0.4)",
-            borderRadius: 4,
-            padding: "2px 6px",
-          }}
-        >
-          Coming soon
-        </span>
-      )}
-    </div>
-  );
-
-  if (comingSoon) return <div>{inner}</div>;
-  if (onClick) {
-    return (
-      <button
-        onClick={onClick}
-        style={{ display: "block", width: "100%", background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "left" }}
-      >
-        {inner}
-      </button>
-    );
-  }
-  return (
-    <Link to={to!} style={{ textDecoration: "none" }}>
-      {inner}
-    </Link>
-  );
+function formatDate(iso: string | null) {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile } = useLoaderData<typeof loader>();
+  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, planName } =
+    useLoaderData<typeof loader>();
 
-  const profileSlug = (profile as Record<string, unknown>)?.slug as string | undefined;
-  const profileName = (profile as Record<string, unknown>)?.name as string | undefined;
-  const isPublished = (profile as Record<string, unknown>)?.is_published as boolean | undefined;
+  const p = profile as Record<string, unknown>;
+  const slug = p.slug as string | null;
+  const name = p.name as string | null;
+  const firstName = name?.split(" ")[0] ?? slug ?? "there";
+  const viewCount = (p.view_count as number | null) ?? 0;
+  const planId = p.plan_id as number | null | undefined;
+  const isPaid = !!planId && planId > 0;
+
+  // Profile completion
+  const hasSocial = SOCIAL_FIELDS.some((f) => !!(p[f] as string | null));
+  const sections: { label: string; done: boolean }[] = [
+    { label: "Avatar",    done: !!(p.avatar_url) },
+    { label: "Name",      done: !!(p.name) },
+    { label: "Bio",       done: !!(p.bio) },
+    { label: "City",      done: !!(p.city) },
+    { label: "Socials",   done: hasSocial },
+    { label: "Skills",    done: hasSkills },
+    { label: "Services",  done: hasServices },
+    { label: "Published", done: !!(p.is_published) },
+  ];
+  const doneCount = sections.filter((s) => s.done).length;
+  const pct = Math.round((doneCount / sections.length) * 100);
+
+  // Share button
+  const [copied, setCopied] = useState(false);
+  function copyLink() {
+    if (!slug) return;
+    navigator.clipboard.writeText(`https://${slug}.sqrz.com`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const card: React.CSSProperties = {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 16,
+    padding: "20px 22px",
+  };
+
+  const metaLabel: React.CSSProperties = {
+    color: "var(--text-muted)",
+    fontSize: 11,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: "0.07em",
+    margin: "0 0 6px",
+  };
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: "36px 24px" }}>
-      {/* Header */}
-      <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
-        Welcome to SQRZ{profileName ? `, ${profileName}` : ""}
-      </h1>
+    <div style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px", fontFamily: FONT }}>
 
-      {profileSlug && (
+      {/* Welcome header */}
+      <h1 style={{ color: "var(--text)", fontSize: 26, fontWeight: 700, margin: "0 0 4px" }}>
+        Welcome back, {firstName}
+      </h1>
+      {slug && (
         <a
-          href={`https://${profileSlug}.sqrz.com`}
+          href={`https://${slug}.sqrz.com`}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: "#F5A623", fontSize: 14, fontWeight: 500, textDecoration: "none" }}
+          style={{ color: ACCENT, fontSize: 13, textDecoration: "none" }}
         >
-          {profileSlug}.sqrz.com →
+          {slug}.sqrz.com →
         </a>
       )}
 
-      {/* Published status */}
-      <div style={{ marginTop: 16, marginBottom: 36 }}>
-        {isPublished ? (
-          <span style={{ color: "#4ade80", fontSize: 13, fontWeight: 500 }}>
-            ✓ Your profile is live
-          </span>
-        ) : (
-          <Link
-            to="/profile"
+      {/* Profile completion */}
+      <div style={{ ...card, marginTop: 28, marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 10,
+            gap: 12,
+          }}
+        >
+          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>
+            Profile completion
+          </p>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, flexShrink: 0 }}>
+            {doneCount} of {sections.length} sections complete
+          </p>
+        </div>
+
+        {/* Progress bar */}
+        <div
+          style={{
+            background: "var(--border)",
+            borderRadius: 6,
+            height: 7,
+            overflow: "hidden",
+            marginBottom: 14,
+          }}
+        >
+          <div
             style={{
-              color: "#F5A623",
-              fontSize: 13,
-              fontWeight: 500,
-              textDecoration: "none",
+              background: ACCENT,
+              borderRadius: 6,
+              height: "100%",
+              width: `${pct}%`,
+              transition: "width 0.4s ease",
             }}
-          >
-            Publish your profile →
-          </Link>
-        )}
+          />
+        </div>
+
+        {/* Section pills */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {sections.map((s) => (
+            <span
+              key={s.label}
+              style={{
+                fontSize: 11,
+                fontWeight: 600,
+                padding: "3px 9px",
+                borderRadius: 20,
+                background: s.done ? "rgba(245,166,35,0.12)" : "var(--surface-muted)",
+                color: s.done ? ACCENT : "var(--text-muted)",
+                border: `1px solid ${s.done ? "rgba(245,166,35,0.3)" : "var(--border)"}`,
+              }}
+            >
+              {s.done ? "✓ " : ""}{s.label}
+            </span>
+          ))}
+        </div>
       </div>
 
-      {/* Cards */}
+      {/* Quick stats */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-          gap: 14,
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 12,
+          marginBottom: 16,
         }}
       >
-        <Card
-          title="📋 Pipeline"
-          description="Manage booking requests, pending gigs, and confirmed work."
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Profile Views</p>
+          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+            {viewCount.toLocaleString()}
+          </p>
+        </div>
+
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Active Bookings</p>
+          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+            {String(activeBookingsCount)}
+          </p>
+        </div>
+
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Plan</p>
+          <p
+            style={{
+              color: isPaid ? ACCENT : "var(--text-muted)",
+              fontSize: 16,
+              fontWeight: 700,
+              margin: 0,
+              lineHeight: 1.6,
+            }}
+          >
+            {planName ?? "Free"}
+          </p>
+        </div>
+      </div>
+
+      {/* Upcoming bookings */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 14,
+          }}
+        >
+          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>
+            Upcoming
+          </p>
+          <Link
+            to="/office"
+            style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none" }}
+          >
+            View all →
+          </Link>
+        </div>
+
+        {(upcomingBookings as UpcomingBooking[]).length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+            No upcoming confirmed bookings.{" "}
+            <Link to="/office" style={{ color: ACCENT, textDecoration: "none" }}>
+              Go to pipeline →
+            </Link>
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(upcomingBookings as UpcomingBooking[]).map((b) => (
+              <Link key={b.id} to={`/office/${b.id}`} style={{ textDecoration: "none" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 14px",
+                    background: "var(--surface-muted)",
+                    borderRadius: 10,
+                    gap: 12,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <p
+                      style={{
+                        color: "var(--text)",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        margin: "0 0 2px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {b.title ?? b.service ?? "Booking"}
+                    </p>
+                    {b.city && (
+                      <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
+                        📍 {b.city}
+                      </p>
+                    )}
+                  </div>
+                  <p
+                    style={{
+                      color: ACCENT,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      margin: 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {formatDate(b.date_start)}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Quick actions */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {slug && (
+          <a
+            href={`https://${slug}.sqrz.com`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "10px 20px",
+              background: ACCENT,
+              color: "#111",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              textDecoration: "none",
+            }}
+          >
+            View my profile →
+          </a>
+        )}
+        <button
+          onClick={copyLink}
+          disabled={!slug}
+          style={{
+            padding: "10px 20px",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            color: copied ? "#4ade80" : "var(--text)",
+            cursor: slug ? "pointer" : "default",
+            fontFamily: FONT,
+          }}
+        >
+          {copied ? "✓ Copied!" : "Share profile"}
+        </button>
+        <Link
           to="/office"
-          comingSoon
-        />
-        <Card
-          title="👤 Profile"
-          description="Edit your bio, skills, services, and public profile."
-          to="/profile"
-        />
-        <Card
-          title="🖼 Media"
-          description="Upload photos and videos to your gallery."
-          to="/media"
-          comingSoon
-        />
-        <Card
-          title="⚙️ Account"
-          description="Subscription, billing, and account settings."
-          to="/account"
-        />
+          style={{
+            padding: "10px 20px",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text)",
+            textDecoration: "none",
+          }}
+        >
+          New booking request
+        </Link>
       </div>
     </div>
   );
