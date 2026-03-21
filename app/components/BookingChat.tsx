@@ -178,6 +178,8 @@ export default function BookingChat({
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
+  console.log("[BookingChat] mounted, bookingId:", bookingId);
+
   return createPortal(
     <div style={{
       position: "fixed",
@@ -473,11 +475,11 @@ export default function BookingChat({
           position: "fixed",
           bottom: 80,
           right: 16,
-          width: 52,
-          height: 52,
+          width: 56,
+          height: 56,
           borderRadius: "50%",
           background: accent,
-          color: dark,
+          color: "#fff",
           border: "none",
           fontSize: 22,
           cursor: "pointer",
