@@ -180,14 +180,14 @@ export default function BookingChat({
         <div
           style={{
             position: "fixed",
-            bottom: 90,
+            bottom: 156,
             right: 24,
             width: 320,
             height: 480,
             background: panelBg,
             border: "1px solid var(--border)",
             borderRadius: 16,
-            zIndex: 1000,
+            zIndex: 9999,
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -459,8 +459,8 @@ export default function BookingChat({
         aria-label={open ? "Close chat" : "Open chat"}
         style={{
           position: "fixed",
-          bottom: 24,
-          right: 24,
+          bottom: 80,
+          right: 16,
           width: 52,
           height: 52,
           borderRadius: "50%",
@@ -469,7 +469,7 @@ export default function BookingChat({
           border: "none",
           fontSize: 22,
           cursor: "pointer",
-          zIndex: 1000,
+          zIndex: 9999,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
