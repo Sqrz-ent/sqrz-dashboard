@@ -1,6 +1,7 @@
 // Intercom-style floating chat bubble, bottom-right corner
 // Props: bookingId, currentUserEmail, isOwner
 
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "~/lib/supabase.client";
 
@@ -173,7 +174,11 @@ export default function BookingChat({
   const fontFamily =
     "'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif";
 
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+
+  return createPortal(
     <>
       {/* Expanded panel */}
       {open && (
@@ -187,7 +192,7 @@ export default function BookingChat({
             background: panelBg,
             border: "1px solid var(--border)",
             borderRadius: 16,
-            zIndex: 9999,
+            zIndex: 2147483647,
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
@@ -469,7 +474,7 @@ export default function BookingChat({
           border: "none",
           fontSize: 22,
           cursor: "pointer",
-          zIndex: 9999,
+          zIndex: 2147483647,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -501,6 +506,7 @@ export default function BookingChat({
           </span>
         )}
       </button>
-    </>
+    </>,
+    document.body
   );
 }
