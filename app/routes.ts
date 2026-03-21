@@ -7,6 +7,8 @@ export default [
   route("reset-password", "routes/reset-password.tsx"),
   route("auth/callback", "routes/auth.callback.tsx"),
   route("guest-login", "routes/guest-login.tsx"),
+  route("claim", "routes/claim.tsx"),
+  route("claim/confirm", "routes/claim.confirm.tsx"),
 
   // Standalone booking access (no dashboard chrome)
   route("booking/:id", "routes/booking.$id.tsx"),
