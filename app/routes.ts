@@ -19,6 +19,7 @@ export default [
     route("crew", "routes/_app.crew.tsx"),
     route("profile", "routes/_app.profile.tsx"),
     route("service", "routes/_app.service.tsx"),
+    route("boost", "routes/_app.boost.tsx"),
     route("domain", "routes/_app.domain.tsx"),
     route("media", "routes/_app.media.tsx"),
     route("account", "routes/_app.account.tsx"),
