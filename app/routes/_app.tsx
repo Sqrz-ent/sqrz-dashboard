@@ -78,6 +78,7 @@ const topNavItems = [
   { to: "/service", label: "Service" },
   { to: "/boost", label: "Boost" },
   { to: "/domain", label: "Domain" },
+  { to: "/links", label: "Links" },
   { to: "/media", label: "Media" },
   { to: "/account", label: "Account" },
 ];
