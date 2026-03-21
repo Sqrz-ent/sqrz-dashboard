@@ -31,6 +31,7 @@ export default function BookingChat({
   currentUserEmail,
   isOwner,
 }: BookingChatProps) {
+  console.log("[BookingChat] render props:", { bookingId, currentUserEmail });
   const [open, setOpen] = useState(false);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
@@ -475,11 +476,12 @@ export default function BookingChat({
           position: "fixed",
           bottom: 80,
           right: 16,
-          width: 56,
-          height: 56,
+          width: "56px",
+          height: "56px",
+          minWidth: "56px",
+          minHeight: "56px",
           borderRadius: "50%",
-          background: accent,
-          color: "#fff",
+          backgroundColor: "#F5A623",
           border: "none",
           fontSize: 22,
           cursor: "pointer",
@@ -487,6 +489,7 @@ export default function BookingChat({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          flexShrink: 0,
           boxShadow: "0 4px 20px rgba(245,166,35,0.35)",
           fontFamily,
         }}
