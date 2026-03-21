@@ -179,7 +179,14 @@ export default function BookingChat({
   if (!mounted) return null;
 
   return createPortal(
-    <>
+    <div style={{
+      position: "fixed",
+      bottom: "80px",
+      right: "16px",
+      zIndex: 2147483647,
+      isolation: "isolate",
+      pointerEvents: "auto",
+    }}>
       {/* Expanded panel */}
       {open && (
         <div
@@ -506,7 +513,7 @@ export default function BookingChat({
           </span>
         )}
       </button>
-    </>,
+    </div>,
     document.body
   );
 }

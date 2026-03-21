@@ -274,8 +274,9 @@ export default function AppLayout() {
           display: "flex",
           justifyContent: "space-around",
           padding: "10px 0 max(10px, env(safe-area-inset-bottom))",
-          zIndex: 10,
+          zIndex: 50,
           overflow: "visible",
+          isolation: "isolate",
         }}
       >
         {bottomNavItems.map((item) => (
