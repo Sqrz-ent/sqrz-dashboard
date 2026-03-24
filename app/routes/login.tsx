@@ -4,7 +4,7 @@ import type { Route } from "./+types/login";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
 
-// ─── Shared styles (mirrors join.tsx design tokens) ───────────────────────────
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -29,29 +29,14 @@ const primaryButtonStyle: React.CSSProperties = {
   fontSize: 16,
   fontWeight: 700,
   cursor: "pointer",
-  marginBottom: 8,
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "14px",
-  background: "transparent",
-  color: "#ffffff",
-  border: "1px solid rgba(255,255,255,0.2)",
-  borderRadius: 12,
-  fontSize: 16,
-  fontWeight: 600,
-  cursor: "pointer",
-  marginBottom: 8,
+  marginBottom: 0,
 };
 
 // ─── Loader — redirect to dashboard if already logged in ──────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase: supabaseServer, headers } = createSupabaseServerClient(request);
-  const {
-    data: { user },
-  } = await supabaseServer.auth.getUser();
+  const { data: { user } } = await supabaseServer.auth.getUser();
 
   if (user) return redirect("/", { headers });
 
@@ -66,61 +51,57 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function Login() {
   const { error: urlError } = useLoaderData<typeof loader>();
 
-  // Magic link state
-  const [magicEmail, setMagicEmail] = useState("");
-  const [magicSent, setMagicSent] = useState(false);
-  const [magicLoading, setMagicLoading] = useState(false);
-  const [magicError, setMagicError] = useState("");
+  const [email, setEmail]             = useState("");
+  const [password, setPassword]       = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState("");
+  const [magicSent, setMagicSent]     = useState(false);
 
-  // Password login state
-  const [pwEmail, setPwEmail] = useState("");
-  const [pwPassword, setPwPassword] = useState("");
-  const [pwLoading, setPwLoading] = useState(false);
-  const [pwError, setPwError] = useState("");
+  function toggleMode() {
+    setShowPassword((v) => !v);
+    setError("");
+  }
 
   async function sendMagicLink() {
-    const email = magicEmail.trim().toLowerCase();
-    if (!email.includes("@")) {
-      setMagicError("Enter a valid email address");
-      return;
-    }
-    setMagicLoading(true);
-    setMagicError("");
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
+    setLoading(true);
+    setError("");
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
+      const { error: err } = await supabase.auth.signInWithOtp({
+        email: trimmed,
         options: { emailRedirectTo: "https://dashboard.sqrz.com/auth/callback" },
       });
-      if (error) throw error;
+      if (err) throw err;
       setMagicSent(true);
     } catch (err) {
-      setMagicError(err instanceof Error ? err.message : "Something went wrong");
+      setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
-      setMagicLoading(false);
+      setLoading(false);
     }
   }
 
   async function loginWithPassword() {
-    const email = pwEmail.trim().toLowerCase();
-    if (!email.includes("@")) {
-      setPwError("Enter a valid email address");
-      return;
-    }
-    if (!pwPassword) {
-      setPwError("Enter your password");
-      return;
-    }
-    setPwLoading(true);
-    setPwError("");
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
+    if (!password)               { setError("Enter your password"); return; }
+    setLoading(true);
+    setError("");
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password: pwPassword });
-      if (error) throw error;
+      const { error: err } = await supabase.auth.signInWithPassword({ email: trimmed, password });
+      if (err) throw err;
       window.location.href = "/";
     } catch {
-      setPwError("Invalid email or password");
+      setError("Invalid email or password");
     } finally {
-      setPwLoading(false);
+      setLoading(false);
     }
+  }
+
+  function handleSubmit() {
+    if (showPassword) loginWithPassword();
+    else sendMagicLink();
   }
 
   return (
@@ -173,31 +154,29 @@ export default function Login() {
           </p>
         )}
 
-        {/* ── Option 1: Magic link ─────────────────────────────────────────── */}
+        {/* ── Main card ──────────────────────────────────────────────────────── */}
         <div
           style={{
             background: "#1a1a1a",
             border: "1px solid rgba(245,166,35,0.2)",
             borderRadius: 16,
             padding: "24px",
-            marginBottom: 16,
+            marginBottom: 24,
           }}
         >
-          <p style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, marginBottom: 16, marginTop: 0 }}>
-            No password needed
-          </p>
-
           {magicSent ? (
+            /* ── Magic link sent confirmation ──────────────────────────── */
             <div style={{ textAlign: "center", padding: "8px 0" }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>✉️</div>
               <p style={{ color: "#ffffff", fontWeight: 600, marginBottom: 4, fontSize: 15 }}>
                 Check your inbox
               </p>
               <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, marginBottom: 16 }}>
-                We sent a magic link to <span style={{ color: "#F5A623" }}>{magicEmail.trim().toLowerCase()}</span>
+                We sent a magic link to{" "}
+                <span style={{ color: "#F5A623" }}>{email.trim().toLowerCase()}</span>
               </p>
               <button
-                onClick={() => { setMagicSent(false); setMagicEmail(""); }}
+                onClick={() => { setMagicSent(false); setEmail(""); }}
                 style={{
                   background: "none",
                   border: "none",
@@ -212,88 +191,84 @@ export default function Login() {
             </div>
           ) : (
             <>
+              {/* ── Email field ─────────────────────────────────────────── */}
               <input
                 type="email"
-                value={magicEmail}
-                onChange={(e) => setMagicEmail(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMagicLink()}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
                 placeholder="you@example.com"
                 style={inputStyle}
                 autoComplete="email"
+                autoFocus
               />
-              {magicError && (
-                <p style={{ color: "#ef4444", fontSize: 13, marginTop: -4, marginBottom: 10 }}>
-                  {magicError}
+
+              {/* ── Password field — slides in when showPassword ─────────── */}
+              <div
+                style={{
+                  maxHeight: showPassword ? 120 : 0,
+                  overflow: "hidden",
+                  opacity: showPassword ? 1 : 0,
+                  transition: "max-height 0.25s ease, opacity 0.2s ease",
+                }}
+              >
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && loginWithPassword()}
+                  placeholder="Password"
+                  style={inputStyle}
+                  autoComplete="current-password"
+                  tabIndex={showPassword ? 0 : -1}
+                />
+                <div style={{ textAlign: "right", marginTop: -6, marginBottom: 12 }}>
+                  <Link
+                    to="/reset-password"
+                    style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              </div>
+
+              {/* ── Error ───────────────────────────────────────────────── */}
+              {error && (
+                <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, marginTop: -4 }}>
+                  {error}
                 </p>
               )}
+
+              {/* ── Primary CTA ─────────────────────────────────────────── */}
               <button
-                onClick={sendMagicLink}
-                disabled={magicLoading}
-                style={{ ...primaryButtonStyle, marginBottom: 0, opacity: magicLoading ? 0.6 : 1 }}
+                onClick={handleSubmit}
+                disabled={loading}
+                style={{ ...primaryButtonStyle, marginBottom: 16, opacity: loading ? 0.6 : 1 }}
               >
-                {magicLoading ? "Sending…" : "Send magic link"}
+                {loading
+                  ? showPassword ? "Logging in…" : "Sending…"
+                  : showPassword ? "Login" : "Send Magic Link"}
               </button>
+
+              {/* ── Toggle link ─────────────────────────────────────────── */}
+              <div style={{ textAlign: "center" }}>
+                <button
+                  onClick={toggleMode}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "rgba(255,255,255,0.35)",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    padding: 0,
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {showPassword ? "Use magic link instead" : "Login with password"}
+                </button>
+              </div>
             </>
           )}
-        </div>
-
-        {/* ── Divider ──────────────────────────────────────────────────────── */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0" }}>
-          <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.1)" }} />
-          <span style={{ color: "rgba(255,255,255,0.3)", fontSize: 12 }}>or sign in with password</span>
-          <div style={{ flex: 1, height: 1, background: "rgba(255,255,255,0.1)" }} />
-        </div>
-
-        {/* ── Option 2: Email + password ───────────────────────────────────── */}
-        <div
-          style={{
-            background: "#1a1a1a",
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 16,
-            padding: "24px",
-            marginBottom: 24,
-          }}
-        >
-          <input
-            type="email"
-            value={pwEmail}
-            onChange={(e) => setPwEmail(e.target.value)}
-            placeholder="Email"
-            style={inputStyle}
-            autoComplete="email"
-          />
-          <input
-            type="password"
-            value={pwPassword}
-            onChange={(e) => setPwPassword(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && loginWithPassword()}
-            placeholder="Password"
-            style={{ ...inputStyle, marginBottom: 4 }}
-            autoComplete="current-password"
-          />
-
-          <div style={{ textAlign: "right", marginBottom: 16 }}>
-            <Link
-              to="/reset-password"
-              style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}
-            >
-              Forgot password?
-            </Link>
-          </div>
-
-          {pwError && (
-            <p style={{ color: "#ef4444", fontSize: 13, marginTop: 0, marginBottom: 10 }}>
-              {pwError}
-            </p>
-          )}
-
-          <button
-            onClick={loginWithPassword}
-            disabled={pwLoading}
-            style={{ ...secondaryButtonStyle, marginBottom: 0, opacity: pwLoading ? 0.6 : 1 }}
-          >
-            {pwLoading ? "Logging in…" : "Log in"}
-          </button>
         </div>
 
         {/* ── Footer ───────────────────────────────────────────────────────── */}
