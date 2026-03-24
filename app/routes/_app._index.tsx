@@ -35,6 +35,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profileId = profile.id as string;
 
+  const { data: analytics } = await supabase.rpc("get_profile_analytics", {
+    p_profile_id: profile.id,
+    p_days: 7,
+  });
+
   const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, planRes] =
     await Promise.all([
       supabase
@@ -71,6 +76,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       hasSkills: (skillsRes.count ?? 0) > 0,
       hasServices: (servicesRes.count ?? 0) > 0,
       planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
+      analytics: analytics ?? null,
     },
     { headers }
   );
@@ -90,15 +96,22 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, planName } =
+  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, planName, analytics } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
   const slug = p.slug as string | null;
   const name = p.name as string | null;
   const firstName = name?.split(" ")[0] ?? slug ?? "there";
-  const viewCount = (p.view_count as number | null) ?? 0;
   const planId = p.plan_id as number | null | undefined;
+
+  const analyticsData = analytics as { views_total?: number; views_prev_period?: number; unique_visitors?: number; form_opens?: number } | null;
+  const views = analyticsData?.views_total ?? 0;
+  const prevViews = analyticsData?.views_prev_period ?? 0;
+  const uniqueVisitors = analyticsData?.unique_visitors ?? 0;
+  const formOpens = analyticsData?.form_opens ?? 0;
+  const trend = prevViews > 0 ? Math.round(((views - prevViews) / prevViews) * 100) : null;
+  const trendUp = trend !== null && trend >= 0;
   const isPaid = !!planId && planId > 0;
 
   // Profile completion
@@ -220,6 +233,49 @@ export default function DashboardIndex() {
         </div>
       </div>
 
+      {/* Analytics widget */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Profile Views — Last 7 days</p>
+
+        {views === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
+            No views yet — share your profile!
+          </p>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 14 }}>
+              <span style={{ color: "var(--text)", fontSize: 36, fontWeight: 700, lineHeight: 1 }}>
+                {views.toLocaleString()}
+              </span>
+              {trend !== null && (
+                <span style={{ fontSize: 13, fontWeight: 700, color: trendUp ? "#22c55e" : ACCENT }}>
+                  {trendUp ? "↑" : "↓"} {Math.abs(trend)}%
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 20 }}>
+              <div>
+                <span style={{ color: "var(--text)", fontSize: 16, fontWeight: 600 }}>
+                  {uniqueVisitors.toLocaleString()}
+                </span>
+                <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 5 }}>
+                  unique visitors
+                </span>
+              </div>
+              <div>
+                <span style={{ color: "var(--text)", fontSize: 16, fontWeight: 600 }}>
+                  {formOpens.toLocaleString()}
+                </span>
+                <span style={{ color: "var(--text-muted)", fontSize: 12, marginLeft: 5 }}>
+                  form opens
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
       {/* Quick stats */}
       <div
         style={{
@@ -229,13 +285,6 @@ export default function DashboardIndex() {
           marginBottom: 16,
         }}
       >
-        <div style={{ ...card, textAlign: "center" }}>
-          <p style={metaLabel}>Profile Views</p>
-          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
-            {viewCount.toLocaleString()}
-          </p>
-        </div>
-
         <div style={{ ...card, textAlign: "center" }}>
           <p style={metaLabel}>Active Bookings</p>
           <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
