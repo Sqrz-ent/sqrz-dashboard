@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { redirect, useNavigate, useSearchParams } from "react-router";
 import { createServerClient, createBrowserClient, parseCookieHeader, serializeCookieHeader } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import type { Route } from "./+types/auth.callback";
 
 // ─── Server loader — handles query-param flows (PKCE, token_hash) ─────────────
@@ -34,7 +35,48 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // PKCE flow (standard magic link, OAuth)
   if (code) {
-    await supabase.auth.exchangeCodeForSession(code);
+    const { data: sessionData } = await supabase.auth.exchangeCodeForSession(code);
+
+    // Apply the user's chosen handle from the join form if present
+    const cookieHeader = request.headers.get("Cookie") ?? "";
+    const pendingHandle = cookieHeader.match(/sqrz_pending_handle=([^;]+)/)?.[1];
+    const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
+
+    if (sessionData?.user && (pendingHandle || pendingRef)) {
+      const admin = createClient(
+        process.env.SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      // Check the handle isn't already taken by a different profile
+      if (pendingHandle) {
+        const { data: taken } = await admin
+          .from("profiles")
+          .select("id")
+          .eq("slug", pendingHandle)
+          .neq("user_id", sessionData.user.id)
+          .maybeSingle();
+
+        if (!taken) {
+          await admin
+            .from("profiles")
+            .update({ slug: pendingHandle })
+            .eq("user_id", sessionData.user.id);
+        }
+      }
+
+      if (pendingRef) {
+        await admin
+          .from("profiles")
+          .update({ referred_by_code: pendingRef })
+          .eq("user_id", sessionData.user.id)
+          .is("referred_by_code", null); // only set if not already set
+      }
+
+      // Clear the pending cookies
+      headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
+      headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
+    }
   }
 
   // Token hash flow (admin-generated links)
