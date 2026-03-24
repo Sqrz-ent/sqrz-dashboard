@@ -95,7 +95,7 @@ async function fetchProfiles(
     return { profiles: [], total: 0 };
   }
 
-  return { profiles: (data ?? []) as CrewProfile[], total: count ?? 0 };
+  return { profiles: (data ?? []) as unknown as CrewProfile[], total: count ?? 0 };
 }
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .order("name", { ascending: true });
 
     return Response.json<LoaderData>(
-      { access: "featured", profiles: (featuredProfiles ?? []) as CrewProfile[] },
+      { access: "featured", profiles: (featuredProfiles ?? []) as unknown as CrewProfile[] },
       { headers }
     );
   }
