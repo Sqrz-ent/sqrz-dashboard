@@ -924,7 +924,11 @@ export default function ProfilePage() {
 
       {/* Skills Modal */}
       <Modal isOpen={skillsModalOpen} onClose={() => setSkillsModalOpen(false)} title="Edit Skills">
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
+        {/* Category label */}
+        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+          Choose a category
+        </p>
+        <div style={{ display: "flex", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
           {SKILL_CATEGORIES.map((cat) => {
             const isActive = activeSkillTab === cat;
             return (
@@ -935,10 +939,10 @@ export default function ProfilePage() {
                   padding: "5px 12px",
                   borderRadius: 20,
                   border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                  background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
-                  color: isActive ? ACCENT : "var(--text-muted)",
-                  fontSize: 12,
-                  fontWeight: isActive ? 700 : 500,
+                  background: isActive ? "rgba(245,166,35,0.15)" : "var(--surface-muted)",
+                  color: isActive ? ACCENT : "var(--text)",
+                  fontSize: 13,
+                  fontWeight: isActive ? 700 : 600,
                   cursor: "pointer",
                   fontFamily: FONT_BODY,
                 }}
@@ -948,6 +952,12 @@ export default function ProfilePage() {
             );
           })}
         </div>
+        {/* Divider */}
+        <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0 10px" }} />
+        {/* Skills label */}
+        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+          Select your skills
+        </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {allSkills
             .filter((s) => s.category === activeSkillTab)

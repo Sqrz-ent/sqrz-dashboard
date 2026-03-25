@@ -255,6 +255,7 @@ export default function OnboardingModal({
           borderRadius: 20,
           width: "100%",
           maxWidth: 460,
+          height: 540,
           maxHeight: "calc(100vh - 32px)",
           overflowY: "auto",
           padding: "32px 28px 28px",
@@ -413,8 +414,13 @@ export default function OnboardingModal({
               Pick all that apply.
             </p>
 
+            {/* Category label */}
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+              Choose a category
+            </p>
+
             {/* Category tabs */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
               {SKILL_CATEGORIES.map((cat) => {
                 const isActive = activeSkillTab === cat;
                 return (
@@ -425,10 +431,10 @@ export default function OnboardingModal({
                       padding: "5px 12px",
                       borderRadius: 20,
                       border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                      background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
-                      color: isActive ? ACCENT : "var(--text-muted)",
-                      fontSize: 12,
-                      fontWeight: isActive ? 700 : 500,
+                      background: isActive ? "rgba(245,166,35,0.15)" : "var(--surface-muted)",
+                      color: isActive ? ACCENT : "var(--text)",
+                      fontSize: 13,
+                      fontWeight: isActive ? 700 : 600,
                       cursor: "pointer",
                       fontFamily: FONT_BODY,
                     }}
@@ -439,8 +445,16 @@ export default function OnboardingModal({
               })}
             </div>
 
-            {/* Skill tags */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minHeight: 80, marginBottom: 12 }}>
+            {/* Divider */}
+            <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0 10px" }} />
+
+            {/* Skills label */}
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+              Select your skills
+            </p>
+
+            {/* Skill tags — scrolls internally */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: 150, overflowY: "auto", marginBottom: 12 }}>
               {skillsLoading ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, fontFamily: FONT_BODY }}>Loading…</p>
               ) : (
