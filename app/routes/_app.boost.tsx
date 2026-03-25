@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
+import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -180,15 +181,7 @@ export default function BoostPage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={{ ...sectionTitle, display: "flex", alignItems: "center", gap: 10 }}>
-        Boost
-        {locked && (
-          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
-          }}>🔒</button>
-        )}
-      </h1>
+      <h1 style={sectionTitle}>Boost</h1>
       <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: -12, marginBottom: 28 }}>
         Activate targeted attention for your profile
       </p>
@@ -251,6 +244,9 @@ export default function BoostPage() {
       </div>
 
       {/* ── Launch Boost form ─────────────────────────────────────────────── */}
+      {locked && (
+        <UpgradeBanner planName="Boost plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+      )}
       <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 20px" }}>
           New Boost Campaign

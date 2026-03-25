@@ -6,6 +6,7 @@ import { createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import Modal from "~/components/Modal";
+import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -707,15 +708,11 @@ export default function LinksPage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={{ ...sectionTitle, display: "flex", alignItems: "center", gap: 10 }}>
-        Private Links
-        {locked && (
-          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
-          }}>🔒</button>
-        )}
-      </h1>
+      <h1 style={sectionTitle}>Private Links</h1>
+
+      {locked && (
+        <UpgradeBanner planName="Boost plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+      )}
 
       {toast && (
         <div style={{

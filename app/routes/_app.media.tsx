@@ -3,6 +3,7 @@ import type { Route } from "./+types/_app.media";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
+import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -62,13 +63,11 @@ export default function MediaPage() {
         gap: 10,
       }}>
         Media Library
-        {locked && (
-          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
-          }}>🔒</button>
-        )}
       </h1>
+
+      {locked && (
+        <UpgradeBanner planName="Grow plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+      )}
 
       {/* Coming Soon card */}
       <div style={{ ...card, border: `1px solid ${ACCENT}`, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>

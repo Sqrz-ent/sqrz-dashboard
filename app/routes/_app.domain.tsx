@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
+import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -427,16 +428,13 @@ export default function DomainPage() {
         fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 800,
         color: ACCENT, textTransform: "uppercase", letterSpacing: "0.03em",
         margin: "0 0 28px", lineHeight: 1.1,
-        display: "flex", alignItems: "center", gap: 10,
       }}>
         Track. Own. Grow.
-        {domainLocked && (
-          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
-            background: "none", border: "none", cursor: "pointer",
-            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
-          }}>🔒</button>
-        )}
       </h1>
+
+      {domainLocked && (
+        <UpgradeBanner planName="Creator plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+      )}
 
       <div style={domainLocked ? { opacity: 0.45, pointerEvents: "none" } : {}}>
         <FieldCard
