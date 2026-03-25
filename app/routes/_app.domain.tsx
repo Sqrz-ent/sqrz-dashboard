@@ -427,48 +427,55 @@ export default function DomainPage() {
         fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 800,
         color: ACCENT, textTransform: "uppercase", letterSpacing: "0.03em",
         margin: "0 0 28px", lineHeight: 1.1,
+        display: "flex", alignItems: "center", gap: 10,
       }}>
         Track. Own. Grow.
+        {domainLocked && (
+          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
+          }}>🔒</button>
+        )}
       </h1>
 
-      <FieldCard
-        field="pixel_facebook"
-        title="Meta Pixel"
-        whyLabel="WHY INSTALL THE"
-        explanation="The Meta Pixel tracks visitors to your SQRZ page and builds retargeting audiences automatically. Install it to stop guessing — and start advertising to people who already showed interest."
-        initialValue={data.pixel_facebook}
-      />
+      <div style={domainLocked ? { opacity: 0.45, pointerEvents: "none" } : {}}>
+        <FieldCard
+          field="pixel_facebook"
+          title="Meta Pixel"
+          whyLabel="WHY INSTALL THE"
+          explanation="The Meta Pixel tracks visitors to your SQRZ page and builds retargeting audiences automatically. Install it to stop guessing — and start advertising to people who already showed interest."
+          initialValue={data.pixel_facebook}
+        />
 
-      <FieldCard
-        field="pixel_google"
-        title="Google Analytics"
-        whyLabel="WHY INSTALL"
-        explanation="Google Analytics shows how visitors find you and what they do on your page. Understand traffic sources, user behavior, and which campaigns actually bring serious interest."
-        initialValue={data.pixel_google}
-      />
+        <FieldCard
+          field="pixel_google"
+          title="Google Analytics"
+          whyLabel="WHY INSTALL"
+          explanation="Google Analytics shows how visitors find you and what they do on your page. Understand traffic sources, user behavior, and which campaigns actually bring serious interest."
+          initialValue={data.pixel_google}
+        />
 
-      <FieldCard
-        field="pixel_linkedin"
-        title="LinkedIn Insight Tag"
-        whyLabel="WHY INSTALL THE"
-        explanation="The LinkedIn Insight Tag tracks professional visitors to your SQRZ page. Use it to build retargeting audiences and run highly targeted campaigns toward decision-makers and companies."
-        initialValue={data.pixel_linkedin}
-      />
+        <FieldCard
+          field="pixel_linkedin"
+          title="LinkedIn Insight Tag"
+          whyLabel="WHY INSTALL THE"
+          explanation="The LinkedIn Insight Tag tracks professional visitors to your SQRZ page. Use it to build retargeting audiences and run highly targeted campaigns toward decision-makers and companies."
+          initialValue={data.pixel_linkedin}
+        />
 
-      <FieldCard
-        field="hubspot_portal_id"
-        title="HubSpot Tracking Script"
-        whyLabel="WHY INSTALL THE"
-        explanation="The HubSpot script turns anonymous visitors into measurable contacts over time. It tracks behavior across visits, connects forms to contact records, and builds the intelligence layer behind your growth — so you know who engages, not just how many. *HubSpot is free btw ;)"
-        initialValue={data.hubspot_portal_id}
-      />
+        <FieldCard
+          field="hubspot_portal_id"
+          title="HubSpot Tracking Script"
+          whyLabel="WHY INSTALL THE"
+          explanation="The HubSpot script turns anonymous visitors into measurable contacts over time. It tracks behavior across visits, connects forms to contact records, and builds the intelligence layer behind your growth — so you know who engages, not just how many. *HubSpot is free btw ;)"
+          initialValue={data.hubspot_portal_id}
+        />
 
-      <CustomDomainCard
-        initialDomain={data.custom_domain}
-        initialVerified={data.custom_domain_verified}
-        locked={domainLocked}
-        onUpgrade={() => navigate("?upgrade=1")}
-      />
+        <CustomDomainCard
+          initialDomain={data.custom_domain}
+          initialVerified={data.custom_domain_verified}
+        />
+      </div>
     </div>
   );
 }
