@@ -160,17 +160,20 @@ export default function OnboardingModal({
     if (!file) return;
     setUploading(true);
     setUploadStatus("Uploading…");
+    const { data: { user: authUser } } = await browserSupabase.auth.getUser();
+    if (!authUser) { setUploadStatus("Upload failed."); setUploading(false); return; }
     const ext = file.name.split(".").pop();
-    const path = `${profileId}/avatar.${ext}`;
+    const path = `${authUser.id}/avatar.${ext}`;
     const { error: uploadError } = await browserSupabase.storage
-      .from("avatars")
+      .from("profile-pictures")
       .upload(path, file, { upsert: true });
     if (uploadError) {
+      console.log("avatar upload error:", uploadError);
       setUploadStatus("Upload failed.");
       setUploading(false);
       return;
     }
-    const { data: urlData } = browserSupabase.storage.from("avatars").getPublicUrl(path);
+    const { data: urlData } = browserSupabase.storage.from("profile-pictures").getPublicUrl(path);
     const publicUrl = urlData.publicUrl;
     await browserSupabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", profileId);
     setAvatarUrl(publicUrl);
