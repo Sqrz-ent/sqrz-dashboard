@@ -32,7 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("profile_id", profile.id as string)
     .order("sort_order", { ascending: true });
 
-  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, media: media ?? [] }, { headers });
+  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, media: media ?? [] }, { headers });
 }
 
 type MediaItem = {
@@ -43,9 +43,9 @@ type MediaItem = {
 };
 
 export default function MediaPage() {
-  const { media, plan_id } = useLoaderData<typeof loader>() as { media: MediaItem[]; plan_id: number | null };
+  const { media, plan_id, is_beta } = useLoaderData<typeof loader>() as { media: MediaItem[]; plan_id: number | null; is_beta: boolean };
   const navigate = useNavigate();
-  const locked = getPlanLevel(plan_id) < FEATURE_GATES.media;
+  const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.media;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>

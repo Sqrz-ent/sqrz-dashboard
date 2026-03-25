@@ -3,8 +3,10 @@
 // plan_id 1, 4   → level 1 (Creator / Early Access)
 // plan_id 5      → level 2 (Boost)
 // plan_id 2, 3   → level 3 (Grow / Grow Pro)
+// is_beta true   → level 2 (Boost access regardless of plan_id)
 
-export function getPlanLevel(planId: number | null | undefined): number {
+export function getPlanLevel(planId: number | null | undefined, isBeta?: boolean): number {
+  if (isBeta) return 2;
   if (!planId) return 0;
   if (planId === 1 || planId === 4) return 1;
   if (planId === 5) return 2;

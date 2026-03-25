@@ -53,6 +53,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       custom_domain_verified: profile.custom_domain_verified ?? false,
       profile_id: profile.id,
       plan_id: (profile.plan_id as number | null) ?? null,
+      is_beta: (profile.is_beta as boolean) ?? false,
     },
     { headers }
   );
@@ -418,9 +419,10 @@ export default function DomainPage() {
     custom_domain: string;
     custom_domain_verified: boolean;
     plan_id: number | null;
+    is_beta: boolean;
   };
   const navigate = useNavigate();
-  const domainLocked = getPlanLevel(data.plan_id) < FEATURE_GATES.domain;
+  const domainLocked = getPlanLevel(data.plan_id, data.is_beta) < FEATURE_GATES.domain;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>

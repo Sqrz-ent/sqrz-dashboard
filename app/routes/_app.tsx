@@ -256,6 +256,21 @@ export default function AppLayout() {
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {p?.is_beta && (
+            <span style={{
+              background: "var(--accent, #F5A623)",
+              color: "#111111",
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              borderRadius: 20,
+              padding: "3px 8px",
+              lineHeight: 1,
+            }}>
+              Beta
+            </span>
+          )}
           {showUpgrade && (
             <button
               onClick={() => openUpgrade()}

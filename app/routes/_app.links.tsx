@@ -121,7 +121,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .order("created_at", { ascending: false });
 
   return Response.json(
-    { plan_id: (profile.plan_id as number | null) ?? null, username: profile.slug as string, links: links ?? [] },
+    { plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, username: profile.slug as string, links: links ?? [] },
     { headers }
   );
 }
@@ -682,8 +682,9 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, username: usernameRaw, links } = useLoaderData<typeof loader>() as {
+  const { plan_id, is_beta, username: usernameRaw, links } = useLoaderData<typeof loader>() as {
     plan_id: number | null;
+    is_beta: boolean;
     username: string;
     links: PrivateLink[];
   };
@@ -691,7 +692,7 @@ export default function LinksPage() {
   const createFetcher = useFetcher();
   const cardFetcher = useFetcher();
   const navigate = useNavigate();
-  const locked = getPlanLevel(plan_id) < FEATURE_GATES.links;
+  const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 

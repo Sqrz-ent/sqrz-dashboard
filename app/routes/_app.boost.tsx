@@ -103,7 +103,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .in("status", ["pending", "preparing", "live"])
     .order("created_at", { ascending: false });
 
-  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, campaigns: campaigns ?? [] }, { headers });
+  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, campaigns: campaigns ?? [] }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -130,10 +130,10 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, plan_id } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null };
+  const { campaigns, plan_id, is_beta } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null; is_beta: boolean };
   const fetcher = useFetcher();
   const navigate = useNavigate();
-  const locked = getPlanLevel(plan_id) < FEATURE_GATES.boost;
+  const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
 
   const [promote, setPromote] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
