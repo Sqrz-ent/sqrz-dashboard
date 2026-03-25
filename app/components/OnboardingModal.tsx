@@ -71,7 +71,7 @@ const ghostBtn: React.CSSProperties = {
 
 function ProgressDots({ step }: { step: number }) {
   return (
-    <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28 }}>
+    <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28, flexShrink: 0 }}>
       {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
         <div
           key={i}
@@ -257,8 +257,11 @@ export default function OnboardingModal({
           maxWidth: 460,
           height: 540,
           maxHeight: "calc(100vh - 32px)",
-          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
           padding: "32px 28px 28px",
+          boxSizing: "border-box",
           boxShadow: "0 32px 80px rgba(0,0,0,0.7)",
           transform: visible ? "translateY(0)" : "translateY(12px)",
           transition: "transform 0.22s ease, opacity 0.2s ease",
@@ -289,7 +292,7 @@ export default function OnboardingModal({
 
         {/* ── Step 1: Photo + Name ─────────────────────────────────────── */}
         {step === 1 && (
-          <div style={{ animation: "obFadeIn 0.18s ease" }}>
+          <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
             <h2 style={{
               fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
               color: "var(--text)", textTransform: "uppercase",
@@ -402,25 +405,26 @@ export default function OnboardingModal({
 
         {/* ── Step 2: Skills picker ────────────────────────────────────── */}
         {step === 2 && (
-          <div style={{ animation: "obFadeIn 0.18s ease" }}>
+          <div style={{ animation: "obFadeIn 0.18s ease", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
             <h2 style={{
               fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
               color: "var(--text)", textTransform: "uppercase",
               letterSpacing: "0.02em", margin: "0 0 6px", lineHeight: 1.1,
+              flexShrink: 0,
             }}>
               What do you do?
             </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 16px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 16px", flexShrink: 0 }}>
               Pick all that apply.
             </p>
 
             {/* Category label */}
-            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY, flexShrink: 0 }}>
               Choose a category
             </p>
 
             {/* Category tabs */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6, marginBottom: 0, flexWrap: "wrap", flexShrink: 0 }}>
               {SKILL_CATEGORIES.map((cat) => {
                 const isActive = activeSkillTab === cat;
                 return (
@@ -446,15 +450,15 @@ export default function OnboardingModal({
             </div>
 
             {/* Divider */}
-            <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0 10px" }} />
+            <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0 10px", flexShrink: 0 }} />
 
             {/* Skills label */}
-            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY, flexShrink: 0 }}>
               Select your skills
             </p>
 
-            {/* Skill tags — scrolls internally */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, maxHeight: 150, overflowY: "auto", marginBottom: 12 }}>
+            {/* Skill tags — flex: 1 fills remaining space, scrolls internally */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, flex: 1, overflowY: "auto", minHeight: 0, alignContent: "flex-start", marginBottom: 8 }}>
               {skillsLoading ? (
                 <p style={{ color: "var(--text-muted)", fontSize: 13, fontFamily: FONT_BODY }}>Loading…</p>
               ) : (
@@ -489,13 +493,11 @@ export default function OnboardingModal({
               )}
             </div>
 
-            {selectedSkillIds.size > 0 && (
-              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 12px", fontFamily: FONT_BODY }}>
-                {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? "s" : ""} selected
-              </p>
-            )}
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px", fontFamily: FONT_BODY, flexShrink: 0, minHeight: 16 }}>
+              {selectedSkillIds.size > 0 ? `${selectedSkillIds.size} skill${selectedSkillIds.size !== 1 ? "s" : ""} selected` : ""}
+            </p>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
               <button onClick={() => setStep(3)} style={primaryBtn}>Continue</button>
               <button onClick={() => setStep(3)} style={ghostBtn}>Skip for now</button>
             </div>
@@ -504,7 +506,7 @@ export default function OnboardingModal({
 
         {/* ── Step 3: Preview / Page live ──────────────────────────────── */}
         {step === 3 && (
-          <div style={{ animation: "obFadeIn 0.18s ease" }}>
+          <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
             <h2 style={{
               fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
               color: "var(--text)", textTransform: "uppercase",
@@ -584,7 +586,7 @@ export default function OnboardingModal({
 
         {/* ── Step 4: Plan nudge ───────────────────────────────────────── */}
         {step === 4 && (
-          <div style={{ animation: "obFadeIn 0.18s ease" }}>
+          <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
             <h2 style={{
               fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
               color: "var(--text)", textTransform: "uppercase",
