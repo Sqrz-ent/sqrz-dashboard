@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -132,6 +132,9 @@ export default function AppLayout() {
     document.documentElement.classList.add(next);
   }
 
+  const navigation = useNavigation();
+  const isNavigating = navigation.state === "loading";
+
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
   function openPanel(panel: PanelKey) {
@@ -155,6 +158,30 @@ export default function AppLayout() {
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
       }}
     >
+      {/* ── Top progress bar ────────────────────────────────────────────────── */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 2,
+          zIndex: 9999,
+          pointerEvents: "none",
+          opacity: isNavigating ? 1 : 0,
+          transition: "opacity 150ms ease",
+        }}
+      >
+        <div
+          style={{
+            height: "100%",
+            background: "var(--accent, #F5A623)",
+            animation: isNavigating ? "sqrzProgress 1.2s ease-in-out infinite" : "none",
+            transformOrigin: "left center",
+          }}
+        />
+      </div>
+
       {/* ── Desktop top nav ─────────────────────────────────────────────────── */}
       <nav
   className="flex"
@@ -254,7 +281,15 @@ export default function AppLayout() {
       </nav>
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
-      <main style={{ paddingBottom: 80 }} className="md:pb-0">
+      <main
+        style={{
+          paddingBottom: 80,
+          opacity: isNavigating ? 0.3 : 1,
+          transition: "opacity 200ms ease",
+          pointerEvents: isNavigating ? "none" : undefined,
+        }}
+        className="md:pb-0"
+      >
         <Outlet />
       </main>
 
@@ -348,6 +383,14 @@ export default function AppLayout() {
           <span>Jobs</span>
         </a>
       </nav>
+
+      <style>{`
+        @keyframes sqrzProgress {
+          0%   { transform: scaleX(0.05); opacity: 1; }
+          50%  { transform: scaleX(0.75); opacity: 1; }
+          100% { transform: scaleX(0.95); opacity: 0.6; }
+        }
+      `}</style>
     </div>
   );
 }
