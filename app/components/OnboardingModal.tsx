@@ -18,13 +18,12 @@ const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 const ACCENT = "#F5A623";
 
-const CATEGORIES = [
-  { value: "dj",             label: "DJ",             emoji: "🎧" },
-  { value: "sound_engineer", label: "Sound Engineer", emoji: "🎚️" },
-  { value: "musician",       label: "Musician",       emoji: "🎸" },
-  { value: "film_crew",      label: "Film Crew",      emoji: "🎬" },
-  { value: "other",          label: "Other",          emoji: "✨" },
-];
+const SKILL_CATEGORIES = [
+  "Performing Arts & Entertainment",
+  "Media & Creative Arts",
+  "Web & App Development",
+  "Academic & Scholar",
+] as const;
 
 const TOTAL_STEPS = 4;
 
@@ -112,7 +111,10 @@ export default function OnboardingModal({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2 state
-  const [category, setCategory] = useState<string | null>(null);
+  const [allSkills, setAllSkills] = useState<{ id: number; name: string; category: string }[]>([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(new Set());
+  const [activeSkillTab, setActiveSkillTab] = useState<string>(SKILL_CATEGORIES[0]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
 
   // Fade in on mount
   useEffect(() => {
@@ -124,6 +126,21 @@ export default function OnboardingModal({
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  // Fetch skills list on mount
+  useEffect(() => {
+    setSkillsLoading(true);
+    browserSupabase
+      .from("skills")
+      .select("id, name, category")
+      .eq("type", "skill")
+      .eq("is_visible", true)
+      .order("name", { ascending: true })
+      .then(({ data }) => {
+        setAllSkills(data ?? []);
+        setSkillsLoading(false);
+      });
   }, []);
 
   // ── Dismiss (skip entirely) ──────────────────────────────────────────────
@@ -175,13 +192,24 @@ export default function OnboardingModal({
     setStep(2);
   }
 
-  // ── Step 2: save category ────────────────────────────────────────────────
+  // ── Step 2: toggle skill ─────────────────────────────────────────────────
 
-  async function submitStep2() {
-    if (category) {
-      await browserSupabase.from("profiles").update({ category }).eq("id", profileId);
+  async function toggleSkill(skillId: number) {
+    const isSelected = selectedSkillIds.has(skillId);
+    setSelectedSkillIds((prev) => {
+      const next = new Set(prev);
+      if (isSelected) next.delete(skillId); else next.add(skillId);
+      return next;
+    });
+    if (isSelected) {
+      await browserSupabase.from("profile_skills")
+        .delete()
+        .eq("profile_id", profileId)
+        .eq("skill_id", skillId);
+    } else {
+      await browserSupabase.from("profile_skills")
+        .upsert({ profile_id: profileId, skill_id: skillId });
     }
-    setStep(3);
   }
 
   // ── Step 4: finish ───────────────────────────────────────────────────────
@@ -368,7 +396,7 @@ export default function OnboardingModal({
           </div>
         )}
 
-        {/* ── Step 2: Category picker ──────────────────────────────────── */}
+        {/* ── Step 2: Skills picker ────────────────────────────────────── */}
         {step === 2 && (
           <div style={{ animation: "obFadeIn 0.18s ease" }}>
             <h2 style={{
@@ -378,49 +406,80 @@ export default function OnboardingModal({
             }}>
               What do you do?
             </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 22px" }}>
-              Helps us tailor your profile.
+            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 16px" }}>
+              Pick all that apply.
             </p>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 24 }}>
-              {CATEGORIES.map(cat => (
-                <button
-                  key={cat.value}
-                  onClick={() => setCategory(cat.value)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 14,
-                    padding: "14px 16px",
-                    background: category === cat.value ? "rgba(245,166,35,0.1)" : "var(--bg)",
-                    border: `1px solid ${category === cat.value ? ACCENT : "var(--border)"}`,
-                    borderRadius: 12,
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontFamily: FONT_BODY,
-                    transition: "border-color 0.15s, background 0.15s",
-                  }}
-                >
-                  <span style={{ fontSize: 22, lineHeight: 1 }}>{cat.emoji}</span>
-                  <span style={{
-                    fontSize: 15,
-                    fontWeight: 600,
-                    color: category === cat.value ? ACCENT : "var(--text)",
-                  }}>
-                    {cat.label}
-                  </span>
-                </button>
-              ))}
+            {/* Category tabs */}
+            <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
+              {SKILL_CATEGORIES.map((cat) => {
+                const isActive = activeSkillTab === cat;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveSkillTab(cat)}
+                    style={{
+                      padding: "5px 12px",
+                      borderRadius: 20,
+                      border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                      background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
+                      color: isActive ? ACCENT : "var(--text-muted)",
+                      fontSize: 12,
+                      fontWeight: isActive ? 700 : 500,
+                      cursor: "pointer",
+                      fontFamily: FONT_BODY,
+                    }}
+                  >
+                    {cat}
+                  </button>
+                );
+              })}
             </div>
 
+            {/* Skill tags */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, minHeight: 80, marginBottom: 12 }}>
+              {skillsLoading ? (
+                <p style={{ color: "var(--text-muted)", fontSize: 13, fontFamily: FONT_BODY }}>Loading…</p>
+              ) : (
+                allSkills
+                  .filter((s) => s.category === activeSkillTab)
+                  .map((skill) => {
+                    const isSelected = selectedSkillIds.has(skill.id);
+                    return (
+                      <button
+                        key={skill.id}
+                        onClick={() => toggleSkill(skill.id)}
+                        style={{
+                          padding: "6px 13px",
+                          borderRadius: 20,
+                          border: isSelected ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                          background: isSelected ? "rgba(245,166,35,0.1)" : "transparent",
+                          color: isSelected ? ACCENT : "var(--text-muted)",
+                          fontSize: 13,
+                          fontWeight: isSelected ? 600 : 400,
+                          cursor: "pointer",
+                          fontFamily: FONT_BODY,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 5,
+                        }}
+                      >
+                        {skill.name}
+                        {isSelected && <span style={{ fontSize: 11, opacity: 0.8 }}>✕</span>}
+                      </button>
+                    );
+                  })
+              )}
+            </div>
+
+            {selectedSkillIds.size > 0 && (
+              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 12px", fontFamily: FONT_BODY }}>
+                {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? "s" : ""} selected
+              </p>
+            )}
+
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button
-                onClick={submitStep2}
-                disabled={!category}
-                style={{ ...primaryBtn, opacity: category ? 1 : 0.45, cursor: category ? "pointer" : "default" }}
-              >
-                Continue
-              </button>
+              <button onClick={() => setStep(3)} style={primaryBtn}>Continue</button>
               <button onClick={() => setStep(3)} style={ghostBtn}>Skip for now</button>
             </div>
           </div>
