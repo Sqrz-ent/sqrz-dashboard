@@ -245,7 +245,7 @@ export default function BoostPage() {
 
       {/* ── Launch Boost form ─────────────────────────────────────────────── */}
       {locked && (
-        <UpgradeBanner planName="Boost plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+        <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
       )}
       <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 20px" }}>

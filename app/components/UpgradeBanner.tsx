@@ -1,15 +1,18 @@
+import { useNavigate } from "react-router";
+
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
 export default function UpgradeBanner({
   planName,
-  onUpgradeClick,
+  upgradeParam = "1",
 }: {
   planName: string;
-  onUpgradeClick: () => void;
+  upgradeParam?: string;
 }) {
+  const navigate = useNavigate();
   return (
     <div
-      onClick={onUpgradeClick}
+      onClick={() => navigate(`?upgrade=${upgradeParam}`)}
       style={{
         display: "flex",
         alignItems: "center",

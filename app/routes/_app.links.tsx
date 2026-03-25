@@ -711,7 +711,7 @@ export default function LinksPage() {
       <h1 style={sectionTitle}>Private Links</h1>
 
       {locked && (
-        <UpgradeBanner planName="Boost plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+        <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
       )}
 
       {toast && (

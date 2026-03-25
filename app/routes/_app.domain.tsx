@@ -433,7 +433,7 @@ export default function DomainPage() {
       </h1>
 
       {domainLocked && (
-        <UpgradeBanner planName="Creator plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+        <UpgradeBanner planName="Creator plan" upgradeParam="creator" />
       )}
 
       <div style={domainLocked ? { opacity: 0.45, pointerEvents: "none" } : {}}>

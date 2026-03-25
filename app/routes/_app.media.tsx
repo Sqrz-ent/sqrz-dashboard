@@ -66,7 +66,7 @@ export default function MediaPage() {
       </h1>
 
       {locked && (
-        <UpgradeBanner planName="Grow plan" onUpgradeClick={() => navigate("?upgrade=1")} />
+        <UpgradeBanner planName="Grow plan" upgradeParam="grow" />
       )}
 
       {/* Coming Soon card */}

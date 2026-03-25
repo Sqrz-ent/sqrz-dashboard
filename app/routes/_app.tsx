@@ -57,6 +57,16 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   }
 
+  // Fetch Boost (plan 5) and Grow (plan 2) price IDs from plans table
+  const { data: upgradePlans } = await supabase
+    .from("plans")
+    .select("id, stripe_price_monthly")
+    .in("id", [2, 5]);
+  type PlanRow = { id: number; stripe_price_monthly: string | null };
+  const planRows = (upgradePlans ?? []) as PlanRow[];
+  const boostMonthlyPriceId = planRows.find((r) => r.id === 5)?.stripe_price_monthly ?? "";
+  const growCampaignPriceId = planRows.find((r) => r.id === 2)?.stripe_price_monthly ?? "";
+
   console.log("[loader] subscription:", subscriptionData);
 
   return Response.json(
@@ -67,6 +77,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       basicMonthlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_MONTHLY ?? "",
       basicYearlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_YEARLY ?? "",
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
+      boostMonthlyPriceId,
+      growCampaignPriceId,
     },
     { headers }
   );
@@ -94,16 +106,19 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
+  const { user, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const upgradeOpen = searchParams.get("upgrade") === "1";
-  function setUpgradeOpen(open: boolean) {
-    if (open) setSearchParams((p) => { const n = new URLSearchParams(p); n.set("upgrade", "1"); return n; });
-    else setSearchParams((p) => { const n = new URLSearchParams(p); n.delete("upgrade"); return n; });
+  const upgradeParam = searchParams.get("upgrade");
+  const upgradeOpen = !!upgradeParam;
+  function openUpgrade(context = "1") {
+    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set("upgrade", context); return n; });
+  }
+  function closeUpgrade() {
+    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.delete("upgrade"); return n; });
   }
 
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -243,7 +258,7 @@ export default function AppLayout() {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {showUpgrade && (
             <button
-              onClick={() => setUpgradeOpen(true)}
+              onClick={() => openUpgrade()}
               style={{
                 background: "transparent",
                 border: "1px solid rgba(245,166,35,0.5)",
@@ -300,7 +315,7 @@ export default function AppLayout() {
         userId={(user as { id: string }).id}
         onClose={closePanel}
         subscription={subscriptionData}
-        onUpgrade={() => setUpgradeOpen(true)}
+        onUpgrade={() => openUpgrade()}
       />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
@@ -317,13 +332,16 @@ export default function AppLayout() {
       )}
 
       {/* ── Upgrade modal ────────────────────────────────────────────────────── */}
-      {upgradeOpen && (
+      {upgradeOpen && upgradeParam && (
         <UpgradeModal
-          onClose={() => setUpgradeOpen(false)}
+          onClose={closeUpgrade}
+          upgradeContext={upgradeParam}
           monthlyPriceId={basicMonthlyPriceId}
           yearlyPriceId={basicYearlyPriceId}
           earlyAccessCouponId={earlyAccessCouponId}
           referredByCode={p?.referred_by_code as string | null ?? null}
+          boostMonthlyPriceId={boostMonthlyPriceId}
+          growCampaignPriceId={growCampaignPriceId}
         />
       )}
 
