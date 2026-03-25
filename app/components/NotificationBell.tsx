@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { useNotifications, type Toast } from "~/hooks/useNotifications";
 
@@ -26,7 +27,6 @@ function ToastItem({
   toast: Toast;
   onDismiss: () => void;
 }) {
-  // Auto-dismiss after 5s
   useEffect(() => {
     const t = setTimeout(onDismiss, 5000);
     return () => clearTimeout(t);
@@ -52,14 +52,7 @@ function ToastItem({
     >
       <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>🔔</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p
-          style={{
-            color: "var(--text)",
-            fontSize: 13,
-            fontWeight: 600,
-            margin: "0 0 3px",
-          }}
-        >
+        <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 3px" }}>
           New booking request
         </p>
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
@@ -67,10 +60,7 @@ function ToastItem({
         </p>
       </div>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss();
-        }}
+        onClick={(e) => { e.stopPropagation(); onDismiss(); }}
         style={{
           background: "none",
           border: "none",
@@ -97,7 +87,12 @@ export default function NotificationBell() {
     useNotifications();
 
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  // Track client mount to safely use portals (avoids SSR mismatch)
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Close on Escape
   useEffect(() => {
@@ -108,235 +103,235 @@ export default function NotificationBell() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Close on click outside
+  // Close on click outside — checks both bell and portal dropdown
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const target = e.target as Node;
+      const inBell = bellRef.current?.contains(target);
+      const inDropdown = dropdownRef.current?.contains(target);
+      if (!inBell && !inDropdown) setOpen(false);
     }
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, [open]);
 
+  function handleBellClick() {
+    if (!open && bellRef.current) {
+      const rect = bellRef.current.getBoundingClientRect();
+      setDropdownPos({
+        top: rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      });
+    }
+    setOpen((v) => !v);
+  }
+
   return (
     <>
-      {/* ── Bell button + dropdown ───────────────────────────────────────────── */}
-      <div ref={containerRef} style={{ position: "relative" }}>
-        <button
-          onClick={() => setOpen((v) => !v)}
-          aria-label={`Notifications${unreadCount > 0 ? ` — ${unreadCount} unread` : ""}`}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            padding: "6px 8px",
-            borderRadius: 8,
-            color: open ? "#F5A623" : "var(--text-muted)",
-            fontSize: 18,
-            lineHeight: 1,
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
-          🔔
-          {unreadCount > 0 && (
-            <span
-              style={{
-                position: "absolute",
-                top: 2,
-                right: 2,
-                background: "#F5A623",
-                color: "#111111",
-                fontSize: 9,
-                fontWeight: 800,
-                borderRadius: "50%",
-                width: 15,
-                height: 15,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                lineHeight: 1,
-                letterSpacing: "-0.02em",
-              }}
-            >
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          )}
-        </button>
-
-        {/* Dropdown */}
-        {open && (
-          <div
+      {/* Bell button */}
+      <button
+        ref={bellRef}
+        onClick={handleBellClick}
+        aria-label={`Notifications${unreadCount > 0 ? ` — ${unreadCount} unread` : ""}`}
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "6px 8px",
+          borderRadius: 8,
+          color: open ? "#F5A623" : "var(--text-muted)",
+          fontSize: 18,
+          lineHeight: 1,
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        🔔
+        {unreadCount > 0 && (
+          <span
             style={{
               position: "absolute",
-              top: "calc(100% + 8px)",
-              right: 0,
-              width: 320,
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 14,
-              boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
-              zIndex: 100,
-              overflow: "hidden",
-              animation: "dropdownIn 0.15s ease",
+              top: 2,
+              right: 2,
+              background: "#F5A623",
+              color: "#111111",
+              fontSize: 9,
+              fontWeight: 800,
+              borderRadius: "50%",
+              width: 15,
+              height: 15,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              lineHeight: 1,
+              letterSpacing: "-0.02em",
             }}
           >
-            {/* Header */}
-            <div
-              style={{
-                padding: "13px 16px 11px",
-                borderBottom: "1px solid var(--border)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-              }}
-            >
-              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
-                Notifications
-              </span>
-              {unreadCount > 0 && (
-                <span
-                  style={{
-                    background: "rgba(245,166,35,0.15)",
-                    color: "#F5A623",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    borderRadius: 10,
-                    padding: "2px 8px",
-                  }}
-                >
-                  {unreadCount} unread
-                </span>
-              )}
-            </div>
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </button>
 
-            {/* List */}
-            <div style={{ maxHeight: 320, overflowY: "auto" }}>
-              {notifications.length === 0 ? (
-                <div
-                  style={{
-                    padding: "36px 16px",
-                    textAlign: "center",
-                    color: "var(--text-muted)",
-                    fontSize: 13,
-                  }}
+      {/* ── Dropdown via portal — escapes nav overflow + stacking context ──── */}
+      {mounted && open && createPortal(
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "fixed",
+            top: dropdownPos.top,
+            right: dropdownPos.right,
+            width: 320,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 14,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
+            zIndex: 9999,
+            overflow: "hidden",
+            animation: "dropdownIn 0.15s ease",
+          }}
+        >
+          {/* Header */}
+          <div
+            style={{
+              padding: "13px 16px 11px",
+              borderBottom: "1px solid var(--border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
+              Notifications
+            </span>
+            {unreadCount > 0 && (
+              <span
+                style={{
+                  background: "rgba(245,166,35,0.15)",
+                  color: "#F5A623",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  borderRadius: 10,
+                  padding: "2px 8px",
+                }}
+              >
+                {unreadCount} unread
+              </span>
+            )}
+          </div>
+
+          {/* List */}
+          <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            {notifications.length === 0 ? (
+              <div
+                style={{
+                  padding: "36px 16px",
+                  textAlign: "center",
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                }}
+              >
+                No notifications yet
+              </div>
+            ) : (
+              notifications.slice(0, 20).map((n) => (
+                <Link
+                  key={n.id}
+                  to="/office"
+                  onClick={() => { markAsRead(n.id); setOpen(false); }}
+                  style={{ textDecoration: "none", display: "block" }}
                 >
-                  No notifications yet
-                </div>
-              ) : (
-                notifications.slice(0, 20).map((n) => (
-                  <Link
-                    key={n.id}
-                    to="/office"
-                    onClick={() => {
-                      markAsRead(n.id);
-                      setOpen(false);
+                  <div
+                    style={{
+                      padding: "11px 16px",
+                      borderBottom: "1px solid var(--border)",
+                      background: n.read ? "transparent" : "rgba(245,166,35,0.04)",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 10,
                     }}
-                    style={{ textDecoration: "none", display: "block" }}
                   >
                     <div
                       style={{
-                        padding: "11px 16px",
-                        borderBottom: "1px solid var(--border)",
-                        background: n.read ? "transparent" : "rgba(245,166,35,0.04)",
-                        display: "flex",
-                        alignItems: "flex-start",
-                        gap: 10,
+                        width: 6,
+                        height: 6,
+                        borderRadius: "50%",
+                        background: n.read ? "transparent" : "#F5A623",
+                        flexShrink: 0,
+                        marginTop: 5,
                       }}
-                    >
-                      {/* Unread dot */}
-                      <div
+                    />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p
                         style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: n.read ? "transparent" : "#F5A623",
-                          flexShrink: 0,
-                          marginTop: 5,
+                          color: "var(--text)",
+                          fontSize: 13,
+                          fontWeight: n.read ? 400 : 600,
+                          margin: "0 0 3px",
+                          overflow: "hidden",
+                          whiteSpace: "nowrap",
+                          textOverflow: "ellipsis",
                         }}
-                      />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p
-                          style={{
-                            color: "var(--text)",
-                            fontSize: 13,
-                            fontWeight: n.read ? 400 : 600,
-                            margin: "0 0 3px",
-                            overflow: "hidden",
-                            whiteSpace: "nowrap",
-                            textOverflow: "ellipsis",
-                          }}
-                        >
-                          New booking request
-                          {n.service ? ` — ${n.service}` : ""}
-                        </p>
-                        <p
-                          style={{
-                            color: "var(--text-muted)",
-                            fontSize: 11,
-                            margin: 0,
-                          }}
-                        >
-                          {[n.city, timeAgo(n.created_at)].filter(Boolean).join(" · ")}
-                        </p>
-                      </div>
+                      >
+                        New booking request{n.service ? ` — ${n.service}` : ""}
+                      </p>
+                      <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
+                        {[n.city, timeAgo(n.created_at)].filter(Boolean).join(" · ")}
+                      </p>
                     </div>
-                  </Link>
-                ))
-              )}
-            </div>
-
-            {/* Footer */}
-            {notifications.length > 0 && (
-              <div
-                style={{
-                  padding: "10px 16px",
-                  borderTop: "1px solid var(--border)",
-                }}
-              >
-                <button
-                  onClick={markAllAsRead}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    padding: 0,
-                  }}
-                >
-                  Mark all as read
-                </button>
-              </div>
+                  </div>
+                </Link>
+              ))
             )}
           </div>
-        )}
-      </div>
 
-      {/* ── Toast stack (bottom-right, fixed) ───────────────────────────────── */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 24,
-          right: 24,
-          zIndex: 200,
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          alignItems: "flex-end",
-          pointerEvents: "none",
-          fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-        }}
-      >
-        {toasts.map((toast) => (
-          <div key={toast.toastId} style={{ pointerEvents: "all" }}>
-            <ToastItem toast={toast} onDismiss={() => dismissToast(toast.toastId)} />
-          </div>
-        ))}
-      </div>
+          {/* Footer */}
+          {notifications.length > 0 && (
+            <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border)" }}>
+              <button
+                onClick={markAllAsRead}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Mark all as read
+              </button>
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
+
+      {/* ── Toast stack via portal — escapes stacking context ────────────── */}
+      {mounted && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 9999,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            alignItems: "flex-end",
+            pointerEvents: "none",
+            fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+          }}
+        >
+          {toasts.map((toast) => (
+            <div key={toast.toastId} style={{ pointerEvents: "all" }}>
+              <ToastItem toast={toast} onDismiss={() => dismissToast(toast.toastId)} />
+            </div>
+          ))}
+        </div>,
+        document.body
+      )}
 
       {/* Animations */}
       <style>{`
