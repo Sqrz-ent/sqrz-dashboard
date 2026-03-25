@@ -29,13 +29,13 @@ const PLANS: { key: UpgradeView; name: string; price: string; bullets: string[] 
   {
     key: "boost",
     name: "Boost",
-    price: "Contact us",
+    price: "$59/mo",
     bullets: ["Everything in Creator", "Boost campaigns", "Private links"],
   },
   {
     key: "grow",
     name: "Grow",
-    price: "Per campaign",
+    price: "Contact us",
     bullets: ["Everything in Boost", "Media library", "Personal access"],
   },
 ];
