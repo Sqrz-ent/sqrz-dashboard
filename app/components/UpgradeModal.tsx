@@ -286,25 +286,16 @@ export default function UpgradeModal({
               <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
                 Monthly
               </p>
-              <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 4px" }}>
-                Boost campaigns
+              <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+                $59<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
                 Everything in Creator · Targeted campaigns · Private links
               </p>
-              {boostMonthlyPriceId ? (
-                <Form method="post" action="/api/stripe/checkout">
-                  <input type="hidden" name="price_id" value={boostMonthlyPriceId} />
-                  <button type="submit" style={submitBtn}>Select</button>
-                </Form>
-              ) : (
-                <a
-                  href="mailto:hello@sqrz.com"
-                  style={{ display: "block", textAlign: "center", textDecoration: "none", boxSizing: "border-box", ...submitBtn }}
-                >
-                  Contact us →
-                </a>
-              )}
+              <Form method="post" action="/api/stripe/checkout">
+                <input type="hidden" name="price_id" value="price_1TEpETAvjL5RjAe1PHKcJO6V" />
+                <button type="submit" style={submitBtn}>Select</button>
+              </Form>
             </div>
           </div>
         )}
@@ -316,32 +307,29 @@ export default function UpgradeModal({
               <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
                 Per Campaign
               </p>
-              <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 4px" }}>
-                Full platform
+              <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
+                Custom pricing
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
                 Everything in Boost · Media library · Personal access
               </p>
-              {growCampaignPriceId ? (
-                <Form method="post" action="/api/stripe/checkout">
-                  <input type="hidden" name="price_id" value={growCampaignPriceId} />
-                  <button type="submit" style={submitBtn}>Select</button>
-                </Form>
-              ) : (
-                <a
-                  href="mailto:hello@sqrz.com"
-                  style={{ display: "block", textAlign: "center", textDecoration: "none", boxSizing: "border-box", ...submitBtn }}
-                >
-                  Contact us →
-                </a>
-              )}
+              <a
+                href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display: "block", textAlign: "center", textDecoration: "none", boxSizing: "border-box", ...submitBtn }}
+              >
+                Book a call →
+              </a>
             </div>
           </div>
         )}
 
-        <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center", margin: "18px 0 0" }}>
-          Cancel anytime · Secure checkout via Stripe
-        </p>
+        {view !== "grow" && (
+          <p style={{ color: "var(--text-muted)", fontSize: 11, textAlign: "center", margin: "18px 0 0" }}>
+            Cancel anytime · Secure checkout via Stripe
+          </p>
+        )}
       </div>
 
       <style>{`
