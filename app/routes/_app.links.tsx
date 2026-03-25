@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, useLoaderData, useFetcher, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.links";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import Modal from "~/components/Modal";
 
 const ACCENT = "#F5A623";
@@ -119,7 +120,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .order("created_at", { ascending: false });
 
   return Response.json(
-    { profile, links: links ?? [] },
+    { plan_id: (profile.plan_id as number | null) ?? null, username: profile.slug as string, links: links ?? [] },
     { headers }
   );
 }
@@ -680,17 +681,20 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { profile, links } = useLoaderData<typeof loader>() as {
-    profile: Record<string, unknown>;
+  const { plan_id, username: usernameRaw, links } = useLoaderData<typeof loader>() as {
+    plan_id: number | null;
+    username: string;
     links: PrivateLink[];
   };
 
   const createFetcher = useFetcher();
   const cardFetcher = useFetcher();
+  const navigate = useNavigate();
+  const locked = getPlanLevel(plan_id) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const username = profile.slug as string;
+  const username = usernameRaw;
   const existingSlugs = links.map(l => l.link_slug);
 
   // Toast on successful card actions
@@ -703,7 +707,15 @@ export default function LinksPage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={sectionTitle}>Private Links</h1>
+      <h1 style={{ ...sectionTitle, display: "flex", alignItems: "center", gap: 10 }}>
+        Private Links
+        {locked && (
+          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
+          }}>🔒</button>
+        )}
+      </h1>
 
       {toast && (
         <div style={{
@@ -720,7 +732,7 @@ export default function LinksPage() {
       )}
 
       {/* Active links */}
-      <div style={card}>
+      <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text)", margin: "0 0 16px" }}>
           Your Links
         </h2>

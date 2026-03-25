@@ -12,14 +12,14 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 });
 
 // ─── Price → plan_id map ──────────────────────────────────────────────────────
-// plan_id 1 = SQRZ Basic, 2 = SQRZ Grow, 4 = Early Access
+// plan_id 1 = SQRZ Basic/Creator, 2 = SQRZ Grow, 4 = Early Access, 5 = Boost
 
 export const PRICE_TO_PLAN: Record<string, number> = {
-  [process.env.STRIPE_BASIC_PRICE_ID_MONTHLY!]: 1,
-  [process.env.STRIPE_BASIC_PRICE_ID_YEARLY!]: 1,
-  [process.env.STRIPE_GROW_PRICE_ID_MONTHLY!]: 2,
-  [process.env.STRIPE_GROW_PRICE_ID_YEARLY!]: 2,
-  [process.env.STRIPE_EARLY_ACCESS_PRICE_ID!]: 4,
+  "price_1TC6PhAvjL5RjAe1sYnqJRGl": 1,  // Basic monthly
+  "price_1TC6Q5AvjL5RjAe1uZPiNipJ": 1,  // Basic yearly
+  "price_1TC6TYAvjL5RjAe1kkxTDTVu": 4,  // Early Access yearly
+  "price_1TEpETAvjL5RjAe1PHKcJO6V": 5,  // Boost monthly
+  "price_1TEpGXAvjL5RjAe1uUAlfZcG": 2,  // Grow per campaign
 };
 
 // ─── Helper: get or create Stripe customer ────────────────────────────────────

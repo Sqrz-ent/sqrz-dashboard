@@ -1,9 +1,10 @@
 import { useState, useRef } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, useLoaderData, useFetcher, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.domain";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
+import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -50,6 +51,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       custom_domain: profile.custom_domain ?? "",
       custom_domain_verified: profile.custom_domain_verified ?? false,
       profile_id: profile.id,
+      plan_id: (profile.plan_id as number | null) ?? null,
     },
     { headers }
   );
@@ -219,9 +221,13 @@ function FieldCard({ field, title, whyLabel, explanation, initialValue }: FieldC
 function CustomDomainCard({
   initialDomain,
   initialVerified,
+  locked,
+  onUpgrade,
 }: {
   initialDomain: string;
   initialVerified: boolean;
+  locked?: boolean;
+  onUpgrade?: () => void;
 }) {
   const fetcher = useFetcher();
   const checkFetcher = useFetcher();
@@ -279,8 +285,15 @@ function CustomDomainCard({
         fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 800,
         color: ACCENT, textTransform: "uppercase", letterSpacing: "0.03em",
         margin: "0 0 10px", lineHeight: 1.1,
+        display: "flex", alignItems: "center", gap: 10,
       }}>
         Custom Domain
+        {locked && (
+          <button onClick={onUpgrade} title="Upgrade to unlock" style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
+          }}>🔒</button>
+        )}
       </h2>
 
       <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
@@ -289,16 +302,17 @@ function CustomDomainCard({
       </p>
 
       {/* Domain input + save button */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, opacity: locked ? 0.45 : 1, pointerEvents: locked ? "none" : undefined }}>
         <input
           style={{ ...inputStyle, flex: 1 }}
           value={domain}
           onChange={e => setDomain(e.target.value)}
           placeholder="yourdomain.com"
+          disabled={locked}
         />
         <button
           onClick={handleSave}
-          disabled={isSaving}
+          disabled={isSaving || locked}
           style={{
             padding: "10px 18px",
             background: ACCENT,
@@ -308,7 +322,7 @@ function CustomDomainCard({
             fontSize: 14,
             fontWeight: 700,
             fontFamily: FONT_BODY,
-            cursor: isSaving ? "not-allowed" : "pointer",
+            cursor: isSaving || locked ? "not-allowed" : "pointer",
             whiteSpace: "nowrap",
             opacity: isSaving ? 0.7 : 1,
           }}
@@ -402,7 +416,10 @@ export default function DomainPage() {
     hubspot_portal_id: string;
     custom_domain: string;
     custom_domain_verified: boolean;
+    plan_id: number | null;
   };
+  const navigate = useNavigate();
+  const domainLocked = getPlanLevel(data.plan_id) < FEATURE_GATES.domain;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -449,6 +466,8 @@ export default function DomainPage() {
       <CustomDomainCard
         initialDomain={data.custom_domain}
         initialVerified={data.custom_domain_verified}
+        locked={domainLocked}
+        onUpgrade={() => navigate("?upgrade=1")}
       />
     </div>
   );

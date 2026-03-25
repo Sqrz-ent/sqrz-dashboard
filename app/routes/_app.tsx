@@ -6,6 +6,7 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
+import OnboardingModal from "~/components/OnboardingModal";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -20,6 +21,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
 
+  console.log("profile loaded:", JSON.stringify(profile));
   console.log("[loader] profile:", profile?.id, profile?.plan_id);
 
   // Fetch subscription + plan for AccountPanel (parallel queries)
@@ -94,10 +96,25 @@ const bottomNavItems = [
 export default function AppLayout() {
   const { user, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId } =
     useLoaderData<typeof loader>();
+
+  const p = profile as Record<string, unknown> | null;
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
-  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const upgradeOpen = searchParams.get("upgrade") === "1";
+  function setUpgradeOpen(open: boolean) {
+    if (open) setSearchParams((p) => { const n = new URLSearchParams(p); n.set("upgrade", "1"); return n; });
+    else setSearchParams((p) => { const n = new URLSearchParams(p); n.delete("upgrade"); return n; });
+  }
 
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    console.log("showOnboarding:", showOnboarding, "onboarding_completed:", p?.onboarding_completed);
+    if (p !== null && !p.onboarding_completed) {
+      setShowOnboarding(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const saved = localStorage.getItem("sqrz_theme") as "dark" | "light" | null;
@@ -126,7 +143,7 @@ export default function AppLayout() {
   }
 
   // Show Upgrade button only when user has no plan (null or 0)
-  const planId = (profile as Record<string, unknown> | null)?.plan_id as number | null | undefined;
+  const planId = p?.plan_id as number | null | undefined;
   const showUpgrade = !planId || planId === 0;
 
   return (
@@ -251,6 +268,19 @@ export default function AppLayout() {
         onUpgrade={() => setUpgradeOpen(true)}
       />
 
+      {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
+      {(() => { console.log("rendering modal check:", showOnboarding); return null; })()}
+      {showOnboarding && p && (
+        <OnboardingModal
+          profileId={p.id as string}
+          slug={p.slug as string}
+          initialFirstName={(p.first_name as string) ?? ""}
+          initialLastName={(p.last_name as string) ?? ""}
+          initialAvatarUrl={(p.avatar_url as string) ?? ""}
+          onComplete={() => setShowOnboarding(false)}
+        />
+      )}
+
       {/* ── Upgrade modal ────────────────────────────────────────────────────── */}
       {upgradeOpen && (
         <UpgradeModal
@@ -258,7 +288,7 @@ export default function AppLayout() {
           monthlyPriceId={basicMonthlyPriceId}
           yearlyPriceId={basicYearlyPriceId}
           earlyAccessCouponId={earlyAccessCouponId}
-          referredByCode={(profile as Record<string, unknown> | null)?.referred_by_code as string | null ?? null}
+          referredByCode={p?.referred_by_code as string | null ?? null}
         />
       )}
 

@@ -1,7 +1,8 @@
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.media";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -30,7 +31,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("profile_id", profile.id as string)
     .order("sort_order", { ascending: true });
 
-  return Response.json({ media: media ?? [] }, { headers });
+  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, media: media ?? [] }, { headers });
 }
 
 type MediaItem = {
@@ -41,7 +42,9 @@ type MediaItem = {
 };
 
 export default function MediaPage() {
-  const { media } = useLoaderData<typeof loader>() as { media: MediaItem[] };
+  const { media, plan_id } = useLoaderData<typeof loader>() as { media: MediaItem[]; plan_id: number | null };
+  const navigate = useNavigate();
+  const locked = getPlanLevel(plan_id) < FEATURE_GATES.media;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -54,12 +57,21 @@ export default function MediaPage() {
         letterSpacing: "0.03em",
         margin: "0 0 24px",
         lineHeight: 1.1,
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
       }}>
         Media Library
+        {locked && (
+          <button onClick={() => navigate("?upgrade=1")} title="Upgrade to unlock" style={{
+            background: "none", border: "none", cursor: "pointer",
+            fontSize: 18, padding: 0, lineHeight: 1, color: "var(--text-muted)",
+          }}>🔒</button>
+        )}
       </h1>
 
       {/* Coming Soon card */}
-      <div style={{ ...card, border: `1px solid ${ACCENT}` }}>
+      <div style={{ ...card, border: `1px solid ${ACCENT}`, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
           <h2 style={{
             fontFamily: FONT_DISPLAY,
@@ -96,7 +108,7 @@ export default function MediaPage() {
 
       {/* Show existing media if any */}
       {media.length > 0 && (
-        <div style={card}>
+        <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
           <h2 style={{
             fontFamily: FONT_DISPLAY,
             fontSize: 22,
