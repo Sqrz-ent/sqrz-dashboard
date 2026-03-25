@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
-import { useNotifications, type Toast } from "~/hooks/useNotifications";
+import { useNotifications, type Toast, type Lead } from "~/hooks/useNotifications";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -80,17 +80,127 @@ function ToastItem({
   );
 }
 
+// ─── Lead item ────────────────────────────────────────────────────────────────
+
+function LeadItem({
+  lead,
+  onConvert,
+  onDecline,
+}: {
+  lead: Lead;
+  onConvert: () => void;
+  onDecline: () => void;
+}) {
+  return (
+    <div
+      style={{
+        padding: "12px 16px",
+        borderBottom: "1px solid var(--border)",
+        background: "rgba(243,177,48,0.04)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
+        <div
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: "#F5A623",
+            flexShrink: 0,
+            marginTop: 5,
+          }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p
+            style={{
+              color: "var(--text)",
+              fontSize: 13,
+              fontWeight: 600,
+              margin: "0 0 2px",
+              overflow: "hidden",
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {lead.guest_name ?? "Anonymous"}
+          </p>
+          {lead.description && (
+            <p
+              style={{
+                color: "var(--text-muted)",
+                fontSize: 12,
+                margin: "0 0 2px",
+                overflow: "hidden",
+                whiteSpace: "nowrap",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {lead.description}
+            </p>
+          )}
+          <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
+            {[lead.budget_range, timeAgo(lead.created_at)].filter(Boolean).join(" · ")}
+          </p>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, paddingLeft: 16 }}>
+        <button
+          onClick={onConvert}
+          style={{
+            flex: 1,
+            padding: "6px 10px",
+            background: "rgba(245,166,35,0.12)",
+            border: "1px solid rgba(245,166,35,0.3)",
+            borderRadius: 8,
+            color: "#F5A623",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: "pointer",
+            letterSpacing: "0.02em",
+          }}
+        >
+          Convert to inquiry
+        </button>
+        <button
+          onClick={onDecline}
+          style={{
+            padding: "6px 10px",
+            background: "none",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text-muted)",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          Decline
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Bell + dropdown ──────────────────────────────────────────────────────────
 
 export default function NotificationBell() {
-  const { notifications, unreadCount, markAsRead, markAllAsRead, toasts, dismissToast } =
-    useNotifications();
+  const {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+    toasts,
+    dismissToast,
+    leads,
+    leadCount,
+    convertLead,
+    declineLead,
+  } = useNotifications();
 
   const [open, setOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const bellRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  // Track client mount to safely use portals (avoids SSR mismatch)
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -103,7 +213,7 @@ export default function NotificationBell() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Close on click outside — checks both bell and portal dropdown
+  // Close on click outside
   useEffect(() => {
     if (!open) return;
     function onMouseDown(e: MouseEvent) {
@@ -127,13 +237,15 @@ export default function NotificationBell() {
     setOpen((v) => !v);
   }
 
+  const totalBadge = unreadCount + leadCount;
+
   return (
     <>
       {/* Bell button */}
       <button
         ref={bellRef}
         onClick={handleBellClick}
-        aria-label={`Notifications${unreadCount > 0 ? ` — ${unreadCount} unread` : ""}`}
+        aria-label={`Notifications${totalBadge > 0 ? ` — ${totalBadge} unread` : ""}`}
         style={{
           background: "none",
           border: "none",
@@ -149,7 +261,7 @@ export default function NotificationBell() {
         }}
       >
         🔔
-        {unreadCount > 0 && (
+        {totalBadge > 0 && (
           <span
             style={{
               position: "absolute",
@@ -169,12 +281,12 @@ export default function NotificationBell() {
               letterSpacing: "-0.02em",
             }}
           >
-            {unreadCount > 9 ? "9+" : unreadCount}
+            {totalBadge > 9 ? "9+" : totalBadge}
           </span>
         )}
       </button>
 
-      {/* ── Dropdown via portal — escapes nav overflow + stacking context ──── */}
+      {/* ── Dropdown via portal ──────────────────────────────────────────── */}
       {mounted && open && createPortal(
         <div
           ref={dropdownRef}
@@ -205,7 +317,7 @@ export default function NotificationBell() {
             <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
               Notifications
             </span>
-            {unreadCount > 0 && (
+            {totalBadge > 0 && (
               <span
                 style={{
                   background: "rgba(245,166,35,0.15)",
@@ -216,14 +328,40 @@ export default function NotificationBell() {
                   padding: "2px 8px",
                 }}
               >
-                {unreadCount} unread
+                {totalBadge} unread
               </span>
             )}
           </div>
 
           {/* List */}
-          <div style={{ maxHeight: 320, overflowY: "auto" }}>
-            {notifications.length === 0 ? (
+          <div style={{ maxHeight: 400, overflowY: "auto" }}>
+            {/* Leads section */}
+            {leads.length > 0 && (
+              <>
+                <div
+                  style={{
+                    padding: "7px 16px 6px",
+                    background: "rgba(243,177,48,0.06)",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 800, color: "#F5A623", letterSpacing: "0.07em", textTransform: "uppercase" }}>
+                    Leads · {leadCount}
+                  </span>
+                </div>
+                {leads.map((lead) => (
+                  <LeadItem
+                    key={lead.id}
+                    lead={lead}
+                    onConvert={() => convertLead(lead.id)}
+                    onDecline={() => declineLead(lead.id)}
+                  />
+                ))}
+              </>
+            )}
+
+            {/* Booking notifications */}
+            {notifications.length === 0 && leads.length === 0 ? (
               <div
                 style={{
                   padding: "36px 16px",
@@ -234,55 +372,70 @@ export default function NotificationBell() {
               >
                 No notifications yet
               </div>
-            ) : (
-              notifications.slice(0, 20).map((n) => (
-                <Link
-                  key={n.id}
-                  to="/office"
-                  onClick={() => { markAsRead(n.id); setOpen(false); }}
-                  style={{ textDecoration: "none", display: "block" }}
-                >
+            ) : notifications.length > 0 && (
+              <>
+                {leads.length > 0 && (
                   <div
                     style={{
-                      padding: "11px 16px",
+                      padding: "7px 16px 6px",
+                      background: "var(--surface-muted)",
                       borderBottom: "1px solid var(--border)",
-                      background: n.read ? "transparent" : "rgba(245,166,35,0.04)",
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: 10,
                     }}
+                  >
+                    <span style={{ fontSize: 10, fontWeight: 800, color: "var(--text-muted)", letterSpacing: "0.07em", textTransform: "uppercase" }}>
+                      Activity
+                    </span>
+                  </div>
+                )}
+                {notifications.slice(0, 20).map((n) => (
+                  <Link
+                    key={n.id}
+                    to="/office"
+                    onClick={() => { markAsRead(n.id); setOpen(false); }}
+                    style={{ textDecoration: "none", display: "block" }}
                   >
                     <div
                       style={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        background: n.read ? "transparent" : "#F5A623",
-                        flexShrink: 0,
-                        marginTop: 5,
+                        padding: "11px 16px",
+                        borderBottom: "1px solid var(--border)",
+                        background: n.read ? "transparent" : "rgba(245,166,35,0.04)",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 10,
                       }}
-                    />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <p
+                    >
+                      <div
                         style={{
-                          color: "var(--text)",
-                          fontSize: 13,
-                          fontWeight: n.read ? 400 : 600,
-                          margin: "0 0 3px",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
-                          textOverflow: "ellipsis",
+                          width: 6,
+                          height: 6,
+                          borderRadius: "50%",
+                          background: n.read ? "transparent" : "#F5A623",
+                          flexShrink: 0,
+                          marginTop: 5,
                         }}
-                      >
-                        New booking request{n.service ? ` — ${n.service}` : ""}
-                      </p>
-                      <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
-                        {[n.city, timeAgo(n.created_at)].filter(Boolean).join(" · ")}
-                      </p>
+                      />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p
+                          style={{
+                            color: "var(--text)",
+                            fontSize: 13,
+                            fontWeight: n.read ? 400 : 600,
+                            margin: "0 0 3px",
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          New booking request{n.service ? ` — ${n.service}` : ""}
+                        </p>
+                        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
+                          {[n.city, timeAgo(n.created_at)].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </Link>
-              ))
+                  </Link>
+                ))}
+              </>
             )}
           </div>
 
@@ -308,7 +461,7 @@ export default function NotificationBell() {
         document.body
       )}
 
-      {/* ── Toast stack via portal — escapes stacking context ────────────── */}
+      {/* ── Toast stack via portal ───────────────────────────────────────── */}
       {mounted && createPortal(
         <div
           style={{

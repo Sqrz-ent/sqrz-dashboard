@@ -222,7 +222,7 @@ function ProfilePanel({ userId }: { userId: string }) {
           <input
             value={form.first_name}
             onChange={(e) => set("first_name", e.target.value)}
-            placeholder="Will"
+            placeholder="Your Name"
             style={inputStyle}
           />
         </div>
@@ -231,7 +231,7 @@ function ProfilePanel({ userId }: { userId: string }) {
           <input
             value={form.last_name}
             onChange={(e) => set("last_name", e.target.value)}
-            placeholder="Villa"
+            placeholder="Last Name"
             style={inputStyle}
           />
         </div>

@@ -13,6 +13,15 @@ export type Notification = {
 
 export type Toast = Notification & { toastId: string };
 
+export type Lead = {
+  id: string;
+  guest_name: string | null;
+  guest_email: string | null;
+  description: string | null;
+  budget_range: string | null;
+  created_at: string;
+};
+
 // ─── Read-state persistence (localStorage) ────────────────────────────────────
 
 const READ_KEY = "sqrz_notif_read";
@@ -36,6 +45,7 @@ function persistReadIds(ids: Set<string>) {
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const initialized = useRef(false);
 
@@ -43,65 +53,38 @@ export function useNotifications() {
     let channel: ReturnType<typeof supabase.channel> | null = null;
 
     async function init() {
-      // Step 1 — resolve the authenticated user
       const {
         data: { user },
         error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError) {
-        console.error("[useNotifications] auth.getUser error:", userError.message);
-        return;
-      }
+      if (userError || !user) return;
 
-      if (!user) {
-        console.warn("[useNotifications] No authenticated user — skipping subscription");
-        return;
-      }
-
-      console.log("Auth user.id:", user?.id);
-
-      // Step 2 — resolve profile.id (owner_id on bookings references profiles.id, not auth uid)
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
         .select("id")
         .eq("user_id", user.id)
         .single();
 
-      if (profileError) {
-        console.error("[useNotifications] Profile fetch error:", profileError.message);
-        return;
-      }
-
-      if (!profile) {
-        console.warn("[useNotifications] No profile row found for user:", user.id);
-        return;
-      }
-
-      console.log("[notifications] profile.id:", profile?.id);
-      console.log("Subscribing with profile.id:", profile?.id);
+      if (profileError || !profile) return;
 
       const readIds = getReadIds();
 
-      // Step 3 — initial fetch: bookings from last 7 days
+      // Initial fetch: bookings (non-lead) from last 7 days
       const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { data, error: fetchError } = await supabase
+      const { data: bookingData } = await supabase
         .from("bookings")
         .select("id, created_at, status, city, venue")
         .eq("owner_id", profile.id)
+        .neq("status", "lead")
+        .neq("status", "declined")
         .gte("created_at", since)
         .order("created_at", { ascending: false })
         .limit(50);
 
-      if (fetchError) {
-        console.error("[useNotifications] Initial fetch error:", fetchError.message);
-      } else {
-        console.log("[useNotifications] Initial fetch returned", data?.length ?? 0, "bookings");
-      }
-
-      if (data) {
+      if (bookingData) {
         setNotifications(
-          data.map((b: Record<string, unknown>) => ({
+          bookingData.map((b: Record<string, unknown>) => ({
             id: b.id as string,
             service: (b.status as string) ?? null,
             city: (b.city as string) ?? (b.venue as string) ?? null,
@@ -111,46 +94,70 @@ export function useNotifications() {
         );
       }
 
+      // Initial fetch: open leads
+      const { data: leadData } = await supabase
+        .from("bookings")
+        .select("id, created_at, guest_name, guest_email, description, budget_range")
+        .eq("owner_id", profile.id)
+        .eq("status", "lead")
+        .order("created_at", { ascending: false })
+        .limit(50);
+
+      if (leadData) {
+        setLeads(
+          leadData.map((b: Record<string, unknown>) => ({
+            id: b.id as string,
+            guest_name: (b.guest_name as string) ?? null,
+            guest_email: (b.guest_email as string) ?? null,
+            description: (b.description as string) ?? null,
+            budget_range: (b.budget_range as string) ?? null,
+            created_at: b.created_at as string,
+          }))
+        );
+      }
+
       initialized.current = true;
 
-      // Step 4 — Realtime subscription using profile.id (matches bookings.owner_id)
+      // Realtime subscription for new bookings (any status)
       const filter = `owner_id=eq.${profile.id}`;
-      console.log("Starting subscription for user:", user.id);
 
       try {
         channel = supabase
           .channel("bookings-notifications")
           .on(
             "postgres_changes",
-            {
-              event: "INSERT",
-              schema: "public",
-              table: "bookings",
-              filter,
-            },
+            { event: "INSERT", schema: "public", table: "bookings", filter },
             (payload) => {
-              console.log("Realtime event received:", payload);
               const b = payload.new as Record<string, unknown>;
-              const notif: Notification = {
-                id: b.id as string,
-                service: (b.status as string) ?? null,
-                city: (b.city as string) ?? (b.venue as string) ?? null,
-                created_at: b.created_at as string,
-                read: false,
-              };
-              setNotifications((prev) => [notif, ...prev]);
-              // Toast only for live events, never for initial load
-              const toastId = `toast-${b.id}-${Date.now()}`;
-              setToasts((prev) => [...prev, { ...notif, toastId }]);
+              const bStatus = b.status as string;
+
+              if (bStatus === "lead") {
+                // Add to leads list
+                const lead: Lead = {
+                  id: b.id as string,
+                  guest_name: (b.guest_name as string) ?? null,
+                  guest_email: (b.guest_email as string) ?? null,
+                  description: (b.description as string) ?? null,
+                  budget_range: (b.budget_range as string) ?? null,
+                  created_at: b.created_at as string,
+                };
+                setLeads((prev) => [lead, ...prev]);
+              } else {
+                // Add to notifications + toast
+                const notif: Notification = {
+                  id: b.id as string,
+                  service: bStatus ?? null,
+                  city: (b.city as string) ?? (b.venue as string) ?? null,
+                  created_at: b.created_at as string,
+                  read: false,
+                };
+                setNotifications((prev) => [notif, ...prev]);
+                const toastId = `toast-${b.id}-${Date.now()}`;
+                setToasts((prev) => [...prev, { ...notif, toastId }]);
+              }
             }
           )
-          .subscribe((status, err) => {
-            console.log("Realtime status:", status);
-            if (err) console.error("Realtime error:", err);
-            if (status === "CHANNEL_ERROR") console.error("Channel error - check filter value and RLS");
-            if (status === "TIMED_OUT") console.error("Subscription timed out");
-            if (status === "SUBSCRIBED") console.log("Successfully subscribed, listening for bookings");
-          });
+          .subscribe();
       } catch (err) {
         console.error("Failed to set up Realtime subscription:", err);
       }
@@ -159,10 +166,7 @@ export function useNotifications() {
     init();
 
     return () => {
-      if (channel) {
-        console.log("[useNotifications] Removing channel");
-        supabase.removeChannel(channel);
-      }
+      if (channel) supabase.removeChannel(channel);
     };
   }, []);
 
@@ -188,7 +192,39 @@ export function useNotifications() {
     setToasts((prev) => prev.filter((t) => t.toastId !== toastId));
   }
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  async function convertLead(id: string) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "requested" })
+      .eq("id", id);
+    if (!error) {
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+    }
+  }
 
-  return { notifications, unreadCount, markAsRead, markAllAsRead, toasts, dismissToast };
+  async function declineLead(id: string) {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "declined" })
+      .eq("id", id);
+    if (!error) {
+      setLeads((prev) => prev.filter((l) => l.id !== id));
+    }
+  }
+
+  const unreadCount = notifications.filter((n) => !n.read).length;
+  const leadCount = leads.length;
+
+  return {
+    notifications,
+    unreadCount,
+    markAsRead,
+    markAllAsRead,
+    toasts,
+    dismissToast,
+    leads,
+    leadCount,
+    convertLead,
+    declineLead,
+  };
 }
