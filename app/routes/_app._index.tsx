@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -18,6 +18,13 @@ type UpcomingBooking = {
   city: string | null;
 };
 
+type AvailabilityBlock = {
+  id: number;
+  start_date: string;
+  end_date: string;
+  label: string | null;
+};
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -35,7 +42,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     p_days: 7,
   });
 
-  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes] =
+  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes] =
     await Promise.all([
       supabase
         .from("bookings")
@@ -69,6 +76,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       profile.plan_id
         ? supabase.from("plans").select("name").eq("id", profile.plan_id as number).maybeSingle()
         : Promise.resolve({ data: null }),
+      supabase
+        .from("availability_blocks")
+        .select("id, start_date, end_date, label")
+        .eq("profile_id", profileId)
+        .order("start_date", { ascending: true }),
     ]);
 
   return Response.json(
@@ -82,6 +94,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       hasRefs: (refsRes.count ?? 0) > 0,
       planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
       analytics: analytics ?? null,
+      availabilityBlocks: blocksRes.data ?? [],
     },
     { headers }
   );
@@ -98,11 +111,42 @@ export async function action({ request }: Route.ActionArgs) {
   if (!profile) return redirect("/join", { headers });
 
   const formData = await request.formData();
-  if (formData.get("intent") === "update_template") {
+  const intent = formData.get("intent") as string;
+
+  if (intent === "update_template") {
     const { error } = await supabase
       .from("profiles")
       .update({ template_id: formData.get("template_id") as string })
       .eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_availability_status") {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ availability_status: formData.get("status") as string })
+      .eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "add_availability_block") {
+    const { error } = await supabase
+      .from("availability_blocks")
+      .insert({
+        profile_id: profile.id as string,
+        start_date: formData.get("start_date") as string,
+        end_date: formData.get("end_date") as string,
+        label: (formData.get("label") as string) || "Unavailable",
+      });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "delete_availability_block") {
+    const { error } = await supabase
+      .from("availability_blocks")
+      .delete()
+      .eq("id", Number(formData.get("block_id")))
+      .eq("profile_id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -123,7 +167,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, planName, analytics } =
+  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, planName, analytics, availabilityBlocks } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -157,6 +201,19 @@ export default function DashboardIndex() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>(
     (p.template_id as string) || "midnight"
   );
+
+  // Availability
+  const availFetcher = useFetcher();
+  const blockFetcher = useFetcher();
+  const deleteFetcher = useFetcher();
+  const [availStatus, setAvailStatus] = useState<string>(
+    (p.availability_status as string) || "available"
+  );
+  const blocks = availabilityBlocks as AvailabilityBlock[];
+  const [showBlockForm, setShowBlockForm] = useState(false);
+  const blockLabelRef = useRef<HTMLInputElement>(null);
+  const blockStartRef = useRef<HTMLInputElement>(null);
+  const blockEndRef = useRef<HTMLInputElement>(null);
 
   // Share button
   const [copied, setCopied] = useState(false);
@@ -382,6 +439,224 @@ export default function DashboardIndex() {
             );
           })}
         </div>
+      </div>
+
+      {/* Availability widget */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Availability</p>
+
+        {/* Status pills */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
+          {([
+            { key: "available", label: "🟢 Available" },
+            { key: "limited",   label: "🟡 Limited" },
+            { key: "unavailable", label: "🔴 Unavailable" },
+          ] as const).map(({ key, label }) => {
+            const active = availStatus === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setAvailStatus(key);
+                  const fd = new FormData();
+                  fd.append("intent", "update_availability_status");
+                  fd.append("status", key);
+                  availFetcher.submit(fd, { method: "post" });
+                }}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 20,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  border: active ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                  background: active ? ACCENT : "transparent",
+                  color: active ? "#111111" : "var(--text-muted)",
+                  fontFamily: FONT,
+                  transition: "all 0.15s",
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Blocked periods list */}
+        {blocks.length === 0 && !showBlockForm ? (
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
+            No blocks added yet
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+            {blocks.map((block) => (
+              <div
+                key={block.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 12px",
+                  background: "var(--surface-muted)",
+                  borderRadius: 8,
+                  gap: 10,
+                }}
+              >
+                <span style={{ fontSize: 13, color: "var(--text)" }}>
+                  <span style={{ fontWeight: 600 }}>{block.label || "Unavailable"}</span>
+                  <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+                    {block.start_date} → {block.end_date}
+                  </span>
+                </span>
+                <button
+                  onClick={() => {
+                    const fd = new FormData();
+                    fd.append("intent", "delete_availability_block");
+                    fd.append("block_id", String(block.id));
+                    deleteFetcher.submit(fd, { method: "post" });
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    padding: "2px 4px",
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    fontFamily: FONT,
+                  }}
+                  aria-label="Delete block"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Inline add form */}
+        {showBlockForm ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              padding: "12px 14px",
+              background: "var(--surface-muted)",
+              borderRadius: 10,
+            }}
+          >
+            <input
+              ref={blockLabelRef}
+              type="text"
+              placeholder="e.g. On contract, Touring, Holiday"
+              style={{
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "8px 10px",
+                fontSize: 13,
+                color: "var(--text)",
+                fontFamily: FONT,
+                outline: "none",
+              }}
+            />
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                ref={blockStartRef}
+                type="date"
+                style={{
+                  flex: 1,
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  color: "var(--text)",
+                  fontFamily: FONT,
+                  outline: "none",
+                }}
+              />
+              <input
+                ref={blockEndRef}
+                type="date"
+                style={{
+                  flex: 1,
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  padding: "8px 10px",
+                  fontSize: 13,
+                  color: "var(--text)",
+                  fontFamily: FONT,
+                  outline: "none",
+                }}
+              />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => {
+                  const start = blockStartRef.current?.value;
+                  const end = blockEndRef.current?.value;
+                  if (!start || !end) return;
+                  const fd = new FormData();
+                  fd.append("intent", "add_availability_block");
+                  fd.append("label", blockLabelRef.current?.value || "Unavailable");
+                  fd.append("start_date", start);
+                  fd.append("end_date", end);
+                  blockFetcher.submit(fd, { method: "post" });
+                  setShowBlockForm(false);
+                }}
+                style={{
+                  flex: 1,
+                  padding: "8px",
+                  background: ACCENT,
+                  color: "#111111",
+                  border: "none",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                Add
+              </button>
+              <button
+                onClick={() => setShowBlockForm(false)}
+                style={{
+                  padding: "8px 14px",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowBlockForm(true)}
+            style={{
+              background: "none",
+              border: "none",
+              color: ACCENT,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+              padding: 0,
+              fontFamily: FONT,
+            }}
+          >
+            + Add unavailable period
+          </button>
+        )}
       </div>
 
       {/* Quick stats */}
