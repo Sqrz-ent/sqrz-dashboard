@@ -20,7 +20,6 @@ export default [
     route("office/:id", "routes/_app.office.$id.tsx"),
     route("crew", "routes/_app.crew.tsx"),
     route("profile", "routes/_app.profile.tsx"),
-    route("theme", "routes/_app.theme.tsx"),
     route("service", "routes/_app.service.tsx"),
     route("boost", "routes/_app.boost.tsx"),
     route("domain", "routes/_app.domain.tsx"),

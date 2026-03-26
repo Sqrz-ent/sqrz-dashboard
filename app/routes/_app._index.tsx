@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { redirect, useLoaderData, Link } from "react-router";
+import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -82,6 +82,28 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 }
 
+// ─── Action ───────────────────────────────────────────────────────────────────
+
+export async function action({ request }: Route.ActionArgs) {
+  const { supabase, headers } = createSupabaseServerClient(request);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return redirect("/join", { headers });
+
+  const profile = await getCurrentProfile(supabase, user.id);
+  if (!profile) return redirect("/join", { headers });
+
+  const formData = await request.formData();
+  if (formData.get("intent") === "update_template") {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ template_id: formData.get("template_id") as string })
+      .eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  return Response.json({ ok: false }, { headers });
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null) {
@@ -128,6 +150,12 @@ export default function DashboardIndex() {
   ];
   const doneCount = sections.filter((s) => s.done).length;
   const pct = Math.round((doneCount / sections.length) * 100);
+
+  // Theme picker
+  const templateFetcher = useFetcher();
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(
+    (p.template_id as string) || "midnight"
+  );
 
   // Share button
   const [copied, setCopied] = useState(false);
@@ -274,6 +302,65 @@ export default function DashboardIndex() {
             </div>
           </>
         )}
+      </div>
+
+      {/* Theme picker */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {([
+            { key: "midnight", label: "Midnight", accent: "#F3B130", bg: "#0a0a0a" },
+            { key: "neon",     label: "Neon",     accent: "#A855F7", bg: "#0d0d1a" },
+            { key: "studio",   label: "Studio",   accent: "#38BDF8", bg: "#080f1a" },
+          ] as const).map(({ key, label, accent, bg }) => {
+            const active = selectedTemplate === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedTemplate(key);
+                  const fd = new FormData();
+                  fd.append("intent", "update_template");
+                  fd.append("template_id", key);
+                  templateFetcher.submit(fd, { method: "post" });
+                }}
+                style={{
+                  flex: "1 1 80px",
+                  minWidth: 80,
+                  padding: "14px 10px 12px",
+                  background: bg,
+                  border: active ? `2px solid ${accent}` : "2px solid rgba(255,255,255,0.08)",
+                  borderRadius: 14,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                  transition: "border-color 0.15s",
+                  fontFamily: FONT,
+                }}
+              >
+                <div style={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  background: accent,
+                  boxShadow: active ? `0 0 10px ${accent}80` : "none",
+                  transition: "box-shadow 0.15s",
+                }} />
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: active ? accent : "rgba(255,255,255,0.5)",
+                  letterSpacing: "0.04em",
+                }}>
+                  {label}
+                </span>
+                {active && <span style={{ fontSize: 10, color: accent }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Quick stats */}
