@@ -329,7 +329,7 @@ export default function DashboardIndex() {
                   minWidth: 80,
                   padding: "14px 10px 12px",
                   background: bg,
-                  border: active ? `2px solid ${accent}` : "2px solid rgba(255,255,255,0.08)",
+                  border: active ? `2px solid ${accent}` : "2px solid rgba(128,128,128,0.3)",
                   borderRadius: 14,
                   cursor: "pointer",
                   display: "flex",
