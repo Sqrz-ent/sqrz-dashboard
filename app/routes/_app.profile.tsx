@@ -204,6 +204,7 @@ export async function action({ request }: Route.ActionArgs) {
       company_name: formData.get("company_name") as string,
       company_address: formData.get("company_address") as string,
       company_tax_id: formData.get("company_tax_id") as string,
+      legal_form: formData.get("legal_form") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -485,7 +486,7 @@ export default function ProfilePage() {
   const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
   const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
   const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso].filter(Boolean).length;
-  const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id].filter(Boolean).length;
+  const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id, profile.legal_form].filter(Boolean).length;
 
   const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
     { key: "website_url", emoji: "🌐", label: "Website" },
@@ -860,7 +861,7 @@ export default function ProfilePage() {
 
       {/* Section 7: Business Details */}
       <div style={card}>
-        <CompletionBadge filled={businessFilled} total={3} />
+        <CompletionBadge filled={businessFilled} total={4} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
         <businessFetcher.Form method="post">
           <input type="hidden" name="intent" value="update_business" />
@@ -876,6 +877,10 @@ export default function ProfilePage() {
             <div>
               <label style={labelStyle}>Tax ID</label>
               <input name="company_tax_id" defaultValue={(profile.company_tax_id as string) ?? ""} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Legal Form</label>
+              <input name="legal_form" defaultValue={(profile.legal_form as string) ?? ""} placeholder="e.g. Einzelunternehmer, GmbH, LLC" style={inputStyle} />
             </div>
           </div>
           <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>

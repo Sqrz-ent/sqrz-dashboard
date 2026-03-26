@@ -241,33 +241,28 @@ export default function DashboardIndex() {
           />
         </div>
 
-        {/* Completion checklist */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {completionItems.map((item) => (
-            <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{
-                width: 18,
-                height: 18,
-                borderRadius: "50%",
-                background: item.done ? "rgba(245,166,35,0.15)" : "var(--surface-muted)",
-                border: `1px solid ${item.done ? "rgba(245,166,35,0.4)" : "var(--border)"}`,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 10,
-                color: item.done ? ACCENT : "transparent",
-                flexShrink: 0,
-              }}>✓</span>
-              <span style={{
-                fontSize: 13,
-                color: item.done ? "var(--text)" : "var(--text-muted)",
-                textDecoration: item.done ? "none" : "none",
-              }}>
-                {item.label}
-              </span>
+        {/* Incomplete items — compact */}
+        {doneCount === totalSections ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>Profile complete 🎉</p>
+        ) : (() => {
+          const incomplete = completionItems.filter((c) => !c.done);
+          const shown = incomplete.slice(0, 3);
+          const remaining = incomplete.length - shown.length;
+          return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {shown.map((item) => (
+                <p key={item.key} style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
+                  · {item.label}
+                </p>
+              ))}
+              {remaining > 0 && (
+                <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", opacity: 0.6 }}>
+                  and {remaining} more to complete
+                </p>
+              )}
             </div>
-          ))}
-        </div>
+          );
+        })()}
       </div>
 
       {/* Analytics widget */}
