@@ -76,6 +76,7 @@ type PrivateLink = {
   id: string;
   link_slug: string;
   is_active: boolean;
+  show_on_profile: boolean;
   page_type: PageType;
   title: string | null;
   use_count: number;
@@ -178,6 +179,17 @@ export async function action({ request }: Route.ActionArgs) {
     const { error } = await admin
       .from("private_booking_links")
       .update({ is_active: !isActive })
+      .eq("id", id)
+      .eq("profile_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "toggle_show_on_profile") {
+    const id = fd.get("id") as string;
+    const current = fd.get("show_on_profile") === "true";
+    const { error } = await admin
+      .from("private_booking_links")
+      .update({ show_on_profile: !current })
       .eq("id", id)
       .eq("profile_id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -532,6 +544,14 @@ function LinkCard({
     fetcher.submit(fd, { method: "post" });
   }
 
+  function toggleShowOnProfile() {
+    const fd = new FormData();
+    fd.append("intent", "toggle_show_on_profile");
+    fd.append("id", link.id);
+    fd.append("show_on_profile", String(link.show_on_profile));
+    fetcher.submit(fd, { method: "post" });
+  }
+
   function deleteLink() {
     const fd = new FormData();
     fd.append("intent", "delete");
@@ -593,6 +613,47 @@ function LinkCard({
           {link.max_uses ? ` · max ${link.max_uses}` : ""}
           {link.expires_at ? ` · expires ${new Date(link.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
         </div>
+        <button
+          onClick={toggleShowOnProfile}
+          style={{
+            marginTop: 8,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: "pointer",
+            color: link.show_on_profile ? ACCENT : "var(--text-muted)",
+            fontSize: 11,
+            fontWeight: 600,
+            fontFamily: FONT_BODY,
+          }}
+        >
+          <span style={{
+            width: 28,
+            height: 16,
+            borderRadius: 8,
+            background: link.show_on_profile ? ACCENT : "var(--border)",
+            position: "relative",
+            display: "inline-block",
+            flexShrink: 0,
+            transition: "background 0.15s",
+          }}>
+            <span style={{
+              position: "absolute",
+              top: 2,
+              left: link.show_on_profile ? 14 : 2,
+              width: 12,
+              height: 12,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "left 0.15s",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+            }} />
+          </span>
+          Show on profile
+        </button>
       </div>
 
       {/* Actions */}
