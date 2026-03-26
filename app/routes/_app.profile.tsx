@@ -215,6 +215,13 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "update_template") {
+    const { error } = await supabase.from("profiles").update({
+      template_id: formData.get("template_id") as string,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   const adminClient = createSupabaseAdminClient();
 
   if (intent === "add_video") {
@@ -334,10 +341,16 @@ export default function ProfilePage() {
   const widgetsFetcher = useFetcher();
   const businessFetcher = useFetcher();
   const publishFetcher = useFetcher();
+  const templateFetcher = useFetcher();
   const videoFetcher = useFetcher();
   const refFetcher = useFetcher();
   const skillFetcher = useFetcher();
   const langFetcher = useFetcher();
+
+  // Template state
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(
+    (profile.template_id as string) || "midnight"
+  );
 
   // Skills + languages state
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(() => new Set(skillIds));
@@ -884,7 +897,71 @@ export default function ProfilePage() {
         </businessFetcher.Form>
       </div>
 
-      {/* Section 8: Publish */}
+      {/* Section 8: Template */}
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 6 }}>Theme</h2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: FONT_BODY, margin: "0 0 18px" }}>
+          Choose the look of your public profile.
+        </p>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          {([
+            { key: "midnight", label: "Midnight", accent: "#F3B130", bg: "#0a0a0a" },
+            { key: "neon",     label: "Neon",     accent: "#A855F7", bg: "#0d0d1a" },
+            { key: "studio",   label: "Studio",   accent: "#38BDF8", bg: "#080f1a" },
+          ] as const).map(({ key, label, accent, bg }) => {
+            const active = selectedTemplate === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedTemplate(key);
+                  const fd = new FormData();
+                  fd.append("intent", "update_template");
+                  fd.append("template_id", key);
+                  templateFetcher.submit(fd, { method: "post" });
+                }}
+                style={{
+                  flex: "1 1 80px",
+                  minWidth: 80,
+                  padding: "14px 10px 12px",
+                  background: bg,
+                  border: active ? `2px solid ${accent}` : "2px solid rgba(255,255,255,0.08)",
+                  borderRadius: 14,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 8,
+                  transition: "border-color 0.15s",
+                }}
+              >
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: "50%",
+                  background: accent,
+                  boxShadow: active ? `0 0 10px ${accent}80` : "none",
+                  transition: "box-shadow 0.15s",
+                }} />
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  fontFamily: FONT_BODY,
+                  color: active ? accent : "rgba(255,255,255,0.6)",
+                  letterSpacing: "0.04em",
+                }}>
+                  {label}
+                </span>
+                {active && (
+                  <span style={{ fontSize: 10, color: accent }}>✓</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Section 9: Publish */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Publish</h2>
         <a
