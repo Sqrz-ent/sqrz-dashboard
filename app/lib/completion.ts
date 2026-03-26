@@ -55,16 +55,16 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
   const hasWidget = WIDGET_FIELDS.some((f) => !!(p[f] as string | null));
 
   const items: CompletionItem[] = [
-    { key: "onboarding", label: "Complete onboarding",         done: p.onboarding_completed === true },
-    { key: "basics",     label: "Add bio and city",            done: !!(p.bio && p.city) },
-    { key: "skills",     label: "Add at least one skill",      done: p.hasSkills },
-    { key: "socials",    label: "Add at least one social link", done: hasSocial },
-    { key: "widgets",    label: "Add at least one widget",     done: hasWidget },
-    { key: "videos",     label: "Add at least one video",      done: p.hasVideos },
-    { key: "refs",       label: "Add at least one reference",  done: p.hasRefs },
-    { key: "services",   label: "Add at least one service",    done: p.hasServices },
-    { key: "business",   label: "Complete business details",   done: !!(p.company_name && p.company_address && p.company_tax_id && p.legal_form) },
-    { key: "domain",     label: "Connect custom domain",       done: !!p.custom_domain },
+    { key: "onboarding", label: "Onboarding",  done: p.onboarding_completed === true },
+    { key: "basics",     label: "Basics",      done: !!(p.bio && p.city) },
+    { key: "skills",     label: "Skills",      done: p.hasSkills },
+    { key: "socials",    label: "Socials",     done: hasSocial },
+    { key: "widgets",    label: "Widgets",     done: hasWidget },
+    { key: "videos",     label: "Videos",      done: p.hasVideos },
+    { key: "refs",       label: "References",  done: p.hasRefs },
+    { key: "services",   label: "Services",    done: p.hasServices },
+    { key: "business",   label: "Business",    done: !!(p.company_name && p.company_address && p.company_tax_id && p.legal_form) },
+    { key: "domain",     label: "Domain",      done: !!p.custom_domain },
   ];
 
   const score = items.filter((c) => c.done).length;

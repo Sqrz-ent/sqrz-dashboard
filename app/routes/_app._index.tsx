@@ -241,28 +241,45 @@ export default function DashboardIndex() {
           />
         </div>
 
-        {/* Incomplete items — compact */}
-        {doneCount === totalSections ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>Profile complete 🎉</p>
-        ) : (() => {
-          const incomplete = completionItems.filter((c) => !c.done);
-          const shown = incomplete.slice(0, 3);
-          const remaining = incomplete.length - shown.length;
-          return (
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              {shown.map((item) => (
-                <p key={item.key} style={{ margin: 0, fontSize: 12, color: "var(--text-muted)" }}>
-                  · {item.label}
-                </p>
-              ))}
-              {remaining > 0 && (
-                <p style={{ margin: 0, fontSize: 12, color: "var(--text-muted)", opacity: 0.6 }}>
-                  and {remaining} more to complete
-                </p>
-              )}
-            </div>
-          );
-        })()}
+        {/* Completion pills */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {completionItems.map((item) => (
+            item.done ? (
+              <span
+                key={item.key}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: "3px 9px",
+                  borderRadius: 20,
+                  background: ACCENT,
+                  color: "#111111",
+                  border: "1px solid transparent",
+                  letterSpacing: "0.01em",
+                }}
+              >
+                {item.label}
+              </span>
+            ) : (
+              <span
+                key={item.key}
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  padding: "3px 9px",
+                  borderRadius: 20,
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  opacity: 0.7,
+                  letterSpacing: "0.01em",
+                }}
+              >
+                {item.label}
+              </span>
+            )
+          ))}
+        </div>
       </div>
 
       {/* Analytics widget */}
