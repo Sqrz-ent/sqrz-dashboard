@@ -19,7 +19,6 @@ export const FEATURE_GATES = {
   domain:  1,  // any paid plan
   boost:   2,  // Boost or higher
   links:   2,  // Boost or higher
-  media:   3,  // Grow or higher
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_GATES;

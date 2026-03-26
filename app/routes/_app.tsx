@@ -94,7 +94,6 @@ const topNavItems = [
   { to: "/domain", label: "Domain" },
   { to: "/links", label: "Links" },
   { to: "/boost", label: "Boost" },
-  { to: "/media", label: "Media" },
   { to: "/account", label: "Account" },
 ];
 
