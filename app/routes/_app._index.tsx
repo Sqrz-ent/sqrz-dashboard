@@ -309,10 +309,10 @@ export default function DashboardIndex() {
         <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {([
-            { key: "midnight", label: "Midnight", accent: "#F3B130", bg: "#0a0a0a" },
-            { key: "neon",     label: "Neon",     accent: "#A855F7", bg: "#0d0d1a" },
-            { key: "studio",   label: "Studio",   accent: "#38BDF8", bg: "#080f1a" },
-          ] as const).map(({ key, label, accent, bg }) => {
+            { key: "midnight", label: "Midnight", accent: "#F3B130" },
+            { key: "neon",     label: "Neon",     accent: "#A855F7" },
+            { key: "studio",   label: "Studio",   accent: "#38BDF8" },
+          ] as const).map(({ key, label, accent }) => {
             const active = selectedTemplate === key;
             return (
               <button
@@ -327,31 +327,31 @@ export default function DashboardIndex() {
                 style={{
                   flex: "1 1 80px",
                   minWidth: 80,
-                  padding: "14px 10px 12px",
-                  background: bg,
-                  border: active ? `2px solid ${accent}` : "2px solid rgba(128,128,128,0.3)",
+                  padding: "16px 10px 14px",
+                  background: active ? "var(--surface-muted)" : "var(--bg)",
+                  border: active ? `2px solid ${accent}` : "2px solid var(--border)",
                   borderRadius: 14,
                   cursor: "pointer",
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "center",
-                  gap: 8,
-                  transition: "border-color 0.15s",
+                  gap: 10,
+                  transition: "border-color 0.15s, background 0.15s",
                   fontFamily: FONT,
                 }}
               >
                 <div style={{
-                  width: 26,
-                  height: 26,
+                  width: 60,
+                  height: 60,
                   borderRadius: "50%",
                   background: accent,
-                  boxShadow: active ? `0 0 10px ${accent}80` : "none",
+                  boxShadow: active ? `0 0 16px ${accent}60` : "none",
                   transition: "box-shadow 0.15s",
                 }} />
                 <span style={{
                   fontSize: 12,
                   fontWeight: 700,
-                  color: active ? accent : "rgba(255,255,255,0.5)",
+                  color: active ? accent : "var(--text)",
                   letterSpacing: "0.04em",
                 }}>
                   {label}
