@@ -54,6 +54,7 @@ type Booking = {
   rate: number | null;
   currency: string | null;
   require_hotel: boolean | null;
+  show_label: boolean | null;
   owner_id: string;
   booking_requests: BookingRequest[];
   booking_participants: Participant[];
@@ -117,6 +118,15 @@ export async function action({ request, params }: Route.ActionArgs) {
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
     return Response.json({ ok: true }, { headers });
+  }
+
+  if (intent === "update_show_label") {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ show_label: formData.get("show_label") === "true" })
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
   if (intent === "send_proposal") {
@@ -336,6 +346,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 function DetailsSection({ booking }: { booking: Booking }) {
   const req = booking.booking_requests?.[0];
+  const showLabelFetcher = useFetcher();
 
   return (
     <section id="details" style={{ paddingBottom: 40 }}>
@@ -368,6 +379,29 @@ function DetailsSection({ booking }: { booking: Booking }) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Public calendar toggle */}
+      <div style={card}>
+        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            defaultChecked={!!booking.show_label}
+            onChange={(e) => {
+              const fd = new FormData();
+              fd.append("intent", "update_show_label");
+              fd.append("show_label", String(e.target.checked));
+              showLabelFetcher.submit(fd, { method: "post" });
+            }}
+            style={{ accentColor: ACCENT, cursor: "pointer", width: 16, height: 16 }}
+          />
+          <div>
+            <p style={{ ...label, margin: 0 }}>Show on public calendar</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
+              When on, the booking title is visible on your profile calendar
+            </p>
+          </div>
+        </label>
       </div>
 
       {/* Location */}

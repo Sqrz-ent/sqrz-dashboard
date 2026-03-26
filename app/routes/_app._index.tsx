@@ -23,6 +23,7 @@ type AvailabilityBlock = {
   start_date: string;
   end_date: string;
   label: string | null;
+  show_label: boolean | null;
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         : Promise.resolve({ data: null }),
       supabase
         .from("availability_blocks")
-        .select("id, start_date, end_date, label")
+        .select("id, start_date, end_date, label, show_label")
         .eq("profile_id", profileId)
         .order("start_date", { ascending: true }),
     ]);
@@ -138,6 +139,15 @@ export async function action({ request }: Route.ActionArgs) {
         end_date: formData.get("end_date") as string,
         label: (formData.get("label") as string) || "Unavailable",
       });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_block_show_label") {
+    const { error } = await supabase
+      .from("availability_blocks")
+      .update({ show_label: formData.get("show_label") === "true" })
+      .eq("id", Number(formData.get("block_id")))
+      .eq("profile_id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -494,42 +504,59 @@ export default function DashboardIndex() {
                 key={block.id}
                 style={{
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "8px 12px",
+                  flexDirection: "column",
+                  padding: "10px 12px",
                   background: "var(--surface-muted)",
                   borderRadius: 8,
-                  gap: 10,
+                  gap: 6,
                 }}
               >
-                <span style={{ fontSize: 13, color: "var(--text)" }}>
-                  <span style={{ fontWeight: 600 }}>{block.label || "Unavailable"}</span>
-                  <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
-                    {block.start_date} → {block.end_date}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <span style={{ fontSize: 13, color: "var(--text)" }}>
+                    <span style={{ fontWeight: 600 }}>{block.label || "Unavailable"}</span>
+                    <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
+                      {block.start_date} → {block.end_date}
+                    </span>
                   </span>
-                </span>
-                <button
-                  onClick={() => {
-                    const fd = new FormData();
-                    fd.append("intent", "delete_availability_block");
-                    fd.append("block_id", String(block.id));
-                    deleteFetcher.submit(fd, { method: "post" });
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "var(--text-muted)",
-                    cursor: "pointer",
-                    fontSize: 14,
-                    padding: "2px 4px",
-                    lineHeight: 1,
-                    flexShrink: 0,
-                    fontFamily: FONT,
-                  }}
-                  aria-label="Delete block"
-                >
-                  ✕
-                </button>
+                  <button
+                    onClick={() => {
+                      const fd = new FormData();
+                      fd.append("intent", "delete_availability_block");
+                      fd.append("block_id", String(block.id));
+                      deleteFetcher.submit(fd, { method: "post" });
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: 14,
+                      padding: "2px 4px",
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      fontFamily: FONT,
+                    }}
+                    aria-label="Delete block"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {/* Show label toggle */}
+                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    defaultChecked={!!block.show_label}
+                    onChange={(e) => {
+                      const fd = new FormData();
+                      fd.append("intent", "update_block_show_label");
+                      fd.append("block_id", String(block.id));
+                      fd.append("show_label", String(e.target.checked));
+                      blockFetcher.submit(fd, { method: "post" });
+                    }}
+                    style={{ accentColor: ACCENT, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Show label on public calendar</span>
+                </label>
               </div>
             ))}
           </div>
