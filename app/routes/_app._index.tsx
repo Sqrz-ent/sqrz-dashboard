@@ -3,15 +3,10 @@ import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 
 const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
-
-// Social fields to check for "has at least 1 social"
-const SOCIAL_FIELDS = [
-  "instagram", "tiktok", "youtube", "twitter", "spotify",
-  "soundcloud", "facebook", "website", "linkedin",
-];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -40,7 +35,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     p_days: 7,
   });
 
-  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, planRes] =
+  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes] =
     await Promise.all([
       supabase
         .from("bookings")
@@ -63,6 +58,14 @@ export async function loader({ request }: Route.LoaderArgs) {
         .from("profile_services")
         .select("id", { count: "exact", head: true })
         .eq("profile_id", profileId),
+      supabase
+        .from("profile_videos")
+        .select("id", { count: "exact", head: true })
+        .eq("profile_id", profileId),
+      supabase
+        .from("profile_references")
+        .select("id", { count: "exact", head: true })
+        .eq("profile_id", profileId),
       profile.plan_id
         ? supabase.from("plans").select("name").eq("id", profile.plan_id as number).maybeSingle()
         : Promise.resolve({ data: null }),
@@ -75,6 +78,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       upcomingBookings: upcomingBookingsRes.data ?? [],
       hasSkills: (skillsRes.count ?? 0) > 0,
       hasServices: (servicesRes.count ?? 0) > 0,
+      hasVideos: (videosRes.count ?? 0) > 0,
+      hasRefs: (refsRes.count ?? 0) > 0,
       planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
       analytics: analytics ?? null,
     },
@@ -118,7 +123,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, planName, analytics } =
+  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, planName, analytics } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -137,19 +142,15 @@ export default function DashboardIndex() {
   const isPaid = !!planId && planId > 0;
 
   // Profile completion
-  const hasSocial = SOCIAL_FIELDS.some((f) => !!(p[f] as string | null));
-  const sections: { label: string; done: boolean }[] = [
-    { label: "Avatar",    done: !!(p.avatar_url) },
-    { label: "Name",      done: !!(p.name) },
-    { label: "Bio",       done: !!(p.bio) },
-    { label: "City",      done: !!(p.city) },
-    { label: "Socials",   done: hasSocial },
-    { label: "Skills",    done: hasSkills },
-    { label: "Services",  done: hasServices },
-    { label: "Published", done: !!(p.is_published) },
-  ];
-  const doneCount = sections.filter((s) => s.done).length;
-  const pct = Math.round((doneCount / sections.length) * 100);
+  const richProfile: RichProfile = {
+    ...p,
+    hasSkills,
+    hasServices,
+    hasVideos,
+    hasRefs,
+  };
+  const completion = getProfileCompletion(richProfile);
+  const { score: doneCount, total: totalSections, percentage: pct, items: completionItems } = completion;
 
   // Theme picker
   const templateFetcher = useFetcher();
@@ -215,7 +216,7 @@ export default function DashboardIndex() {
             Profile completion
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, flexShrink: 0 }}>
-            {doneCount} of {sections.length} sections complete
+            {doneCount} of {totalSections} complete
           </p>
         </div>
 
@@ -240,23 +241,31 @@ export default function DashboardIndex() {
           />
         </div>
 
-        {/* Section pills */}
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {sections.map((s) => (
-            <span
-              key={s.label}
-              style={{
-                fontSize: 11,
-                fontWeight: 600,
-                padding: "3px 9px",
-                borderRadius: 20,
-                background: s.done ? "rgba(245,166,35,0.12)" : "var(--surface-muted)",
-                color: s.done ? ACCENT : "var(--text-muted)",
-                border: `1px solid ${s.done ? "rgba(245,166,35,0.3)" : "var(--border)"}`,
-              }}
-            >
-              {s.done ? "✓ " : ""}{s.label}
-            </span>
+        {/* Completion checklist */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {completionItems.map((item) => (
+            <div key={item.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                background: item.done ? "rgba(245,166,35,0.15)" : "var(--surface-muted)",
+                border: `1px solid ${item.done ? "rgba(245,166,35,0.4)" : "var(--border)"}`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 10,
+                color: item.done ? ACCENT : "transparent",
+                flexShrink: 0,
+              }}>✓</span>
+              <span style={{
+                fontSize: 13,
+                color: item.done ? "var(--text)" : "var(--text-muted)",
+                textDecoration: item.done ? "none" : "none",
+              }}>
+                {item.label}
+              </span>
+            </div>
           ))}
         </div>
       </div>

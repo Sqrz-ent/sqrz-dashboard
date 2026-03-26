@@ -21,6 +21,7 @@ export default [
     route("crew", "routes/_app.crew.tsx"),
     route("profile", "routes/_app.profile.tsx"),
     route("service", "routes/_app.service.tsx"),
+    route("payments", "routes/_app.payments.tsx"),
     route("boost", "routes/_app.boost.tsx"),
     route("domain", "routes/_app.domain.tsx"),
     route("links", "routes/_app.links.tsx"),

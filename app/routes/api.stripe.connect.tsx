@@ -49,8 +49,8 @@ export async function action({ request }: Route.ActionArgs) {
   // Create onboarding link (works for both new and incomplete accounts)
   const accountLink = await stripe.accountLinks.create({
     account: connectId,
-    refresh_url: `${publicUrl}/settings?connect=refresh`,
-    return_url: `${publicUrl}/settings?connect=success`,
+    refresh_url: `${publicUrl}/payments?connect=refresh`,
+    return_url: `${publicUrl}/payments?connect=success`,
     type: "account_onboarding",
   });
 
