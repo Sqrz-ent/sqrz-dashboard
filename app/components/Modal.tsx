@@ -47,6 +47,7 @@ export default function Modal({
           borderTop: `3px solid ${ACCENT}`,
           width: "100%",
           maxWidth: 480,
+          minHeight: "60vh",
           maxHeight: "85vh",
           overflow: "hidden",
           display: "flex",
@@ -91,7 +92,7 @@ export default function Modal({
             ✕
           </button>
         </div>
-        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1 }}>
+        <div style={{ padding: "20px 22px", overflowY: "auto", flex: 1, minHeight: 0 }}>
           {children}
         </div>
       </div>

@@ -125,8 +125,7 @@ export default function AppLayout() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    console.log("showOnboarding:", showOnboarding, "onboarding_completed:", p?.onboarding_completed);
-    if (p !== null && !p.onboarding_completed) {
+    if (p !== null && p.onboarding_completed === false) {
       setShowOnboarding(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,7 +334,6 @@ export default function AppLayout() {
       />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
-      {(() => { console.log("rendering modal check:", showOnboarding); return null; })()}
       {showOnboarding && p && (
         <OnboardingModal
           profileId={p.id as string}
