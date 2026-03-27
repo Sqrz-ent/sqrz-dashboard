@@ -195,6 +195,17 @@ export async function action({ request }: Route.ActionArgs) {
       widget_soundcloud: formData.get("widget_soundcloud") as string,
       widget_bandsintown: formData.get("widget_bandsintown") as string,
       widget_muso: formData.get("widget_muso") as string,
+      widget_vimeo: formData.get("widget_vimeo") as string,
+      widget_mixcloud: formData.get("widget_mixcloud") as string,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_gallery") {
+    let urls: string[] = [];
+    try { urls = JSON.parse(formData.get("widget_photo_gallery") as string); } catch { urls = []; }
+    const { error } = await supabase.from("profiles").update({
+      widget_photo_gallery: urls,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -333,6 +344,7 @@ export default function ProfilePage() {
   const basicFetcher = useFetcher();
   const socialsFetcher = useFetcher();
   const widgetsFetcher = useFetcher();
+  const galleryFetcher = useFetcher();
   const businessFetcher = useFetcher();
   const publishFetcher = useFetcher();
   const videoFetcher = useFetcher();
@@ -388,12 +400,18 @@ export default function ProfilePage() {
 
   // Widget edit states
   const [widgetEdit, setWidgetEdit] = useState<Record<string, boolean>>({});
+  const [widgetErrors, setWidgetErrors] = useState<Record<string, string | null>>({});
   const [widgetValues, setWidgetValues] = useState({
     widget_spotify: (profile.widget_spotify as string) ?? "",
     widget_soundcloud: (profile.widget_soundcloud as string) ?? "",
     widget_bandsintown: (profile.widget_bandsintown as string) ?? "",
     widget_muso: (profile.widget_muso as string) ?? "",
+    widget_vimeo: (profile.widget_vimeo as string) ?? "",
+    widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
+  const [galleryUrls, setGalleryUrls] = useState<string[]>(
+    Array.isArray(profile.widget_photo_gallery) ? (profile.widget_photo_gallery as string[]) : []
+  );
 
   // Modal state
   const [skillsModalOpen, setSkillsModalOpen] = useState(false);
@@ -485,7 +503,7 @@ export default function ProfilePage() {
   // Completion counts
   const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
   const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
-  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso].filter(Boolean).length;
+  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_vimeo, widgetValues.widget_mixcloud, galleryUrls.length > 0 ? "1" : ""].filter(Boolean).length;
   const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id, profile.legal_form].filter(Boolean).length;
 
   const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
@@ -496,11 +514,13 @@ export default function ProfilePage() {
     { key: "social_linkedin", emoji: "💼", label: "LinkedIn" },
   ];
 
-  const widgetFields: { key: keyof typeof widgetValues; emoji: string; label: string }[] = [
+  const widgetFields: { key: keyof typeof widgetValues; emoji: string; label: string; placeholder?: string; validate?: (v: string) => string | null }[] = [
     { key: "widget_spotify", emoji: "🎵", label: "Spotify" },
     { key: "widget_soundcloud", emoji: "☁️", label: "SoundCloud" },
     { key: "widget_bandsintown", emoji: "🎤", label: "Bandsintown" },
     { key: "widget_muso", emoji: "🎼", label: "Muso" },
+    { key: "widget_vimeo", emoji: "🎬", label: "Vimeo", placeholder: "https://vimeo.com/123456789", validate: v => v && !v.includes("vimeo.com") ? "Must be a valid Vimeo URL" : null },
+    { key: "widget_mixcloud", emoji: "🎧", label: "Mixcloud", placeholder: "https://www.mixcloud.com/username/mix-name/", validate: v => v && !v.includes("mixcloud.com") ? "Must be a valid Mixcloud URL" : null },
   ];
 
   return (
@@ -718,12 +738,13 @@ export default function ProfilePage() {
 
       {/* Section 4: Widgets */}
       <div style={card}>
-        <CompletionBadge filled={widgetFilled} total={4} />
+        <CompletionBadge filled={widgetFilled} total={7} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Widgets</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {widgetFields.map(({ key, emoji, label }) => {
+          {widgetFields.map(({ key, emoji, label, placeholder, validate }) => {
             const val = widgetValues[key];
             const editing = !!widgetEdit[key];
+            const err = widgetErrors[key];
             return (
               <div key={key}>
                 <div
@@ -755,14 +776,20 @@ export default function ProfilePage() {
                     <input
                       style={inputStyle}
                       value={widgetValues[key]}
-                      onChange={e => setWidgetValues(v => ({ ...v, [key]: e.target.value }))}
-                      placeholder={`Enter ${label} embed URL`}
+                      onChange={e => {
+                        setWidgetValues(v => ({ ...v, [key]: e.target.value }));
+                        setWidgetErrors(s => ({ ...s, [key]: null }));
+                      }}
+                      placeholder={placeholder ?? `Enter ${label} URL`}
                       autoFocus
                     />
+                    {err && <p style={{ fontSize: 12, color: "#e05252", marginTop: 4 }}>{err}</p>}
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button
                         style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px" }}
                         onClick={() => {
+                          const errMsg = validate ? validate(widgetValues[key]) : null;
+                          if (errMsg) { setWidgetErrors(s => ({ ...s, [key]: errMsg })); return; }
                           setWidgetEdit(s => ({ ...s, [key]: false }));
                           const fd = new FormData();
                           fd.append("intent", "update_widgets");
@@ -774,7 +801,7 @@ export default function ProfilePage() {
                       </button>
                       <button
                         style={{ padding: "8px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
-                        onClick={() => setWidgetEdit(s => ({ ...s, [key]: false }))}
+                        onClick={() => { setWidgetEdit(s => ({ ...s, [key]: false })); setWidgetErrors(s => ({ ...s, [key]: null })); }}
                       >
                         Cancel
                       </button>
@@ -785,7 +812,54 @@ export default function ProfilePage() {
             );
           })}
         </div>
-        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 12, marginBottom: 0, fontFamily: FONT_BODY }}>More coming soon</p>
+
+        {/* Photo Gallery */}
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: galleryUrls.length > 0 ? ACCENT : "var(--text-muted)" }}>
+              🖼️ Photo Gallery ({galleryUrls.length}/12)
+            </span>
+            {galleryUrls.length < 12 && (
+              <button
+                style={{ fontSize: 12, padding: "4px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", color: "var(--text-muted)", fontFamily: FONT_BODY }}
+                onClick={() => setGalleryUrls(u => [...u, ""])}
+              >
+                + Add photo URL
+              </button>
+            )}
+          </div>
+          {galleryUrls.map((url, i) => (
+            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+              <input
+                style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                value={url}
+                placeholder="https://example.com/photo.jpg"
+                onChange={e => setGalleryUrls(u => u.map((x, j) => j === i ? e.target.value : x))}
+              />
+              <button
+                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "4px 6px", flexShrink: 0 }}
+                onClick={() => setGalleryUrls(u => u.filter((_, j) => j !== i))}
+                title="Remove"
+              >
+                🗑️
+              </button>
+            </div>
+          ))}
+          {galleryUrls.length > 0 && (
+            <button
+              style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px" }}
+              onClick={() => {
+                const validUrls = galleryUrls.filter(u => u.startsWith("http"));
+                const fd = new FormData();
+                fd.append("intent", "update_gallery");
+                fd.append("widget_photo_gallery", JSON.stringify(validUrls));
+                galleryFetcher.submit(fd, { method: "post" });
+              }}
+            >
+              Save Gallery
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Section 5: Videos */}
