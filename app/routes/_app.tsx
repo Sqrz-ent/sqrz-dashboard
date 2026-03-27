@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -149,6 +149,23 @@ export default function AppLayout() {
   const navigation = useNavigation();
   const isNavigating = navigation.state === "loading";
 
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pathname = location.pathname;
+
+  const workModeRoutes = ["/office", "/crew"];
+  const isWorkMode = workModeRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
+
+  // Derive work mode title + breadcrumb from pathname
+  function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
+    if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
+    if (pathname === "/office") return { title: "Office", breadcrumb: null };
+    if (pathname.startsWith("/crew/")) return { title: "Crew", breadcrumb: "Crew" };
+    if (pathname === "/crew") return { title: "Crew", breadcrumb: null };
+    return { title: "Dashboard", breadcrumb: null };
+  }
+  const { title: workTitle, breadcrumb } = getWorkModeTitle();
+
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
   function openPanel(panel: PanelKey) {
@@ -196,118 +213,191 @@ export default function AppLayout() {
         />
       </div>
 
-      {/* ── Desktop top nav ─────────────────────────────────────────────────── */}
-      <nav
-  className="flex"
-  style={{
-    alignItems: "center",
-    gap: 16,
-    padding: "0 16px",
-    height: 56,
-    borderBottom: "1px solid var(--border)",
-    position: "sticky",
-    top: 0,
-    background: "var(--bg)",
-    zIndex: 10,
+      {/* ── Top nav — dashboard mode ─────────────────────────────────────────── */}
+      {!isWorkMode && (
+        <nav
+          className="flex"
+          style={{
+            alignItems: "center",
+            gap: 16,
+            padding: "0 16px",
+            height: 56,
+            borderBottom: "1px solid var(--border)",
+            position: "sticky",
+            top: 0,
+            background: "var(--bg)",
+            zIndex: 10,
+            width: "100vw",
+            maxWidth: "100vw",
+            overflowX: "auto",
+          }}
+        >
+          <img
+            src="/sqrz-logo.png"
+            alt="SQRZ"
+            style={{ height: "36px", width: "auto", display: "block", marginRight: 8 }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
 
-    width: "100vw",          // ✅ force max width
-    maxWidth: "100vw",       // ✅ safety
-    overflowX: "auto",       // ✅ allow scroll instead of overflow
-  }}
->
-        <img
-          src="/sqrz-logo.png"
-          alt="SQRZ"
-          style={{ height: "36px", width: "auto", display: "block", marginRight: 8 }}
-          onError={(e) => { e.currentTarget.style.display = "none"; }}
-        />
+          {/* Top nav tabs */}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap", minWidth: "max-content" }}>
+            {topNavItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                style={({ isActive }) => ({
+                  textDecoration: "none",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  color: isActive ? "#F5A623" : "var(--text-muted)",
+                  padding: "6px 12px",
+                  borderRadius: 8,
+                  borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
+                  letterSpacing: "0.01em",
+                  transition: "color 0.15s",
+                })}
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
 
-        {/* Top nav tabs */}
-        <div
-  style={{
-    display: "flex",
-    alignItems: "center",
-    gap: 4,
-    flexWrap: "nowrap",     // ✅ prevents wrapping
-    minWidth: "max-content" // ✅ keeps items inline
-  }}
->
-          {topNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              style={({ isActive }) => ({
-                textDecoration: "none",
-                fontSize: 13,
-                fontWeight: 500,
-                color: isActive ? "#F5A623" : "var(--text-muted)",
-                padding: "6px 12px",
-                borderRadius: 8,
-                borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
-                letterSpacing: "0.01em",
-                transition: "color 0.15s",
-              })}
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
-
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          {p?.is_beta && (
-            <span style={{
-              background: "var(--accent, #F5A623)",
-              color: "#111111",
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              borderRadius: 20,
-              padding: "3px 8px",
-              lineHeight: 1,
-            }}>
-              Beta
-            </span>
-          )}
-          {showUpgrade && (
-            <button
-              onClick={() => openUpgrade()}
-              style={{
-                background: "transparent",
-                border: "1px solid rgba(245,166,35,0.5)",
-                color: "#F5A623",
-                fontSize: 12,
-                fontWeight: 600,
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            {!!p?.is_beta && (
+              <span style={{
+                background: "var(--accent, #F5A623)",
+                color: "#111111",
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
                 borderRadius: 20,
-                padding: "5px 13px",
+                padding: "3px 8px",
+                lineHeight: 1,
+              }}>
+                Beta
+              </span>
+            )}
+            {showUpgrade && (
+              <button
+                onClick={() => openUpgrade()}
+                style={{
+                  background: "transparent",
+                  border: "1px solid rgba(245,166,35,0.5)",
+                  color: "#F5A623",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  borderRadius: 20,
+                  padding: "5px 13px",
+                  cursor: "pointer",
+                  letterSpacing: "0.02em",
+                }}
+              >
+                Upgrade
+              </button>
+            )}
+            <NotificationBell />
+            <button
+              onClick={toggleTheme}
+              aria-label="Toggle theme"
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                fontSize: 18,
                 cursor: "pointer",
-                letterSpacing: "0.02em",
+                padding: "4px 6px",
+                lineHeight: 1,
+                display: "flex",
+                alignItems: "center",
               }}
             >
-              Upgrade
+              {theme === "dark" ? "☀️" : "🌙"}
             </button>
-          )}
-          <NotificationBell />
-          <button
-            onClick={toggleTheme}
-            aria-label="Toggle theme"
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: "4px 6px",
-              lineHeight: 1,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            {theme === "dark" ? "☀️" : "🌙"}
-          </button>
-        </div>
-      </nav>
+          </div>
+        </nav>
+      )}
+
+      {/* ── Minimal header — work mode ───────────────────────────────────────── */}
+      {isWorkMode && (
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            height: 56,
+            padding: "0 16px",
+            borderBottom: "1px solid var(--border)",
+            position: "sticky",
+            top: 0,
+            background: "var(--bg)",
+            zIndex: 10,
+          }}
+        >
+          {/* Left — back / breadcrumb */}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 80 }}>
+            <button
+              onClick={() => navigate(-1)}
+              aria-label="Back"
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                fontSize: 18,
+                cursor: "pointer",
+                padding: "4px 6px",
+                lineHeight: 1,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              ←
+            </button>
+            {breadcrumb && (
+              <span
+                className="hidden sm:inline"
+                style={{ fontSize: 13, color: "var(--text-muted)" }}
+              >
+                {breadcrumb} ›
+              </span>
+            )}
+          </div>
+
+          {/* Center — page title */}
+          <div style={{ flex: 1, textAlign: "center" }}>
+            <span style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: "var(--text)",
+              letterSpacing: "0.01em",
+            }}>
+              {workTitle}
+            </span>
+          </div>
+
+          {/* Right — bell + theme */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 80, justifyContent: "flex-end" }}>
+            <NotificationBell />
+            <button
+              onClick={toggleTheme}
+              aria-label="Toggle theme"
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                fontSize: 18,
+                cursor: "pointer",
+                padding: "4px 6px",
+                lineHeight: 1,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              {theme === "dark" ? "☀️" : "🌙"}
+            </button>
+          </div>
+        </header>
+      )}
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
       <main
