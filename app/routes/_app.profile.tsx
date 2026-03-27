@@ -195,7 +195,6 @@ export async function action({ request }: Route.ActionArgs) {
       widget_soundcloud: formData.get("widget_soundcloud") as string,
       widget_bandsintown: formData.get("widget_bandsintown") as string,
       widget_muso: formData.get("widget_muso") as string,
-      widget_vimeo: formData.get("widget_vimeo") as string,
       widget_mixcloud: formData.get("widget_mixcloud") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -406,7 +405,6 @@ export default function ProfilePage() {
     widget_soundcloud: (profile.widget_soundcloud as string) ?? "",
     widget_bandsintown: (profile.widget_bandsintown as string) ?? "",
     widget_muso: (profile.widget_muso as string) ?? "",
-    widget_vimeo: (profile.widget_vimeo as string) ?? "",
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
   const [galleryUrls, setGalleryUrls] = useState<string[]>(
@@ -503,7 +501,7 @@ export default function ProfilePage() {
   // Completion counts
   const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
   const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
-  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_vimeo, widgetValues.widget_mixcloud, galleryUrls.length > 0 ? "1" : ""].filter(Boolean).length;
+  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud, galleryUrls.length > 0 ? "1" : ""].filter(Boolean).length;
   const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id, profile.legal_form].filter(Boolean).length;
 
   const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
@@ -519,7 +517,6 @@ export default function ProfilePage() {
     { key: "widget_soundcloud", emoji: "☁️", label: "SoundCloud" },
     { key: "widget_bandsintown", emoji: "🎤", label: "Bandsintown" },
     { key: "widget_muso", emoji: "🎼", label: "Muso" },
-    { key: "widget_vimeo", emoji: "🎬", label: "Vimeo", placeholder: "https://vimeo.com/123456789", validate: v => v && !v.includes("vimeo.com") ? "Must be a valid Vimeo URL" : null },
     { key: "widget_mixcloud", emoji: "🎧", label: "Mixcloud", placeholder: "https://www.mixcloud.com/username/mix-name/", validate: v => v && !v.includes("mixcloud.com") ? "Must be a valid Mixcloud URL" : null },
   ];
 
@@ -838,7 +835,15 @@ export default function ProfilePage() {
               />
               <button
                 style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "4px 6px", flexShrink: 0 }}
-                onClick={() => setGalleryUrls(u => u.filter((_, j) => j !== i))}
+                onClick={() => {
+                  const updated = galleryUrls.filter((_, j) => j !== i);
+                  setGalleryUrls(updated);
+                  const validUrls = updated.filter(u => u.startsWith("http"));
+                  const fd = new FormData();
+                  fd.append("intent", "update_gallery");
+                  fd.append("widget_photo_gallery", JSON.stringify(validUrls));
+                  galleryFetcher.submit(fd, { method: "post" });
+                }}
                 title="Remove"
               >
                 🗑️
