@@ -201,8 +201,17 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "update_gallery") {
+    const transformUrl = (url: string) => {
+      if (url.includes("dropbox.com")) {
+        return url
+          .replace("?dl=0", "?raw=1")
+          .replace("?dl=1", "?raw=1")
+          .replace("www.dropbox.com", "dl.dropboxusercontent.com");
+      }
+      return url;
+    };
     let urls: string[] = [];
-    try { urls = JSON.parse(formData.get("widget_photo_gallery") as string); } catch { urls = []; }
+    try { urls = (JSON.parse(formData.get("widget_photo_gallery") as string) as string[]).map(transformUrl); } catch { urls = []; }
     const { error } = await supabase.from("profiles").update({
       widget_photo_gallery: urls,
     }).eq("id", profile.id as string);
@@ -864,6 +873,9 @@ export default function ProfilePage() {
               Save Gallery
             </button>
           )}
+          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+            Tip: Dropbox links work automatically. For other services, make sure the URL ends in .jpg, .png, or .webp
+          </p>
         </div>
       </div>
 
