@@ -92,14 +92,14 @@ type PrivateLink = {
   // commerce
   price: string | null;
   stripe_payment_link_url: string | null;
-  external_ticket_url: string | null;
   // event
   event_name: string | null;
   event_date: string | null;
   event_venue: string | null;
   event_city: string | null;
-  // press/download
-  file_path: string | null;
+  // external link
+  external_url: string | null;
+  external_url_label: string | null;
   description: string | null;
   cover_image_url: string | null;
   inventory_count: number | null;
@@ -160,7 +160,8 @@ export async function action({ request }: Route.ActionArgs) {
       // commerce
       price: ["download", "merch"].includes(pageType) ? ((fd.get("price") as string) || null) : null,
       stripe_payment_link_url: ["download", "merch", "event"].includes(pageType) ? ((fd.get("stripe_payment_link_url") as string) || null) : null,
-      external_ticket_url: pageType === "event" ? ((fd.get("external_ticket_url") as string) || null) : null,
+      external_url: (fd.get("external_url") as string) || null,
+      external_url_label: (fd.get("external_url_label") as string) || null,
       // event
       event_name: pageType === "event" ? ((fd.get("event_name") as string) || null) : null,
       event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
@@ -250,7 +251,8 @@ function CreateLinkModal({
   const [prefillLocation, setPrefillLocation] = useState("");
   const [price, setPrice] = useState("");
   const [stripeUrl, setStripeUrl] = useState("");
-  const [externalTicketUrl, setExternalTicketUrl] = useState("");
+  const [externalUrl, setExternalUrl] = useState("");
+  const [externalUrlLabel, setExternalUrlLabel] = useState("");
   const [eventName, setEventName] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [eventVenue, setEventVenue] = useState("");
@@ -282,7 +284,7 @@ function CreateLinkModal({
     setPageType("booking"); setTitle(""); setDescription("");
     setPrefillService(""); setPrefillDate(""); setPrefillBudgetMin("");
     setPrefillBudgetMax(""); setPrefillMessage(""); setPrefillLocation("");
-    setPrice(""); setStripeUrl(""); setExternalTicketUrl("");
+    setPrice(""); setStripeUrl(""); setExternalUrl(""); setExternalUrlLabel("");
     setEventName(""); setEventDate(""); setEventVenue(""); setEventCity("");
     setExpiresAt(""); setMaxUses("");
   }
@@ -321,8 +323,9 @@ function CreateLinkModal({
       fd.append("event_venue", eventVenue);
       fd.append("event_city", eventCity);
       fd.append("stripe_payment_link_url", stripeUrl);
-      fd.append("external_ticket_url", externalTicketUrl);
     }
+    fd.append("external_url", externalUrl);
+    fd.append("external_url_label", externalUrlLabel);
     if (expiresAt) fd.append("expires_at", expiresAt);
     if (maxUses) fd.append("max_uses", maxUses);
     fetcher.submit(fd, { method: "post" });
@@ -475,12 +478,20 @@ function CreateLinkModal({
               <label style={labelStyle}>Stripe Payment Link URL</label>
               <input style={inputStyle} value={stripeUrl} onChange={e => setStripeUrl(e.target.value)} placeholder="https://buy.stripe.com/..." />
             </div>
-            <div>
-              <label style={labelStyle}>External Ticket URL</label>
-              <input style={inputStyle} value={externalTicketUrl} onChange={e => setExternalTicketUrl(e.target.value)} placeholder="https://eventim.de/..." />
-            </div>
           </div>
         )}
+
+        {/* External URL — all types */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>External URL</label>
+            <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://dropbox.com/... or any external link" />
+          </div>
+          <div>
+            <label style={labelStyle}>Button Label</label>
+            <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Download, Get Tickets, Watch, Access" />
+          </div>
+        </div>
 
         {/* Limits — all types */}
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
