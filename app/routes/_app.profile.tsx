@@ -521,10 +521,31 @@ export default function ProfilePage() {
     { key: "social_linkedin", emoji: "💼", label: "LinkedIn" },
   ];
 
-  const widgetFields: { key: keyof typeof widgetValues; emoji: string; label: string; placeholder?: string; validate?: (v: string) => string | null }[] = [
+  function extractBandsintownArtist(input: string): string {
+    if (input.includes("bandsintown.com/a/")) {
+      return input.split("/a/")[1].split("?")[0].split("/")[0];
+    }
+    return input.trim();
+  }
+
+  const widgetFields: { key: keyof typeof widgetValues; emoji: string; label: string; placeholder?: string; helperText?: string; validate?: (v: string) => string | null; transform?: (v: string) => string }[] = [
     { key: "widget_spotify", emoji: "🎵", label: "Spotify" },
     { key: "widget_soundcloud", emoji: "☁️", label: "SoundCloud" },
-    { key: "widget_bandsintown", emoji: "🎤", label: "Bandsintown" },
+    {
+      key: "widget_bandsintown",
+      emoji: "🎤",
+      label: "Bandsintown",
+      placeholder: "https://www.bandsintown.com/a/your-artist-name",
+      helperText: "Paste your Bandsintown artist page URL",
+      validate: v => {
+        if (!v) return null;
+        if (v.includes("bandsintown.com") && !v.includes("bandsintown.com/a/")) {
+          return "Please paste a valid Bandsintown artist page URL";
+        }
+        return null;
+      },
+      transform: extractBandsintownArtist,
+    },
     { key: "widget_muso", emoji: "🎼", label: "Muso" },
     { key: "widget_mixcloud", emoji: "🎧", label: "Mixcloud", placeholder: "https://www.mixcloud.com/username/mix-name/", validate: v => v && !v.includes("mixcloud.com") ? "Must be a valid Mixcloud URL" : null },
   ];
@@ -747,7 +768,7 @@ export default function ProfilePage() {
         <CompletionBadge filled={widgetFilled} total={7} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Widgets</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {widgetFields.map(({ key, emoji, label, placeholder, validate }) => {
+          {widgetFields.map(({ key, emoji, label, placeholder, helperText, validate, transform }) => {
             const val = widgetValues[key];
             const editing = !!widgetEdit[key];
             const err = widgetErrors[key];
@@ -789,6 +810,9 @@ export default function ProfilePage() {
                       placeholder={placeholder ?? `Enter ${label} URL`}
                       autoFocus
                     />
+                    {helperText && !err && (
+                      <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, marginBottom: 0 }}>{helperText}</p>
+                    )}
                     {err && <p style={{ fontSize: 12, color: "#e05252", marginTop: 4 }}>{err}</p>}
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button
@@ -796,10 +820,13 @@ export default function ProfilePage() {
                         onClick={() => {
                           const errMsg = validate ? validate(widgetValues[key]) : null;
                           if (errMsg) { setWidgetErrors(s => ({ ...s, [key]: errMsg })); return; }
+                          const transformed = transform ? transform(widgetValues[key]) : widgetValues[key];
+                          const updatedValues = { ...widgetValues, [key]: transformed };
+                          setWidgetValues(updatedValues);
                           setWidgetEdit(s => ({ ...s, [key]: false }));
                           const fd = new FormData();
                           fd.append("intent", "update_widgets");
-                          Object.entries(widgetValues).forEach(([k, v]) => fd.append(k, v));
+                          Object.entries(updatedValues).forEach(([k, v]) => fd.append(k, v));
                           widgetsFetcher.submit(fd, { method: "post" });
                         }}
                       >
