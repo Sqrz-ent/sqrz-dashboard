@@ -191,7 +191,7 @@ export async function action({ request, params }: Route.ActionArgs) {
           const { data: otpData } = await admin.auth.admin.generateLink({
             type: "magiclink",
             email: buyer.email,
-            options: { redirectTo: `https://dashboard.sqrz.com/booking/${params.id}` },
+            options: { redirectTo: `https://dashboard.sqrz.com/auth/callback?next=/office/${params.id}` },
           });
           const bookingLink = otpData?.properties?.action_link
             ?? `https://dashboard.sqrz.com/booking/${params.id}`;
