@@ -97,42 +97,48 @@ export default function UpgradeModal({
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Overlay — flex container handles mobile bottom-sheet vs desktop center */}
       <div
-        onClick={onClose}
+        className="upgrade-modal-overlay"
         style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(0,0,0,0.72)",
           zIndex: 50,
-          backdropFilter: "blur(3px)",
-          WebkitBackdropFilter: "blur(3px)",
-          animation: "upgradeModalFadeIn 0.18s ease",
-        }}
-      />
-
-      {/* Modal */}
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Upgrade your plan"
-        style={{
-          position: "fixed",
-          top: "50%",
-          left: "50%",
-          transform: "translate(-50%, -50%)",
-          width: view === "all" ? "min(680px, calc(100vw - 32px))" : "min(480px, calc(100vw - 32px))",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 18,
-          boxShadow: "0 24px 64px rgba(0,0,0,0.7)",
-          zIndex: 51,
-          padding: "28px 28px 24px",
-          animation: "upgradeModalSlideIn 0.18s ease",
-          fontFamily: FONT_BODY,
+          display: "flex",
+          justifyContent: "center",
         }}
       >
+        {/* Backdrop */}
+        <div
+          onClick={onClose}
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(0,0,0,0.72)",
+            backdropFilter: "blur(3px)",
+            WebkitBackdropFilter: "blur(3px)",
+            animation: "upgradeModalFadeIn 0.18s ease",
+          }}
+        />
+
+        {/* Modal */}
+        <div
+          ref={modalRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Upgrade your plan"
+          className="upgrade-modal"
+          style={{
+            position: "relative",
+            width: view === "all" ? "min(680px, 100%)" : "min(480px, 100%)",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            boxShadow: "0 24px 64px rgba(0,0,0,0.7)",
+            zIndex: 1,
+            padding: "28px 28px 24px",
+            fontFamily: FONT_BODY,
+          }}
+        >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: view !== "all" ? 6 : 4 }}>
           <div style={{ flex: 1 }}>
@@ -330,6 +336,7 @@ export default function UpgradeModal({
             Cancel anytime · Secure checkout via Stripe
           </p>
         )}
+        </div>
       </div>
 
       <style>{`
@@ -337,9 +344,33 @@ export default function UpgradeModal({
           from { opacity: 0; }
           to   { opacity: 1; }
         }
+        @keyframes upgradeModalSlideUp {
+          from { opacity: 0; transform: translateY(24px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
         @keyframes upgradeModalSlideIn {
-          from { opacity: 0; transform: translate(-50%, -48%); }
-          to   { opacity: 1; transform: translate(-50%, -50%); }
+          from { opacity: 0; transform: translateY(-8px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .upgrade-modal-overlay {
+          align-items: flex-end;
+        }
+        .upgrade-modal {
+          border-radius: 16px 16px 0 0;
+          max-height: 90vh;
+          overflow-y: auto;
+          animation: upgradeModalSlideUp 0.22s ease;
+        }
+        @media (min-width: 640px) {
+          .upgrade-modal-overlay {
+            align-items: center;
+          }
+          .upgrade-modal {
+            border-radius: 16px;
+            max-height: none;
+            overflow-y: visible;
+            animation: upgradeModalSlideIn 0.18s ease;
+          }
         }
       `}</style>
     </>
