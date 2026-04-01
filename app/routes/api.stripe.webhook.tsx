@@ -59,7 +59,7 @@ export async function action({ request }: { request: Request }) {
     // ── Boost ad budget payment ──────────────────────────────────────────────
     const BOOST_PAYMENT_LINK_IDS = [
       "test_5kQ28q1Bt1ds8J01QU57W00",
-      "test_7sY7sKbc35tI1gyanq57W01",
+      "test_eVq14m6VN3lA9N4dzC57W04",
       "test_bJeaEWgwn2hwe3k0MQ57W02",
       "test_7sY9AScg7f4i8J0cvy57W03",
     ];
