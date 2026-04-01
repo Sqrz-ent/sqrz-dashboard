@@ -56,6 +56,74 @@ export async function action({ request }: { request: Request }) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
 
+    // ── Boost ad budget payment ──────────────────────────────────────────────
+    const BOOST_PAYMENT_LINK_IDS = [
+      "test_5kQ28q1Bt1ds8J01QU57W00",
+      "test_7sY7sKbc35tI1gyanq57W01",
+      "test_bJeaEWgwn2hwe3k0MQ57W02",
+      "test_7sY9AScg7f4i8J0cvy57W03",
+    ];
+
+    const isBoostPayment =
+      session.payment_link &&
+      BOOST_PAYMENT_LINK_IDS.some((id) => (session.payment_link as string).includes(id));
+
+    if (isBoostPayment) {
+      const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
+      const amountEur = (session.amount_total ?? 0) / 100;
+
+      console.log("[webhook] boost payment received:", customerEmail, amountEur);
+
+      // Find profile by email
+      let profileId: string | null = null;
+      if (customerEmail) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("id")
+          .eq("email", customerEmail)
+          .maybeSingle();
+        profileId = profile?.id ?? null;
+      }
+
+      // Update campaign status to active
+      if (profileId) {
+        const { error: campaignError } = await supabase
+          .from("boost_campaigns")
+          .update({ status: "active" })
+          .eq("profile_id", profileId)
+          .eq("status", "pending");
+        if (campaignError) {
+          console.error("[webhook] boost campaign update failed:", campaignError);
+        } else {
+          console.log("[webhook] boost campaign activated for profile:", profileId);
+        }
+      }
+
+      // Notify will@sqrz.com via Resend
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: "noreply@sqrz.com",
+          to: "will@sqrz.com",
+          subject: `New Boost payment — ${amountEur}€`,
+          html: `
+            <p>A new Boost ad budget payment has been received.</p>
+            <p><strong>Amount:</strong> €${amountEur}</p>
+            <p><strong>Customer:</strong> ${customerEmail}</p>
+            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            <p>Log in to the dashboard to review and activate the campaign.</p>
+          `,
+        });
+        console.log("[webhook] boost notification email sent");
+      } catch (emailErr) {
+        console.error("[webhook] boost notification email failed:", emailErr);
+      }
+
+      return Response.json({ received: true });
+    }
+
+    // ── Subscription payment ─────────────────────────────────────────────────
     if (!session.subscription || !session.customer) {
       console.error("[webhook] missing subscription or customer");
       return Response.json({ received: true });
