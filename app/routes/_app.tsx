@@ -21,6 +21,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
 
+  // Guests don't belong in the creator dashboard — redirect them out
+  if (profile?.user_type === "guest") {
+    const url = new URL(request.url);
+    const next = url.searchParams.get("redirectTo") ?? url.searchParams.get("next");
+    return redirect(next ?? "/booking-access", { headers });
+  }
+
   console.log("profile loaded:", JSON.stringify(profile));
   console.log("[loader] profile:", profile?.id, profile?.plan_id);
 
@@ -124,7 +131,7 @@ export default function AppLayout() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
-    if (p !== null && p.onboarding_completed === false) {
+    if (p !== null && p.onboarding_completed === false && p.user_type !== "guest") {
       setShowOnboarding(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
