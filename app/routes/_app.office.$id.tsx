@@ -3,6 +3,7 @@ import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app.office.$id";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { getPlanLevel } from "~/lib/plans";
 import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -54,8 +55,15 @@ type Booking = {
   rate: number | null;
   currency: string | null;
   require_hotel: boolean | null;
+  require_travel: boolean | null;
+  require_food: boolean | null;
   show_label: boolean | null;
   owner_id: string;
+  payment_method: string | null;
+  payment_amount: number | null;
+  payment_currency: string | null;
+  payment_status: string | null;
+  paid_at: string | null;
   booking_requests: BookingRequest[];
   booking_participants: Participant[];
 };
@@ -92,6 +100,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       payments: paymentsRes.data ?? [],
       profileId: profile.id as string,
       userEmail: (profile.email as string) ?? user.email ?? "",
+      planId: (profile.plan_id as number | null) ?? null,
+      isBeta: (profile.is_beta as boolean) ?? false,
     },
     { headers }
   );
@@ -134,10 +144,24 @@ export async function action({ request, params }: Route.ActionArgs) {
     const currency = (formData.get("currency") as string) || "EUR";
     const message = (formData.get("message") as string) || "";
     const requireHotel = formData.get("require_hotel") === "true";
+    const requireTravel = formData.get("require_travel") === "true";
+    const requireFood = formData.get("require_food") === "true";
+    const paymentMethod = (formData.get("payment_method") as string) || "external";
 
     const { error } = await supabase
       .from("bookings")
-      .update({ rate, currency, require_hotel: requireHotel, status: "pending" })
+      .update({
+        rate,
+        currency,
+        require_hotel: requireHotel,
+        require_travel: requireTravel,
+        require_food: requireFood,
+        payment_method: paymentMethod,
+        payment_amount: rate,
+        payment_currency: currency,
+        payment_status: "unpaid",
+        status: "pending",
+      })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
 
@@ -253,6 +277,15 @@ export async function action({ request, params }: Route.ActionArgs) {
     }
 
     return Response.json({ ok: true, invited: email }, { headers });
+  }
+
+  if (intent === "mark_as_paid") {
+    const { error } = await supabase
+      .from("bookings")
+      .update({ payment_status: "paid", paid_at: new Date().toISOString(), status: "completed" })
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
   return Response.json({ ok: true }, { headers });
@@ -477,18 +510,20 @@ function DetailsSection({ booking }: { booking: Booking }) {
 
 // ─── Proposal section ─────────────────────────────────────────────────────────
 
-function ProposalSection({ booking }: { booking: Booking }) {
+function ProposalSection({ booking, planLevel }: { booking: Booking; planLevel: number }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const [form, setForm] = useState({
     rate: String(booking.rate ?? ""),
     currency: booking.currency ?? "EUR",
     message: "",
-    require_travel: false,
+    require_travel: booking.require_travel ?? false,
     require_hotel: booking.require_hotel ?? false,
-    require_food: false,
+    require_food: booking.require_food ?? false,
+    payment_method: booking.payment_method ?? "external",
   });
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
+  const canUseStripe = planLevel >= 1;
 
   return (
     <section id="proposal" style={{ paddingBottom: 40 }}>
@@ -525,6 +560,48 @@ function ProposalSection({ booking }: { booking: Booking }) {
                 <option value="USD">USD</option>
                 <option value="GBP">GBP</option>
               </select>
+            </div>
+          </div>
+
+          {/* Payment method */}
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ ...label, marginBottom: 10 }}>Payment Method</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(
+                [
+                  { value: "external", label: "Handle externally", sub: "I'll invoice the client myself", disabled: false },
+                  { value: "stripe", label: "Request via SQRZ", sub: "Stripe payment link — Creator+", disabled: !canUseStripe },
+                ] as const
+              ).map((opt) => (
+                <label
+                  key={opt.value}
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 10,
+                    padding: "10px 12px",
+                    borderRadius: 9,
+                    border: `1px solid ${form.payment_method === opt.value ? ACCENT : "var(--border)"}`,
+                    background: form.payment_method === opt.value ? "rgba(245,166,35,0.06)" : "var(--bg)",
+                    cursor: opt.disabled ? "not-allowed" : "pointer",
+                    opacity: opt.disabled ? 0.5 : 1,
+                  }}
+                >
+                  <input
+                    type="radio"
+                    name="payment_method"
+                    value={opt.value}
+                    checked={form.payment_method === opt.value}
+                    disabled={opt.disabled}
+                    onChange={() => !opt.disabled && setForm((f) => ({ ...f, payment_method: opt.value }))}
+                    style={{ accentColor: ACCENT, marginTop: 2, flexShrink: 0 }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>{opt.label}</p>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>{opt.sub}</p>
+                  </div>
+                </label>
+              ))}
             </div>
           </div>
 
@@ -574,6 +651,9 @@ function ProposalSection({ booking }: { booking: Booking }) {
               fd.append("currency", form.currency);
               fd.append("message", form.message);
               fd.append("require_hotel", String(form.require_hotel));
+              fd.append("require_travel", String(form.require_travel));
+              fd.append("require_food", String(form.require_food));
+              fd.append("payment_method", form.payment_method);
               fetcher.submit(fd, { method: "post" });
             }}
             disabled={fetcher.state !== "idle"}
@@ -589,18 +669,10 @@ function ProposalSection({ booking }: { booking: Booking }) {
               cursor: fetcher.state !== "idle" ? "default" : "pointer",
               opacity: fetcher.state !== "idle" ? 0.7 : 1,
               fontFamily: FONT_BODY,
-              marginBottom: 12,
             }}
           >
             {fetcher.state !== "idle" ? "Sending…" : "Send Proposal"}
           </button>
-
-          {/* Beta payment link */}
-          <p style={{ margin: 0, textAlign: "center" }}>
-            <span style={{ fontSize: 12, color: "var(--text-muted)", cursor: "not-allowed", fontFamily: FONT_BODY }}>
-              Secure Deal with Payment (Beta) — coming soon
-            </span>
-          </p>
         </div>
       )}
     </section>
@@ -733,20 +805,88 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
 
 // ─── Payments section ─────────────────────────────────────────────────────────
 
-function PaymentsSection({ payments }: { payments: Payment[] }) {
+function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: Booking }) {
+  const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
+
+  const isExternal = booking.payment_method === "external" || booking.payment_method == null;
+  const isPaid = booking.payment_status === "paid";
+  const hasRate = booking.payment_amount != null && booking.payment_amount > 0;
+  const sym = currencySym(booking.payment_currency ?? booking.currency);
+  const amount = booking.payment_amount ?? booking.rate;
+
+  const showExternalPayment = isExternal && hasRate;
+
   return (
     <section id="payments" style={{ paddingBottom: 40 }}>
       <SectionHeading>Payments</SectionHeading>
 
-      {payments.length === 0 ? (
+      {/* External payment card */}
+      {showExternalPayment && (
+        <div style={{ ...card, marginBottom: 14 }}>
+          {isPaid ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <p style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", margin: "0 0 2px" }}>
+                  {sym}{amount!.toLocaleString()} — Paid ✓
+                </p>
+                {booking.paid_at && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+                    {new Date(booking.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </p>
+                )}
+              </div>
+              <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "rgba(74,222,128,0.12)", color: "#4ade80" }}>
+                Paid
+              </span>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 14px" }}>
+                <span style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", display: "block", marginBottom: 4 }}>
+                  {sym}{amount!.toLocaleString()}
+                </span>
+                Awaiting external payment
+              </p>
+              {fetcher.data?.error && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 10px" }}>{fetcher.data.error}</p>
+              )}
+              <button
+                onClick={() => {
+                  const fd = new FormData();
+                  fd.append("intent", "mark_as_paid");
+                  fetcher.submit(fd, { method: "post" });
+                }}
+                disabled={fetcher.state !== "idle"}
+                style={{
+                  padding: "10px 20px",
+                  background: "#4ade80",
+                  color: "#111",
+                  border: "none",
+                  borderRadius: 9,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: fetcher.state !== "idle" ? "default" : "pointer",
+                  opacity: fetcher.state !== "idle" ? 0.7 : 1,
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                {fetcher.state !== "idle" ? "Saving…" : "Mark as Paid ✓"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stripe invoice rows */}
+      {payments.length === 0 && !showExternalPayment ? (
         <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
           <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No invoices yet.</p>
         </div>
       ) : (
         payments.map((p) => {
-          const isPaid = p.status === "paid";
-          const isPending = p.status === "pending";
-          const statusColor = isPaid ? ACCENT : isPending ? "#facc15" : "var(--text-muted)";
+          const isPaidRow = p.status === "paid";
+          const isPendingRow = p.status === "pending";
+          const statusColor = isPaidRow ? ACCENT : isPendingRow ? "#facc15" : "var(--text-muted)";
           return (
             <div key={p.id} style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -872,9 +1012,10 @@ function ActionsSection({ booking }: { booking: Booking }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookingDetailPage() {
-  const { booking, payments, profileId, userEmail } = useLoaderData<typeof loader>();
+  const { booking, payments, profileId, userEmail, planId, isBeta } = useLoaderData<typeof loader>();
   const b = booking as unknown as Booking;
   const isRequested = b.status === "requested";
+  const planLevel = getPlanLevel(planId as number | null, isBeta as boolean);
 
   const sections = isRequested
     ? [
@@ -982,12 +1123,12 @@ export default function BookingDetailPage() {
       <div style={{ padding: "24px 24px 0" }}>
         <DetailsSection booking={b} />
 
-        {isRequested && <ProposalSection booking={b} />}
+        {isRequested && <ProposalSection booking={b} planLevel={planLevel} />}
 
         {!isRequested && (
           <>
             <TeamSection participants={b.booking_participants} bookingId={b.id} />
-            <PaymentsSection payments={payments as unknown as Payment[]} />
+            <PaymentsSection payments={payments as unknown as Payment[]} booking={b} />
           </>
         )}
 
