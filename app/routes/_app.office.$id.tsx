@@ -185,27 +185,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 
         if (buyer?.email) {
           const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
-
-          // Generate magic link — same pattern as team invites (auth/callback is already in allowed URLs)
-          const { createClient } = await import("@supabase/supabase-js");
-          const supabaseAdmin = createClient(
-            process.env.SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY!
-          );
-          const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${encodeURIComponent(`/booking/${params.id}`)}`;
-          console.log("[proposal] generating magic link for:", buyer.email);
-          console.log("[proposal] redirectTo:", redirectTo);
-          const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
-            type: "magiclink",
-            email: buyer.email,
-            options: { redirectTo },
-          });
-          console.log("[proposal] linkData:", JSON.stringify(linkData));
-          console.log("[proposal] linkError:", JSON.stringify(linkError));
-          console.log("[proposal] action_link:", linkData?.properties?.action_link);
-          const bookingLink = linkData?.properties?.action_link
-            ?? `https://dashboard.sqrz.com/booking/${params.id}`;
-
           const { Resend } = await import("resend");
           const resend = new Resend(process.env.RESEND_API_KEY);
           await resend.emails.send({
@@ -217,8 +196,7 @@ export async function action({ request, params }: Route.ActionArgs) {
               <p>You have received a proposal for your booking request.</p>
               <p><strong>Rate:</strong> ${sym}${rate?.toLocaleString() ?? "TBD"}</p>
               ${message ? `<p><strong>Note:</strong> ${message}</p>` : ""}
-              <p>Click the button below to view your booking proposal.<br>This link will log you in automatically — no password needed.</p>
-              <p><a href="${bookingLink}" style="display:inline-block;padding:12px 24px;background:#F5A623;color:#111;font-weight:700;text-decoration:none;border-radius:8px;">View Proposal →</a></p>
+              <p><a href="https://dashboard.sqrz.com/booking/${params.id}">View booking →</a></p>
               <p>The SQRZ Team</p>
             `,
           });

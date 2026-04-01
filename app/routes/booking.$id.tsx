@@ -21,26 +21,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  // ── Ensure guest is a booking participant (required for RLS) ──
-  if (user && code) {
-    const { data: existing } = await supabase
-      .from("booking_participants")
-      .select("id")
-      .eq("booking_id", params.id)
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (!existing) {
-      await supabase.from("booking_participants").insert({
-        booking_id: params.id,
-        user_id: user.id,
-        email: user.email,
-        role: "guest",
-        is_admin: false,
-      });
-    }
-  }
-
   // ── Authenticated path ──
   if (user) {
     const profile = await getCurrentProfile(supabase, user.id);

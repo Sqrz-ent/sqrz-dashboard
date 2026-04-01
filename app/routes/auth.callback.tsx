@@ -97,62 +97,52 @@ export async function loader({ request }: Route.LoaderArgs) {
   return null;
 }
 
-// ─── Client component — handles hash-fragment and fallback flows ──────────────
-// The server loader handles ?code= (PKCE). This component catches everything
-// else: #access_token= (implicit), already-authed sessions, and errors.
+// ─── Client component — handles hash-fragment flows ───────────────────────────
+// Supabase implicit flow puts access_token / error in window.location.hash
+// which is invisible to the server loader.
 
 export default function AuthCallback() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+
+    const params = new URLSearchParams(hash.replace(/^#/, ""));
     const next = searchParams.get("next");
     const destination = next ? decodeURIComponent(next) : "/";
 
-    // Check for error in hash (e.g. expired invite link)
-    const hash = window.location.hash;
-    if (hash) {
-      const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
-      if (hashParams.get("error")) {
-        const errorDesc = hashParams.get("error_description") ?? "This link has expired.";
-        document.body.innerHTML = `
-          <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
-            <div style="text-align:center;padding:40px;max-width:420px">
-              <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.25em">[<span style="color:#F5A623"> SQRZ </span>]</span>
-              <h2 style="color:#fff;margin:24px 0 8px">Link expired</h2>
-              <p style="color:rgba(255,255,255,.5);font-size:14px;margin:0 0 24px">${errorDesc.replace(/\+/g, " ")}</p>
-              <p style="color:rgba(255,255,255,.35);font-size:13px">Please ask to be reinvited.</p>
-            </div>
+    // Hash contains an error (e.g. expired invite link)
+    if (params.get("error")) {
+      const errorDesc = params.get("error_description") ?? "This link has expired.";
+      document.body.innerHTML = `
+        <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
+          <div style="text-align:center;padding:40px;max-width:420px">
+            <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.25em">[<span style="color:#F5A623"> SQRZ </span>]</span>
+            <h2 style="color:#fff;margin:24px 0 8px">Link expired</h2>
+            <p style="color:rgba(255,255,255,.5);font-size:14px;margin:0 0 24px">${errorDesc.replace(/\+/g, " ")}</p>
+            <p style="color:rgba(255,255,255,.35);font-size:13px">Please ask to be reinvited.</p>
           </div>
-        `;
-        return;
-      }
+        </div>
+      `;
+      return;
     }
 
-    // Create browser client — detectSessionInUrl is true by default,
-    // so it automatically consumes #access_token= or ?code= from the URL.
-    const supabase = createBrowserClient(
-      import.meta.env.VITE_SUPABASE_URL as string,
-      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-    );
+    // Hash contains an access token (implicit flow)
+    const access_token = params.get("access_token");
+    const refresh_token = params.get("refresh_token") ?? "";
 
-    // If a session was already established (e.g. server handled ?code= but
-    // response headers didn't propagate), navigate immediately.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+    if (access_token) {
+      const supabase = createBrowserClient(
+        import.meta.env.VITE_SUPABASE_URL as string,
+        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+      );
+
+      supabase.auth.setSession({ access_token, refresh_token }).then(() => {
         navigate(destination, { replace: true });
-      }
-    });
-
-    // Subscribe for hash-based implicit flow — fires when Supabase client
-    // auto-detects and exchanges the #access_token= fragment.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session) {
-        navigate(destination, { replace: true });
-      }
-    });
-
-    return () => subscription.unsubscribe();
+      });
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
