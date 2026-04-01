@@ -64,23 +64,20 @@ export async function action({ request }: { request: Request }) {
       BOOST_AMOUNTS.includes(amountDollars);
 
     if (isBoostPayment) {
-      const profileId = session.client_reference_id as string;
+      const campaignId = session.client_reference_id as string;
       const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
 
-      console.log("[webhook] boost payment received:", customerEmail, amountDollars, "profile:", profileId);
+      console.log("[webhook] boost payment received:", customerEmail, amountDollars, "campaign:", campaignId);
 
-      // Update most recent pending boost campaign for this profile to live
+      // Update the specific campaign to live
       const { error: campaignError } = await supabase
         .from("boost_campaigns")
         .update({ status: "live" })
-        .eq("profile_id", profileId)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .eq("id", campaignId);
       if (campaignError) {
         console.error("[webhook] boost campaign update failed:", campaignError);
       } else {
-        console.log("[webhook] boost campaign set to live for profile:", profileId);
+        console.log("[webhook] boost campaign set to live:", campaignId);
       }
 
       // Notify will@sqrz.com via Resend
@@ -96,6 +93,7 @@ export async function action({ request }: { request: Request }) {
             <p><strong>Amount:</strong> €${amountDollars}</p>
             <p><strong>Customer:</strong> ${customerEmail}</p>
             <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            <p><strong>Campaign ID:</strong> ${campaignId}</p>
             <p>Log in to the dashboard to review and activate the campaign.</p>
           `,
         });

@@ -208,7 +208,7 @@ export default function BoostPage() {
               const isPending = c.status === "pending" || c.status === "pending_payment";
               const isPaid = c.status === "live" || c.status === "preparing";
               const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
-              const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${profile_id}&prefilled_email=${encodeURIComponent(email)}` : null;
+              const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}` : null;
               return (
                 <div
                   key={c.id}
