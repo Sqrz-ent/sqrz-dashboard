@@ -186,7 +186,19 @@ export async function action({ request, params }: Route.ActionArgs) {
         if (buyer?.email) {
           const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
 
-          const bookingLink = `https://dashboard.sqrz.com/booking/${params.id}`;
+          // Generate magic link so guest lands on booking without a separate login step
+          const { createClient } = await import("@supabase/supabase-js");
+          const supabaseAdmin = createClient(
+            process.env.SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!
+          );
+          const { data: linkData } = await supabaseAdmin.auth.admin.generateLink({
+            type: "magiclink",
+            email: buyer.email,
+            options: { redirectTo: `https://dashboard.sqrz.com/booking/${params.id}` },
+          });
+          const bookingLink = linkData?.properties?.action_link
+            ?? `https://dashboard.sqrz.com/booking/${params.id}`;
 
           const { Resend } = await import("resend");
           const resend = new Resend(process.env.RESEND_API_KEY);
