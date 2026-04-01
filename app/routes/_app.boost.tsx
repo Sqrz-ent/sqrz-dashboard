@@ -75,12 +75,12 @@ const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }>
   live: { label: "Live", color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
 };
 
-const AD_BUDGET_TIERS = [
-  { label: "Starter", amount: "€50",  url: "https://buy.stripe.com/test_5kQ28q1Bt1ds8J01QU57W00" },
-  { label: "Growth",  amount: "€100", url: "https://buy.stripe.com/test_7sY7sKbc35tI1gyanq57W01" },
-  { label: "Pro",     amount: "€300", url: "https://buy.stripe.com/test_bJeaEWgwn2hwe3k0MQ57W02" },
-  { label: "Scale",   amount: "€500", url: "https://buy.stripe.com/test_7sY9AScg7f4i8J0cvy57W03" },
-] as const;
+const BOOST_PAYMENT_LINKS: Record<number, string> = {
+  50:  "https://buy.stripe.com/test_5kQ28q1Bt1ds8J01QU57W00",
+  100: "https://buy.stripe.com/test_7sY7sKbc35tI1gyanq57W01",
+  300: "https://buy.stripe.com/test_bJeaEWgwn2hwe3k0MQ57W02",
+  500: "https://buy.stripe.com/test_7sY9AScg7f4i8J0cvy57W03",
+};
 
 const PROMOTE_LABEL: Record<string, string> = {
   profile: "Profile",
@@ -110,7 +110,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .in("status", ["pending", "preparing", "live"])
     .order("created_at", { ascending: false });
 
-  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, campaigns: campaigns ?? [] }, { headers });
+  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, campaigns: campaigns ?? [], email: (profile.email as string) ?? "" }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -137,12 +137,11 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, plan_id, is_beta } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null; is_beta: boolean };
+  const { campaigns, plan_id, is_beta, email } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null; is_beta: boolean; email: string };
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
 
-  const [selectedBudgetTier, setSelectedBudgetTier] = useState<string | null>(null);
   const [promote, setPromote] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
@@ -208,7 +207,8 @@ export default function BoostPage() {
               const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
               const isPending = c.status === "pending" || c.status === "pending_payment";
               const isPaid = c.status === "live" || c.status === "preparing";
-              const selectedTier = AD_BUDGET_TIERS.find((t) => t.label === selectedBudgetTier) ?? null;
+              const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
+              const paymentUrl = baseUrl ? `${baseUrl}?prefilled_email=${encodeURIComponent(email)}` : null;
               return (
                 <div
                   key={c.id}
@@ -261,59 +261,32 @@ export default function BoostPage() {
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
                         Ad Budget
                       </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 12 }}>
-                        {AD_BUDGET_TIERS.map((tier) => {
-                          const active = selectedBudgetTier === tier.label;
-                          return (
-                            <button
-                              key={tier.label}
-                              type="button"
-                              onClick={() => setSelectedBudgetTier(tier.label)}
-                              style={{
-                                flex: "1 1 70px",
-                                padding: "12px 8px",
-                                borderRadius: 10,
-                                border: active ? `2px solid ${ACCENT}` : "2px solid var(--border)",
-                                background: active ? "rgba(245,166,35,0.1)" : "var(--surface)",
-                                color: active ? ACCENT : "var(--text)",
-                                cursor: "pointer",
-                                fontFamily: FONT_BODY,
-                                textAlign: "center" as const,
-                                transition: "all 0.15s",
-                              }}
-                            >
-                              <div style={{ fontSize: 11, fontWeight: 700, color: active ? ACCENT : "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 3 }}>
-                                {tier.label}
-                              </div>
-                              <div style={{ fontSize: 16, fontWeight: 700 }}>{tier.amount}</div>
-                            </button>
-                          );
-                        })}
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
+                        €{c.budget_amount}
                       </div>
                       <a
-                        href={selectedTier?.url ?? "#"}
+                        href={paymentUrl ?? "#"}
                         target="_blank"
                         rel="noopener noreferrer"
-                        onClick={(e) => { if (!selectedTier) e.preventDefault(); }}
+                        onClick={(e) => { if (!paymentUrl) e.preventDefault(); }}
                         style={{
                           display: "block",
                           width: "100%",
                           padding: "12px",
-                          background: selectedTier ? ACCENT : "var(--surface-muted)",
-                          color: selectedTier ? "#111" : "var(--text-muted)",
+                          background: paymentUrl ? ACCENT : "var(--surface-muted)",
+                          color: paymentUrl ? "#111" : "var(--text-muted)",
                           borderRadius: 10,
                           fontSize: 14,
                           fontWeight: 700,
                           textAlign: "center" as const,
                           textDecoration: "none",
-                          cursor: selectedTier ? "pointer" : "not-allowed",
+                          cursor: paymentUrl ? "pointer" : "not-allowed",
                           fontFamily: FONT_BODY,
-                          transition: "background 0.15s",
                           boxSizing: "border-box" as const,
                           marginBottom: 8,
                         }}
                       >
-                        Pay Ad Budget →
+                        Pay €{c.budget_amount} →
                       </a>
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
                         Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
