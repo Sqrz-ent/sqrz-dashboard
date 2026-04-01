@@ -185,6 +185,14 @@ export async function action({ request, params }: Route.ActionArgs) {
 
         if (buyer?.email) {
           const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+          const admin = createSupabaseAdminClient();
+          const next = encodeURIComponent(`/booking/${params.id}`);
+          const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
+          const { data: linkData } = await admin.auth.admin.generateLink({
+            type: "magiclink",
+            email: buyer.email,
+            options: { redirectTo },
+          });
           const { Resend } = await import("resend");
           const resend = new Resend(process.env.RESEND_API_KEY);
           await resend.emails.send({
@@ -196,7 +204,7 @@ export async function action({ request, params }: Route.ActionArgs) {
               <p>You have received a proposal for your booking request.</p>
               <p><strong>Rate:</strong> ${sym}${rate?.toLocaleString() ?? "TBD"}</p>
               ${message ? `<p><strong>Note:</strong> ${message}</p>` : ""}
-              <p><a href="https://dashboard.sqrz.com/booking/${params.id}">View booking →</a></p>
+              <p><a href="${linkData?.properties?.action_link}">View booking →</a></p>
               <p>The SQRZ Team</p>
             `,
           });
