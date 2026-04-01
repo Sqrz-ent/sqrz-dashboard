@@ -70,10 +70,17 @@ const BUDGET_OPTIONS = [
 ] as const;
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: "Pending", color: "#888", bg: "rgba(136,136,136,0.12)" },
+  pending: { label: "Pending Payment", color: "#888", bg: "rgba(136,136,136,0.12)" },
   preparing: { label: "Preparing", color: ACCENT, bg: "rgba(245,166,35,0.12)" },
   live: { label: "Live", color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
 };
+
+const AD_BUDGET_TIERS = [
+  { label: "Starter", amount: "€50",  url: "https://buy.stripe.com/test_5kQ28q1Bt1ds8J01QU57W00" },
+  { label: "Growth",  amount: "€100", url: "https://buy.stripe.com/test_7sY7sKbc35tI1gyanq57W01" },
+  { label: "Pro",     amount: "€300", url: "https://buy.stripe.com/test_bJeaEWgwn2hwe3k0MQ57W02" },
+  { label: "Scale",   amount: "€500", url: "https://buy.stripe.com/test_7sY9AScg7f4i8J0cvy57W03" },
+] as const;
 
 const PROMOTE_LABEL: Record<string, string> = {
   profile: "Profile",
@@ -135,6 +142,7 @@ export default function BoostPage() {
   const navigate = useNavigate();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
 
+  const [selectedBudgetTier, setSelectedBudgetTier] = useState<string | null>(null);
   const [promote, setPromote] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
@@ -198,6 +206,9 @@ export default function BoostPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {campaigns.map((c) => {
               const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
+              const isPending = c.status === "pending" || c.status === "pending_payment";
+              const isPaid = c.status === "live" || c.status === "preparing";
+              const selectedTier = AD_BUDGET_TIERS.find((t) => t.label === selectedBudgetTier) ?? null;
               return (
                 <div
                   key={c.id}
@@ -206,36 +217,109 @@ export default function BoostPage() {
                     borderRadius: 12,
                     padding: "14px 16px",
                     display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
+                    flexDirection: "column" as const,
                     gap: 12,
-                    flexWrap: "wrap" as const,
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                      {PROMOTE_LABEL[c.promote_type]} Boost
+                  {/* Campaign header row */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
+                        {PROMOTE_LABEL[c.promote_type]} Boost
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                        {GOAL_LABEL[c.goal]} · ${c.budget_amount} {c.budget_currency}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                        {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                      {GOAL_LABEL[c.goal]} · ${c.budget_amount} {c.budget_currency}
-                    </div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-                      {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      {isPaid && (
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "rgba(34,197,94,0.12)", color: "#22c55e" }}>
+                          Ad budget paid ✓
+                        </span>
+                      )}
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase" as const,
+                        padding: "4px 10px",
+                        borderRadius: 20,
+                        background: badge.bg,
+                        color: badge.color,
+                      }}>
+                        {badge.label}
+                      </span>
                     </div>
                   </div>
-                  <span style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase" as const,
-                    padding: "4px 10px",
-                    borderRadius: 20,
-                    background: badge.bg,
-                    color: badge.color,
-                    flexShrink: 0,
-                  }}>
-                    {badge.label}
-                  </span>
+
+                  {/* Ad budget payment section — pending only */}
+                  {isPending && (
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
+                        Ad Budget
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 12 }}>
+                        {AD_BUDGET_TIERS.map((tier) => {
+                          const active = selectedBudgetTier === tier.label;
+                          return (
+                            <button
+                              key={tier.label}
+                              type="button"
+                              onClick={() => setSelectedBudgetTier(tier.label)}
+                              style={{
+                                flex: "1 1 70px",
+                                padding: "12px 8px",
+                                borderRadius: 10,
+                                border: active ? `2px solid ${ACCENT}` : "2px solid var(--border)",
+                                background: active ? "rgba(245,166,35,0.1)" : "var(--surface)",
+                                color: active ? ACCENT : "var(--text)",
+                                cursor: "pointer",
+                                fontFamily: FONT_BODY,
+                                textAlign: "center" as const,
+                                transition: "all 0.15s",
+                              }}
+                            >
+                              <div style={{ fontSize: 11, fontWeight: 700, color: active ? ACCENT : "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 3 }}>
+                                {tier.label}
+                              </div>
+                              <div style={{ fontSize: 16, fontWeight: 700 }}>{tier.amount}</div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <a
+                        href={selectedTier?.url ?? "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => { if (!selectedTier) e.preventDefault(); }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          padding: "12px",
+                          background: selectedTier ? ACCENT : "var(--surface-muted)",
+                          color: selectedTier ? "#111" : "var(--text-muted)",
+                          borderRadius: 10,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          textAlign: "center" as const,
+                          textDecoration: "none",
+                          cursor: selectedTier ? "pointer" : "not-allowed",
+                          fontFamily: FONT_BODY,
+                          transition: "background 0.15s",
+                          boxSizing: "border-box" as const,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Pay Ad Budget →
+                      </a>
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                        Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
+                      </p>
+                    </div>
+                  )}
                 </div>
               );
             })}
