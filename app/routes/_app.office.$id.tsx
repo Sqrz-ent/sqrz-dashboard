@@ -186,17 +186,23 @@ export async function action({ request, params }: Route.ActionArgs) {
         if (buyer?.email) {
           const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
 
-          // Generate magic link so guest lands on booking without a separate login step
+          // Generate magic link — same pattern as team invites (auth/callback is already in allowed URLs)
           const { createClient } = await import("@supabase/supabase-js");
           const supabaseAdmin = createClient(
             process.env.SUPABASE_URL!,
             process.env.SUPABASE_SERVICE_ROLE_KEY!
           );
-          const { data: linkData } = await supabaseAdmin.auth.admin.generateLink({
+          const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${encodeURIComponent(`/booking/${params.id}`)}`;
+          console.log("[proposal] generating magic link for:", buyer.email);
+          console.log("[proposal] redirectTo:", redirectTo);
+          const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
             type: "magiclink",
             email: buyer.email,
-            options: { redirectTo: `https://dashboard.sqrz.com/booking/${params.id}` },
+            options: { redirectTo },
           });
+          console.log("[proposal] linkData:", JSON.stringify(linkData));
+          console.log("[proposal] linkError:", JSON.stringify(linkError));
+          console.log("[proposal] action_link:", linkData?.properties?.action_link);
           const bookingLink = linkData?.properties?.action_link
             ?? `https://dashboard.sqrz.com/booking/${params.id}`;
 
