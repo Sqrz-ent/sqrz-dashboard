@@ -693,16 +693,16 @@ export default function ProfilePage() {
                   }}
                 >
                   <span style={{ fontSize: 18, minWidth: 24 }}>{emoji}</span>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: val ? ACCENT : "var(--text-muted)" }}>
                       {label}
                     </span>
                     {val && !editing && (
-                      <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>{val}</span>
+                      <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{val}</span>
                     )}
                   </div>
                   {!editing && (
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{val ? "Edit" : "Add"}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{val ? "Edit" : "Add"}</span>
                   )}
                 </div>
                 {editing && (
@@ -765,16 +765,16 @@ export default function ProfilePage() {
                   }}
                 >
                   <span style={{ fontSize: 18, minWidth: 24 }}>{emoji}</span>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: val ? ACCENT : "var(--text-muted)" }}>
                       {label}
                     </span>
                     {val && !editing && (
-                      <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)" }}>{val}</span>
+                      <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{val}</span>
                     )}
                   </div>
                   {!editing && (
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{val ? "Edit" : "Add"}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{val ? "Edit" : "Add"}</span>
                   )}
                 </div>
                 {editing && (

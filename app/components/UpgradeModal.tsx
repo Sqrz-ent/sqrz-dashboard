@@ -353,24 +353,14 @@ export default function UpgradeModal({
           to   { opacity: 1; transform: translateY(0); }
         }
         .upgrade-modal-overlay {
-          align-items: flex-end;
+          align-items: center;
+          padding: 1.5rem;
         }
         .upgrade-modal {
-          border-radius: 16px 16px 0 0;
-          max-height: 90vh;
+          border-radius: 16px;
+          max-height: 85vh;
           overflow-y: auto;
-          animation: upgradeModalSlideUp 0.22s ease;
-        }
-        @media (min-width: 640px) {
-          .upgrade-modal-overlay {
-            align-items: center;
-          }
-          .upgrade-modal {
-            border-radius: 16px;
-            max-height: none;
-            overflow-y: visible;
-            animation: upgradeModalSlideIn 0.18s ease;
-          }
+          animation: upgradeModalSlideIn 0.18s ease;
         }
       `}</style>
     </>
