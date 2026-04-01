@@ -29,7 +29,7 @@ const PLANS: { key: UpgradeView; name: string; price: string; bullets: string[] 
   {
     key: "boost",
     name: "Boost",
-    price: "$59/mo",
+    price: "$39/mo",
     bullets: ["Everything in Creator", "Boost campaigns", "Private links"],
   },
   {
@@ -293,7 +293,7 @@ export default function UpgradeModal({
                 Monthly
               </p>
               <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-                $59<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                $39<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
                 Everything in Creator · Targeted campaigns · Private links
