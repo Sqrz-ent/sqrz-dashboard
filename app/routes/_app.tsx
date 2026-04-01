@@ -486,23 +486,25 @@ export default function AppLayout() {
           </NavLink>
         ))}
 
-        <a
-          href="https://jobs.sqrz.com"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 3,
-            textDecoration: "none",
-            fontSize: 11,
-            color: "var(--text-muted)",
-          }}
-        >
-          <span style={{ fontSize: 18 }}>💼</span>
-          <span>Jobs</span>
-        </a>
+        {p?.slug && (
+          <a
+            href={`https://${p.slug}.sqrz.com`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+              textDecoration: "none",
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            <span style={{ fontSize: 18 }}>↗</span>
+            <span>Profile</span>
+          </a>
+        )}
       </nav>
 
       <style>{`
