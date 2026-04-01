@@ -110,7 +110,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .in("status", ["pending", "preparing", "live"])
     .order("created_at", { ascending: false });
 
-  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, campaigns: campaigns ?? [], email: (profile.email as string) ?? "" }, { headers });
+  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, campaigns: campaigns ?? [], email: (profile.email as string) ?? "", profile_id: profile.id as string }, { headers });
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -137,7 +137,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, plan_id, is_beta, email } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null; is_beta: boolean; email: string };
+  const { campaigns, plan_id, is_beta, email, profile_id } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null; is_beta: boolean; email: string; profile_id: string };
   const fetcher = useFetcher();
   const navigate = useNavigate();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
@@ -208,7 +208,7 @@ export default function BoostPage() {
               const isPending = c.status === "pending" || c.status === "pending_payment";
               const isPaid = c.status === "live" || c.status === "preparing";
               const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
-              const paymentUrl = baseUrl ? `${baseUrl}?prefilled_email=${encodeURIComponent(email)}` : null;
+              const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${profile_id}&prefilled_email=${encodeURIComponent(email)}` : null;
               return (
                 <div
                   key={c.id}

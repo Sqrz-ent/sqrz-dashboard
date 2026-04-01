@@ -57,46 +57,30 @@ export async function action({ request }: { request: Request }) {
     const session = event.data.object as Stripe.Checkout.Session;
 
     // ── Boost ad budget payment ──────────────────────────────────────────────
-    const BOOST_PAYMENT_LINK_IDS = [
-      "test_5kQ28q1Bt1ds8J01QU57W00",
-      "test_eVq14m6VN3lA9N4dzC57W04",
-      "test_bJeaEWgwn2hwe3k0MQ57W02",
-      "test_7sY9AScg7f4i8J0cvy57W03",
-    ];
-
+    const BOOST_AMOUNTS = [50, 100, 150, 300];
+    const amountDollars = (session.amount_total ?? 0) / 100;
     const isBoostPayment =
-      session.payment_link &&
-      BOOST_PAYMENT_LINK_IDS.some((id) => (session.payment_link as string).includes(id));
+      session.client_reference_id &&
+      BOOST_AMOUNTS.includes(amountDollars);
 
     if (isBoostPayment) {
+      const profileId = session.client_reference_id as string;
       const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
-      const amountEur = (session.amount_total ?? 0) / 100;
 
-      console.log("[webhook] boost payment received:", customerEmail, amountEur);
+      console.log("[webhook] boost payment received:", customerEmail, amountDollars, "profile:", profileId);
 
-      // Find profile by email
-      let profileId: string | null = null;
-      if (customerEmail) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("id")
-          .eq("email", customerEmail)
-          .maybeSingle();
-        profileId = profile?.id ?? null;
-      }
-
-      // Update campaign status to active
-      if (profileId) {
-        const { error: campaignError } = await supabase
-          .from("boost_campaigns")
-          .update({ status: "active" })
-          .eq("profile_id", profileId)
-          .eq("status", "pending");
-        if (campaignError) {
-          console.error("[webhook] boost campaign update failed:", campaignError);
-        } else {
-          console.log("[webhook] boost campaign activated for profile:", profileId);
-        }
+      // Update most recent pending boost campaign for this profile to live
+      const { error: campaignError } = await supabase
+        .from("boost_campaigns")
+        .update({ status: "live" })
+        .eq("profile_id", profileId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (campaignError) {
+        console.error("[webhook] boost campaign update failed:", campaignError);
+      } else {
+        console.log("[webhook] boost campaign set to live for profile:", profileId);
       }
 
       // Notify will@sqrz.com via Resend
@@ -106,10 +90,10 @@ export async function action({ request }: { request: Request }) {
         await resend.emails.send({
           from: "noreply@sqrz.com",
           to: "will@sqrz.com",
-          subject: `New Boost payment — ${amountEur}€`,
+          subject: `New Boost payment — ${amountDollars}€`,
           html: `
             <p>A new Boost ad budget payment has been received.</p>
-            <p><strong>Amount:</strong> €${amountEur}</p>
+            <p><strong>Amount:</strong> €${amountDollars}</p>
             <p><strong>Customer:</strong> ${customerEmail}</p>
             <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
             <p>Log in to the dashboard to review and activate the campaign.</p>
