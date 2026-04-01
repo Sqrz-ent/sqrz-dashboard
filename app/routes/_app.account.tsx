@@ -293,7 +293,7 @@ export default function AccountPage() {
               No active plan
             </p>
             <a
-              href="/upgrade"
+              href="?upgrade=creator"
               style={{
                 display: "inline-block",
                 padding: "10px 22px",
