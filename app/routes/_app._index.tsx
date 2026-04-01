@@ -408,6 +408,47 @@ export default function DashboardIndex() {
         )}
       </div>
 
+      {/* Referral widget */}
+      {rc && (
+        <div style={{ ...card, marginBottom: 16 }}>
+          <p style={{ ...metaLabel, margin: "0 0 12px" }}>Your Referral Link</p>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "var(--surface-muted)",
+            borderRadius: 10,
+            padding: "10px 14px",
+            marginBottom: 10,
+          }}>
+            <span style={{ flex: 1, fontSize: 13, color: "var(--text)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              https://sqrz.com?ref={rc.code}
+            </span>
+            <button
+              onClick={copyRefLink}
+              style={{
+                padding: "6px 14px",
+                background: copiedRef ? "rgba(74,222,128,0.15)" : ACCENT,
+                color: copiedRef ? "#4ade80" : "#111",
+                border: "none",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+                flexShrink: 0,
+                transition: "all 0.15s",
+              }}
+            >
+              {copiedRef ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+            {rc.use_count} signup{rc.use_count !== 1 ? "s" : ""} · {rc.commission_pct}% commission · {rc.discount_pct}% off for new users
+          </p>
+        </div>
+      )}
+
       {/* Theme picker */}
       <div style={{ ...card, marginBottom: 16 }}>
         <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
@@ -701,47 +742,6 @@ export default function DashboardIndex() {
           </button>
         )}
       </div>
-
-      {/* Referral widget */}
-      {rc && (
-        <div style={{ ...card, marginBottom: 16 }}>
-          <p style={{ ...metaLabel, margin: "0 0 12px" }}>Your Referral Link</p>
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            background: "var(--surface-muted)",
-            borderRadius: 10,
-            padding: "10px 14px",
-            marginBottom: 10,
-          }}>
-            <span style={{ flex: 1, fontSize: 13, color: "var(--text)", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              https://sqrz.com?ref={rc.code}
-            </span>
-            <button
-              onClick={copyRefLink}
-              style={{
-                padding: "6px 14px",
-                background: copiedRef ? "rgba(74,222,128,0.15)" : ACCENT,
-                color: copiedRef ? "#4ade80" : "#111",
-                border: "none",
-                borderRadius: 8,
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: FONT,
-                flexShrink: 0,
-                transition: "all 0.15s",
-              }}
-            >
-              {copiedRef ? "Copied!" : "Copy"}
-            </button>
-          </div>
-          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-            {rc.use_count} signup{rc.use_count !== 1 ? "s" : ""} · {rc.commission_pct}% commission · {rc.discount_pct}% off for new users
-          </p>
-        </div>
-      )}
 
       {/* Quick stats */}
       <div
