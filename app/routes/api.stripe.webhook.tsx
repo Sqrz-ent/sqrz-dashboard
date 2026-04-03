@@ -3,14 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
-const PRICE_TO_PLAN: Record<string, number> = {
-  [process.env.STRIPE_BASIC_PRICE_ID_MONTHLY!]: 1,
-  [process.env.STRIPE_BASIC_PRICE_ID_YEARLY!]: 1,
-  [process.env.STRIPE_GROW_PRICE_ID_MONTHLY!]: 2,
-  [process.env.STRIPE_GROW_PRICE_ID_YEARLY!]: 2,
-  [process.env.STRIPE_EARLY_ACCESS_PRICE_ID!]: 4,
-  [process.env.STRIPE_BOOST_PRICE_ID_MONTHLY!]: 5,
-};
 
 const toISO = (ts: number | null | undefined) =>
   ts ? new Date(ts * 1000).toISOString() : null;
@@ -118,7 +110,14 @@ export async function action({ request }: { request: Request }) {
 
     const item = subscription.items.data[0];
     const priceId = item.price.id;
-    const planId = PRICE_TO_PLAN[priceId] ?? 1;
+
+    const { data: plan } = await supabase
+      .from("plans")
+      .select("id")
+      .or(`stripe_price_monthly.eq.${priceId},stripe_price_yearly.eq.${priceId}`)
+      .maybeSingle();
+
+    const planId = plan?.id ?? 1;
 
     // Find profile by stripe_customer_id or email
     const customerEmail = session.customer_details?.email;
