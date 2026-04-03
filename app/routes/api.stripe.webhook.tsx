@@ -9,6 +9,7 @@ const PRICE_TO_PLAN: Record<string, number> = {
   [process.env.STRIPE_GROW_PRICE_ID_MONTHLY!]: 2,
   [process.env.STRIPE_GROW_PRICE_ID_YEARLY!]: 2,
   [process.env.STRIPE_EARLY_ACCESS_PRICE_ID!]: 4,
+  [process.env.STRIPE_BOOST_PRICE_ID_MONTHLY!]: 5,
 };
 
 const toISO = (ts: number | null | undefined) =>
