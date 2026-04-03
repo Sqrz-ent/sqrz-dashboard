@@ -299,7 +299,7 @@ export default function UpgradeModal({
                 Everything in Creator · Targeted campaigns · Private links
               </p>
               <Form method="post" action="/api/stripe/checkout">
-                <input type="hidden" name="price_id" value="price_1TEpETAvjL5RjAe1PHKcJO6V" />
+                <input type="hidden" name="price_id" value="price_1THRNUAvjL5RjAe1FxvHUMTe" />
                 <button type="submit" style={submitBtn}>Select</button>
               </Form>
             </div>
