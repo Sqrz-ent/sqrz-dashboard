@@ -193,113 +193,6 @@ export default function BoostPage() {
         Activate targeted attention for your profile
       </p>
 
-      {/* ── Active Campaigns ─────────────────────────────────────────────── */}
-      <div style={card}>
-        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 16px" }}>
-          Active Campaigns
-        </h2>
-
-        {campaigns.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>No active campaigns</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {campaigns.map((c) => {
-              const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
-              const isPending = c.status === "pending" || c.status === "pending_payment";
-              const isPaid = c.status === "live" || c.status === "preparing";
-              const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
-              const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}` : null;
-              return (
-                <div
-                  key={c.id}
-                  style={{
-                    background: "var(--bg)",
-                    borderRadius: 12,
-                    padding: "14px 16px",
-                    display: "flex",
-                    flexDirection: "column" as const,
-                    gap: 12,
-                  }}
-                >
-                  {/* Campaign header row */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                        {PROMOTE_LABEL[c.promote_type]} Boost
-                      </div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                        {GOAL_LABEL[c.goal]} · ${c.budget_amount} {c.budget_currency}
-                      </div>
-                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-                        {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                      {isPaid && (
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "rgba(34,197,94,0.12)", color: "#22c55e" }}>
-                          Ad budget paid ✓
-                        </span>
-                      )}
-                      <span style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        letterSpacing: "0.06em",
-                        textTransform: "uppercase" as const,
-                        padding: "4px 10px",
-                        borderRadius: 20,
-                        background: badge.bg,
-                        color: badge.color,
-                      }}>
-                        {badge.label}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Ad budget payment section — pending only */}
-                  {isPending && (
-                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
-                        Ad Budget
-                      </div>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
-                        €{c.budget_amount}
-                      </div>
-                      <a
-                        href={paymentUrl ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => { if (!paymentUrl) e.preventDefault(); }}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          padding: "12px",
-                          background: paymentUrl ? ACCENT : "var(--surface-muted)",
-                          color: paymentUrl ? "#111" : "var(--text-muted)",
-                          borderRadius: 10,
-                          fontSize: 14,
-                          fontWeight: 700,
-                          textAlign: "center" as const,
-                          textDecoration: "none",
-                          cursor: paymentUrl ? "pointer" : "not-allowed",
-                          fontFamily: FONT_BODY,
-                          boxSizing: "border-box" as const,
-                          marginBottom: 8,
-                        }}
-                      >
-                        Pay €{c.budget_amount} →
-                      </a>
-                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                        Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {/* ── Launch Boost form ─────────────────────────────────────────────── */}
       {locked && (
         <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
@@ -407,6 +300,113 @@ export default function BoostPage() {
         >
           {isSubmitting ? "Activating…" : "Activate Boost →"}
         </button>
+      </div>
+
+      {/* ── Active Campaigns ─────────────────────────────────────────────── */}
+      <div style={card}>
+        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 16px" }}>
+          Active Campaigns
+        </h2>
+
+        {campaigns.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)" }}>No active campaigns</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {campaigns.map((c) => {
+              const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
+              const isPending = c.status === "pending" || c.status === "pending_payment";
+              const isPaid = c.status === "live" || c.status === "preparing";
+              const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
+              const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}` : null;
+              return (
+                <div
+                  key={c.id}
+                  style={{
+                    background: "var(--bg)",
+                    borderRadius: 12,
+                    padding: "14px 16px",
+                    display: "flex",
+                    flexDirection: "column" as const,
+                    gap: 12,
+                  }}
+                >
+                  {/* Campaign header row */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
+                        {PROMOTE_LABEL[c.promote_type]} Boost
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                        {GOAL_LABEL[c.goal]} · ${c.budget_amount} {c.budget_currency}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+                        {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      {isPaid && (
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "rgba(34,197,94,0.12)", color: "#22c55e" }}>
+                          Ad budget paid ✓
+                        </span>
+                      )}
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase" as const,
+                        padding: "4px 10px",
+                        borderRadius: 20,
+                        background: badge.bg,
+                        color: badge.color,
+                      }}>
+                        {badge.label}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Ad budget payment section — pending only */}
+                  {isPending && (
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
+                        Ad Budget
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
+                        €{c.budget_amount}
+                      </div>
+                      <a
+                        href={paymentUrl ?? "#"}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => { if (!paymentUrl) e.preventDefault(); }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          padding: "12px",
+                          background: paymentUrl ? ACCENT : "var(--surface-muted)",
+                          color: paymentUrl ? "#111" : "var(--text-muted)",
+                          borderRadius: 10,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          textAlign: "center" as const,
+                          textDecoration: "none",
+                          cursor: paymentUrl ? "pointer" : "not-allowed",
+                          fontFamily: FONT_BODY,
+                          boxSizing: "border-box" as const,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Pay €{c.budget_amount} →
+                      </a>
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                        Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
