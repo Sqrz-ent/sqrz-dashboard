@@ -114,7 +114,6 @@ const topNavItems = [
 const bottomNavItems = [
   { to: "/", label: "Dashboard", icon: "⊞", end: true },
   { to: "/office", label: "Office", icon: "📋" },
-  { to: "/crew", label: "Crew", icon: "👥" },
 ];
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
@@ -519,6 +518,22 @@ export default function AppLayout() {
           <span style={{ fontSize: 18 }}>💬</span>
           <span>Messages</span>
         </button>
+
+        <NavLink
+          to="/crew"
+          style={({ isActive }) => ({
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 3,
+            textDecoration: "none",
+            fontSize: 11,
+            color: isActive ? "#F5A623" : "var(--text-muted)",
+          })}
+        >
+          <span style={{ fontSize: 18 }}>👥</span>
+          <span>Crew</span>
+        </NavLink>
       </nav>
 
       <LeadsPanel
