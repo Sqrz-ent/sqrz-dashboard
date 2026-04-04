@@ -85,12 +85,26 @@ export async function loader({ request }: Route.LoaderArgs) {
     await supabase.auth.verifyOtp({ token_hash, type: type as any });
   }
 
-  // If query params were present, redirect now with session cookie set.
+  // If query params were present, check user_type then redirect with session cookie set.
   // If neither was present, fall through to the client component which
   // handles the #access_token= / #error= hash fragment.
   if (code || (token_hash && type)) {
     const decodedNext = next ? decodeURIComponent(next) : null;
-    return redirect(decodedNext ?? "/", { headers });
+
+    const { data: { user: authedUser } } = await supabase.auth.getUser();
+    if (authedUser) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type')
+        .eq('user_id', authedUser.id)
+        .maybeSingle();
+
+      if (profile?.user_type === 'guest') {
+        return redirect(decodedNext || '/guest-access', { headers });
+      }
+    }
+
+    return redirect(decodedNext ?? "/dashboard", { headers });
   }
 
   // No query params — render the client component to handle hash fragment

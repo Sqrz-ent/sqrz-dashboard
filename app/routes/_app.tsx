@@ -24,6 +24,19 @@ export async function loader({ request }: Route.LoaderArgs) {
   console.log("profile loaded:", JSON.stringify(profile));
   console.log("[loader] profile:", profile?.id, profile?.plan_id);
 
+  if (profile?.user_type === 'guest') {
+    const url = new URL(request.url);
+    const next = url.searchParams.get('next');
+
+    // If coming from a booking magic link — redirect there
+    if (next && next.startsWith('/booking/')) {
+      return redirect(next);
+    }
+
+    // Otherwise — no dashboard access
+    return redirect('/guest-access');
+  }
+
   // Fetch subscription + plan for AccountPanel (parallel queries)
   let subscriptionData: {
     planName: string;
