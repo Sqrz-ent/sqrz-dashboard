@@ -7,6 +7,7 @@ import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
+import LeadsPanel from "~/components/LeadsPanel";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -135,6 +136,7 @@ export default function AppLayout() {
   }
 
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [messagesOpen, setMessagesOpen] = useState(false);
 
   useEffect(() => {
     if (p !== null && p.onboarding_completed === false) {
@@ -310,7 +312,7 @@ export default function AppLayout() {
                 Upgrade
               </button>
             )}
-            <NotificationBell />
+            <NotificationBell onOpenMessages={() => setMessagesOpen(true)} />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -390,7 +392,7 @@ export default function AppLayout() {
 
           {/* Right — bell + theme */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 80, justifyContent: "flex-end" }}>
-            <NotificationBell />
+            <NotificationBell onOpenMessages={() => setMessagesOpen(true)} />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -499,26 +501,32 @@ export default function AppLayout() {
           </NavLink>
         ))}
 
-        {p?.slug && (
-          <a
-            href={`https://${p.slug}.sqrz.com`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              textDecoration: "none",
-              fontSize: 11,
-              color: "var(--text-muted)",
-            }}
-          >
-            <span style={{ fontSize: 18 }}>↗</span>
-            <span>Profile</span>
-          </a>
-        )}
+        <button
+          onClick={() => setMessagesOpen(true)}
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 3,
+            background: "none",
+            border: "none",
+            fontSize: 11,
+            color: "var(--text-muted)",
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          <span style={{ fontSize: 18 }}>💬</span>
+          <span>Messages</span>
+        </button>
       </nav>
+
+      <LeadsPanel
+        open={messagesOpen}
+        onClose={() => setMessagesOpen(false)}
+        profileId={(p?.id as string) ?? null}
+        profileName={(p?.name as string) ?? null}
+      />
 
       <style>{`
         @keyframes sqrzProgress {

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import { useNotifications, type Toast } from "~/hooks/useNotifications";
-import LeadsPanel from "~/components/LeadsPanel";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,7 +77,7 @@ function ToastItem({
 
 // ─── Bell + dropdown ──────────────────────────────────────────────────────────
 
-export default function NotificationBell() {
+export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: () => void }) {
   const {
     notifications,
     unreadCount,
@@ -93,7 +92,6 @@ export default function NotificationBell() {
   } = useNotifications();
 
   const [open, setOpen] = useState(false);
-  const [leadsOpen, setLeadsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const bellRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -234,7 +232,7 @@ export default function NotificationBell() {
             {/* Messages entry row — always visible */}
             {(
               <button
-                onClick={() => { setLeadsOpen(true); setOpen(false); }}
+                onClick={() => { onOpenMessages?.(); setOpen(false); }}
                 style={{
                   width: "100%",
                   display: "flex",
@@ -405,14 +403,6 @@ export default function NotificationBell() {
         </div>,
         document.body
       )}
-
-      {/* Leads panel */}
-      <LeadsPanel
-        open={leadsOpen}
-        onClose={() => setLeadsOpen(false)}
-        profileId={profileId}
-        profileName={profileName}
-      />
 
       {/* Animations */}
       <style>{`
