@@ -100,7 +100,31 @@ export async function loader({ request }: Route.LoaderArgs) {
         .maybeSingle();
 
       if (profile?.user_type === 'guest') {
-        return redirect(decodedNext || '/guest-access', { headers });
+        // Link user_id to any booking_participants rows matching their email
+        if (authedUser.email) {
+          await supabase
+            .from('booking_participants')
+            .update({
+              user_id: authedUser.id,
+              joined_at: new Date().toISOString()
+            })
+            .eq('email', authedUser.email)
+            .is('user_id', null);
+        }
+
+        // Redirect to their most recent booking
+        const { data: participant } = await supabase
+          .from('booking_participants')
+          .select('booking_id')
+          .eq('user_id', authedUser.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (participant?.booking_id) {
+          return redirect(`/booking/${participant.booking_id}`, { headers });
+        }
+        return redirect('/guest-access', { headers });
       }
     }
 

@@ -21,6 +21,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
+  // Link user_id to booking_participants rows matching their email
+  if (code && user?.email) {
+    await supabase
+      .from('booking_participants')
+      .update({ user_id: user.id, joined_at: new Date().toISOString() })
+      .eq('email', user.email)
+      .is('user_id', null);
+  }
+
   // ── Authenticated path ──
   if (user) {
     const profile = await getCurrentProfile(supabase, user.id);
