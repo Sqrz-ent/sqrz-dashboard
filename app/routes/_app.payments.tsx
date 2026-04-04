@@ -97,12 +97,12 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // ── Stripe Express login link ─────────────────────────────────────────────
   let stripeExpressUrl: string | null = null;
-  if (connectId && connectStatus === "active") {
+  if (connectId) {
     try {
       const loginLink = await stripe.accounts.createLoginLink(connectId);
       stripeExpressUrl = loginLink.url;
-    } catch {
-      // Non-fatal
+    } catch (e) {
+      console.error("[payments] Stripe Express link failed:", e);
     }
   }
 
@@ -115,8 +115,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         return_url: `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/payments`,
       });
       billingPortalUrl = session.url;
-    } catch {
-      // Non-fatal
+    } catch (e) {
+      console.error("[payments] Billing portal failed:", e);
     }
   }
 
