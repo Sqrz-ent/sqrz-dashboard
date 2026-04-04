@@ -9,6 +9,7 @@ export default [
   route("guest-login", "routes/guest-login.tsx"),
   route("claim", "routes/claim.tsx"),
   route("claim/confirm", "routes/claim.confirm.tsx"),
+  route("guest-access", "routes/guest-access.tsx"),
 
   // Standalone booking access (no dashboard chrome)
   route("booking/:id", "routes/booking.$id.tsx"),
