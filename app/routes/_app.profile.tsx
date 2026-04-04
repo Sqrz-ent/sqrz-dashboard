@@ -169,9 +169,13 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = formData.get("intent") as string;
 
   if (intent === "update_basic") {
+    const firstName = formData.get("first_name") as string;
+    const lastName = formData.get("last_name") as string;
+    const name = [firstName, lastName].filter(Boolean).join(" ").trim();
     const { error } = await supabase.from("profiles").update({
-      first_name: formData.get("first_name") as string,
-      last_name: formData.get("last_name") as string,
+      first_name: firstName,
+      last_name: lastName,
+      name: name || null,
       bio: formData.get("bio") as string,
       city: formData.get("city") as string,
     }).eq("id", profile.id as string);

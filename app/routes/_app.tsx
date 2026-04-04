@@ -540,7 +540,10 @@ export default function AppLayout() {
         open={messagesOpen}
         onClose={() => setMessagesOpen(false)}
         profileId={(p?.id as string) ?? null}
-        profileName={(p?.name as string) ?? null}
+        profileName={
+          [[p?.first_name, p?.last_name].filter(Boolean).join(" ").trim(), p?.name]
+            .find(v => !!v) as string ?? null
+        }
       />
 
       <style>{`

@@ -188,8 +188,10 @@ export default function DashboardIndex() {
 
   const p = profile as Record<string, unknown>;
   const slug = p.slug as string | null;
-  const name = p.name as string | null;
-  const firstName = name?.split(" ")[0] ?? slug ?? "there";
+  const firstName = (p.first_name as string | null)
+    ?? (p.name as string | null)?.split(" ")[0]
+    ?? slug
+    ?? "there";
   const planId = p.plan_id as number | null | undefined;
 
   const analyticsData = analytics as { views_total?: number; views_prev_period?: number; unique_visitors?: number; form_opens?: number } | null;
