@@ -208,6 +208,7 @@ export default function DashboardIndex() {
     hasServices,
     hasVideos,
     hasRefs,
+    hasGallery: Array.isArray(p.widget_photo_gallery) && (p.widget_photo_gallery as string[]).length > 0,
   };
   const completion = getProfileCompletion(richProfile);
   const { score: doneCount, total: totalSections, percentage: pct, items: completionItems } = completion;

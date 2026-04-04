@@ -10,7 +10,7 @@ const WIDGET_FIELDS = [
 ] as const;
 
 export type RichProfile = {
-  onboarding_completed?: boolean | null;
+  hasGallery: boolean;
   bio?: string | null;
   city?: string | null;
   hasSkills: boolean;
@@ -55,7 +55,7 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
   const hasWidget = WIDGET_FIELDS.some((f) => !!(p[f] as string | null));
 
   const items: CompletionItem[] = [
-    { key: "onboarding", label: "Onboarding",  done: p.onboarding_completed === true },
+    { key: "gallery",    label: "Gallery",      done: p.hasGallery },
     { key: "basics",     label: "Basics",      done: !!(p.bio && p.city) },
     { key: "skills",     label: "Skills",      done: p.hasSkills },
     { key: "socials",    label: "Socials",     done: hasSocial },

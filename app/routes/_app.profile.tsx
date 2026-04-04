@@ -510,7 +510,7 @@ export default function ProfilePage() {
   // Completion counts
   const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
   const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
-  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud, galleryUrls.length > 0 ? "1" : ""].filter(Boolean).length;
+  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud].filter(Boolean).length;
   const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id, profile.legal_form].filter(Boolean).length;
 
   const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
@@ -744,7 +744,7 @@ export default function ProfilePage() {
 
       {/* Section 4: Widgets */}
       <div style={card}>
-        <CompletionBadge filled={widgetFilled} total={7} />
+        <CompletionBadge filled={widgetFilled} total={5} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Widgets</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {widgetFields.map(({ key, emoji, label, placeholder, validate }) => {
@@ -819,64 +819,67 @@ export default function ProfilePage() {
           })}
         </div>
 
-        {/* Photo Gallery */}
-        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: galleryUrls.length > 0 ? ACCENT : "var(--text-muted)" }}>
-              🖼️ Photo Gallery ({galleryUrls.length}/12)
-            </span>
-            {galleryUrls.length < 12 && (
-              <button
-                style={{ fontSize: 12, padding: "4px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", color: "var(--text-muted)", fontFamily: FONT_BODY }}
-                onClick={() => setGalleryUrls(u => [...u, ""])}
-              >
-                + Add photo URL
-              </button>
-            )}
-          </div>
-          {galleryUrls.map((url, i) => (
-            <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-              <input
-                style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-                value={url}
-                placeholder="https://example.com/photo.jpg"
-                onChange={e => setGalleryUrls(u => u.map((x, j) => j === i ? e.target.value : x))}
-              />
-              <button
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "4px 6px", flexShrink: 0 }}
-                onClick={() => {
-                  const updated = galleryUrls.filter((_, j) => j !== i);
-                  setGalleryUrls(updated);
-                  const validUrls = updated.filter(u => u.startsWith("http"));
-                  const fd = new FormData();
-                  fd.append("intent", "update_gallery");
-                  fd.append("widget_photo_gallery", JSON.stringify(validUrls));
-                  galleryFetcher.submit(fd, { method: "post" });
-                }}
-                title="Remove"
-              >
-                🗑️
-              </button>
-            </div>
-          ))}
-          {galleryUrls.length > 0 && (
+      </div>
+
+      {/* Section 4b: Photo Gallery */}
+      <div style={card}>
+        <CompletionBadge filled={galleryUrls.length > 0 ? 1 : 0} total={1} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Photo Gallery</h2>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            {galleryUrls.length}/12 photos
+          </span>
+          {galleryUrls.length < 12 && (
             <button
-              style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px" }}
+              style={{ fontSize: 12, padding: "4px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", color: "var(--text-muted)", fontFamily: FONT_BODY }}
+              onClick={() => setGalleryUrls(u => [...u, ""])}
+            >
+              + Add photo URL
+            </button>
+          )}
+        </div>
+        {galleryUrls.map((url, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            <input
+              style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+              value={url}
+              placeholder="https://example.com/photo.jpg"
+              onChange={e => setGalleryUrls(u => u.map((x, j) => j === i ? e.target.value : x))}
+            />
+            <button
+              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "4px 6px", flexShrink: 0 }}
               onClick={() => {
-                const validUrls = galleryUrls.filter(u => u.startsWith("http"));
+                const updated = galleryUrls.filter((_, j) => j !== i);
+                setGalleryUrls(updated);
+                const validUrls = updated.filter(u => u.startsWith("http"));
                 const fd = new FormData();
                 fd.append("intent", "update_gallery");
                 fd.append("widget_photo_gallery", JSON.stringify(validUrls));
                 galleryFetcher.submit(fd, { method: "post" });
               }}
+              title="Remove"
             >
-              Save Gallery
+              🗑️
             </button>
-          )}
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
-            Tip: Dropbox links work automatically. For other services, make sure the URL ends in .jpg, .png, or .webp
-          </p>
-        </div>
+          </div>
+        ))}
+        {galleryUrls.length > 0 && (
+          <button
+            style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px" }}
+            onClick={() => {
+              const validUrls = galleryUrls.filter(u => u.startsWith("http"));
+              const fd = new FormData();
+              fd.append("intent", "update_gallery");
+              fd.append("widget_photo_gallery", JSON.stringify(validUrls));
+              galleryFetcher.submit(fd, { method: "post" });
+            }}
+          >
+            Save Gallery
+          </button>
+        )}
+        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+          Tip: Dropbox links work automatically. For other services, make sure the URL ends in .jpg, .png, or .webp
+        </p>
       </div>
 
       {/* Section 5: Videos */}
