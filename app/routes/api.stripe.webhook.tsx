@@ -235,7 +235,7 @@ export async function action({ request }: { request: Request }) {
 
   if (event.type === "account.updated") {
     const account = event.data.object as Stripe.Account;
-    const status = account.charges_enabled ? "active" : "pending";
+    const status = (account.charges_enabled && account.payouts_enabled) ? "active" : "pending";
     await supabase
       .from("profiles")
       .update({ stripe_connect_status: status })
