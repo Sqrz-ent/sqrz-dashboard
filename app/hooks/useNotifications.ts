@@ -5,8 +5,8 @@ import { supabase } from "~/lib/supabase.client";
 
 export type Notification = {
   id: string;
-  service: string | null;
-  city: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
   created_at: string;
   read: boolean;
 };
@@ -70,24 +70,21 @@ export function useNotifications() {
 
       const readIds = getReadIds();
 
-      // Initial fetch: bookings (non-lead) from last 7 days
-      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      // Initial fetch: only new booking requests
       const { data: bookingData } = await supabase
         .from("bookings")
-        .select("id, created_at, status, city, venue")
+        .select("id, created_at, guest_name, guest_email")
         .eq("owner_id", profile.id)
-        .neq("status", "lead")
-        .neq("status", "declined")
-        .gte("created_at", since)
+        .eq("status", "requested")
         .order("created_at", { ascending: false })
-        .limit(50);
+        .limit(10);
 
       if (bookingData) {
         setNotifications(
           bookingData.map((b: Record<string, unknown>) => ({
             id: b.id as string,
-            service: (b.status as string) ?? null,
-            city: (b.city as string) ?? (b.venue as string) ?? null,
+            guest_name: (b.guest_name as string) ?? null,
+            guest_email: (b.guest_email as string) ?? null,
             created_at: b.created_at as string,
             read: readIds.has(b.id as string),
           }))
@@ -142,12 +139,12 @@ export function useNotifications() {
                   created_at: b.created_at as string,
                 };
                 setLeads((prev) => [lead, ...prev]);
-              } else {
-                // Add to notifications + toast
+              } else if (bStatus === "requested") {
+                // Add to notifications + toast for new booking requests only
                 const notif: Notification = {
                   id: b.id as string,
-                  service: bStatus ?? null,
-                  city: (b.city as string) ?? (b.venue as string) ?? null,
+                  guest_name: (b.guest_name as string) ?? null,
+                  guest_email: (b.guest_email as string) ?? null,
                   created_at: b.created_at as string,
                   read: false,
                 };

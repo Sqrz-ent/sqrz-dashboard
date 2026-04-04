@@ -13,11 +13,6 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-function notifLabel(service: string | null, city: string | null): string {
-  const parts = [service, city].filter(Boolean);
-  return parts.length > 0 ? parts.join(" in ") : "View details";
-}
-
 // ─── Toast item ───────────────────────────────────────────────────────────────
 
 function ToastItem({
@@ -56,7 +51,7 @@ function ToastItem({
           New booking request
         </p>
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
-          {notifLabel(toast.service, toast.city)}
+          {toast.guest_name ?? toast.guest_email ?? "New request"}
         </p>
       </div>
       <button
@@ -426,10 +421,10 @@ export default function NotificationBell() {
                             textOverflow: "ellipsis",
                           }}
                         >
-                          New booking request{n.service ? ` — ${n.service}` : ""}
+                          {n.guest_name ?? n.guest_email ?? "Someone"}
                         </p>
                         <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
-                          {[n.city, timeAgo(n.created_at)].filter(Boolean).join(" · ")}
+                          New booking request · {timeAgo(n.created_at)}
                         </p>
                       </div>
                     </div>
