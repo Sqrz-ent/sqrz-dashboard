@@ -69,43 +69,40 @@ function ConversationThread({
   onDecline: () => void;
 }) {
   const [messages, setMessages] = useState<ConvMessage[]>(conv.messages ?? []);
-  const [channelId, setChannelId] = useState<string | null>(null);
+  const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Fetch messages + channel, mark as read on open
+  // Get auth user id (different from profiles.id for migrated users)
   useEffect(() => {
-    async function load() {
-      // Fetch messages for this booking
-      const { data: freshMsgs } = await supabase
-        .from("messages")
-        .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
-        .eq("booking_id", conv.id)
-        .order("created_at", { ascending: true });
-      if (freshMsgs) setMessages(freshMsgs as ConvMessage[]);
+    supabase.auth.getUser().then(({ data }) => {
+      setAuthUserId(data.user?.id ?? null);
+    });
+  }, []);
 
-      // Mark unread messages from others as read
-      if (profileId) {
-        await supabase
-          .from("messages")
-          .update({ is_read: true })
-          .eq("booking_id", conv.id)
-          .neq("sender_id", profileId);
-      }
-
-      // Get channel for replies
-      const { data: channels } = await supabase
-        .from("channels")
-        .select("id")
-        .eq("booking_id", conv.id)
-        .order("created_at", { ascending: true })
-        .limit(1);
-      setChannelId((channels?.[0] as { id: string } | undefined)?.id ?? null);
-    }
-    load();
+  // Fetch messages on open
+  useEffect(() => {
+    supabase
+      .from("messages")
+      .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
+      .eq("booking_id", conv.id)
+      .order("created_at", { ascending: true })
+      .then(({ data }) => { if (data) setMessages(data as ConvMessage[]); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conv.id]);
+
+  // Mark as read when authUserId is known
+  useEffect(() => {
+    if (!authUserId) return;
+    supabase
+      .from("messages")
+      .update({ is_read: true })
+      .eq("booking_id", conv.id)
+      .neq("sender_id", authUserId)
+      .then(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv.id, authUserId]);
 
   // Realtime
   useEffect(() => {
@@ -129,32 +126,20 @@ function ConversationThread({
     const content = reply.trim();
     if (!content || sending) return;
     setSending(true);
-
-    let chId = channelId;
-    if (!chId) {
-      const { data: newCh } = await supabase
-        .from("channels")
-        .insert({ booking_id: conv.id, name: "general" })
-        .select()
-        .single();
-      if (newCh) {
-        const c = newCh as { id: string };
-        setChannelId(c.id);
-        chId = c.id;
-      }
+    try {
+      await supabase.from("messages").insert({
+        booking_id: conv.id,
+        sender_id: authUserId,
+        sender_name: profileName ?? "You",
+        message: content,
+        is_read: false,
+      });
+      setReply("");
+    } catch (e) {
+      console.error("Send failed:", e);
+    } finally {
+      setSending(false);
     }
-    if (!chId) { setSending(false); return; }
-
-    await supabase.from("messages").insert({
-      booking_id: conv.id,
-      channel_id: chId,
-      sender_id: profileId ?? null,
-      sender_name: profileName ?? "You",
-      message: content,
-      is_read: false,
-    });
-    setReply("");
-    setSending(false);
   }
 
   const isLead = conv.status === "lead";
@@ -178,7 +163,7 @@ function ConversationThread({
           </p>
         ) : (
           messages.map((msg) => {
-            const isOwner = msg.sender_id === profileId;
+            const isOwner = msg.sender_id === authUserId;
             const displayName = msg.sender_name === "Guest"
               ? (conv.guest_name ?? "Guest")
               : (msg.sender_name ?? "Guest");
