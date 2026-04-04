@@ -10,12 +10,12 @@ import { supabase } from "~/lib/supabase.client";
 
 interface ConvMessage {
   id: string;
+  booking_id?: string;
   message: string | null;
   sender_name: string | null;
   sender_id: string | null;
   created_at: string;
   is_read: boolean | null;
-  topic: string | null;
 }
 
 interface Conversation {
@@ -74,16 +74,25 @@ function ConversationThread({
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Fetch channel once + subscribe to new messages
+  // Fetch messages + channel, mark as read on open
   useEffect(() => {
     async function load() {
-      // Refresh messages
+      // Fetch messages for this booking
       const { data: freshMsgs } = await supabase
         .from("messages")
-        .select("id, message, sender_name, sender_id, created_at, is_read, topic")
+        .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
         .eq("booking_id", conv.id)
         .order("created_at", { ascending: true });
       if (freshMsgs) setMessages(freshMsgs as ConvMessage[]);
+
+      // Mark unread messages from others as read
+      if (profileId) {
+        await supabase
+          .from("messages")
+          .update({ is_read: true })
+          .eq("booking_id", conv.id)
+          .neq("sender_id", profileId);
+      }
 
       // Get channel for replies
       const { data: channels } = await supabase
@@ -189,27 +198,9 @@ function ConversationThread({
                   }}
                 >
                   {!isOwner && (
-                    <div style={{ display: "flex", alignItems: "center", marginBottom: 2 }}>
-                      <p style={{ color: "#F5A623", fontSize: 10, fontWeight: 700, margin: 0 }}>
-                        {msg.sender_name ?? "Guest"}
-                      </p>
-                      {msg.topic && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            background: "rgba(0,0,0,0.08)",
-                            color: "rgba(0,0,0,0.35)",
-                            marginLeft: 6,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                          }}
-                        >
-                          {msg.topic}
-                        </span>
-                      )}
-                    </div>
+                    <p style={{ color: "#F5A623", fontSize: 10, fontWeight: 700, margin: "0 0 2px" }}>
+                      {msg.sender_name ?? "Guest"}
+                    </p>
                   )}
                   <p style={{ color: "var(--text)", fontSize: 12, margin: 0, lineHeight: 1.5 }}>
                     {msg.message}
@@ -358,24 +349,47 @@ export default function LeadsPanel({
     if (!open || !profileId) return;
 
     async function load() {
-      const { data } = await supabase
+      // Step 1: fetch all bookings owned by this profile
+      const { data: bookings } = await supabase
         .from("bookings")
-        .select(`
-          id, status, guest_name, guest_email, created_at,
-          messages(id, message, sender_name, sender_id, created_at, is_read, topic)
-        `)
+        .select("id, status, guest_name, guest_email, created_at")
         .eq("owner_id", profileId)
         .order("created_at", { ascending: false });
 
-      if (data) {
-        // Sort by latest message activity (or booking created_at if no messages)
-        const sorted = (data as Conversation[]).sort((a, b) => {
-          const aLast = a.messages?.at(-1)?.created_at ?? a.created_at;
-          const bLast = b.messages?.at(-1)?.created_at ?? b.created_at;
-          return new Date(bLast).getTime() - new Date(aLast).getTime();
-        });
-        setConversations(sorted);
+      if (!bookings || bookings.length === 0) {
+        setConversations([]);
+        return;
       }
+
+      // Step 2: fetch all messages for those bookings
+      const bookingIds = (bookings as { id: string }[]).map((b) => b.id);
+      const { data: messages } = await supabase
+        .from("messages")
+        .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
+        .in("booking_id", bookingIds)
+        .order("created_at", { ascending: true });
+
+      // Group messages by booking_id
+      const msgsByBooking: Record<string, ConvMessage[]> = {};
+      for (const msg of (messages ?? []) as ConvMessage[]) {
+        const bid = msg.booking_id ?? "";
+        if (!msgsByBooking[bid]) msgsByBooking[bid] = [];
+        msgsByBooking[bid].push(msg);
+      }
+
+      // Merge and sort by latest activity
+      const convs: Conversation[] = (bookings as Conversation[]).map((b) => ({
+        ...b,
+        messages: msgsByBooking[b.id] ?? [],
+      }));
+
+      convs.sort((a, b) => {
+        const aLast = a.messages.at(-1)?.created_at ?? a.created_at;
+        const bLast = b.messages.at(-1)?.created_at ?? b.created_at;
+        return new Date(bLast).getTime() - new Date(aLast).getTime();
+      });
+
+      setConversations(convs);
     }
     load();
   }, [open, profileId]);
