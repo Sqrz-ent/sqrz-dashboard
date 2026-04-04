@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router";
-import { useNotifications, type Toast, type Lead } from "~/hooks/useNotifications";
+import { useNotifications, type Toast } from "~/hooks/useNotifications";
+import LeadsPanel from "~/components/LeadsPanel";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -75,107 +76,6 @@ function ToastItem({
   );
 }
 
-// ─── Lead item ────────────────────────────────────────────────────────────────
-
-function LeadItem({
-  lead,
-  onConvert,
-  onDecline,
-}: {
-  lead: Lead;
-  onConvert: () => void;
-  onDecline: () => void;
-}) {
-  return (
-    <div
-      style={{
-        padding: "12px 16px",
-        borderBottom: "1px solid var(--border)",
-        background: "rgba(243,177,48,0.04)",
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "#F5A623",
-            flexShrink: 0,
-            marginTop: 5,
-          }}
-        />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p
-            style={{
-              color: "var(--text)",
-              fontSize: 13,
-              fontWeight: 600,
-              margin: "0 0 2px",
-              overflow: "hidden",
-              whiteSpace: "nowrap",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {lead.guest_name ?? "Anonymous"}
-          </p>
-          {lead.description && (
-            <p
-              style={{
-                color: "var(--text-muted)",
-                fontSize: 12,
-                margin: "0 0 2px",
-                overflow: "hidden",
-                whiteSpace: "nowrap",
-                textOverflow: "ellipsis",
-              }}
-            >
-              {lead.description}
-            </p>
-          )}
-          <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
-            {[lead.budget_range, timeAgo(lead.created_at)].filter(Boolean).join(" · ")}
-          </p>
-        </div>
-      </div>
-      <div style={{ display: "flex", gap: 8, paddingLeft: 16 }}>
-        <button
-          onClick={onConvert}
-          style={{
-            flex: 1,
-            padding: "6px 10px",
-            background: "rgba(245,166,35,0.12)",
-            border: "1px solid rgba(245,166,35,0.3)",
-            borderRadius: 8,
-            color: "#F5A623",
-            fontSize: 11,
-            fontWeight: 700,
-            cursor: "pointer",
-            letterSpacing: "0.02em",
-          }}
-        >
-          Convert to inquiry
-        </button>
-        <button
-          onClick={onDecline}
-          style={{
-            padding: "6px 10px",
-            background: "none",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            color: "var(--text-muted)",
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          Decline
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ─── Bell + dropdown ──────────────────────────────────────────────────────────
 
 export default function NotificationBell() {
@@ -190,9 +90,12 @@ export default function NotificationBell() {
     leadCount,
     convertLead,
     declineLead,
+    profileId,
+    profileName,
   } = useNotifications();
 
   const [open, setOpen] = useState(false);
+  const [leadsOpen, setLeadsOpen] = useState(false);
   const [dropdownPos, setDropdownPos] = useState({ top: 0, right: 0 });
   const bellRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -330,29 +233,53 @@ export default function NotificationBell() {
 
           {/* List */}
           <div style={{ maxHeight: 400, overflowY: "auto" }}>
-            {/* Leads section */}
+            {/* Leads entry row */}
             {leads.length > 0 && (
-              <>
-                <div
-                  style={{
-                    padding: "7px 16px 6px",
-                    background: "rgba(243,177,48,0.06)",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  <span style={{ fontSize: 10, fontWeight: 800, color: "#F5A623", letterSpacing: "0.07em", textTransform: "uppercase" }}>
-                    Leads · {leadCount}
+              <button
+                onClick={() => { setLeadsOpen(true); setOpen(false); }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "11px 16px",
+                  background: "rgba(245,166,35,0.06)",
+                  border: "none",
+                  borderBottom: "1px solid var(--border)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: "#F5A623",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
+                    New leads
+                  </span>
+                  <span
+                    style={{
+                      background: "rgba(245,166,35,0.15)",
+                      color: "#F5A623",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      borderRadius: 8,
+                      padding: "1px 6px",
+                    }}
+                  >
+                    {leadCount}
                   </span>
                 </div>
-                {leads.map((lead) => (
-                  <LeadItem
-                    key={lead.id}
-                    lead={lead}
-                    onConvert={() => convertLead(lead.id)}
-                    onDecline={() => declineLead(lead.id)}
-                  />
-                ))}
-              </>
+                <span style={{ color: "#F5A623", fontSize: 12, fontWeight: 600 }}>
+                  View →
+                </span>
+              </button>
             )}
 
             {/* Booking notifications */}
@@ -480,6 +407,17 @@ export default function NotificationBell() {
         </div>,
         document.body
       )}
+
+      {/* Leads panel */}
+      <LeadsPanel
+        open={leadsOpen}
+        onClose={() => setLeadsOpen(false)}
+        leads={leads}
+        convertLead={convertLead}
+        declineLead={declineLead}
+        profileId={profileId}
+        profileName={profileName}
+      />
 
       {/* Animations */}
       <style>{`

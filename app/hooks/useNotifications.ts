@@ -47,6 +47,8 @@ export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [profileName, setProfileName] = useState<string | null>(null);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -62,9 +64,14 @@ export function useNotifications() {
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("id")
+        .select("id, name")
         .eq("user_id", user.id)
         .single();
+
+      if (!profileError && profile) {
+        setProfileId(profile.id as string);
+        setProfileName((profile.name as string) ?? null);
+      }
 
       if (profileError || !profile) return;
 
@@ -223,5 +230,7 @@ export function useNotifications() {
     leadCount,
     convertLead,
     declineLead,
+    profileId,
+    profileName,
   };
 }
