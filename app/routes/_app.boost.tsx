@@ -76,10 +76,10 @@ const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }>
 };
 
 const BOOST_PAYMENT_LINKS: Record<number, string> = {
-  50:  "https://buy.stripe.com/test_5kQ28q1Bt1ds8J01QU57W00",
-  100: "https://buy.stripe.com/test_eVq14m6VN3lA9N4dzC57W04",
-  150: "https://buy.stripe.com/test_bJeaEWgwn2hwe3k0MQ57W02",
-  300: "https://buy.stripe.com/test_7sY9AScg7f4i8J0cvy57W03",
+  50:  "https://buy.stripe.com/7sY7sKbc35tI1gyanq57W01",
+  100: "https://buy.stripe.com/bJeaEWgwn2hwe3k0MQ57W02",
+  150: "https://buy.stripe.com/7sY9AScg7f4i8J0cvy57W03",
+  300: "https://buy.stripe.com/eVq14m6VN3lA9N4dzC57W04",
 };
 
 const PROMOTE_LABEL: Record<string, string> = {
