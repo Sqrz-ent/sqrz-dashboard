@@ -171,14 +171,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     try {
       const { data: booking } = await supabase
         .from("bookings")
-        .select("guest_email, guest_name")
+        .select("guest_email, guest_name, service, date_start, city, venue, rate, currency, require_hotel, require_travel, require_food")
         .eq("id", params.id)
         .maybeSingle();
 
       const guestEmail = booking?.guest_email;
 
       if (guestEmail) {
-        const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+        const ownerName = (profile.name as string | null) ?? (profile.first_name as string | null) ?? "Your booking partner";
         const admin = createSupabaseAdminClient();
         const next = encodeURIComponent(`/booking/${params.id}`);
         const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
@@ -187,21 +187,92 @@ export async function action({ request, params }: Route.ActionArgs) {
           email: guestEmail,
           options: { redirectTo },
         });
-        const magicLink = linkData?.properties?.action_link;
+        const magicLink = linkData?.properties?.action_link ?? `https://dashboard.sqrz.com/booking/${params.id}`;
+
+        const riderItems = [
+          booking?.require_hotel && "🏨 Hotel",
+          booking?.require_travel && "✈️ Travel",
+          booking?.require_food && "🍽️ Catering",
+        ].filter(Boolean).join(" · ");
+
+        const emailHtml = `<!DOCTYPE html>
+<html>
+<body style="margin:0;padding:0;background:#f5f5f5;font-family:sans-serif;">
+  <div style="max-width:560px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;">
+
+    <div style="background:#0a0a0a;padding:32px;text-align:center;">
+      <img src="https://sqrz.com/brand/sqrz_logo.png" alt="SQRZ" style="height:32px;" />
+    </div>
+
+    <div style="padding:32px;">
+      <p style="color:#666;font-size:14px;margin:0 0 8px;">Hi ${booking?.guest_name ?? "there"},</p>
+      <h1 style="font-size:24px;font-weight:700;margin:0 0 24px;color:#0a0a0a;">
+        You have a proposal from ${ownerName}
+      </h1>
+
+      <div style="background:#f9f9f9;border-radius:8px;padding:20px;margin-bottom:24px;">
+        ${booking?.service ? `
+        <div style="margin-bottom:12px;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Service</span>
+          <p style="margin:4px 0 0;font-weight:600;color:#0a0a0a;">${booking.service}</p>
+        </div>` : ""}
+
+        ${booking?.date_start ? `
+        <div style="margin-bottom:12px;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Date</span>
+          <p style="margin:4px 0 0;font-weight:600;color:#0a0a0a;">${new Date(booking.date_start).toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p>
+        </div>` : ""}
+
+        ${booking?.city ? `
+        <div style="margin-bottom:12px;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Location</span>
+          <p style="margin:4px 0 0;font-weight:600;color:#0a0a0a;">${booking.venue ? `${booking.venue}, ` : ""}${booking.city}</p>
+        </div>` : ""}
+
+        <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Proposed Rate</span>
+          <p style="margin:4px 0 0;font-size:28px;font-weight:700;color:#0a0a0a;">${(booking?.currency ?? currency).toUpperCase()} ${booking?.rate ?? rate}</p>
+        </div>
+
+        ${riderItems ? `
+        <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Rider</span>
+          <p style="margin:4px 0 0;color:#0a0a0a;">${riderItems}</p>
+        </div>` : ""}
+
+        ${message ? `
+        <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;">
+          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Note from ${ownerName}</span>
+          <p style="margin:4px 0 0;color:#0a0a0a;">${message}</p>
+        </div>` : ""}
+      </div>
+
+      <div style="text-align:center;margin:32px 0;">
+        <a href="${magicLink}" style="background:#F3B130;color:#000;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block;">
+          View Full Proposal →
+        </a>
+      </div>
+
+      <p style="color:#999;font-size:12px;text-align:center;">
+        This link will log you in automatically — no password needed.
+      </p>
+    </div>
+
+    <div style="padding:20px 32px;border-top:1px solid #eee;text-align:center;">
+      <p style="color:#ccc;font-size:11px;margin:0;">Powered by <a href="https://sqrz.com" style="color:#F3B130;text-decoration:none;">SQRZ</a></p>
+    </div>
+
+  </div>
+</body>
+</html>`;
+
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
         await resend.emails.send({
           from: "SQRZ <bookings@sqrz.com>",
           to: guestEmail,
-          subject: "You have a new proposal on SQRZ",
-          html: `
-            <p>Hi ${booking?.guest_name ?? "there"},</p>
-            <p>You have received a proposal for your booking request.</p>
-            <p><strong>Rate:</strong> ${sym}${rate?.toLocaleString() ?? "TBD"}</p>
-            ${message ? `<p><strong>Note:</strong> ${message}</p>` : ""}
-            <p><a href="${magicLink}">View booking →</a></p>
-            <p>The SQRZ Team</p>
-          `,
+          subject: `${ownerName} sent you a proposal on SQRZ`,
+          html: emailHtml,
         });
       }
     } catch (err) {
