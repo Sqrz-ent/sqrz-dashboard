@@ -99,6 +99,11 @@ export async function loader({ request }: Route.LoaderArgs) {
         .eq('user_id', authedUser.id)
         .maybeSingle();
 
+      // Always follow /booking/ next param — handles both guests AND members invited to bookings
+      if (decodedNext?.startsWith('/booking/')) {
+        return redirect(decodedNext, { headers });
+      }
+
       if (profile?.user_type === 'guest') {
         // Link user_id to any booking_participants rows matching their email
         if (authedUser.email) {
