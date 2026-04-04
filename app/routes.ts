@@ -29,6 +29,9 @@ export default [
     route("account", "routes/_app.account.tsx"),
   ]),
 
+  // API routes (server-only, action handlers)
+  route("api/notify-guest", "routes/api.notify-guest.tsx"),
+
   // Stripe API routes (server-only, action handlers)
   route("api/stripe/checkout", "routes/api.stripe.checkout.tsx"),
   route("api/stripe/connect", "routes/api.stripe.connect.tsx"),

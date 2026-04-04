@@ -135,6 +135,20 @@ function ConversationThread({
         is_read: false,
       });
       setReply("");
+      // Notify guest by email (fire and forget)
+      if (conv.guest_email) {
+        fetch("/api/notify-guest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            bookingId: conv.id,
+            guestEmail: conv.guest_email,
+            guestName: conv.guest_name,
+            memberName: profileName,
+            message: content,
+          }),
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error("Send failed:", e);
     } finally {
