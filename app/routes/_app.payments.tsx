@@ -97,7 +97,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // ── Stripe Express login link ─────────────────────────────────────────────
   let stripeExpressUrl: string | null = null;
-  if (connectId) {
+  if (connectId && connectStatus === "active") {
     try {
       const loginLink = await stripe.accounts.createLoginLink(connectId);
       stripeExpressUrl = loginLink.url;
@@ -265,15 +265,24 @@ export default function PaymentsPage() {
         <div style={cardHeader}>
           <p style={cardTitle}>Client Payments</p>
 
-          {isActive && stripeExpressUrl ? (
-            <a
-              href={stripeExpressUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={ghostBtn}
-            >
-              Manage Payouts →
-            </a>
+          {isActive ? (
+            stripeExpressUrl ? (
+              <a
+                href={stripeExpressUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={ghostBtn}
+              >
+                Manage Payouts →
+              </a>
+            ) : (
+              <span
+                title="Payout dashboard unavailable — Connect account may need re-linking"
+                style={{ ...ghostBtn, opacity: 0.4, cursor: "default" }}
+              >
+                Manage Payouts →
+              </span>
+            )
           ) : isPending ? (
             <connectFetcher.Form method="post" action="/api/stripe/connect">
               <button
@@ -359,15 +368,24 @@ export default function PaymentsPage() {
         <div style={cardHeader}>
           <p style={cardTitle}>Your SQRZ Plan</p>
 
-          {hasPlan && billingPortalUrl && (
-            <a
-              href={billingPortalUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={ghostBtn}
-            >
-              Manage Billing →
-            </a>
+          {hasPlan && (
+            billingPortalUrl ? (
+              <a
+                href={billingPortalUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={ghostBtn}
+              >
+                Manage Billing →
+              </a>
+            ) : (
+              <span
+                title="Billing portal unavailable — contact support"
+                style={{ ...ghostBtn, opacity: 0.4, cursor: "default" }}
+              >
+                Manage Billing →
+              </span>
+            )
           )}
         </div>
 
