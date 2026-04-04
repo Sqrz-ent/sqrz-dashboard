@@ -385,6 +385,11 @@ function AccountPanel({
   const isConnecting = connectFetcher.state !== "idle";
   const isOpeningDashboard = loginFetcher.state !== "idle";
 
+  useEffect(() => {
+    const url = (loginFetcher.data as { url?: string } | null)?.url;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }, [loginFetcher.data]);
+
   const planId = profile?.plan_id as number | null | undefined;
   const showUpgrade = !planId || planId === 0;
 

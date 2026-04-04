@@ -1,4 +1,5 @@
 import { redirect, useLoaderData, useFetcher } from "react-router";
+import { useEffect } from "react";
 import type { Route } from "./+types/_app.payments";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -123,6 +124,11 @@ export default function PaymentsPage() {
 
   const isConnecting = connectFetcher.state !== "idle";
   const isOpeningDashboard = loginFetcher.state !== "idle";
+
+  useEffect(() => {
+    const url = (loginFetcher.data as { url?: string } | null)?.url;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }, [loginFetcher.data]);
 
   const isActive = connectStatus === "active";
   const isPending = connectStatus === "pending";

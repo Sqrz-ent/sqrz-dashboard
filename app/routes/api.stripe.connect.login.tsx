@@ -20,5 +20,5 @@ export async function action({ request }: { request: Request }) {
   }
 
   const loginLink = await stripe.accounts.createLoginLink(connectId);
-  return redirect(loginLink.url, { headers });
+  return Response.json({ url: loginLink.url }, { headers });
 }
