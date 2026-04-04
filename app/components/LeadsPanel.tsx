@@ -179,6 +179,9 @@ function ConversationThread({
         ) : (
           messages.map((msg) => {
             const isOwner = msg.sender_id === profileId;
+            const displayName = msg.sender_name === "Guest"
+              ? (conv.guest_name ?? "Guest")
+              : (msg.sender_name ?? "Guest");
             return (
               <div
                 key={msg.id}
@@ -199,7 +202,7 @@ function ConversationThread({
                 >
                   {!isOwner && (
                     <p style={{ color: "#F5A623", fontSize: 10, fontWeight: 700, margin: "0 0 2px" }}>
-                      {msg.sender_name ?? "Guest"}
+                      {displayName}
                     </p>
                   )}
                   <p style={{ color: "var(--text)", fontSize: 12, margin: 0, lineHeight: 1.5 }}>
