@@ -4,8 +4,6 @@ import type { Route } from "./+types/_app.payments";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
-import { getPlanLevel } from "~/lib/plans";
-import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -15,33 +13,72 @@ const card: React.CSSProperties = {
   background: "var(--surface)",
   border: "1px solid rgba(245,166,35,0.28)",
   borderRadius: 16,
-  padding: "22px 24px",
+  padding: "24px 24px",
   marginBottom: 20,
-  position: "relative",
 };
 
-const sectionTitle: React.CSSProperties = {
+const cardHeader: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginBottom: 20,
+};
+
+const cardTitle: React.CSSProperties = {
   fontFamily: FONT_DISPLAY,
-  fontSize: 30,
+  fontSize: 13,
   fontWeight: 800,
-  color: ACCENT,
+  color: "var(--text-muted)",
   textTransform: "uppercase" as const,
-  letterSpacing: "0.03em",
-  margin: "0 0 18px",
-  lineHeight: 1.1,
+  letterSpacing: "0.12em",
+  margin: 0,
+};
+
+const ghostBtn: React.CSSProperties = {
+  padding: "7px 14px",
+  background: "none",
+  border: "1px solid var(--border)",
+  borderRadius: 10,
+  color: "var(--text)",
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+  fontFamily: FONT_BODY,
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
+};
+
+const accentBtn: React.CSSProperties = {
+  padding: "10px 20px",
+  background: ACCENT,
+  border: "none",
+  borderRadius: 10,
+  color: "#111111",
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: FONT_BODY,
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type InvoiceRow = {
+type ClientPayment = {
   id: string;
-  created: number;
-  amount_paid: number;
+  title: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  amount: number;
   currency: string;
-  status: string | null;
-  invoice_pdf: string | null;
-  hosted_invoice_url: string | null;
-  description: string | null;
+  created_at: string;
+};
+
+type SubInfo = {
+  planName: string | null;
+  interval: "month" | "year" | null;
+  amount: number | null;
+  currency: string | null;
+  nextBilling: number | null; // unix timestamp
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -54,49 +91,94 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const planLevel = getPlanLevel(profile.plan_id as number | null, profile.is_beta as boolean);
   const connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
-  const connectId = (profile.stripe_connect_id as string | null) ?? null;
   const customerId = (profile.stripe_customer_id as string | null) ?? null;
+  const planId = profile.plan_id as number | null;
 
-  let invoices: InvoiceRow[] = [];
+  // ── Client payments ──────────────────────────────────────────────────────
+  let clientPayments: ClientPayment[] = [];
+  try {
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("id, title, amount, currency, created_at, booking:bookings(guest_name, guest_email)")
+      .eq("profile_id", profile.id as string)
+      .eq("status", "paid")
+      .order("created_at", { ascending: false })
+      .limit(50);
 
-  if (planLevel >= 1 && customerId) {
-    try {
-      const result = await stripe.invoices.list({ customer: customerId, limit: 20 });
-      invoices = result.data.map((inv) => ({
-        id: inv.id,
-        created: inv.created,
-        amount_paid: inv.amount_paid,
-        currency: inv.currency,
-        status: inv.status ?? null,
-        invoice_pdf: inv.invoice_pdf ?? null,
-        hosted_invoice_url: inv.hosted_invoice_url ?? null,
-        description: inv.description ?? null,
+    if (payments) {
+      clientPayments = payments.map((p: any) => ({
+        id: p.id,
+        title: p.title ?? null,
+        guest_name: p.booking?.guest_name ?? null,
+        guest_email: p.booking?.guest_email ?? null,
+        amount: p.amount,
+        currency: p.currency ?? "usd",
+        created_at: p.created_at,
       }));
+    }
+  } catch {
+    // Non-fatal
+  }
+
+  // ── Subscription info ────────────────────────────────────────────────────
+  let subInfo: SubInfo = {
+    planName: null,
+    interval: null,
+    amount: null,
+    currency: null,
+    nextBilling: null,
+  };
+
+  // Plan name from DB
+  if (planId) {
+    const { data: plan } = await supabase
+      .from("plans")
+      .select("name")
+      .eq("id", planId)
+      .maybeSingle();
+    subInfo.planName = (plan?.name as string) ?? null;
+  }
+
+  // Billing details from Stripe
+  if (customerId) {
+    try {
+      const subs = await stripe.subscriptions.list({
+        customer: customerId,
+        status: "active",
+        limit: 1,
+        expand: ["data.items.data.price"],
+      });
+      const sub = subs.data[0];
+      if (sub) {
+        const price = sub.items.data[0]?.price;
+        subInfo.interval = (price?.recurring?.interval as "month" | "year") ?? null;
+        subInfo.amount = price?.unit_amount ?? null;
+        subInfo.currency = price?.currency ?? null;
+        subInfo.nextBilling = (sub as any).current_period_end ?? sub.items.data[0]?.current_period_end ?? null;
+      }
     } catch {
-      // Non-fatal — show empty state
+      // Non-fatal
     }
   }
 
   return Response.json(
-    {
-      planLevel,
-      connectStatus,
-      connectId,
-      invoices,
-    },
+    { connectStatus, clientPayments, subInfo, planId },
     { headers }
   );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatDate(unix: number) {
-  return new Date(unix * 1000).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
+function formatDate(ts: number) {
+  return new Date(ts * 1000).toLocaleDateString("en-US", {
+    year: "numeric", month: "long", day: "numeric",
+  });
+}
+
+function formatDateStr(str: string) {
+  return new Date(str).toLocaleDateString("en-US", {
+    year: "numeric", month: "short", day: "numeric",
   });
 }
 
@@ -104,209 +186,209 @@ function formatAmount(amount: number, currency: string) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: currency.toUpperCase(),
-    minimumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(amount / 100);
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
-  const { planLevel, connectStatus, invoices } =
+  const { connectStatus, clientPayments, subInfo, planId } =
     useLoaderData<typeof loader>() as {
-      planLevel: number;
       connectStatus: string;
-      connectId: string | null;
-      invoices: InvoiceRow[];
+      clientPayments: ClientPayment[];
+      subInfo: SubInfo;
+      planId: number | null;
     };
 
   const connectFetcher = useFetcher();
   const loginFetcher = useFetcher();
+  const billingFetcher = useFetcher();
 
   const isConnecting = connectFetcher.state !== "idle";
   const isOpeningDashboard = loginFetcher.state !== "idle";
+  const isOpeningBilling = billingFetcher.state !== "idle";
+
+  const isActive = connectStatus === "active";
+  const isPending = connectStatus === "pending";
+  const hasPlan = !!planId && planId > 0;
 
   useEffect(() => {
     const url = (loginFetcher.data as { url?: string } | null)?.url;
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   }, [loginFetcher.data]);
 
-  const isActive = connectStatus === "active";
-  const isPending = connectStatus === "pending";
+  useEffect(() => {
+    const url = (billingFetcher.data as { url?: string } | null)?.url;
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  }, [billingFetcher.data]);
+
+  const planLabel = subInfo.planName
+    ? [
+        subInfo.planName,
+        subInfo.amount && subInfo.currency
+          ? `${formatAmount(subInfo.amount, subInfo.currency)}/${subInfo.interval === "year" ? "yr" : "mo"}`
+          : null,
+      ].filter(Boolean).join(" · ")
+    : null;
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px", fontFamily: FONT_BODY }}>
-      <h1 style={{ ...sectionTitle, fontSize: 36, marginBottom: 6 }}>Payments</h1>
-      <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 28px" }}>
-        Connect your bank account and manage invoices.
-      </p>
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <h1 style={{
+        fontFamily: FONT_DISPLAY,
+        fontSize: 36,
+        fontWeight: 800,
+        color: ACCENT,
+        textTransform: "uppercase",
+        letterSpacing: "0.03em",
+        margin: "0 0 28px",
+        lineHeight: 1.1,
+      }}>
+        Payments
+      </h1>
 
-      {planLevel < 1 && (
-        <UpgradeBanner planName="Creator plan" upgradeParam="1" />
-      )}
-
-      {/* ── Section A: Stripe Connect ── */}
+      {/* ── Section 1: Client Payments ── */}
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", margin: "0 0 4px" }}>
-          Stripe Connect
-        </h2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 18px" }}>
-          Connect your bank account to receive payouts from bookings.
-        </p>
+        <div style={cardHeader}>
+          <p style={cardTitle}>Client Payments</p>
 
-        {isActive ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-            <span style={{ color: "#4ade80", fontSize: 14, fontWeight: 600 }}>
-              ✓ Payments active
-            </span>
+          {isActive ? (
             <loginFetcher.Form method="post" action="/api/stripe/connect/login">
               <button
                 type="submit"
-                disabled={isOpeningDashboard || planLevel < 1}
-                style={{
-                  padding: "9px 18px",
-                  background: "none",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  color: "var(--text)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: isOpeningDashboard ? "default" : "pointer",
-                  fontFamily: FONT_BODY,
-                }}
+                disabled={isOpeningDashboard}
+                style={{ ...ghostBtn, opacity: isOpeningDashboard ? 0.6 : 1, cursor: isOpeningDashboard ? "default" : "pointer" }}
               >
-                {isOpeningDashboard ? "Opening…" : "Manage payouts →"}
+                {isOpeningDashboard ? "Opening…" : "Manage Payouts →"}
               </button>
             </loginFetcher.Form>
-          </div>
-        ) : isPending ? (
-          <div>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
-              Onboarding in progress — finish setting up your account to receive payouts.
+          ) : isPending ? (
+            <connectFetcher.Form method="post" action="/api/stripe/connect">
+              <button
+                type="submit"
+                disabled={isConnecting}
+                style={{ ...ghostBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
+              >
+                {isConnecting ? "Redirecting…" : "Continue Setup →"}
+              </button>
+            </connectFetcher.Form>
+          ) : null}
+        </div>
+
+        {!isActive && !isPending && (
+          <div style={{ padding: "20px 0 8px", borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px" }}>
+              Connect your bank account to receive payments from clients.
             </p>
             <connectFetcher.Form method="post" action="/api/stripe/connect">
               <button
                 type="submit"
-                disabled={isConnecting || planLevel < 1}
-                style={{
-                  padding: "11px 22px",
-                  background: "var(--surface-muted)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  color: isConnecting ? "var(--text-muted)" : "var(--text)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: isConnecting ? "default" : "pointer",
-                  fontFamily: FONT_BODY,
-                }}
+                disabled={isConnecting}
+                style={{ ...accentBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
               >
-                {isConnecting ? "Redirecting…" : "Continue setup →"}
+                {isConnecting ? "Redirecting…" : "Connect Bank Account →"}
               </button>
             </connectFetcher.Form>
           </div>
-        ) : (
-          <div>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
-              You're not connected yet. Connect Stripe to get paid directly through SQRZ.
+        )}
+
+        {isPending && (
+          <div style={{ padding: "16px 0 4px", borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+              Onboarding in progress — finish setting up your Stripe account to receive payouts.
             </p>
-            <connectFetcher.Form method="post" action="/api/stripe/connect">
-              <button
-                type="submit"
-                disabled={isConnecting || planLevel < 1}
-                style={{
-                  padding: "12px 24px",
-                  background: planLevel >= 1 ? ACCENT : "var(--surface-muted)",
-                  border: "none",
-                  borderRadius: 10,
-                  color: planLevel >= 1 ? "#111111" : "var(--text-muted)",
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: isConnecting || planLevel < 1 ? "default" : "pointer",
-                  opacity: isConnecting ? 0.6 : 1,
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                {isConnecting ? "Redirecting…" : "Connect Stripe →"}
-              </button>
-            </connectFetcher.Form>
           </div>
+        )}
+
+        {isActive && (
+          <>
+            {clientPayments.length === 0 ? (
+              <div style={{ padding: "28px 0", textAlign: "center", borderTop: "1px solid var(--border)" }}>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+                  No client payments yet. Send a proposal to get started.
+                </p>
+              </div>
+            ) : (
+              <div style={{ borderTop: "1px solid var(--border)" }}>
+                {clientPayments.map((p, i) => (
+                  <div
+                    key={p.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "13px 0",
+                      borderBottom: i < clientPayments.length - 1 ? "1px solid var(--border)" : "none",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {p.title ?? "Booking"}
+                      </p>
+                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted)" }}>
+                        {p.guest_name ?? p.guest_email ?? "Client"} · {formatDateStr(p.created_at)}
+                      </p>
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: "#4ade80", flexShrink: 0 }}>
+                      {formatAmount(p.amount, p.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* ── Section B: Invoices ── */}
+      {/* ── Section 2: SQRZ Subscription ── */}
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", margin: "0 0 4px" }}>
-          Invoices
-        </h2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 18px" }}>
-          Your SQRZ subscription billing history.
-        </p>
+        <div style={cardHeader}>
+          <p style={cardTitle}>Your SQRZ Plan</p>
 
-        {planLevel < 1 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-            Upgrade to Creator to access invoices.
-          </p>
-        ) : invoices.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-            No invoices yet — they'll appear here once you start getting booked.
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            {invoices.map((inv, i) => (
-              <div
-                key={inv.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "12px 0",
-                  borderBottom: i < invoices.length - 1 ? "1px solid var(--border)" : "none",
-                  gap: 12,
-                  flexWrap: "wrap",
-                }}
+          {hasPlan && (
+            <billingFetcher.Form method="post" action="/api/stripe/billing-portal">
+              <button
+                type="submit"
+                disabled={isOpeningBilling}
+                style={{ ...ghostBtn, opacity: isOpeningBilling ? 0.6 : 1, cursor: isOpeningBilling ? "default" : "pointer" }}
               >
-                <div>
-                  <p style={{ margin: 0, fontSize: 14, color: "var(--text)", fontWeight: 500 }}>
-                    {formatDate(inv.created)}
-                  </p>
-                  {inv.description && (
-                    <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted)" }}>
-                      {inv.description}
-                    </p>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                    {formatAmount(inv.amount_paid, inv.currency)}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: "2px 8px",
-                      borderRadius: 20,
-                      background: inv.status === "paid"
-                        ? "rgba(74,222,128,0.12)"
-                        : "rgba(245,166,35,0.12)",
-                      color: inv.status === "paid" ? "#4ade80" : ACCENT,
-                    }}
-                  >
-                    {inv.status ?? "—"}
-                  </span>
-                  {(inv.invoice_pdf || inv.hosted_invoice_url) && (
-                    <a
-                      href={(inv.invoice_pdf ?? inv.hosted_invoice_url)!}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ fontSize: 12, color: ACCENT, textDecoration: "none", fontWeight: 600 }}
-                    >
-                      PDF ↗
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                {isOpeningBilling ? "Opening…" : "Manage Billing →"}
+              </button>
+            </billingFetcher.Form>
+          )}
+        </div>
+
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+          {!hasPlan ? (
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+              You're on the free plan.{" "}
+              <a href="/?upgrade=1" style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}>
+                Upgrade to Creator →
+              </a>
+            </p>
+          ) : (
+            <>
+              {planLabel && (
+                <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", margin: "0 0 6px" }}>
+                  {planLabel}
+                </p>
+              )}
+              {subInfo.nextBilling && (
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+                  Next billing: {formatDate(subInfo.nextBilling)}
+                </p>
+              )}
+              {!subInfo.nextBilling && subInfo.planName && (
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+                  {subInfo.planName}
+                </p>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
