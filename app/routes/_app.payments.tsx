@@ -1,5 +1,4 @@
 import { redirect, useLoaderData, useFetcher } from "react-router";
-import { useEffect } from "react";
 import type { Route } from "./+types/_app.payments";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -92,8 +91,34 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!profile) return redirect("/login", { headers });
 
   const connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
+  const connectId = (profile.stripe_connect_id as string | null) ?? null;
   const customerId = (profile.stripe_customer_id as string | null) ?? null;
   const planId = profile.plan_id as number | null;
+
+  // ── Stripe Express login link ─────────────────────────────────────────────
+  let stripeExpressUrl: string | null = null;
+  if (connectId && connectStatus === "active") {
+    try {
+      const loginLink = await stripe.accounts.createLoginLink(connectId);
+      stripeExpressUrl = loginLink.url;
+    } catch {
+      // Non-fatal
+    }
+  }
+
+  // ── Stripe billing portal URL ─────────────────────────────────────────────
+  let billingPortalUrl: string | null = null;
+  if (customerId) {
+    try {
+      const session = await stripe.billingPortal.sessions.create({
+        customer: customerId,
+        return_url: `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/payments`,
+      });
+      billingPortalUrl = session.url;
+    } catch {
+      // Non-fatal
+    }
+  }
 
   // ── Client payments ──────────────────────────────────────────────────────
   let clientPayments: ClientPayment[] = [];
@@ -163,7 +188,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   return Response.json(
-    { connectStatus, clientPayments, subInfo, planId },
+    { connectStatus, clientPayments, subInfo, planId, stripeExpressUrl, billingPortalUrl },
     { headers }
   );
 }
@@ -194,35 +219,22 @@ function formatAmount(amount: number, currency: string) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
-  const { connectStatus, clientPayments, subInfo, planId } =
+  const { connectStatus, clientPayments, subInfo, planId, stripeExpressUrl, billingPortalUrl } =
     useLoaderData<typeof loader>() as {
       connectStatus: string;
       clientPayments: ClientPayment[];
       subInfo: SubInfo;
       planId: number | null;
+      stripeExpressUrl: string | null;
+      billingPortalUrl: string | null;
     };
 
   const connectFetcher = useFetcher();
-  const loginFetcher = useFetcher();
-  const billingFetcher = useFetcher();
-
   const isConnecting = connectFetcher.state !== "idle";
-  const isOpeningDashboard = loginFetcher.state !== "idle";
-  const isOpeningBilling = billingFetcher.state !== "idle";
 
   const isActive = connectStatus === "active";
   const isPending = connectStatus === "pending";
   const hasPlan = !!planId && planId > 0;
-
-  useEffect(() => {
-    const url = (loginFetcher.data as { url?: string } | null)?.url;
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-  }, [loginFetcher.data]);
-
-  useEffect(() => {
-    const url = (billingFetcher.data as { url?: string } | null)?.url;
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-  }, [billingFetcher.data]);
 
   const planLabel = subInfo.planName
     ? [
@@ -253,16 +265,15 @@ export default function PaymentsPage() {
         <div style={cardHeader}>
           <p style={cardTitle}>Client Payments</p>
 
-          {isActive ? (
-            <loginFetcher.Form method="post" action="/api/stripe/connect/login">
-              <button
-                type="submit"
-                disabled={isOpeningDashboard}
-                style={{ ...ghostBtn, opacity: isOpeningDashboard ? 0.6 : 1, cursor: isOpeningDashboard ? "default" : "pointer" }}
-              >
-                {isOpeningDashboard ? "Opening…" : "Manage Payouts →"}
-              </button>
-            </loginFetcher.Form>
+          {isActive && stripeExpressUrl ? (
+            <a
+              href={stripeExpressUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={ghostBtn}
+            >
+              Manage Payouts →
+            </a>
           ) : isPending ? (
             <connectFetcher.Form method="post" action="/api/stripe/connect">
               <button
@@ -348,16 +359,15 @@ export default function PaymentsPage() {
         <div style={cardHeader}>
           <p style={cardTitle}>Your SQRZ Plan</p>
 
-          {hasPlan && (
-            <billingFetcher.Form method="post" action="/api/stripe/billing-portal">
-              <button
-                type="submit"
-                disabled={isOpeningBilling}
-                style={{ ...ghostBtn, opacity: isOpeningBilling ? 0.6 : 1, cursor: isOpeningBilling ? "default" : "pointer" }}
-              >
-                {isOpeningBilling ? "Opening…" : "Manage Billing →"}
-              </button>
-            </billingFetcher.Form>
+          {hasPlan && billingPortalUrl && (
+            <a
+              href={billingPortalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={ghostBtn}
+            >
+              Manage Billing →
+            </a>
           )}
         </div>
 
