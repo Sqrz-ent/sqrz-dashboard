@@ -167,48 +167,42 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     if (error) return Response.json({ error: error.message }, { status: 500, headers });
 
-    // Look up buyer email from booking_request → from_profile_id
+    // Send proposal email with magic link to guest
     try {
-      const { data: req } = await supabase
-        .from("booking_requests")
-        .select("from_profile_id, service")
-        .eq("booking_id", params.id)
-        .limit(1)
+      const { data: booking } = await supabase
+        .from("bookings")
+        .select("guest_email, guest_name")
+        .eq("id", params.id)
         .maybeSingle();
 
-      if (req?.from_profile_id) {
-        const { data: buyer } = await supabase
-          .from("profiles")
-          .select("email, name")
-          .eq("id", req.from_profile_id)
-          .maybeSingle();
+      const guestEmail = booking?.guest_email;
 
-        if (buyer?.email) {
-          const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
-          const admin = createSupabaseAdminClient();
-          const next = encodeURIComponent(`/booking/${params.id}`);
-          const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
-          const { data: linkData } = await admin.auth.admin.generateLink({
-            type: "magiclink",
-            email: buyer.email,
-            options: { redirectTo },
-          });
-          const { Resend } = await import("resend");
-          const resend = new Resend(process.env.RESEND_API_KEY);
-          await resend.emails.send({
-            from: "SQRZ <bookings@sqrz.com>",
-            to: buyer.email,
-            subject: "You have a new proposal on SQRZ",
-            html: `
-              <p>Hi ${buyer.name ?? "there"},</p>
-              <p>You have received a proposal for your booking request.</p>
-              <p><strong>Rate:</strong> ${sym}${rate?.toLocaleString() ?? "TBD"}</p>
-              ${message ? `<p><strong>Note:</strong> ${message}</p>` : ""}
-              <p><a href="${linkData?.properties?.action_link}">View booking →</a></p>
-              <p>The SQRZ Team</p>
-            `,
-          });
-        }
+      if (guestEmail) {
+        const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+        const admin = createSupabaseAdminClient();
+        const next = encodeURIComponent(`/booking/${params.id}`);
+        const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
+        const { data: linkData } = await admin.auth.admin.generateLink({
+          type: "magiclink",
+          email: guestEmail,
+          options: { redirectTo },
+        });
+        const magicLink = linkData?.properties?.action_link;
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: "SQRZ <bookings@sqrz.com>",
+          to: guestEmail,
+          subject: "You have a new proposal on SQRZ",
+          html: `
+            <p>Hi ${booking?.guest_name ?? "there"},</p>
+            <p>You have received a proposal for your booking request.</p>
+            <p><strong>Rate:</strong> ${sym}${rate?.toLocaleString() ?? "TBD"}</p>
+            ${message ? `<p><strong>Note:</strong> ${message}</p>` : ""}
+            <p><a href="${magicLink}">View booking →</a></p>
+            <p>The SQRZ Team</p>
+          `,
+        });
       }
     } catch (err) {
       console.error("[proposal] email send failed:", err);
