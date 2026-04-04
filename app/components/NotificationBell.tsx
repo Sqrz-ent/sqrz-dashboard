@@ -87,9 +87,7 @@ export default function NotificationBell() {
     toasts,
     dismissToast,
     leads,
-    leadCount,
-    convertLead,
-    declineLead,
+    unreadMessageCount,
     profileId,
     profileName,
   } = useNotifications();
@@ -135,7 +133,7 @@ export default function NotificationBell() {
     setOpen((v) => !v);
   }
 
-  const totalBadge = unreadCount + leadCount;
+  const totalBadge = unreadCount + unreadMessageCount;
 
   return (
     <>
@@ -233,8 +231,8 @@ export default function NotificationBell() {
 
           {/* List */}
           <div style={{ maxHeight: 400, overflowY: "auto" }}>
-            {/* Leads entry row */}
-            {leads.length > 0 && (
+            {/* Messages entry row — always visible */}
+            {(
               <button
                 onClick={() => { setLeadsOpen(true); setOpen(false); }}
                 style={{
@@ -261,20 +259,22 @@ export default function NotificationBell() {
                     }}
                   />
                   <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
-                    New leads
+                    Messages
                   </span>
-                  <span
-                    style={{
-                      background: "rgba(245,166,35,0.15)",
-                      color: "#F5A623",
-                      fontSize: 10,
-                      fontWeight: 700,
-                      borderRadius: 8,
-                      padding: "1px 6px",
-                    }}
-                  >
-                    {leadCount}
-                  </span>
+                  {unreadMessageCount > 0 && (
+                    <span
+                      style={{
+                        background: "rgba(245,166,35,0.15)",
+                        color: "#F5A623",
+                        fontSize: 10,
+                        fontWeight: 700,
+                        borderRadius: 8,
+                        padding: "1px 6px",
+                      }}
+                    >
+                      {unreadMessageCount} unread
+                    </span>
+                  )}
                 </div>
                 <span style={{ color: "#F5A623", fontSize: 12, fontWeight: 600 }}>
                   View →
@@ -283,32 +283,30 @@ export default function NotificationBell() {
             )}
 
             {/* Booking notifications */}
-            {notifications.length === 0 && leads.length === 0 ? (
+            {notifications.length === 0 ? (
               <div
                 style={{
-                  padding: "36px 16px",
+                  padding: "24px 16px",
                   textAlign: "center",
                   color: "var(--text-muted)",
                   fontSize: 13,
                 }}
               >
-                No notifications yet
+                No new requests
               </div>
-            ) : notifications.length > 0 && (
+            ) : (
               <>
-                {leads.length > 0 && (
-                  <div
-                    style={{
-                      padding: "7px 16px 6px",
-                      background: "var(--surface-muted)",
-                      borderBottom: "1px solid var(--border)",
-                    }}
-                  >
-                    <span style={{ fontSize: 10, fontWeight: 800, color: "var(--text-muted)", letterSpacing: "0.07em", textTransform: "uppercase" }}>
-                      Activity
-                    </span>
-                  </div>
-                )}
+                <div
+                  style={{
+                    padding: "7px 16px 6px",
+                    background: "var(--surface-muted)",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <span style={{ fontSize: 10, fontWeight: 800, color: "var(--text-muted)", letterSpacing: "0.07em", textTransform: "uppercase" }}>
+                    New requests
+                  </span>
+                </div>
                 {notifications.slice(0, 20).map((n) => (
                   <Link
                     key={n.id}
@@ -412,9 +410,6 @@ export default function NotificationBell() {
       <LeadsPanel
         open={leadsOpen}
         onClose={() => setLeadsOpen(false)}
-        leads={leads}
-        convertLead={convertLead}
-        declineLead={declineLead}
         profileId={profileId}
         profileName={profileName}
       />

@@ -1,21 +1,43 @@
-// Slide-in leads panel — desktop: right side, mobile: bottom sheet
-// Shows all status='lead' bookings with inline conversation threads
+// Universal messages inbox — slide-in panel showing all booking conversations
+// Desktop: right panel (380px), Mobile: bottom sheet
 
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import { supabase } from "~/lib/supabase.client";
-import type { Lead } from "~/hooks/useNotifications";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Message {
+interface ConvMessage {
   id: string;
-  channel_id: string | null;
-  sender_id: string | null;
-  sender_name: string | null;
   message: string | null;
+  sender_name: string | null;
+  sender_id: string | null;
   created_at: string;
+  is_read: boolean | null;
+  topic: string | null;
 }
+
+interface Conversation {
+  id: string;
+  status: string;
+  guest_name: string | null;
+  guest_email: string | null;
+  created_at: string;
+  messages: ConvMessage[];
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const STATUS_COLOR: Record<string, string> = {
+  lead:      "#888888",
+  requested: "#F3B130",
+  pending:   "#F3B130",
+  confirmed: "#22c55e",
+  completed: "#888888",
+  declined:  "#888888",
+  archived:  "#888888",
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -27,69 +49,67 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-// ─── Thread view for a single lead ────────────────────────────────────────────
+function truncate(str: string, len: number): string {
+  return str.length > len ? str.slice(0, len) + "…" : str;
+}
 
-function LeadThread({
-  lead,
+// ─── Thread view ─────────────────────────────────────────────────────────────
+
+function ConversationThread({
+  conv,
   profileId,
   profileName,
   onConvert,
   onDecline,
 }: {
-  lead: Lead;
+  conv: Conversation;
   profileId: string | null;
   profileName: string | null;
   onConvert: () => void;
   onDecline: () => void;
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ConvMessage[]>(conv.messages ?? []);
   const [channelId, setChannelId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Fetch channel + messages
+  // Fetch channel once + subscribe to new messages
   useEffect(() => {
     async function load() {
+      // Refresh messages
+      const { data: freshMsgs } = await supabase
+        .from("messages")
+        .select("id, message, sender_name, sender_id, created_at, is_read, topic")
+        .eq("booking_id", conv.id)
+        .order("created_at", { ascending: true });
+      if (freshMsgs) setMessages(freshMsgs as ConvMessage[]);
+
+      // Get channel for replies
       const { data: channels } = await supabase
         .from("channels")
         .select("id")
-        .eq("booking_id", lead.id)
+        .eq("booking_id", conv.id)
         .order("created_at", { ascending: true })
         .limit(1);
-
-      const chId = (channels?.[0] as { id: string } | undefined)?.id ?? null;
-      setChannelId(chId);
-
-      if (chId) {
-        const { data: msgs } = await supabase
-          .from("messages")
-          .select("id, channel_id, sender_id, sender_name, message, created_at")
-          .eq("channel_id", chId)
-          .order("created_at", { ascending: true });
-        setMessages((msgs ?? []) as Message[]);
-      }
+      setChannelId((channels?.[0] as { id: string } | undefined)?.id ?? null);
     }
     load();
-  }, [lead.id]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv.id]);
 
-  // Realtime subscription
+  // Realtime
   useEffect(() => {
-    if (!channelId) return;
-
     const ch = supabase
-      .channel(`lead-messages-${channelId}`)
+      .channel(`conv-messages-${conv.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `channel_id=eq.${channelId}` },
-        (payload) => {
-          setMessages((prev) => [...prev, payload.new as Message]);
-        }
+        { event: "INSERT", schema: "public", table: "messages", filter: `booking_id=eq.${conv.id}` },
+        (payload) => { setMessages((prev) => [...prev, payload.new as ConvMessage]); }
       )
       .subscribe();
-
     return () => { supabase.removeChannel(ch); };
-  }, [channelId]);
+  }, [conv.id]);
 
   // Auto-scroll
   useEffect(() => {
@@ -102,12 +122,10 @@ function LeadThread({
     setSending(true);
 
     let chId = channelId;
-
-    // Create channel if none exists
     if (!chId) {
       const { data: newCh } = await supabase
         .from("channels")
-        .insert({ booking_id: lead.id, name: "general" })
+        .insert({ booking_id: conv.id, name: "general" })
         .select()
         .single();
       if (newCh) {
@@ -116,28 +134,28 @@ function LeadThread({
         chId = c.id;
       }
     }
-
     if (!chId) { setSending(false); return; }
 
     await supabase.from("messages").insert({
-      booking_id: lead.id,
+      booking_id: conv.id,
       channel_id: chId,
       sender_id: profileId ?? null,
       sender_name: profileName ?? "You",
       message: content,
       is_read: false,
     });
-
     setReply("");
     setSending(false);
   }
+
+  const isLead = conv.status === "lead";
 
   return (
     <div style={{ background: "var(--surface-muted)", borderRadius: 10, overflow: "hidden" }}>
       {/* Messages */}
       <div
         style={{
-          maxHeight: 220,
+          maxHeight: 240,
           overflowY: "auto",
           padding: "10px 12px",
           display: "flex",
@@ -171,9 +189,27 @@ function LeadThread({
                   }}
                 >
                   {!isOwner && (
-                    <p style={{ color: "#F5A623", fontSize: 10, fontWeight: 700, margin: "0 0 2px" }}>
-                      {msg.sender_name ?? "Guest"}
-                    </p>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: 2 }}>
+                      <p style={{ color: "#F5A623", fontSize: 10, fontWeight: 700, margin: 0 }}>
+                        {msg.sender_name ?? "Guest"}
+                      </p>
+                      {msg.topic && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            background: "rgba(0,0,0,0.08)",
+                            color: "rgba(0,0,0,0.35)",
+                            marginLeft: 6,
+                            textTransform: "uppercase",
+                            letterSpacing: "0.05em",
+                          }}
+                        >
+                          {msg.topic}
+                        </span>
+                      )}
+                    </div>
                   )}
                   <p style={{ color: "var(--text)", fontSize: 12, margin: 0, lineHeight: 1.5 }}>
                     {msg.message}
@@ -190,12 +226,22 @@ function LeadThread({
       </div>
 
       {/* Reply input */}
-      <div style={{ display: "flex", gap: 8, padding: "8px 12px", borderTop: "1px solid var(--border)", background: "var(--surface)" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          padding: "8px 12px",
+          borderTop: "1px solid var(--border)",
+          background: "var(--surface)",
+        }}
+      >
         <input
           type="text"
           value={reply}
           onChange={(e) => setReply(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+          }}
           placeholder="Reply…"
           style={{
             flex: 1,
@@ -229,36 +275,59 @@ function LeadThread({
 
       {/* Actions */}
       <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid var(--border)" }}>
-        <button
-          onClick={onConvert}
-          style={{
-            flex: 1,
-            padding: "8px 12px",
-            background: "#F5A623",
-            border: "none",
-            borderRadius: 8,
-            color: "#111",
-            fontSize: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-          }}
-        >
-          Convert to booking →
-        </button>
-        <button
-          onClick={onDecline}
-          style={{
-            padding: "8px 12px",
-            background: "none",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            color: "var(--text-muted)",
-            fontSize: 12,
-            cursor: "pointer",
-          }}
-        >
-          Decline
-        </button>
+        {isLead ? (
+          <>
+            <button
+              onClick={onConvert}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                background: "#F5A623",
+                border: "none",
+                borderRadius: 8,
+                color: "#111",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              Convert to booking →
+            </button>
+            <button
+              onClick={onDecline}
+              style={{
+                padding: "8px 12px",
+                background: "none",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                color: "var(--text-muted)",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              Decline
+            </button>
+          </>
+        ) : (
+          <Link
+            to={`/office/${conv.id}`}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              background: "rgba(245,166,35,0.1)",
+              border: "1px solid rgba(245,166,35,0.25)",
+              borderRadius: 8,
+              color: "#F5A623",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              textDecoration: "none",
+              textAlign: "center",
+            }}
+          >
+            Open in Office →
+          </Link>
+        )}
       </div>
     </div>
   );
@@ -269,9 +338,6 @@ function LeadThread({
 interface LeadsPanelProps {
   open: boolean;
   onClose: () => void;
-  leads: Lead[];
-  convertLead: (id: string) => Promise<void>;
-  declineLead: (id: string) => Promise<void>;
   profileId: string | null;
   profileName: string | null;
 }
@@ -279,15 +345,40 @@ interface LeadsPanelProps {
 export default function LeadsPanel({
   open,
   onClose,
-  leads,
-  convertLead,
-  declineLead,
   profileId,
   profileName,
 }: LeadsPanelProps) {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  // Fetch all conversations when panel opens and profileId is ready
+  useEffect(() => {
+    if (!open || !profileId) return;
+
+    async function load() {
+      const { data } = await supabase
+        .from("bookings")
+        .select(`
+          id, status, guest_name, guest_email, created_at,
+          messages(id, message, sender_name, sender_id, created_at, is_read, topic)
+        `)
+        .eq("owner_id", profileId)
+        .order("created_at", { ascending: false });
+
+      if (data) {
+        // Sort by latest message activity (or booking created_at if no messages)
+        const sorted = (data as Conversation[]).sort((a, b) => {
+          const aLast = a.messages?.at(-1)?.created_at ?? a.created_at;
+          const bLast = b.messages?.at(-1)?.created_at ?? b.created_at;
+          return new Date(bLast).getTime() - new Date(aLast).getTime();
+        });
+        setConversations(sorted);
+      }
+    }
+    load();
+  }, [open, profileId]);
 
   // Close expanded thread when panel closes
   useEffect(() => {
@@ -304,7 +395,28 @@ export default function LeadsPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  async function handleConvert(id: string) {
+    await supabase.from("bookings").update({ status: "requested" }).eq("id", id);
+    setConversations((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: "requested" } : c))
+    );
+    setExpandedId(null);
+  }
+
+  async function handleDecline(id: string) {
+    await supabase.from("bookings").update({ status: "declined" }).eq("id", id);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    setExpandedId(null);
+  }
+
   if (!mounted) return null;
+
+  const totalUnread = conversations.reduce((sum, c) => {
+    const count = (c.messages ?? []).filter(
+      (m) => m.is_read === false && m.sender_id !== profileId
+    ).length;
+    return sum + count;
+  }, 0);
 
   return createPortal(
     <>
@@ -352,8 +464,8 @@ export default function LeadsPanel({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 700 }}>Leads</span>
-            {leads.length > 0 && (
+            <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 700 }}>Messages</span>
+            {totalUnread > 0 && (
               <span
                 style={{
                   background: "rgba(245,166,35,0.15)",
@@ -364,7 +476,7 @@ export default function LeadsPanel({
                   padding: "2px 8px",
                 }}
               >
-                {leads.length}
+                {totalUnread} unread
               </span>
             )}
           </div>
@@ -384,101 +496,146 @@ export default function LeadsPanel({
           </button>
         </div>
 
-        {/* Lead list */}
+        {/* Conversation list */}
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {leads.length === 0 ? (
+          {conversations.length === 0 ? (
             <div style={{ padding: "48px 24px", textAlign: "center" }}>
-              <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No leads yet</p>
+              <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No conversations yet</p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "6px 0 0", opacity: 0.6 }}>
-                Leads from your profile booking form will appear here.
+                Messages from your booking inquiries will appear here.
               </p>
             </div>
           ) : (
-            leads.map((lead) => {
-              const isExpanded = expandedId === lead.id;
+            conversations.map((conv) => {
+              const isExpanded = expandedId === conv.id;
+              const msgs = conv.messages ?? [];
+              const lastMsg = msgs[msgs.length - 1];
+              const unreadCount = msgs.filter(
+                (m) => m.is_read === false && m.sender_id !== profileId
+              ).length;
+              const statusDot = STATUS_COLOR[conv.status] ?? "#888888";
+              const lastActivity = lastMsg?.created_at ?? conv.created_at;
+
               return (
-                <div
-                  key={lead.id}
-                  style={{ borderBottom: "1px solid var(--border)" }}
-                >
-                  {/* Lead row header — click to expand */}
+                <div key={conv.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                  {/* Row header */}
                   <button
-                    onClick={() => setExpandedId(isExpanded ? null : lead.id)}
+                    onClick={() => setExpandedId(isExpanded ? null : conv.id)}
                     style={{
                       width: "100%",
                       display: "flex",
                       alignItems: "center",
                       gap: 12,
-                      padding: "14px 20px",
-                      background: isExpanded ? "rgba(245,166,35,0.05)" : "transparent",
+                      padding: "13px 20px",
+                      background: isExpanded ? "rgba(245,166,35,0.04)" : "transparent",
                       border: "none",
                       cursor: "pointer",
                       textAlign: "left",
                     }}
                   >
-                    {/* Unread dot */}
+                    {/* Status dot */}
                     <div
                       style={{
-                        width: 7,
-                        height: 7,
+                        width: 8,
+                        height: 8,
                         borderRadius: "50%",
-                        background: "#F5A623",
+                        background: statusDot,
                         flexShrink: 0,
                       }}
                     />
+
+                    {/* Content */}
                     <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                        <p
+                          style={{
+                            color: "var(--text)",
+                            fontSize: 13,
+                            fontWeight: unreadCount > 0 ? 700 : 500,
+                            margin: 0,
+                            overflow: "hidden",
+                            whiteSpace: "nowrap",
+                            textOverflow: "ellipsis",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {conv.guest_name ?? conv.guest_email ?? "Unknown visitor"}
+                        </p>
+                        {unreadCount > 0 && (
+                          <span
+                            style={{
+                              background: "#F5A623",
+                              color: "#111",
+                              fontSize: 9,
+                              fontWeight: 800,
+                              borderRadius: "50%",
+                              width: 16,
+                              height: 16,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {unreadCount > 9 ? "9+" : unreadCount}
+                          </span>
+                        )}
+                      </div>
                       <p
                         style={{
-                          color: "var(--text)",
-                          fontSize: 13,
-                          fontWeight: 600,
+                          color: "var(--text-muted)",
+                          fontSize: 11,
                           margin: "0 0 3px",
-                          overflow: "hidden",
-                          whiteSpace: "nowrap",
-                          textOverflow: "ellipsis",
+                          textTransform: "capitalize",
                         }}
                       >
-                        {lead.guest_name ?? lead.guest_email ?? "Anonymous"}
+                        {conv.status}
                       </p>
-                      {lead.description && !isExpanded && (
+                      {lastMsg && (
                         <p
                           style={{
                             color: "var(--text-muted)",
                             fontSize: 12,
-                            margin: "0 0 2px",
+                            margin: 0,
                             overflow: "hidden",
                             whiteSpace: "nowrap",
                             textOverflow: "ellipsis",
                           }}
                         >
-                          {lead.description}
+                          {truncate(lastMsg.message ?? "", 50)}
                         </p>
                       )}
-                      <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
-                        {timeAgo(lead.created_at)}
-                        {lead.budget_range ? ` · ${lead.budget_range}` : ""}
-                      </p>
                     </div>
-                    <span style={{ color: "var(--text-muted)", fontSize: 12, flexShrink: 0 }}>
-                      {isExpanded ? "▲" : "▼"}
-                    </span>
+
+                    {/* Time + chevron */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 4,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                        {timeAgo(lastActivity)}
+                      </span>
+                      <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                        {isExpanded ? "▲" : "▼"}
+                      </span>
+                    </div>
                   </button>
 
                   {/* Expanded thread */}
                   {isExpanded && (
                     <div style={{ padding: "0 12px 14px" }}>
-                      <LeadThread
-                        lead={lead}
+                      <ConversationThread
+                        conv={conv}
                         profileId={profileId}
                         profileName={profileName}
-                        onConvert={() => {
-                          convertLead(lead.id);
-                          setExpandedId(null);
-                        }}
-                        onDecline={() => {
-                          declineLead(lead.id);
-                          setExpandedId(null);
-                        }}
+                        onConvert={() => handleConvert(conv.id)}
+                        onDecline={() => handleDecline(conv.id)}
                       />
                     </div>
                   )}
@@ -489,10 +646,10 @@ export default function LeadsPanel({
         </div>
       </div>
 
-      {/* Mobile bottom sheet override */}
+      {/* Mobile bottom sheet */}
       <style>{`
         @media (max-width: 480px) {
-          .leads-panel-inner {
+          .sqrz-msgs-panel {
             top: auto !important;
             bottom: ${open ? "0" : "-100%"} !important;
             right: 0 !important;
