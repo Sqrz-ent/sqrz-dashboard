@@ -88,8 +88,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       user,
       profile,
       subscriptionData,
-      basicMonthlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_MONTHLY ?? "",
-      basicYearlyPriceId: process.env.STRIPE_BASIC_PRICE_ID_YEARLY ?? "",
+      creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
+      creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
       boostMonthlyPriceId,
       growCampaignPriceId,
@@ -119,7 +119,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, basicMonthlyPriceId, basicYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId } =
+  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -453,8 +453,8 @@ export default function AppLayout() {
         <UpgradeModal
           onClose={closeUpgrade}
           upgradeContext={upgradeParam}
-          monthlyPriceId={basicMonthlyPriceId}
-          yearlyPriceId={basicYearlyPriceId}
+          monthlyPriceId={creatorMonthlyPriceId}
+          yearlyPriceId={creatorYearlyPriceId}
           earlyAccessCouponId={earlyAccessCouponId}
           referredByCode={p?.referred_by_code as string | null ?? null}
           boostMonthlyPriceId={boostMonthlyPriceId}

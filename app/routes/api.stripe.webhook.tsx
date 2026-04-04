@@ -211,7 +211,7 @@ export async function action({ request }: { request: Request }) {
       p_current_period_end: toISO(item.current_period_end),
     });
 
-    // Reset plan to Basic
+    // Reset plan to Creator
     await supabase
       .from("profiles")
       .update({ plan_id: 1 })
