@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { redirect, useLoaderData, useFetcher, useNavigate } from "react-router";
+import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.links";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
@@ -54,55 +54,19 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 5,
 };
 
-const PAGE_TYPES = [
-  { value: "booking", label: "Booking" },
-  { value: "download", label: "Download" },
-  { value: "event", label: "Event" },
-  { value: "merch", label: "Merch" },
-  { value: "press", label: "Press" },
-] as const;
-
-type PageType = "booking" | "download" | "event" | "merch" | "press";
-
-const PAGE_TYPE_COLORS: Record<PageType, string> = {
-  booking: "#F5A623",
-  download: "#3b82f6",
-  event: "#8b5cf6",
-  merch: "#ec4899",
-  press: "#6b7280",
-};
-
 type PrivateLink = {
   id: string;
   link_slug: string;
   is_active: boolean;
   show_on_profile: boolean;
-  page_type: PageType;
   title: string | null;
   use_count: number;
   expires_at: string | null;
   max_uses: number | null;
-  // booking
-  prefill_service: string | null;
-  prefill_event_date: string | null;
-  prefill_budget_min: number | null;
-  prefill_budget_max: number | null;
-  prefill_message: string | null;
-  prefill_location: string | null;
-  // commerce
-  price: string | null;
-  stripe_payment_link_url: string | null;
-  // event
-  event_name: string | null;
-  event_date: string | null;
-  event_venue: string | null;
-  event_city: string | null;
-  // external link
-  external_url: string | null;
-  external_url_label: string | null;
   description: string | null;
   cover_image_url: string | null;
-  inventory_count: number | null;
+  external_url: string | null;
+  external_url_label: string | null;
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -117,7 +81,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const { data: links } = await supabase
     .from("private_booking_links")
-    .select("*")
+    .select("id, link_slug, is_active, show_on_profile, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label")
     .eq("profile_id", profile.id as string)
     .order("created_at", { ascending: false });
 
@@ -142,32 +106,14 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = fd.get("intent") as string;
 
   if (intent === "create") {
-    const pageType = fd.get("page_type") as string;
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
       is_active: true,
-      page_type: pageType,
       title: (fd.get("title") as string) || null,
       description: (fd.get("description") as string) || null,
-      // booking prefill
-      prefill_service: pageType === "booking" ? ((fd.get("prefill_service") as string) || null) : null,
-      prefill_event_date: pageType === "booking" ? ((fd.get("prefill_event_date") as string) || null) : null,
-      prefill_budget_min: pageType === "booking" ? (parseFloat(fd.get("prefill_budget_min") as string) || null) : null,
-      prefill_budget_max: pageType === "booking" ? (parseFloat(fd.get("prefill_budget_max") as string) || null) : null,
-      prefill_message: pageType === "booking" ? ((fd.get("prefill_message") as string) || null) : null,
-      prefill_location: pageType === "booking" ? ((fd.get("prefill_location") as string) || null) : null,
-      // commerce
-      price: ["download", "merch"].includes(pageType) ? ((fd.get("price") as string) || null) : null,
-      stripe_payment_link_url: ["download", "merch", "event"].includes(pageType) ? ((fd.get("stripe_payment_link_url") as string) || null) : null,
       external_url: (fd.get("external_url") as string) || null,
       external_url_label: (fd.get("external_url_label") as string) || null,
-      // event
-      event_name: pageType === "event" ? ((fd.get("event_name") as string) || null) : null,
-      event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
-      event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
-      event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
-      // limits
       expires_at: (fd.get("expires_at") as string) || null,
       max_uses: parseInt(fd.get("max_uses") as string) || null,
     });
@@ -240,23 +186,10 @@ function CreateLinkModal({
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
-  const [pageType, setPageType] = useState<PageType>("booking");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [prefillService, setPrefillService] = useState("");
-  const [prefillDate, setPrefillDate] = useState("");
-  const [prefillBudgetMin, setPrefillBudgetMin] = useState("");
-  const [prefillBudgetMax, setPrefillBudgetMax] = useState("");
-  const [prefillMessage, setPrefillMessage] = useState("");
-  const [prefillLocation, setPrefillLocation] = useState("");
-  const [price, setPrice] = useState("");
-  const [stripeUrl, setStripeUrl] = useState("");
   const [externalUrl, setExternalUrl] = useState("");
   const [externalUrlLabel, setExternalUrlLabel] = useState("");
-  const [eventName, setEventName] = useState("");
-  const [eventDate, setEventDate] = useState("");
-  const [eventVenue, setEventVenue] = useState("");
-  const [eventCity, setEventCity] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [maxUses, setMaxUses] = useState("");
   const [toast, setToast] = useState<string | null>(null);
@@ -281,11 +214,8 @@ function CreateLinkModal({
 
   function resetForm() {
     setLabel(""); setSlug(""); setSlugEdited(false); setSlugError(null);
-    setPageType("booking"); setTitle(""); setDescription("");
-    setPrefillService(""); setPrefillDate(""); setPrefillBudgetMin("");
-    setPrefillBudgetMax(""); setPrefillMessage(""); setPrefillLocation("");
-    setPrice(""); setStripeUrl(""); setExternalUrl(""); setExternalUrlLabel("");
-    setEventName(""); setEventDate(""); setEventVenue(""); setEventCity("");
+    setTitle(""); setDescription("");
+    setExternalUrl(""); setExternalUrlLabel("");
     setExpiresAt(""); setMaxUses("");
   }
 
@@ -302,47 +232,14 @@ function CreateLinkModal({
     const fd = new FormData();
     fd.append("intent", "create");
     fd.append("link_slug", slug);
-    fd.append("page_type", pageType);
     fd.append("title", title);
     fd.append("description", description);
-    if (pageType === "booking") {
-      fd.append("prefill_service", prefillService);
-      fd.append("prefill_event_date", prefillDate);
-      fd.append("prefill_budget_min", prefillBudgetMin);
-      fd.append("prefill_budget_max", prefillBudgetMax);
-      fd.append("prefill_message", prefillMessage);
-      fd.append("prefill_location", prefillLocation);
-    }
-    if (["download", "merch"].includes(pageType)) {
-      fd.append("price", price);
-      fd.append("stripe_payment_link_url", stripeUrl);
-    }
-    if (pageType === "event") {
-      fd.append("event_name", eventName);
-      fd.append("event_date", eventDate);
-      fd.append("event_venue", eventVenue);
-      fd.append("event_city", eventCity);
-      fd.append("stripe_payment_link_url", stripeUrl);
-    }
     fd.append("external_url", externalUrl);
     fd.append("external_url_label", externalUrlLabel);
     if (expiresAt) fd.append("expires_at", expiresAt);
     if (maxUses) fd.append("max_uses", maxUses);
     fetcher.submit(fd, { method: "post" });
   }
-
-  const pillStyle = (active: boolean, color: string): React.CSSProperties => ({
-    padding: "7px 14px",
-    borderRadius: 20,
-    border: active ? `1.5px solid ${color}` : "1.5px solid var(--border)",
-    background: active ? `${color}18` : "transparent",
-    color: active ? color : "var(--text-muted)",
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-    fontFamily: FONT_BODY,
-    transition: "all 0.15s",
-  });
 
   const previewUrl = `${username}.sqrz.com/${slug || "your-slug"}`;
 
@@ -380,18 +277,6 @@ function CreateLinkModal({
           ) : null}
         </div>
 
-        {/* Page type */}
-        <div>
-          <label style={labelStyle}>Page Type</label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {PAGE_TYPES.map(pt => (
-              <button key={pt.value} type="button" onClick={() => setPageType(pt.value)} style={pillStyle(pageType === pt.value, PAGE_TYPE_COLORS[pt.value])}>
-                {pt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {/* Common fields */}
         <div>
           <label style={labelStyle}>Title (shown on page)</label>
@@ -402,86 +287,7 @@ function CreateLinkModal({
           <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown below the title…" />
         </div>
 
-        {/* BOOKING fields */}
-        {pageType === "booking" && (
-          <>
-            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Booking Pre-fill</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div>
-                  <label style={labelStyle}>Service</label>
-                  <input style={inputStyle} value={prefillService} onChange={e => setPrefillService(e.target.value)} placeholder="e.g. DJ Set" />
-                </div>
-                <div>
-                  <label style={labelStyle}>Event Date</label>
-                  <input type="date" style={inputStyle} value={prefillDate} onChange={e => setPrefillDate(e.target.value)} />
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <div>
-                    <label style={labelStyle}>Budget Min</label>
-                    <input type="number" style={inputStyle} value={prefillBudgetMin} onChange={e => setPrefillBudgetMin(e.target.value)} placeholder="500" min={0} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Budget Max</label>
-                    <input type="number" style={inputStyle} value={prefillBudgetMax} onChange={e => setPrefillBudgetMax(e.target.value)} placeholder="2000" min={0} />
-                  </div>
-                </div>
-                <div>
-                  <label style={labelStyle}>Location</label>
-                  <input style={inputStyle} value={prefillLocation} onChange={e => setPrefillLocation(e.target.value)} placeholder="City or venue" />
-                </div>
-                <div>
-                  <label style={labelStyle}>Message</label>
-                  <textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={prefillMessage} onChange={e => setPrefillMessage(e.target.value)} placeholder="Pre-filled message for the visitor" />
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* DOWNLOAD / MERCH fields */}
-        {(pageType === "download" || pageType === "merch") && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <label style={labelStyle}>Price</label>
-              <input style={inputStyle} value={price} onChange={e => setPrice(e.target.value)} placeholder="e.g. $29" />
-            </div>
-            <div>
-              <label style={labelStyle}>Stripe Payment Link URL</label>
-              <input style={inputStyle} value={stripeUrl} onChange={e => setStripeUrl(e.target.value)} placeholder="https://buy.stripe.com/..." />
-            </div>
-          </div>
-        )}
-
-        {/* EVENT fields */}
-        {pageType === "event" && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <label style={labelStyle}>Event Name</label>
-              <input style={inputStyle} value={eventName} onChange={e => setEventName(e.target.value)} placeholder="e.g. Asia Tour — Singapore" />
-            </div>
-            <div>
-              <label style={labelStyle}>Event Date</label>
-              <input type="datetime-local" style={inputStyle} value={eventDate} onChange={e => setEventDate(e.target.value)} />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label style={labelStyle}>Venue</label>
-                <input style={inputStyle} value={eventVenue} onChange={e => setEventVenue(e.target.value)} placeholder="Club / Arena" />
-              </div>
-              <div>
-                <label style={labelStyle}>City</label>
-                <input style={inputStyle} value={eventCity} onChange={e => setEventCity(e.target.value)} placeholder="Singapore" />
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Stripe Payment Link URL</label>
-              <input style={inputStyle} value={stripeUrl} onChange={e => setStripeUrl(e.target.value)} placeholder="https://buy.stripe.com/..." />
-            </div>
-          </div>
-        )}
-
-        {/* External URL — all types */}
+        {/* External URL */}
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
           <div>
             <label style={labelStyle}>External URL</label>
@@ -493,7 +299,7 @@ function CreateLinkModal({
           </div>
         </div>
 
-        {/* Limits — all types */}
+        {/* Limits */}
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <div>
             <label style={labelStyle}>Expires (optional)</label>
@@ -578,8 +384,6 @@ function LinkCard({
     });
   }
 
-  const badgeColor = PAGE_TYPE_COLORS[link.page_type] ?? "#888";
-
   return (
     <div
       style={{
@@ -597,18 +401,6 @@ function LinkCard({
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
             {link.title || link.link_slug}
-          </span>
-          <span style={{
-            fontSize: 10,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            padding: "2px 8px",
-            borderRadius: 20,
-            background: `${badgeColor}18`,
-            color: badgeColor,
-          }}>
-            {link.page_type}
           </span>
         </div>
         <a
@@ -763,7 +555,6 @@ export default function LinksPage() {
 
   const createFetcher = useFetcher();
   const cardFetcher = useFetcher();
-  const navigate = useNavigate();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
