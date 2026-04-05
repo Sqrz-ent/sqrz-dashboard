@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { redirect, useLoaderData, useFetcher, useNavigate } from "react-router";
+import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -39,28 +39,23 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 8,
 };
 
-type Campaign = {
+type PrivateLink = {
   id: string;
-  promote_type: "profile" | "service" | "availability" | "event";
-  goal: "visits" | "bookings" | "visibility";
-  budget_amount: number;
-  budget_currency: string;
-  status: "pending" | "preparing" | "live";
-  created_at: string;
+  label: string | null;
+  link_slug: string;
+  page_type: string;
 };
 
-const PROMOTE_OPTIONS = [
-  { value: "profile", label: "Profile" },
-  { value: "service", label: "Service" },
-  { value: "availability", label: "Availability" },
-  { value: "event", label: "Event" },
-] as const;
-
-const GOAL_OPTIONS = [
-  { value: "visits", label: "More Visits" },
-  { value: "bookings", label: "More Bookings" },
-  { value: "visibility", label: "More Visibility" },
-] as const;
+type Campaign = {
+  id: string;
+  promote_type: string;
+  promote_link_id: string | null;
+  target_audience: string | null;
+  budget_amount: number;
+  budget_currency: string;
+  status: "draft" | "pending" | "preparing" | "live";
+  created_at: string;
+};
 
 const BUDGET_OPTIONS = [
   { value: 50, label: "$50" },
@@ -70,6 +65,7 @@ const BUDGET_OPTIONS = [
 ] as const;
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  draft: { label: "Draft", color: "#888", bg: "rgba(136,136,136,0.12)" },
   pending: { label: "Pending Payment", color: "#888", bg: "rgba(136,136,136,0.12)" },
   preparing: { label: "Preparing", color: ACCENT, bg: "rgba(245,166,35,0.12)" },
   live: { label: "Live", color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
@@ -82,19 +78,6 @@ const BOOST_PAYMENT_LINKS: Record<number, string> = {
   300: "https://buy.stripe.com/eVq14m6VN3lA9N4dzC57W04",
 };
 
-const PROMOTE_LABEL: Record<string, string> = {
-  profile: "Profile",
-  service: "Service",
-  availability: "Availability",
-  event: "Event",
-};
-
-const GOAL_LABEL: Record<string, string> = {
-  visits: "More Visits",
-  bookings: "More Bookings",
-  visibility: "More Visibility",
-};
-
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
@@ -103,14 +86,31 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const { data: campaigns } = await supabase
-    .from("boost_campaigns")
-    .select("id, promote_type, goal, budget_amount, budget_currency, status, created_at")
-    .eq("profile_id", profile.id as string)
-    .in("status", ["pending", "preparing", "live"])
-    .order("created_at", { ascending: false });
+  const [{ data: campaigns }, { data: privateLinks }] = await Promise.all([
+    supabase
+      .from("boost_campaigns")
+      .select("id, promote_type, promote_link_id, target_audience, budget_amount, budget_currency, status, created_at")
+      .eq("profile_id", profile.id as string)
+      .in("status", ["draft", "pending", "preparing", "live"])
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("private_booking_links")
+      .select("id, label, link_slug, page_type")
+      .eq("profile_id", profile.id as string)
+      .eq("is_active", true),
+  ]);
 
-  return Response.json({ plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, campaigns: campaigns ?? [], email: (profile.email as string) ?? "", profile_id: profile.id as string }, { headers });
+  return Response.json(
+    {
+      plan_id: (profile.plan_id as number | null) ?? null,
+      is_beta: (profile.is_beta as boolean) ?? false,
+      campaigns: campaigns ?? [],
+      privateLinks: privateLinks ?? [],
+      email: (profile.email as string) ?? "",
+      profile_id: profile.id as string,
+    },
+    { headers }
+  );
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -122,28 +122,38 @@ export async function action({ request }: Route.ActionArgs) {
   if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();
+  const promoteType = formData.get("promote_type") as string;
+  const promoteLinkId = formData.get("promote_link_id") as string | null;
 
   const { error } = await supabase.from("boost_campaigns").insert({
     profile_id: profile.id as string,
-    promote_type: formData.get("promote_type") as string,
-    goal: formData.get("goal") as string,
+    promote_type: promoteType,
+    promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
+    target_audience: (formData.get("target_audience") as string) || null,
     budget_amount: parseFloat(formData.get("budget_amount") as string),
     budget_currency: "USD",
     notes: (formData.get("notes") as string) || null,
-    status: "pending",
+    status: "draft",
   });
 
   return Response.json({ ok: !error, error: error?.message }, { headers });
 }
 
 export default function BoostPage() {
-  const { campaigns, plan_id, is_beta, email, profile_id } = useLoaderData<typeof loader>() as { campaigns: Campaign[]; plan_id: number | null; is_beta: boolean; email: string; profile_id: string };
+  const { campaigns, privateLinks, plan_id, is_beta, email } = useLoaderData<typeof loader>() as {
+    campaigns: Campaign[];
+    privateLinks: PrivateLink[];
+    plan_id: number | null;
+    is_beta: boolean;
+    email: string;
+    profile_id: string;
+  };
   const fetcher = useFetcher();
-  const navigate = useNavigate();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
 
-  const [promote, setPromote] = useState<string | null>(null);
-  const [goal, setGoal] = useState<string | null>(null);
+  const [promoteType, setPromoteType] = useState<string | null>(null);
+  const [promoteLinkId, setPromoteLinkId] = useState<string>("");
+  const [targetAudience, setTargetAudience] = useState("");
   const [budget, setBudget] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState(false);
@@ -153,18 +163,25 @@ export default function BoostPage() {
 
   if (actionData?.ok && !success) {
     setSuccess(true);
-    setPromote(null);
-    setGoal(null);
+    setPromoteType(null);
+    setPromoteLinkId("");
+    setTargetAudience("");
     setBudget(null);
     setNotes("");
   }
 
+  const canSubmit =
+    !!promoteType &&
+    (promoteType !== "link" || !!promoteLinkId) &&
+    !!budget;
+
   function handleSubmit() {
-    if (!promote || !goal || !budget) return;
+    if (!canSubmit) return;
     setSuccess(false);
     const fd = new FormData();
-    fd.append("promote_type", promote);
-    fd.append("goal", goal);
+    fd.append("promote_type", promoteType!);
+    fd.append("promote_link_id", promoteLinkId);
+    fd.append("target_audience", targetAudience);
     fd.append("budget_amount", String(budget));
     fd.append("notes", notes);
     fetcher.submit(fd, { method: "post" });
@@ -193,10 +210,8 @@ export default function BoostPage() {
         Activate targeted attention for your profile
       </p>
 
-      {/* ── Launch Boost form ─────────────────────────────────────────────── */}
-      {locked && (
-        <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
-      )}
+      {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
+
       <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 20px" }}>
           New Boost Campaign
@@ -221,24 +236,69 @@ export default function BoostPage() {
         <div style={{ marginBottom: 20 }}>
           <label style={labelStyle}>What do you want to promote?</label>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-            {PROMOTE_OPTIONS.map((o) => (
-              <button key={o.value} type="button" onClick={() => setPromote(o.value)} style={pillStyle(promote === o.value)}>
-                {o.label}
-              </button>
-            ))}
+            <button type="button" onClick={() => setPromoteType("profile")} style={pillStyle(promoteType === "profile")}>
+              My Profile
+            </button>
+            <button type="button" onClick={() => setPromoteType("link")} style={pillStyle(promoteType === "link")}>
+              A Private Link
+            </button>
           </div>
+
+          {promoteType === "link" && (
+            <select
+              value={promoteLinkId}
+              onChange={(e) => setPromoteLinkId(e.target.value)}
+              style={{
+                marginTop: 10,
+                width: "100%",
+                padding: "10px 13px",
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                fontSize: 14,
+                color: promoteLinkId ? "var(--text)" : "var(--text-muted)",
+                outline: "none",
+                boxSizing: "border-box" as const,
+                fontFamily: FONT_BODY,
+                cursor: "pointer",
+              }}
+            >
+              <option value="">Select a link…</option>
+              {privateLinks.map((link) => (
+                <option key={link.id} value={link.id}>
+                  {link.label || link.link_slug}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
-        {/* Goal */}
+        {/* Target audience */}
         <div style={{ marginBottom: 20 }}>
-          <label style={labelStyle}>Goal</label>
-          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-            {GOAL_OPTIONS.map((o) => (
-              <button key={o.value} type="button" onClick={() => setGoal(o.value)} style={pillStyle(goal === o.value)}>
-                {o.label}
-              </button>
-            ))}
-          </div>
+          <label style={labelStyle}>Who is your target audience?</label>
+          <textarea
+            rows={3}
+            value={targetAudience}
+            onChange={(e) => setTargetAudience(e.target.value)}
+            placeholder="e.g. Club promoters in Berlin, Festival organizers in France, Corporate event planners in NYC"
+            style={{
+              width: "100%",
+              padding: "10px 13px",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              fontSize: 14,
+              color: "var(--text)",
+              outline: "none",
+              boxSizing: "border-box" as const,
+              fontFamily: FONT_BODY,
+              resize: "vertical" as const,
+              lineHeight: 1.5,
+            }}
+          />
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
+            Describe your ideal client in plain language — we handle the targeting.
+          </p>
         </div>
 
         {/* Budget */}
@@ -260,7 +320,7 @@ export default function BoostPage() {
             rows={3}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder={"Anything specific you want us to know about\nthis campaign?"}
+            placeholder="Anything specific you want us to know about this campaign?"
             style={{
               width: "100%",
               padding: "10px 13px",
@@ -282,17 +342,17 @@ export default function BoostPage() {
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={isSubmitting || !promote || !goal || !budget}
+          disabled={isSubmitting || !canSubmit}
           style={{
             width: "100%",
             padding: "14px",
-            background: (!promote || !goal || !budget) ? "var(--surface-muted)" : ACCENT,
-            color: (!promote || !goal || !budget) ? "var(--text-muted)" : "#111",
+            background: !canSubmit ? "var(--surface-muted)" : ACCENT,
+            color: !canSubmit ? "var(--text-muted)" : "#111",
             border: "none",
             borderRadius: 12,
             fontSize: 15,
             fontWeight: 700,
-            cursor: (!promote || !goal || !budget) ? "not-allowed" : "pointer",
+            cursor: !canSubmit ? "not-allowed" : "pointer",
             fontFamily: FONT_BODY,
             letterSpacing: "0.02em",
             transition: "background 0.15s",
@@ -314,7 +374,7 @@ export default function BoostPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {campaigns.map((c) => {
               const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
-              const isPending = c.status === "pending" || c.status === "pending_payment";
+              const isPending = c.status === "draft" || c.status === "pending";
               const isPaid = c.status === "live" || c.status === "preparing";
               const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
               const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}` : null;
@@ -330,14 +390,18 @@ export default function BoostPage() {
                     gap: 12,
                   }}
                 >
-                  {/* Campaign header row */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                        {PROMOTE_LABEL[c.promote_type]} Boost
+                        {c.promote_type === "link" ? "Private Link" : "Profile"} Boost
                       </div>
+                      {c.target_audience && (
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                          {c.target_audience}
+                        </div>
+                      )}
                       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                        {GOAL_LABEL[c.goal]} · ${c.budget_amount} {c.budget_currency}
+                        ${c.budget_amount} {c.budget_currency}
                       </div>
                       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
                         {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -364,7 +428,6 @@ export default function BoostPage() {
                     </div>
                   </div>
 
-                  {/* Ad budget payment section — pending only */}
                   {isPending && (
                     <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
