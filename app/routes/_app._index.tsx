@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 
@@ -43,10 +43,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     p_days: 7,
   });
 
-  const { count: viewCount } = await supabase
+  const adminClient = createSupabaseAdminClient();
+  const { count: viewCount } = await adminClient
     .from("profile_views")
     .select("*", { count: "exact", head: true })
-    .eq("profile_id", profileId);
+    .eq("profile_id", profile.id as string);
 
   const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
