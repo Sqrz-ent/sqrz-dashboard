@@ -43,7 +43,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     p_days: 7,
   });
 
-  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes] =
+  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
       supabase
         .from("bookings")
@@ -87,6 +87,10 @@ export async function loader({ request }: Route.LoaderArgs) {
         .select("code, use_count, commission_pct, discount_pct")
         .eq("owner_id", profileId)
         .maybeSingle(),
+      supabase
+        .from("profile_photos")
+        .select("id", { count: "exact", head: true })
+        .eq("profile_id", profileId),
     ]);
 
   return Response.json(
@@ -98,6 +102,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       hasServices: (servicesRes.count ?? 0) > 0,
       hasVideos: (videosRes.count ?? 0) > 0,
       hasRefs: (refsRes.count ?? 0) > 0,
+      hasGallery: (photosRes.count ?? 0) > 0,
       planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
       analytics: analytics ?? null,
       availabilityBlocks: blocksRes.data ?? [],
@@ -183,7 +188,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, planName, analytics, availabilityBlocks, refCode } =
+  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, analytics, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -210,7 +215,7 @@ export default function DashboardIndex() {
     hasServices,
     hasVideos,
     hasRefs,
-    hasGallery: Array.isArray(p.widget_photo_gallery) && (p.widget_photo_gallery as string[]).length > 0,
+    hasGallery: hasGallery as boolean,
   };
   const completion = getProfileCompletion(richProfile);
   const { score: doneCount, total: totalSections, percentage: pct, items: completionItems } = completion;

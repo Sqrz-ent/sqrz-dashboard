@@ -110,7 +110,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const [profileSkillsRes, videosRes, refsRes, allSkillsRes, allLangsRes, profileLangsRes] = await Promise.all([
+  const [profileSkillsRes, videosRes, refsRes, allSkillsRes, allLangsRes, profileLangsRes, photosRes] = await Promise.all([
     supabase
       .from("profile_skills")
       .select("skill_id")
@@ -141,6 +141,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       .from("profile_languages")
       .select("skill_id")
       .eq("profile_id", profile.id as string),
+    supabase
+      .from("profile_photos")
+      .select("url")
+      .eq("profile_id", profile.id as string)
+      .order("sort_order", { ascending: true }),
   ]);
 
   return Response.json(
@@ -152,6 +157,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       allLanguages: allLangsRes.data ?? [],
       videos: videosRes.data ?? [],
       references: refsRes.data ?? [],
+      galleryUrls: (photosRes.data ?? []).map((r) => (r as { url: string }).url),
     },
     { headers }
   );
@@ -215,11 +221,15 @@ export async function action({ request }: Route.ActionArgs) {
       return url;
     };
     let urls: string[] = [];
-    try { urls = (JSON.parse(formData.get("widget_photo_gallery") as string) as string[]).map(transformUrl); } catch { urls = []; }
-    const { error } = await supabase.from("profiles").update({
-      widget_photo_gallery: urls,
-    }).eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
+    try { urls = (JSON.parse(formData.get("urls") as string) as string[]).map(transformUrl); } catch { urls = []; }
+    const admin = createSupabaseAdminClient();
+    await admin.from("profile_photos").delete().eq("profile_id", profile.id as string);
+    if (urls.length > 0) {
+      const rows = urls.map((url, i) => ({ profile_id: profile.id as string, url, sort_order: i }));
+      const { error } = await admin.from("profile_photos").insert(rows);
+      return Response.json({ ok: !error, error: error?.message }, { headers });
+    }
+    return Response.json({ ok: true }, { headers });
   }
 
   if (intent === "update_business") {
@@ -343,7 +353,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function ProfilePage() {
-  const { profile, skillIds, allSkills, languageIds, allLanguages, videos, references } = useLoaderData<typeof loader>() as {
+  const { profile, skillIds, allSkills, languageIds, allLanguages, videos, references, galleryUrls: initialGalleryUrls } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     skillIds: number[];
     allSkills: { id: number; name: string; category: string }[];
@@ -351,6 +361,7 @@ export default function ProfilePage() {
     allLanguages: { id: number; name: string }[];
     videos: Record<string, unknown>[];
     references: Record<string, unknown>[];
+    galleryUrls: string[];
   };
 
   const basicFetcher = useFetcher();
@@ -420,9 +431,7 @@ export default function ProfilePage() {
     widget_muso: (profile.widget_muso as string) ?? "",
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
-  const [galleryUrls, setGalleryUrls] = useState<string[]>(
-    Array.isArray(profile.widget_photo_gallery) ? (profile.widget_photo_gallery as string[]) : []
-  );
+  const [galleryUrls, setGalleryUrls] = useState<string[]>(initialGalleryUrls);
 
   // Modal state
   const [skillsModalOpen, setSkillsModalOpen] = useState(false);
@@ -858,7 +867,7 @@ export default function ProfilePage() {
                 const validUrls = updated.filter(u => u.startsWith("http"));
                 const fd = new FormData();
                 fd.append("intent", "update_gallery");
-                fd.append("widget_photo_gallery", JSON.stringify(validUrls));
+                fd.append("urls", JSON.stringify(validUrls));
                 galleryFetcher.submit(fd, { method: "post" });
               }}
               title="Remove"
@@ -874,7 +883,7 @@ export default function ProfilePage() {
               const validUrls = galleryUrls.filter(u => u.startsWith("http"));
               const fd = new FormData();
               fd.append("intent", "update_gallery");
-              fd.append("widget_photo_gallery", JSON.stringify(validUrls));
+              fd.append("urls", JSON.stringify(validUrls));
               galleryFetcher.submit(fd, { method: "post" });
             }}
           >
