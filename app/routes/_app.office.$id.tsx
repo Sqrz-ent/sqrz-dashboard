@@ -8,19 +8,6 @@ import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BookingRequest = {
-  id: string;
-  from_profile_id: string | null;
-  message: string | null;
-  service: string | null;
-  budget_min: number | null;
-  budget_max: number | null;
-  currency: string | null;
-  event_date: string | null;
-  event_location: string | null;
-  status: string | null;
-};
-
 type Participant = {
   id: string;
   profile_id: string | null;
@@ -64,7 +51,6 @@ type Booking = {
   payment_currency: string | null;
   payment_status: string | null;
   paid_at: string | null;
-  booking_requests: BookingRequest[];
   booking_participants: Participant[];
 };
 
@@ -81,7 +67,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const [bookingRes, paymentsRes] = await Promise.all([
     supabase
       .from("bookings")
-      .select("*, booking_requests(*), booking_participants(*)")
+      .select("*, booking_participants(*)")
       .eq("id", params.id)
       .eq("owner_id", profile.id as string)
       .single(),
@@ -465,7 +451,6 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ─── Details section ──────────────────────────────────────────────────────────
 
 function DetailsSection({ booking }: { booking: Booking }) {
-  const req = booking.booking_requests?.[0];
   const showLabelFetcher = useFetcher();
 
   return (
@@ -560,37 +545,6 @@ function DetailsSection({ booking }: { booking: Booking }) {
         </div>
       )}
 
-      {/* Original request */}
-      {req && (
-        <div style={card}>
-          <p style={{ ...label, marginBottom: 14 }}>Booking request</p>
-          {req.service && (
-            <div style={{ marginBottom: 12 }}>
-              <p style={label}>Service requested</p>
-              <p style={val}>{req.service}</p>
-            </div>
-          )}
-          {(req.budget_min || req.budget_max) && (
-            <div style={{ marginBottom: 12 }}>
-              <p style={label}>Budget</p>
-              <p style={val}>
-                {[
-                  req.budget_min ? formatRate(req.budget_min, req.currency ?? booking.currency) : null,
-                  req.budget_max ? formatRate(req.budget_max, req.currency ?? booking.currency) : null,
-                ].filter(Boolean).join(" – ")}
-              </p>
-            </div>
-          )}
-          {req.message && (
-            <div>
-              <p style={label}>Message</p>
-              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: "6px 0 0", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "12px 14px" }}>
-                {req.message}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
     </section>
   );
 }

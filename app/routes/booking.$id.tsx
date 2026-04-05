@@ -36,7 +36,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
-      .select("*, booking_requests(*), booking_participants(*)")
+      .select("*, booking_participants(*)")
       .eq("id", params.id)
       .maybeSingle();
 
@@ -149,7 +149,6 @@ export default function BookingAccessPage() {
     useLoaderData<typeof loader>();
 
   const b = booking as Record<string, unknown> | null;
-  const req = (b?.booking_requests as Record<string, unknown>[] | undefined)?.[0];
 
   return (
     <div

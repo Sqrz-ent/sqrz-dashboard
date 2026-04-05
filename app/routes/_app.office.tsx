@@ -6,14 +6,6 @@ import { getCurrentProfile } from "~/lib/profile.server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BookingRequest = {
-  from_profile_id: string | null;
-  message: string | null;
-  service: string | null;
-  budget_min: number | null;
-  budget_max: number | null;
-};
-
 type Booking = {
   id: string;
   title: string | null;
@@ -25,7 +17,6 @@ type Booking = {
   venue: string | null;
   rate: number | null;
   currency: string | null;
-  booking_requests: BookingRequest[];
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -100,20 +91,20 @@ export async function action({ request }: Route.ActionArgs) {
     // Send magic link access email to the booking requester
     try {
       const admin = createSupabaseAdminClient();
-      // Find the booking_request to get the requester's email
-      const { data: bookingRequest } = await admin
-        .from("booking_requests")
-        .select("from_email, from_profile_id")
+      const { data: buyer } = await admin
+        .from("booking_participants")
+        .select("email")
         .eq("booking_id", bookingId)
+        .eq("role", "buyer")
         .maybeSingle();
 
-      const recipientEmail = bookingRequest?.from_email ?? null;
+      const recipientEmail = buyer?.email ?? null;
       if (recipientEmail) {
         await admin.auth.admin.generateLink({
           type: "magiclink",
           email: recipientEmail,
           options: {
-            redirectTo: `https://dashboard.sqrz.com/booking/${bookingId}`,
+            redirectTo: `https://dashboard.sqrz.com/auth/callback?next=/booking/${bookingId}`,
           },
         });
       }
@@ -253,7 +244,6 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
     }
   }, [fetcher.state, fetcher.data, onClose]);
 
-  const req = booking.booking_requests?.[0];
   const busy = fetcher.state !== "idle";
 
   return (
@@ -354,40 +344,7 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
                 </p>
               </div>
             )}
-            {req && (req.budget_min || req.budget_max) && (
-              <div>
-                <p style={metaLabel}>Budget</p>
-                <p style={metaValue}>
-                  {[
-                    req.budget_min ? formatRate(req.budget_min, booking.currency) : null,
-                    req.budget_max ? formatRate(req.budget_max, booking.currency) : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" – ")}
-                </p>
-              </div>
-            )}
           </div>
-
-          {req?.message && (
-            <div style={{ marginBottom: 18 }}>
-              <p style={metaLabel}>Request message</p>
-              <p
-                style={{
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  lineHeight: 1.6,
-                  margin: 0,
-                  background: "var(--surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: "12px 14px",
-                }}
-              >
-                {req.message}
-              </p>
-            </div>
-          )}
 
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <Link
