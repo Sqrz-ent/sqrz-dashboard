@@ -44,10 +44,20 @@ export async function loader({ request }: Route.LoaderArgs) {
   });
 
   const adminClient = createSupabaseAdminClient();
-  const { count: viewCount } = await adminClient
-    .from("profile_views")
-    .select("*", { count: "exact", head: true })
-    .eq("profile_id", profile.id as string);
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const [{ count: viewCount }, { count: recentViewCount }] = await Promise.all([
+    adminClient
+      .from("profile_views")
+      .select("*", { count: "exact", head: true })
+      .eq("profile_id", profile.id as string),
+    adminClient
+      .from("profile_views")
+      .select("*", { count: "exact", head: true })
+      .eq("profile_id", profile.id as string)
+      .gte("created_at", sevenDaysAgo.toISOString()),
+  ]);
 
   const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
@@ -103,6 +113,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       profile,
       viewCount: viewCount ?? 0,
+      recentViewCount: recentViewCount ?? 0,
       activeBookingsCount: activeBookingsRes.count ?? 0,
       upcomingBookings: upcomingBookingsRes.data ?? [],
       hasSkills: (skillsRes.count ?? 0) > 0,
@@ -195,7 +206,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, viewCount, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, analytics, availabilityBlocks, refCode } =
+  const { profile, viewCount, recentViewCount, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, analytics, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -206,8 +217,8 @@ export default function DashboardIndex() {
     ?? "there";
   const planId = p.plan_id as number | null | undefined;
 
-  const analyticsData = analytics as { views_total?: number; views_prev_period?: number; unique_visitors?: number; form_opens?: number } | null;
-  const views = analyticsData?.views_total ?? 0;
+  const analyticsData = analytics as { views_prev_period?: number; unique_visitors?: number; form_opens?: number } | null;
+  const views = recentViewCount as number;
   const prevViews = analyticsData?.views_prev_period ?? 0;
   const uniqueVisitors = analyticsData?.unique_visitors ?? 0;
   const formOpens = analyticsData?.form_opens ?? 0;
