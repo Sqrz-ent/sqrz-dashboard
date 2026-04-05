@@ -30,16 +30,6 @@ type Participant = {
   invite_token: string | null;
 };
 
-type Payment = {
-  id: number;
-  title: string | null;
-  amount: number | null;
-  currency: string | null;
-  status: string | null;
-  stripe_invoice_url: string | null;
-  created_at: string;
-};
-
 type Booking = {
   id: string;
   title: string | null;
@@ -66,26 +56,18 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const [bookingRes, paymentsRes] = await Promise.all([
-    supabase
-      .from("bookings")
-      .select("*, booking_participants(*), booking_proposals(*)")
-      .eq("id", params.id)
-      .eq("owner_id", profile.id as string)
-      .single(),
-    supabase
-      .from("payments")
-      .select("id, title, amount, currency, status, stripe_invoice_url, created_at")
-      .eq("booking_id", params.id)
-      .order("created_at", { ascending: false }),
-  ]);
+  const { data: booking } = await supabase
+    .from("bookings")
+    .select("*, booking_participants(*), booking_proposals(*)")
+    .eq("id", params.id)
+    .eq("owner_id", profile.id as string)
+    .single();
 
-  if (!bookingRes.data) return redirect("/office", { headers });
+  if (!booking) return redirect("/office", { headers });
 
   return Response.json(
     {
-      booking: bookingRes.data,
-      payments: paymentsRes.data ?? [],
+      booking,
       profileId: profile.id as string,
       userEmail: (profile.email as string) ?? user.email ?? "",
       planId: (profile.plan_id as number | null) ?? null,
@@ -357,24 +339,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   if (intent === "mark_as_paid") {
-    // Fetch latest proposal for rate/currency
-    const { data: proposal } = await supabase
-      .from("booking_proposals")
-      .select("rate, currency")
-      .eq("booking_id", params.id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    await supabase.from("payments").insert({
-      booking_id: params.id,
-      profile_id: profile.id,
-      amount: proposal?.rate ?? null,
-      currency: proposal?.currency ?? "EUR",
-      status: "paid",
-      title: "External payment",
-    });
-
     await supabase
       .from("bookings")
       .update({ status: "completed" })
@@ -870,42 +834,29 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
 
 // ─── Payments section ─────────────────────────────────────────────────────────
 
-function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: Booking }) {
+function PaymentsSection({ booking }: { booking: Booking }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
   const proposal = booking.booking_proposals?.[0];
-  const hasPaidPayment = payments.some((p) => p.status === "paid");
+  const isPaid = booking.status === "completed";
   const hasProposalRate = proposal?.rate != null && proposal.rate > 0;
-
-  // Show manual payment card when there's a rate agreed in a proposal and payment_method is external
   const isExternal = proposal?.payment_method === "external" || proposal?.payment_method == null;
   const showManualCard = hasProposalRate && isExternal;
 
   const sym = hasProposalRate ? currencySym(proposal!.currency) : "";
   const rate = proposal?.rate;
 
-  // Find the matching paid payment record
-  const paidRecord = payments.find((p) => p.status === "paid");
-
   return (
     <section id="payments" style={{ paddingBottom: 40 }}>
       <SectionHeading>Payments</SectionHeading>
 
-      {/* Manual (external) payment card */}
-      {showManualCard && (
-        <div style={{ ...card, marginBottom: 14 }}>
-          {hasPaidPayment && paidRecord ? (
+      {showManualCard ? (
+        <div style={card}>
+          {isPaid ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <p style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", margin: "0 0 2px" }}>
-                  {sym}{((paidRecord.amount ?? 0) / 100).toLocaleString()} — Paid ✓
-                </p>
-                {paidRecord.created_at && (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-                    {new Date(paidRecord.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </p>
-                )}
-              </div>
+              <p style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", margin: 0, flex: 1 }}>
+                {sym}{rate!.toLocaleString()} — Paid ✓
+              </p>
               <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "rgba(74,222,128,0.12)", color: "#4ade80" }}>
                 Paid
               </span>
@@ -946,50 +897,10 @@ function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: 
             </div>
           )}
         </div>
-      )}
-
-      {/* Stripe invoice rows */}
-      {payments.length === 0 && !showManualCard ? (
-        <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
-          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No invoices yet.</p>
-        </div>
       ) : (
-        payments.map((p) => {
-          const isPaidRow = p.status === "paid";
-          const isPendingRow = p.status === "pending";
-          const statusColor = isPaidRow ? ACCENT : isPendingRow ? "#facc15" : "var(--text-muted)";
-          return (
-            <div key={p.id} style={{ ...card, display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  Invoice: {p.title ?? "—"}
-                </p>
-                {p.amount != null && (
-                  <p style={{ color: ACCENT, fontSize: 13, fontWeight: 600, margin: 0 }}>
-                    {currencySym(p.currency)}{p.amount.toLocaleString()}
-                  </p>
-                )}
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "capitalize", color: statusColor, padding: "3px 8px", borderRadius: 6, border: `1px solid ${statusColor}30`, background: `${statusColor}12`, flexShrink: 0 }}>
-                {p.status ?? "unknown"}
-              </span>
-              {p.stripe_invoice_url ? (
-                <a
-                  href={p.stripe_invoice_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none", padding: "6px 10px", border: "1px solid var(--border)", borderRadius: 7, display: "flex", alignItems: "center", gap: 4, flexShrink: 0, fontFamily: FONT_BODY }}
-                >
-                  Invoice ↗
-                </a>
-              ) : (
-                <span style={{ fontSize: 12, color: "var(--text-muted)", padding: "6px 10px", flexShrink: 0 }}>
-                  Invoice ↗
-                </span>
-              )}
-            </div>
-          );
-        })
+        <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No payment details yet.</p>
+        </div>
       )}
     </section>
   );
@@ -1083,7 +994,7 @@ function ActionsSection({ booking }: { booking: Booking }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookingDetailPage() {
-  const { booking, payments, profileId, userEmail, planId, isBeta } = useLoaderData<typeof loader>();
+  const { booking, profileId, userEmail, planId, isBeta } = useLoaderData<typeof loader>();
   const b = booking as unknown as Booking;
   const isRequested = b.status === "requested";
   const planLevel = getPlanLevel(planId as number | null, isBeta as boolean);
@@ -1199,7 +1110,7 @@ export default function BookingDetailPage() {
         {!isRequested && (
           <>
             <TeamSection participants={b.booking_participants} bookingId={b.id} />
-            <PaymentsSection payments={payments as unknown as Payment[]} booking={b} />
+            <PaymentsSection booking={b} />
           </>
         )}
 

@@ -66,14 +66,6 @@ const accentBtn: React.CSSProperties = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ClientPayment = {
-  id: string;
-  title: string | null;
-  amount: number;
-  currency: string;
-  created_at: string;
-};
-
 type SubInfo = {
   planName: string | null;
   interval: "month" | "year" | null;
@@ -122,30 +114,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
-  // ── Client payments ──────────────────────────────────────────────────────
-  let clientPayments: ClientPayment[] = [];
-  try {
-    const { data: payments } = await supabase
-      .from("payments")
-      .select("id, title, amount, currency, created_at")
-      .eq("profile_id", profile.id as string)
-      .eq("status", "paid")
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    if (payments) {
-      clientPayments = payments.map((p: any) => ({
-        id: p.id,
-        title: p.title ?? null,
-        amount: p.amount,
-        currency: p.currency ?? "usd",
-        created_at: p.created_at,
-      }));
-    }
-  } catch {
-    // Non-fatal
-  }
-
   // ── Subscription info ────────────────────────────────────────────────────
   let subInfo: SubInfo = {
     planName: null,
@@ -188,7 +156,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   return Response.json(
-    { connectStatus, clientPayments, subInfo, planId, stripeExpressUrl, billingPortalUrl },
+    { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl },
     { headers }
   );
 }
@@ -198,12 +166,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 function formatDate(ts: number) {
   return new Date(ts * 1000).toLocaleDateString("en-US", {
     year: "numeric", month: "long", day: "numeric",
-  });
-}
-
-function formatDateStr(str: string) {
-  return new Date(str).toLocaleDateString("en-US", {
-    year: "numeric", month: "short", day: "numeric",
   });
 }
 
@@ -219,10 +181,9 @@ function formatAmount(amount: number, currency: string) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
-  const { connectStatus, clientPayments, subInfo, planId, stripeExpressUrl, billingPortalUrl } =
+  const { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl } =
     useLoaderData<typeof loader>() as {
       connectStatus: string;
-      clientPayments: ClientPayment[];
       subInfo: SubInfo;
       planId: number | null;
       stripeExpressUrl: string | null;
@@ -339,44 +300,18 @@ export default function PaymentsPage() {
         )}
 
         {isActive && (
-          <>
-            {clientPayments.length === 0 ? (
-              <div style={{ padding: "28px 0", textAlign: "center", borderTop: "1px solid var(--border)" }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-                  No client payments yet. Send a proposal to get started.
-                </p>
-              </div>
-            ) : (
-              <div style={{ borderTop: "1px solid var(--border)" }}>
-                {clientPayments.map((p, i) => (
-                  <div
-                    key={p.id}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      padding: "13px 0",
-                      borderBottom: i < clientPayments.length - 1 ? "1px solid var(--border)" : "none",
-                      gap: 12,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {p.title ?? "Booking"}
-                      </p>
-                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted)" }}>
-                        {formatDateStr(p.created_at)}
-                      </p>
-                    </div>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: "#4ade80", flexShrink: 0 }}>
-                      {formatAmount(p.amount, p.currency)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
+          <div style={{ padding: "16px 0 4px", borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+              Your payout history is available in the{" "}
+              {stripeExpressUrl ? (
+                <a href={stripeExpressUrl} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}>
+                  Stripe Express dashboard →
+                </a>
+              ) : (
+                <span style={{ color: "var(--text-muted)" }}>Stripe Express dashboard</span>
+              )}
+            </p>
+          </div>
         )}
       </div>
 
