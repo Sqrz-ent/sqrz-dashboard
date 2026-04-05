@@ -99,24 +99,24 @@ export async function loader({ request }: Route.LoaderArgs) {
         .eq('user_id', authedUser.id)
         .maybeSingle();
 
-      // Always follow /booking/ next param — handles both guests AND members invited to bookings
+      // Always link user_id to booking_participants before any redirect
+      if (authedUser.email) {
+        await supabase
+          .from('booking_participants')
+          .update({
+            user_id: authedUser.id,
+            joined_at: new Date().toISOString()
+          })
+          .eq('email', authedUser.email)
+          .is('user_id', null);
+      }
+
+      // Follow /booking/ next param for all user types
       if (decodedNext?.startsWith('/booking/')) {
         return redirect(decodedNext, { headers });
       }
 
       if (profile?.user_type === 'guest') {
-        // Link user_id to any booking_participants rows matching their email
-        if (authedUser.email) {
-          await supabase
-            .from('booking_participants')
-            .update({
-              user_id: authedUser.id,
-              joined_at: new Date().toISOString()
-            })
-            .eq('email', authedUser.email)
-            .is('user_id', null);
-        }
-
         // Redirect to their most recent booking
         const { data: participant } = await supabase
           .from('booking_participants')
@@ -126,10 +126,12 @@ export async function loader({ request }: Route.LoaderArgs) {
           .limit(1)
           .maybeSingle();
 
-        if (participant?.booking_id) {
-          return redirect(`/booking/${participant.booking_id}`, { headers });
-        }
-        return redirect('/guest-access', { headers });
+        return redirect(
+          participant?.booking_id
+            ? `/booking/${participant.booking_id}`
+            : '/guest-access',
+          { headers }
+        );
       }
     }
 
