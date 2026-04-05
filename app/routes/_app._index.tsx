@@ -38,26 +38,28 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profileId = profile.id as string;
 
-  const { data: analytics } = await supabase.rpc("get_profile_analytics", {
-    p_profile_id: profile.id,
-    p_days: 7,
-  });
-
   const adminClient = createSupabaseAdminClient();
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ count: viewCount }, { count: recentViewCount }] = await Promise.all([
+  const [{ count: viewCount }, { data: recentViews }] = await Promise.all([
     adminClient
       .from("profile_views")
       .select("*", { count: "exact", head: true })
       .eq("profile_id", profile.id as string),
     adminClient
       .from("profile_views")
-      .select("*", { count: "exact", head: true })
+      .select("created_at, visitor_fingerprint")
       .eq("profile_id", profile.id as string)
-      .gte("created_at", sevenDaysAgo.toISOString()),
+      .gte("created_at", sevenDaysAgo),
   ]);
+
+  const totalRecentViews = recentViews?.length ?? 0;
+  const uniqueVisitors7d = new Set(recentViews?.map((v) => v.visitor_fingerprint)).size;
+  const viewsByDay = (recentViews ?? []).reduce((acc: Record<string, number>, view) => {
+    const day = (view.created_at as string).split("T")[0];
+    acc[day] = (acc[day] || 0) + 1;
+    return acc;
+  }, {});
 
   const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
@@ -113,7 +115,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       profile,
       viewCount: viewCount ?? 0,
-      recentViewCount: recentViewCount ?? 0,
+      totalRecentViews,
+      uniqueVisitors7d,
+      viewsByDay,
       activeBookingsCount: activeBookingsRes.count ?? 0,
       upcomingBookings: upcomingBookingsRes.data ?? [],
       hasSkills: (skillsRes.count ?? 0) > 0,
@@ -122,7 +126,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       hasRefs: (refsRes.count ?? 0) > 0,
       hasGallery: (photosRes.count ?? 0) > 0,
       planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
-      analytics: analytics ?? null,
       availabilityBlocks: blocksRes.data ?? [],
       refCode: refCodeRes.data ?? null,
     },
@@ -206,7 +209,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, viewCount, recentViewCount, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, analytics, availabilityBlocks, refCode } =
+  const { profile, viewCount, totalRecentViews, uniqueVisitors7d, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -217,12 +220,10 @@ export default function DashboardIndex() {
     ?? "there";
   const planId = p.plan_id as number | null | undefined;
 
-  const analyticsData = analytics as { views_prev_period?: number; unique_visitors?: number; form_opens?: number } | null;
-  const views = recentViewCount as number;
-  const prevViews = analyticsData?.views_prev_period ?? 0;
-  const uniqueVisitors = analyticsData?.unique_visitors ?? 0;
-  const formOpens = analyticsData?.form_opens ?? 0;
-  const trend = prevViews > 0 ? Math.round(((views - prevViews) / prevViews) * 100) : null;
+  const views = totalRecentViews as number;
+  const uniqueVisitors = uniqueVisitors7d as number;
+  const formOpens = 0;
+  const trend = null;
   const trendUp = trend !== null && trend >= 0;
   const isPaid = !!planId && planId > 0;
 
