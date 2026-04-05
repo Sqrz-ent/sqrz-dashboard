@@ -3,6 +3,10 @@ import type { Route } from "./+types/_app.payments";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
+import Stripe from "stripe";
+
+// Connect accounts were created in test mode — use test key for Express login links
+const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -95,11 +99,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   const customerId = (profile.stripe_customer_id as string | null) ?? null;
   const planId = profile.plan_id as number | null;
 
-  // ── Stripe Express login link ─────────────────────────────────────────────
+  // ── Stripe Express login link (test key — accounts created in test mode) ──
   let stripeExpressUrl: string | null = null;
   if (connectId && connectStatus === "active") {
     try {
-      const loginLink = await stripe.accounts.createLoginLink(connectId);
+      const loginLink = await stripeTest.accounts.createLoginLink(connectId);
       stripeExpressUrl = loginLink.url;
     } catch (e) {
       console.error("[payments] Stripe Express link failed:", e);
@@ -267,14 +271,31 @@ export default function PaymentsPage() {
 
           {isActive ? (
             stripeExpressUrl ? (
-              <a
-                href={stripeExpressUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={ghostBtn}
-              >
-                Manage Payouts →
-              </a>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                <div style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "rgba(243,177,48,0.1)",
+                  border: "1px solid rgba(243,177,48,0.3)",
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  color: "#F3B130",
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase" as const,
+                }}>
+                  ⚠ Test mode — real payouts not yet active
+                </div>
+                <a
+                  href={stripeExpressUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={ghostBtn}
+                >
+                  Manage Payouts →
+                </a>
+              </div>
             ) : (
               <span
                 title="Payout dashboard unavailable — Connect account may need re-linking"
