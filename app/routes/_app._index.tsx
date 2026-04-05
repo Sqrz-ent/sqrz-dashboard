@@ -43,6 +43,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     p_days: 7,
   });
 
+  const { count: viewCount } = await supabase
+    .from("profile_views")
+    .select("*", { count: "exact", head: true })
+    .eq("profile_id", profileId);
+
   const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
       supabase
@@ -96,6 +101,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json(
     {
       profile,
+      viewCount: viewCount ?? 0,
       activeBookingsCount: activeBookingsRes.count ?? 0,
       upcomingBookings: upcomingBookingsRes.data ?? [],
       hasSkills: (skillsRes.count ?? 0) > 0,
@@ -188,7 +194,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, analytics, availabilityBlocks, refCode } =
+  const { profile, viewCount, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, analytics, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -760,6 +766,13 @@ export default function DashboardIndex() {
           marginBottom: 16,
         }}
       >
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Total Views</p>
+          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+            {(viewCount as number).toLocaleString()}
+          </p>
+        </div>
+
         <div style={{ ...card, textAlign: "center" }}>
           <p style={metaLabel}>Active Bookings</p>
           <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
