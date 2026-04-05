@@ -2,7 +2,10 @@ import { redirect } from "react-router";
 import type { Route } from "./+types/api.stripe.connect";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { stripe } from "~/lib/stripe.server";
+import Stripe from "stripe";
+
+// Connect onboarding uses the test key — Express accounts were created in test mode
+const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
 
 export async function action({ request }: Route.ActionArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -20,8 +23,8 @@ export async function action({ request }: Route.ActionArgs) {
   let connectId = profile.stripe_connect_id as string | undefined;
 
   if (!connectId) {
-    // Create new Stripe Express account
-    const account = await stripe.accounts.create({
+    // Create new Stripe Express account (test mode)
+    const account = await stripeTest.accounts.create({
       type: "express",
       email: (profile.email as string) ?? undefined,
       capabilities: {
@@ -46,8 +49,8 @@ export async function action({ request }: Route.ActionArgs) {
       .eq("id", profile.id);
   }
 
-  // Create onboarding link (works for both new and incomplete accounts)
-  const accountLink = await stripe.accountLinks.create({
+  // Create onboarding link (test mode — works for both new and incomplete accounts)
+  const accountLink = await stripeTest.accountLinks.create({
     account: connectId,
     refresh_url: `${publicUrl}/payments?connect=refresh`,
     return_url: `${publicUrl}/payments?connect=success`,
