@@ -53,7 +53,7 @@ type Booking = {
   show_label: boolean | null;
   owner_id: string;
   booking_participants: Participant[];
-  proposals: Proposal[];
+  booking_proposals: Proposal[];
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const [bookingRes, paymentsRes] = await Promise.all([
     supabase
       .from("bookings")
-      .select("*, booking_participants(*), proposals(*)")
+      .select("*, booking_participants(*), booking_proposals(*)")
       .eq("id", params.id)
       .eq("owner_id", profile.id as string)
       .single(),
@@ -146,7 +146,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     if (bookingError) return Response.json({ error: bookingError.message }, { status: 500, headers });
 
     // Insert proposal record
-    await supabase.from("proposals").insert({
+    await supabase.from("booking_proposals").insert({
       booking_id: params.id,
       rate,
       currency,
@@ -359,7 +359,7 @@ export async function action({ request, params }: Route.ActionArgs) {
   if (intent === "mark_as_paid") {
     // Fetch latest proposal for rate/currency
     const { data: proposal } = await supabase
-      .from("proposals")
+      .from("booking_proposals")
       .select("rate, currency")
       .eq("booking_id", params.id)
       .order("created_at", { ascending: false })
@@ -559,11 +559,11 @@ function DetailsSection({ booking }: { booking: Booking }) {
       )}
 
       {/* Rate (from latest proposal) */}
-      {booking.proposals?.[0]?.rate != null && (
+      {booking.booking_proposals?.[0]?.rate != null && (
         <div style={card}>
           <p style={label}>Agreed Rate</p>
           <p style={{ ...val, color: ACCENT, fontSize: 18, fontWeight: 700, marginTop: 4 }}>
-            {formatRate(booking.proposals[0].rate, booking.proposals[0].currency)}
+            {formatRate(booking.booking_proposals[0].rate, booking.booking_proposals[0].currency)}
           </p>
         </div>
       )}
@@ -576,7 +576,7 @@ function DetailsSection({ booking }: { booking: Booking }) {
 
 function ProposalSection({ booking, planLevel }: { booking: Booking; planLevel: number }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
-  const proposal = booking.proposals?.[0];
+  const proposal = booking.booking_proposals?.[0];
   const [form, setForm] = useState({
     rate: String(proposal?.rate ?? ""),
     currency: proposal?.currency ?? "EUR",
@@ -873,7 +873,7 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
 function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: Booking }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
-  const proposal = booking.proposals?.[0];
+  const proposal = booking.booking_proposals?.[0];
   const hasPaidPayment = payments.some((p) => p.status === "paid");
   const hasProposalRate = proposal?.rate != null && proposal.rate > 0;
 
