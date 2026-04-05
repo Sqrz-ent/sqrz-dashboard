@@ -171,21 +171,35 @@ export async function action({ request, params }: Route.ActionArgs) {
     try {
       const { data: booking } = await supabase
         .from("bookings")
-        .select("guest_email, guest_name, service, date_start, city, venue, rate, currency, require_hotel, require_travel, require_food")
+        .select("service, date_start, city, venue, rate, currency, require_hotel, require_travel, require_food")
         .eq("id", params.id)
         .maybeSingle();
 
-      const guestEmail = booking?.guest_email;
+      // Get the requester email from booking_participants
+      const admin = createSupabaseAdminClient();
+      const { data: buyer } = await admin
+        .from("booking_participants")
+        .select("email, name, user_id")
+        .eq("booking_id", params.id)
+        .eq("role", "buyer")
+        .maybeSingle();
+
+      const guestEmail = buyer?.email;
+      const guestName = buyer?.name;
+
+      if (!guestEmail) {
+        console.error("[proposal] no buyer found for booking", params.id);
+        return Response.json({ error: "No requester found for this booking" }, { status: 422, headers });
+      }
 
       if (guestEmail) {
         const ownerName = (profile.name as string | null) ?? (profile.first_name as string | null) ?? "Your booking partner";
-        const admin = createSupabaseAdminClient();
-        const next = encodeURIComponent(`/booking/${params.id}`);
-        const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
         const { data: linkData } = await admin.auth.admin.generateLink({
           type: "magiclink",
           email: guestEmail,
-          options: { redirectTo },
+          options: {
+            redirectTo: `https://dashboard.sqrz.com/auth/callback?next=/booking/${params.id}`,
+          },
         });
         const magicLink = linkData?.properties?.action_link ?? `https://dashboard.sqrz.com/booking/${params.id}`;
 
@@ -205,7 +219,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     </div>
 
     <div style="padding:32px;">
-      <p style="color:#666;font-size:14px;margin:0 0 8px;">Hi ${booking?.guest_name ?? "there"},</p>
+      <p style="color:#666;font-size:14px;margin:0 0 8px;">Hi ${guestName ?? "there"},</p>
       <h1 style="font-size:24px;font-weight:700;margin:0 0 24px;color:#0a0a0a;">
         You have a proposal from ${ownerName}
       </h1>
