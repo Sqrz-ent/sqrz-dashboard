@@ -8,6 +8,17 @@ import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+type Proposal = {
+  id: string;
+  rate: number | null;
+  currency: string | null;
+  require_hotel: boolean | null;
+  require_travel: boolean | null;
+  require_food: boolean | null;
+  payment_method: string | null;
+  message: string | null;
+};
+
 type Participant = {
   id: string;
   profile_id: string | null;
@@ -39,19 +50,10 @@ type Booking = {
   city: string | null;
   venue: string | null;
   address: string | null;
-  rate: number | null;
-  currency: string | null;
-  require_hotel: boolean | null;
-  require_travel: boolean | null;
-  require_food: boolean | null;
   show_label: boolean | null;
   owner_id: string;
-  payment_method: string | null;
-  payment_amount: number | null;
-  payment_currency: string | null;
-  payment_status: string | null;
-  paid_at: string | null;
   booking_participants: Participant[];
+  proposals: Proposal[];
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -67,7 +69,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   const [bookingRes, paymentsRes] = await Promise.all([
     supabase
       .from("bookings")
-      .select("*, booking_participants(*)")
+      .select("*, booking_participants(*), proposals(*)")
       .eq("id", params.id)
       .eq("owner_id", profile.id as string)
       .single(),
@@ -134,30 +136,32 @@ export async function action({ request, params }: Route.ActionArgs) {
     const requireFood = formData.get("require_food") === "true";
     const paymentMethod = (formData.get("payment_method") as string) || "external";
 
-    const { error } = await supabase
+    // Update booking status to pending
+    const { error: bookingError } = await supabase
       .from("bookings")
-      .update({
-        rate,
-        currency,
-        require_hotel: requireHotel,
-        require_travel: requireTravel,
-        require_food: requireFood,
-        payment_method: paymentMethod,
-        payment_amount: rate,
-        payment_currency: currency,
-        payment_status: "unpaid",
-        status: "pending",
-      })
+      .update({ status: "pending" })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
 
-    if (error) return Response.json({ error: error.message }, { status: 500, headers });
+    if (bookingError) return Response.json({ error: bookingError.message }, { status: 500, headers });
+
+    // Insert proposal record
+    await supabase.from("proposals").insert({
+      booking_id: params.id,
+      rate,
+      currency,
+      require_hotel: requireHotel,
+      require_travel: requireTravel,
+      require_food: requireFood,
+      payment_method: paymentMethod,
+      message: message || null,
+    });
 
     // Send proposal email with magic link to guest
     try {
       const { data: booking } = await supabase
         .from("bookings")
-        .select("service, date_start, city, venue, rate, currency, require_hotel, require_travel, require_food")
+        .select("service, date_start, city, venue")
         .eq("id", params.id)
         .maybeSingle();
 
@@ -190,9 +194,9 @@ export async function action({ request, params }: Route.ActionArgs) {
         const magicLink = linkData?.properties?.action_link ?? `https://dashboard.sqrz.com/booking/${params.id}`;
 
         const riderItems = [
-          booking?.require_hotel && "🏨 Hotel",
-          booking?.require_travel && "✈️ Travel",
-          booking?.require_food && "🍽️ Catering",
+          requireHotel && "🏨 Hotel",
+          requireTravel && "✈️ Travel",
+          requireFood && "🍽️ Catering",
         ].filter(Boolean).join(" · ");
 
         const emailHtml = `<!DOCTYPE html>
@@ -231,7 +235,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
         <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;">
           <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Proposed Rate</span>
-          <p style="margin:4px 0 0;font-size:28px;font-weight:700;color:#0a0a0a;">${(booking?.currency ?? currency).toUpperCase()} ${booking?.rate ?? rate}</p>
+          <p style="margin:4px 0 0;font-size:28px;font-weight:700;color:#0a0a0a;">${currency.toUpperCase()} ${rate}</p>
         </div>
 
         ${riderItems ? `
@@ -353,12 +357,31 @@ export async function action({ request, params }: Route.ActionArgs) {
   }
 
   if (intent === "mark_as_paid") {
-    const { error } = await supabase
+    // Fetch latest proposal for rate/currency
+    const { data: proposal } = await supabase
+      .from("proposals")
+      .select("rate, currency")
+      .eq("booking_id", params.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    await supabase.from("payments").insert({
+      booking_id: params.id,
+      profile_id: profile.id,
+      amount: proposal?.rate ?? null,
+      currency: proposal?.currency ?? "EUR",
+      status: "paid",
+      title: "External payment",
+    });
+
+    await supabase
       .from("bookings")
-      .update({ payment_status: "paid", paid_at: new Date().toISOString(), status: "completed" })
+      .update({ status: "completed" })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
+
+    return Response.json({ ok: true }, { headers });
   }
 
   return Response.json({ ok: true }, { headers });
@@ -535,12 +558,12 @@ function DetailsSection({ booking }: { booking: Booking }) {
         </div>
       )}
 
-      {/* Rate (if already set) */}
-      {booking.rate != null && (
+      {/* Rate (from latest proposal) */}
+      {booking.proposals?.[0]?.rate != null && (
         <div style={card}>
           <p style={label}>Agreed Rate</p>
           <p style={{ ...val, color: ACCENT, fontSize: 18, fontWeight: 700, marginTop: 4 }}>
-            {formatRate(booking.rate, booking.currency)}
+            {formatRate(booking.proposals[0].rate, booking.proposals[0].currency)}
           </p>
         </div>
       )}
@@ -553,14 +576,15 @@ function DetailsSection({ booking }: { booking: Booking }) {
 
 function ProposalSection({ booking, planLevel }: { booking: Booking; planLevel: number }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const proposal = booking.proposals?.[0];
   const [form, setForm] = useState({
-    rate: String(booking.rate ?? ""),
-    currency: booking.currency ?? "EUR",
+    rate: String(proposal?.rate ?? ""),
+    currency: proposal?.currency ?? "EUR",
     message: "",
-    require_travel: booking.require_travel ?? false,
-    require_hotel: booking.require_hotel ?? false,
-    require_food: booking.require_food ?? false,
-    payment_method: booking.payment_method ?? "external",
+    require_travel: proposal?.require_travel ?? false,
+    require_hotel: proposal?.require_hotel ?? false,
+    require_food: proposal?.require_food ?? false,
+    payment_method: proposal?.payment_method ?? "external",
   });
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
@@ -849,30 +873,36 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
 function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: Booking }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
-  const isExternal = booking.payment_method === "external" || booking.payment_method == null;
-  const isPaid = booking.payment_status === "paid";
-  const hasRate = booking.payment_amount != null && booking.payment_amount > 0;
-  const sym = currencySym(booking.payment_currency ?? booking.currency);
-  const amount = booking.payment_amount ?? booking.rate;
+  const proposal = booking.proposals?.[0];
+  const hasPaidPayment = payments.some((p) => p.status === "paid");
+  const hasProposalRate = proposal?.rate != null && proposal.rate > 0;
 
-  const showExternalPayment = isExternal && hasRate;
+  // Show manual payment card when there's a rate agreed in a proposal and payment_method is external
+  const isExternal = proposal?.payment_method === "external" || proposal?.payment_method == null;
+  const showManualCard = hasProposalRate && isExternal;
+
+  const sym = hasProposalRate ? currencySym(proposal!.currency) : "";
+  const rate = proposal?.rate;
+
+  // Find the matching paid payment record
+  const paidRecord = payments.find((p) => p.status === "paid");
 
   return (
     <section id="payments" style={{ paddingBottom: 40 }}>
       <SectionHeading>Payments</SectionHeading>
 
-      {/* External payment card */}
-      {showExternalPayment && (
+      {/* Manual (external) payment card */}
+      {showManualCard && (
         <div style={{ ...card, marginBottom: 14 }}>
-          {isPaid ? (
+          {hasPaidPayment && paidRecord ? (
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <p style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", margin: "0 0 2px" }}>
-                  {sym}{amount!.toLocaleString()} — Paid ✓
+                  {sym}{((paidRecord.amount ?? 0) / 100).toLocaleString()} — Paid ✓
                 </p>
-                {booking.paid_at && (
+                {paidRecord.created_at && (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-                    {new Date(booking.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    {new Date(paidRecord.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </p>
                 )}
               </div>
@@ -884,7 +914,7 @@ function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: 
             <div>
               <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 14px" }}>
                 <span style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", display: "block", marginBottom: 4 }}>
-                  {sym}{amount!.toLocaleString()}
+                  {sym}{rate!.toLocaleString()}
                 </span>
                 Awaiting external payment
               </p>
@@ -919,7 +949,7 @@ function PaymentsSection({ payments, booking }: { payments: Payment[]; booking: 
       )}
 
       {/* Stripe invoice rows */}
-      {payments.length === 0 && !showExternalPayment ? (
+      {payments.length === 0 && !showManualCard ? (
         <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
           <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No invoices yet.</p>
         </div>

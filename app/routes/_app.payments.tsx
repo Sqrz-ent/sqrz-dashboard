@@ -69,8 +69,6 @@ const accentBtn: React.CSSProperties = {
 type ClientPayment = {
   id: string;
   title: string | null;
-  guest_name: string | null;
-  guest_email: string | null;
   amount: number;
   currency: string;
   created_at: string;
@@ -129,7 +127,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const { data: payments } = await supabase
       .from("payments")
-      .select("id, title, amount, currency, created_at, booking:bookings(guest_name, guest_email)")
+      .select("id, title, amount, currency, created_at")
       .eq("profile_id", profile.id as string)
       .eq("status", "paid")
       .order("created_at", { ascending: false })
@@ -139,8 +137,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       clientPayments = payments.map((p: any) => ({
         id: p.id,
         title: p.title ?? null,
-        guest_name: p.booking?.guest_name ?? null,
-        guest_email: p.booking?.guest_email ?? null,
         amount: p.amount,
         currency: p.currency ?? "usd",
         created_at: p.created_at,
@@ -370,7 +366,7 @@ export default function PaymentsPage() {
                         {p.title ?? "Booking"}
                       </p>
                       <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--text-muted)" }}>
-                        {p.guest_name ?? p.guest_email ?? "Client"} · {formatDateStr(p.created_at)}
+                        {formatDateStr(p.created_at)}
                       </p>
                     </div>
                     <span style={{ fontSize: 15, fontWeight: 700, color: "#4ade80", flexShrink: 0 }}>

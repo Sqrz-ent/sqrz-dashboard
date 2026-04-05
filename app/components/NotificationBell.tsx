@@ -51,7 +51,7 @@ function ToastItem({
           New booking request
         </p>
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
-          {toast.guest_name ?? toast.guest_email ?? "New request"}
+          New booking request
         </p>
       </div>
       <button
@@ -344,7 +344,7 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
                             textOverflow: "ellipsis",
                           }}
                         >
-                          {n.guest_name ?? n.guest_email ?? "Someone"}
+                          New booking request
                         </p>
                         <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
                           New booking request · {timeAgo(n.created_at)}

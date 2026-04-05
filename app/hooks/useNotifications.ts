@@ -5,8 +5,6 @@ import { supabase } from "~/lib/supabase.client";
 
 export type Notification = {
   id: string;
-  guest_name: string | null;
-  guest_email: string | null;
   created_at: string;
   read: boolean;
 };
@@ -15,10 +13,7 @@ export type Toast = Notification & { toastId: string };
 
 export type Lead = {
   id: string;
-  guest_name: string | null;
-  guest_email: string | null;
   description: string | null;
-  budget_range: string | null;
   created_at: string;
 };
 
@@ -81,7 +76,7 @@ export function useNotifications() {
       // Initial fetch: only new booking requests
       const { data: bookingData } = await supabase
         .from("bookings")
-        .select("id, created_at, guest_name, guest_email")
+        .select("id, created_at")
         .eq("owner_id", profile.id)
         .eq("status", "requested")
         .order("created_at", { ascending: false })
@@ -91,8 +86,6 @@ export function useNotifications() {
         setNotifications(
           bookingData.map((b: Record<string, unknown>) => ({
             id: b.id as string,
-            guest_name: (b.guest_name as string) ?? null,
-            guest_email: (b.guest_email as string) ?? null,
             created_at: b.created_at as string,
             read: readIds.has(b.id as string),
           }))
@@ -102,7 +95,7 @@ export function useNotifications() {
       // Initial fetch: open leads
       const { data: leadData } = await supabase
         .from("bookings")
-        .select("id, created_at, guest_name, guest_email, description, budget_range")
+        .select("id, created_at, description")
         .eq("owner_id", profile.id)
         .eq("status", "lead")
         .order("created_at", { ascending: false })
@@ -112,10 +105,7 @@ export function useNotifications() {
         setLeads(
           leadData.map((b: Record<string, unknown>) => ({
             id: b.id as string,
-            guest_name: (b.guest_name as string) ?? null,
-            guest_email: (b.guest_email as string) ?? null,
             description: (b.description as string) ?? null,
-            budget_range: (b.budget_range as string) ?? null,
             created_at: b.created_at as string,
           }))
         );
@@ -157,10 +147,7 @@ export function useNotifications() {
                 // Add to leads list
                 const lead: Lead = {
                   id: b.id as string,
-                  guest_name: (b.guest_name as string) ?? null,
-                  guest_email: (b.guest_email as string) ?? null,
                   description: (b.description as string) ?? null,
-                  budget_range: (b.budget_range as string) ?? null,
                   created_at: b.created_at as string,
                 };
                 setLeads((prev) => [lead, ...prev]);
@@ -168,8 +155,6 @@ export function useNotifications() {
                 // Add to notifications + toast for new booking requests only
                 const notif: Notification = {
                   id: b.id as string,
-                  guest_name: (b.guest_name as string) ?? null,
-                  guest_email: (b.guest_email as string) ?? null,
                   created_at: b.created_at as string,
                   read: false,
                 };

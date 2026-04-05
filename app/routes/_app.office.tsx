@@ -15,8 +15,6 @@ type Booking = {
   date_end: string | null;
   city: string | null;
   venue: string | null;
-  rate: number | null;
-  currency: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -54,7 +52,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .from("bookings")
     .select(`
       id, title, service, status, date_start, date_end,
-      city, venue, rate, currency
+      city, venue
     `)
     .eq("owner_id", profile.id as string)
     .order("created_at", { ascending: false });
@@ -133,12 +131,6 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function formatRate(rate: number | null, currency: string | null): string {
-  if (!rate) return "—";
-  const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
-  return `${sym}${rate.toLocaleString()}`;
-}
-
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -191,9 +183,7 @@ function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => vo
         {formatDate(booking.date_start)}
       </p>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <span style={{ color: "#F5A623", fontSize: 12, fontWeight: 600 }}>
-          {formatRate(booking.rate, booking.currency)}
-        </span>
+        <StatusBadge status={booking.status} />
       </div>
     </button>
   );
@@ -333,14 +323,6 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
                 <p style={metaLabel}>Location</p>
                 <p style={metaValue}>
                   {booking.city}{booking.venue ? `, ${booking.venue}` : ""}
-                </p>
-              </div>
-            )}
-            {booking.rate && (
-              <div>
-                <p style={metaLabel}>Rate</p>
-                <p style={{ ...metaValue, color: "#F5A623", fontWeight: 600 }}>
-                  {formatRate(booking.rate, booking.currency)}
                 </p>
               </div>
             )}

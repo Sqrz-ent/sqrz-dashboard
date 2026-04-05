@@ -21,8 +21,6 @@ interface ConvMessage {
 interface Conversation {
   id: string;
   status: string;
-  guest_name: string | null;
-  guest_email: string | null;
   created_at: string;
   messages: ConvMessage[];
 }
@@ -135,20 +133,7 @@ function ConversationThread({
         is_read: false,
       });
       setReply("");
-      // Notify guest by email (fire and forget)
-      if (conv.guest_email) {
-        fetch("/api/notify-guest", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            bookingId: conv.id,
-            guestEmail: conv.guest_email,
-            guestName: conv.guest_name,
-            memberName: profileName,
-            message: content,
-          }),
-        }).catch(() => {});
-      }
+      // Guest email notification handled server-side
     } catch (e) {
       console.error("Send failed:", e);
     } finally {
@@ -179,7 +164,7 @@ function ConversationThread({
           messages.map((msg) => {
             const isOwner = msg.sender_id === authUserId;
             const displayName = msg.sender_name === "Guest"
-              ? (conv.guest_name ?? "Guest")
+              ? "Guest"
               : (msg.sender_name ?? "Guest");
             return (
               <div
@@ -354,7 +339,7 @@ export default function LeadsPanel({
       // Step 1: fetch all bookings owned by this profile
       const { data: bookings } = await supabase
         .from("bookings")
-        .select("id, status, guest_name, guest_email, created_at")
+        .select("id, status, created_at")
         .eq("owner_id", profileId)
         .order("created_at", { ascending: false });
 
@@ -576,7 +561,7 @@ export default function LeadsPanel({
                             minWidth: 0,
                           }}
                         >
-                          {conv.guest_name ?? conv.guest_email ?? "Unknown visitor"}
+                          Booking request
                         </p>
                         {unreadCount > 0 && (
                           <span

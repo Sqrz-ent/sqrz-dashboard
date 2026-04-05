@@ -109,12 +109,6 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function formatRate(rate: number | null, currency: string | null): string {
-  if (!rate) return "—";
-  const sym = currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
-  return `${sym}${rate.toLocaleString()}`;
-}
-
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   requested: { bg: "rgba(245,166,35,0.12)", text: "#F5A623" },
   pending:   { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
@@ -258,14 +252,6 @@ export default function BookingAccessPage() {
                     <p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.service as string}</p>
                   </div>
                 )}
-                {(b.rate as number) && (
-                  <div>
-                    <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Rate</p>
-                    <p style={{ color: "#F5A623", fontSize: 14, fontWeight: 700, margin: 0 }}>
-                      {formatRate(b.rate as number, b.currency as string)}
-                    </p>
-                  </div>
-                )}
                 {(b.venue as string) && (
                   <div>
                     <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Venue</p>
@@ -280,11 +266,11 @@ export default function BookingAccessPage() {
                 )}
               </div>
 
-              {(req?.message as string | null) && (
+              {(b.message as string | null) && (
                 <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
                   <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Message</p>
                   <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>
-                    {req?.message as string}
+                    {b.message as string}
                   </p>
                 </div>
               )}
