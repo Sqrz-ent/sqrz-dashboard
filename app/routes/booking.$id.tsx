@@ -1,11 +1,10 @@
 import { useState } from "react";
-import { redirect, useLoaderData } from "react-router";
+import { useLoaderData } from "react-router";
 import type { Route } from "./+types/booking.$id";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { supabase as browserClient } from "~/lib/supabase.client";
 import BookingChat from "~/components/BookingChat";
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -19,34 +18,58 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // ── 1. Token path — checked first ──
+  const token = url.searchParams.get("token");
+  if (token) {
+    const admin = createSupabaseAdminClient();
+    const { data: participant } = await admin
+      .from("booking_participants")
+      .select("id, booking_id, email, role, invite_token, user_id")
+      .eq("booking_id", params.id)
+      .eq("invite_token", token)
+      .limit(1)
+      .maybeSingle();
 
-  // Link user_id to booking_participants rows matching their email
-  if (code && user?.email) {
-    await supabase
-      .from('booking_participants')
-      .update({ user_id: user.id, joined_at: new Date().toISOString() })
-      .eq('email', user.email)
-      .is('user_id', null);
+    if (!participant) {
+      return Response.json(
+        { accessType: "invalid_token" },
+        { headers }
+      );
+    }
+
+    const { data: booking } = await admin
+      .from("bookings")
+      .select("*")
+      .eq("id", params.id)
+      .maybeSingle();
+
+    return Response.json(
+      {
+        booking,
+        userId: participant.user_id ?? null,
+        userEmail: participant.email ?? "",
+        isOwner: false,
+        accessType: "token",
+        participant,
+      },
+      { headers }
+    );
   }
 
-  // ── Authenticated path ──
+  // ── 2. Session path ──
+  const { data: { user } } = await supabase.auth.getUser();
+
   if (user) {
     const profile = await getCurrentProfile(supabase, user.id);
 
-    const { data: booking, error: bookingError } = await supabase
+    const { data: booking } = await supabase
       .from("bookings")
       .select("*, booking_participants(*)")
       .eq("id", params.id)
       .maybeSingle();
 
-    console.log("[booking] params.id:", params.id);
-    console.log("[booking] user.id:", user?.id);
-    console.log("[booking] booking:", booking?.id);
-    console.log("[booking] error:", bookingError);
-
     if (!booking) {
-      return redirect("/login?reason=no_access", { headers });
+      return Response.json({ accessType: "invalid_token" }, { headers });
     }
 
     const isOwner = !!(profile && booking.owner_id === profile.id);
@@ -64,37 +87,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     );
   }
 
-  // ── Token path ──
-  const token = url.searchParams.get("token");
-  if (token) {
-    const { data: participant } = await supabase
-      .from("booking_participants")
-      .select("*, bookings(*)")
-      .eq("invite_token", token)
-      .eq("booking_id", params.id)
-      .single();
-
-    if (!participant) {
-      return redirect("/login?reason=invalid_token", { headers });
-    }
-
-    const booking = (participant as Record<string, unknown>).bookings;
-
-    return Response.json(
-      {
-        booking,
-        userId: null,
-        userEmail: participant.email ?? "",
-        isOwner: false,
-        accessType: "token",
-        participant,
-      },
-      { headers }
-    );
-  }
-
-  // ── No auth, no token ──
-  return redirect(`/guest-login?booking=${params.id}`, { headers });
+  // ── 3. No token, no session → inline re-auth ──
+  return Response.json(
+    { accessType: "reauth", bookingId: params.id },
+    { headers }
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -136,20 +133,150 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+const FONT = "ui-sans-serif, system-ui, -apple-system, sans-serif";
+const ACCENT = "#F5A623";
+
+// ─── Re-auth form ─────────────────────────────────────────────────────────────
+
+function ReauthForm({ bookingId }: { bookingId: string }) {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { error: otpError } = await browserClient.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: `${window.location.origin}/booking/${bookingId}`,
+        },
+      });
+      if (otpError) throw otpError;
+      setSent(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 400, margin: "80px auto", padding: "0 24px", textAlign: "center", fontFamily: FONT }}>
+      <div style={{ fontSize: 32, marginBottom: 16 }}>🔒</div>
+      <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: "0 0 8px" }}>
+        Access this booking
+      </h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 28px", lineHeight: 1.6 }}>
+        Enter your email to receive a sign-in link for this booking.
+      </p>
+      {sent ? (
+        <div style={{ background: "rgba(74,222,128,0.1)", border: "1px solid rgba(74,222,128,0.3)", borderRadius: 12, padding: "16px 20px", color: "#4ade80", fontSize: 14 }}>
+          Check your email — we sent you a sign-in link.
+        </div>
+      ) : (
+        <form onSubmit={handleSend}>
+          <input
+            type="email"
+            placeholder="your@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            style={{
+              width: "100%",
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid var(--border)",
+              background: "var(--surface)",
+              color: "var(--text)",
+              fontSize: 15,
+              boxSizing: "border-box" as const,
+              marginBottom: 12,
+              fontFamily: FONT,
+            }}
+          />
+          {error && <p style={{ color: "#ff6b6b", fontSize: 13, marginBottom: 10 }}>{error}</p>}
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              width: "100%",
+              padding: "13px",
+              background: ACCENT,
+              color: "#111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: loading ? "not-allowed" : "pointer",
+              fontFamily: FONT,
+            }}
+          >
+            {loading ? "Sending…" : "Send sign-in link"}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookingAccessPage() {
-  const { booking, userId, userEmail, isOwner, accessType } =
-    useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>() as Record<string, unknown>;
 
-  const b = booking as Record<string, unknown> | null;
+  // Invalid token
+  if (data.accessType === "invalid_token") {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center", padding: "0 24px" }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>🔗</div>
+          <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: "0 0 8px" }}>
+            Invalid or expired link
+          </h2>
+          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+            This booking link is no longer valid. Check your email for the correct link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Re-auth required
+  if (data.accessType === "reauth") {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT }}>
+        <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--border)" }}>
+          <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 800, letterSpacing: "0.2em" }}>
+            [<span style={{ color: ACCENT }}> SQRZ </span>]
+          </span>
+        </div>
+        <ReauthForm bookingId={data.bookingId as string} />
+      </div>
+    );
+  }
+
+  // Booking view
+  const { booking, userId, userEmail, isOwner, accessType } = data as {
+    booking: Record<string, unknown> | null;
+    userId: string | null;
+    userEmail: string;
+    isOwner: boolean;
+    accessType: string;
+  };
+  const b = booking;
 
   return (
     <div
       style={{
         background: "var(--bg)",
         minHeight: "100vh",
-        fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+        fontFamily: FONT,
         color: "var(--text)",
       }}
     >
@@ -164,13 +291,10 @@ export default function BookingAccessPage() {
         }}
       >
         <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 800, letterSpacing: "0.2em" }}>
-          [<span style={{ color: "#F5A623" }}> SQRZ </span>]
+          [<span style={{ color: ACCENT }}> SQRZ </span>]
         </span>
         {accessType === "authenticated" && (
-          <a
-            href="/"
-            style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}
-          >
+          <a href="/" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>
             ← Dashboard
           </a>
         )}
@@ -194,13 +318,7 @@ export default function BookingAccessPage() {
           </p>
           <a
             href="/join"
-            style={{
-              color: "#F5A623",
-              fontSize: 13,
-              fontWeight: 600,
-              textDecoration: "none",
-              whiteSpace: "nowrap",
-            }}
+            style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}
           >
             Create a SQRZ account →
           </a>
@@ -275,7 +393,6 @@ export default function BookingAccessPage() {
                 </div>
               )}
             </div>
-
           </>
         )}
       </div>
