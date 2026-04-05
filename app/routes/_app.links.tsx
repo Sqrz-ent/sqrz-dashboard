@@ -54,11 +54,14 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 5,
 };
 
+type PageType = "book" | "download" | "event";
+
 type PrivateLink = {
   id: string;
   link_slug: string;
   is_active: boolean;
   show_on_profile: boolean;
+  page_type: PageType;
   title: string | null;
   use_count: number;
   expires_at: string | null;
@@ -67,7 +70,13 @@ type PrivateLink = {
   cover_image_url: string | null;
   external_url: string | null;
   external_url_label: string | null;
+  prefill_service: string | null;
+  event_date: string | null;
+  event_venue: string | null;
+  event_city: string | null;
 };
+
+type ProfileService = { id: string; title: string };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -79,14 +88,27 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const { data: links } = await supabase
-    .from("private_booking_links")
-    .select("id, link_slug, is_active, show_on_profile, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label")
-    .eq("profile_id", profile.id as string)
-    .order("created_at", { ascending: false });
+  const [linksRes, servicesRes] = await Promise.all([
+    supabase
+      .from("private_booking_links")
+      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city")
+      .eq("profile_id", profile.id as string)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("profile_services")
+      .select("id, title")
+      .eq("profile_id", profile.id as string)
+      .order("sort_order", { ascending: true }),
+  ]);
 
   return Response.json(
-    { plan_id: (profile.plan_id as number | null) ?? null, is_beta: (profile.is_beta as boolean) ?? false, username: profile.slug as string, links: links ?? [] },
+    {
+      plan_id: (profile.plan_id as number | null) ?? null,
+      is_beta: (profile.is_beta as boolean) ?? false,
+      username: profile.slug as string,
+      links: linksRes.data ?? [],
+      services: servicesRes.data ?? [],
+    },
     { headers }
   );
 }
@@ -106,14 +128,20 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = fd.get("intent") as string;
 
   if (intent === "create") {
+    const pageType = (fd.get("page_type") as string) || "download";
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
       is_active: true,
+      page_type: pageType,
       title: (fd.get("title") as string) || null,
       description: (fd.get("description") as string) || null,
-      external_url: (fd.get("external_url") as string) || null,
-      external_url_label: (fd.get("external_url_label") as string) || null,
+      prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
+      external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
+      external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
+      event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
+      event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
+      event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: (fd.get("expires_at") as string) || null,
       max_uses: parseInt(fd.get("max_uses") as string) || null,
     });
@@ -169,39 +197,48 @@ function toSlug(label: string) {
 
 // ─── Create Link Modal ────────────────────────────────────────────────────────
 
+const PAGE_TYPES: { value: PageType; label: string; emoji: string }[] = [
+  { value: "book", label: "Book", emoji: "📅" },
+  { value: "download", label: "Download", emoji: "📥" },
+  { value: "event", label: "Event", emoji: "🎤" },
+];
+
 function CreateLinkModal({
   isOpen,
   onClose,
   fetcher,
   username,
   existingSlugs,
+  services,
 }: {
   isOpen: boolean;
   onClose: () => void;
   fetcher: ReturnType<typeof useFetcher>;
   username: string;
   existingSlugs: string[];
+  services: ProfileService[];
 }) {
+  const [pageType, setPageType] = useState<PageType>("download");
   const [label, setLabel] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [prefillService, setPrefillService] = useState("");
   const [externalUrl, setExternalUrl] = useState("");
   const [externalUrlLabel, setExternalUrlLabel] = useState("");
+  const [eventDate, setEventDate] = useState("");
+  const [eventVenue, setEventVenue] = useState("");
+  const [eventCity, setEventCity] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
   const [maxUses, setMaxUses] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
-  // Auto-suggest slug from label
   useEffect(() => {
-    if (!slugEdited && label) {
-      setSlug(toSlug(label));
-    }
+    if (!slugEdited && label) setSlug(toSlug(label));
   }, [label, slugEdited]);
 
-  // Close + reset on successful save
   useEffect(() => {
     if (fetcher.state === "idle" && (fetcher.data as { ok?: boolean } | undefined)?.ok) {
       setToast("Link created!");
@@ -213,9 +250,12 @@ function CreateLinkModal({
   }, [fetcher.state, fetcher.data]);
 
   function resetForm() {
+    setPageType("download");
     setLabel(""); setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription("");
+    setPrefillService("");
     setExternalUrl(""); setExternalUrlLabel("");
+    setEventDate(""); setEventVenue(""); setEventCity("");
     setExpiresAt(""); setMaxUses("");
   }
 
@@ -231,11 +271,13 @@ function CreateLinkModal({
     if (!validateSlug()) return;
     const fd = new FormData();
     fd.append("intent", "create");
+    fd.append("page_type", pageType);
     fd.append("link_slug", slug);
     fd.append("title", title);
     fd.append("description", description);
-    fd.append("external_url", externalUrl);
-    fd.append("external_url_label", externalUrlLabel);
+    if (pageType === "book") fd.append("prefill_service", prefillService);
+    if (pageType !== "book") { fd.append("external_url", externalUrl); fd.append("external_url_label", externalUrlLabel); }
+    if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
     if (expiresAt) fd.append("expires_at", expiresAt);
     if (maxUses) fd.append("max_uses", maxUses);
     fetcher.submit(fd, { method: "post" });
@@ -252,13 +294,39 @@ function CreateLinkModal({
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-        {/* Label */}
+        {/* Page type selector */}
+        <div>
+          <label style={labelStyle}>Page Type</label>
+          <div style={{ display: "flex", gap: 8 }}>
+            {PAGE_TYPES.map(pt => (
+              <button
+                key={pt.value}
+                type="button"
+                onClick={() => setPageType(pt.value)}
+                style={{
+                  flex: 1,
+                  padding: "8px 10px",
+                  border: `1px solid ${pageType === pt.value ? ACCENT : "var(--border)"}`,
+                  borderRadius: 10,
+                  background: pageType === pt.value ? `rgba(245,166,35,0.12)` : "var(--bg)",
+                  color: pageType === pt.value ? ACCENT : "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                {pt.emoji} {pt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Label → slug */}
         <div>
           <label style={labelStyle}>Internal Label</label>
           <input style={inputStyle} value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Asia Tour 2026" autoFocus />
         </div>
-
-        {/* Slug */}
         <div>
           <label style={labelStyle}>Link Slug</label>
           <input
@@ -277,27 +345,78 @@ function CreateLinkModal({
           ) : null}
         </div>
 
-        {/* Common fields */}
+        {/* Common: title + description */}
         <div>
-          <label style={labelStyle}>Title (shown on page)</label>
-          <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Book me for your event" />
+          <label style={labelStyle}>Title</label>
+          <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder={pageType === "book" ? "e.g. Book me for your event" : pageType === "event" ? "e.g. DJ Set @ Berghain" : "e.g. Press Kit 2026"} />
         </div>
         <div>
           <label style={labelStyle}>Description</label>
-          <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown below the title…" />
+          <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown on the page…" />
         </div>
 
-        {/* External URL */}
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-          <div>
-            <label style={labelStyle}>External URL</label>
-            <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://dropbox.com/... or any external link" />
+        {/* BOOK — service selector */}
+        {pageType === "book" && (
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+            <label style={labelStyle}>Pre-select Service (optional)</label>
+            {services.length > 0 ? (
+              <select
+                style={{ ...inputStyle, cursor: "pointer" }}
+                value={prefillService}
+                onChange={e => setPrefillService(e.target.value)}
+              >
+                <option value="">— Any service (visitor chooses) —</option>
+                {services.map(s => (
+                  <option key={s.id} value={s.title}>{s.title}</option>
+                ))}
+              </select>
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No services yet — add them in the Services tab first.</p>
+            )}
           </div>
-          <div>
-            <label style={labelStyle}>Button Label</label>
-            <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Download, Get Tickets, Watch, Access" />
+        )}
+
+        {/* DOWNLOAD — external URL + label */}
+        {pageType === "download" && (
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <label style={labelStyle}>External URL</label>
+              <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://dropbox.com/... or any link" />
+            </div>
+            <div>
+              <label style={labelStyle}>Button Label</label>
+              <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Download, Get Press Kit, Listen Now" />
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* EVENT — date + venue + city + external URL */}
+        {pageType === "event" && (
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <label style={labelStyle}>Event Date &amp; Time</label>
+              <input type="datetime-local" style={inputStyle} value={eventDate} onChange={e => setEventDate(e.target.value)} />
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label style={labelStyle}>Venue</label>
+                <input style={inputStyle} value={eventVenue} onChange={e => setEventVenue(e.target.value)} placeholder="e.g. Berghain" />
+              </div>
+              <div>
+                <label style={labelStyle}>City</label>
+                <input style={inputStyle} value={eventCity} onChange={e => setEventCity(e.target.value)} placeholder="e.g. Berlin" />
+              </div>
+            </div>
+            <div>
+              <label style={labelStyle}>Ticket / External URL</label>
+              <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://eventim.de/..." />
+            </div>
+            <div>
+              <label style={labelStyle}>Button Label</label>
+              <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Get Tickets →" />
+            </div>
+          </div>
+        )}
 
         {/* Limits */}
         <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -401,6 +520,14 @@ function LinkCard({
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
             {link.title || link.link_slug}
+          </span>
+          <span style={{
+            fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
+            padding: "2px 7px", borderRadius: 6,
+            background: link.page_type === "book" ? "rgba(34,197,94,0.12)" : link.page_type === "event" ? "rgba(168,85,247,0.12)" : "rgba(245,166,35,0.12)",
+            color: link.page_type === "book" ? "#22c55e" : link.page_type === "event" ? "#a855f7" : ACCENT,
+          }}>
+            {link.page_type === "book" ? "📅 Book" : link.page_type === "event" ? "🎤 Event" : "📥 Download"}
           </span>
         </div>
         <a
@@ -546,11 +673,12 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, is_beta, username: usernameRaw, links } = useLoaderData<typeof loader>() as {
+  const { plan_id, is_beta, username: usernameRaw, links, services } = useLoaderData<typeof loader>() as {
     plan_id: number | null;
     is_beta: boolean;
     username: string;
     links: PrivateLink[];
+    services: ProfileService[];
   };
 
   const createFetcher = useFetcher();
@@ -631,6 +759,7 @@ export default function LinksPage() {
         fetcher={createFetcher}
         username={username}
         existingSlugs={existingSlugs}
+        services={services}
       />
     </div>
   );
