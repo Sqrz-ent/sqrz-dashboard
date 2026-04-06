@@ -15,6 +15,7 @@ type Booking = {
   date_end: string | null;
   city: string | null;
   venue: string | null;
+  myRole: "owner" | "buyer";
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -48,20 +49,41 @@ export async function loader({ request }: Route.LoaderArgs) {
   console.log("[office] user.id:", user?.id);
   console.log("[office] profile:", profile?.id, profile?.email);
 
-  const { data: bookings, error: bookingsError } = await supabase
-    .from("bookings")
-    .select(`
-      id, title, service, status, date_start, date_end,
-      city, venue
-    `)
-    .eq("owner_id", profile.id as string)
-    .order("created_at", { ascending: false });
+  const admin = createSupabaseAdminClient();
 
-  console.log("[office] bookings error:", bookingsError);
-  console.log("[office] bookings count:", bookings?.length);
+  const [
+    { data: ownerBookings, error: ownerError },
+    { data: participantRows },
+  ] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select("id, title, service, status, date_start, date_end, city, venue")
+      .eq("owner_id", profile.id as string)
+      .order("created_at", { ascending: false }),
+    admin
+      .from("booking_participants")
+      .select("bookings(id, title, service, status, date_start, date_end, city, venue)")
+      .eq("user_id", user.id)
+      .eq("role", "buyer"),
+  ]);
+
+  console.log("[office] owner bookings error:", ownerError);
+  console.log("[office] owner bookings count:", ownerBookings?.length);
   console.log("[office] profile.id used:", profile.id);
 
-  return Response.json({ bookings: bookings ?? [], profile }, { headers });
+  const ownerSet: Booking[] = (ownerBookings ?? []).map((b) => ({ ...b, myRole: "owner" as const }));
+
+  // Flatten nested booking rows from participant join, skip nulls
+  const buyerSet: Booking[] = (participantRows ?? [])
+    .map((row) => row.bookings as Booking | null)
+    .filter((b): b is Booking => !!b && !["archived"].includes(b.status))
+    .map((b) => ({ ...b, myRole: "buyer" as const }));
+
+  // Merge — owner wins on duplicates
+  const ownerIds = new Set(ownerSet.map((b) => b.id));
+  const merged = [...ownerSet, ...buyerSet.filter((b) => !ownerIds.has(b.id))];
+
+  return Response.json({ bookings: merged, profile }, { headers });
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -153,6 +175,29 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// ─── Role badge ───────────────────────────────────────────────────────────────
+
+function RoleBadge({ role }: { role: "owner" | "buyer" }) {
+  const isOwner = role === "owner";
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "2px 7px",
+        borderRadius: 5,
+        fontSize: 10,
+        fontWeight: 600,
+        letterSpacing: "0.04em",
+        background: isOwner ? "rgba(245,166,35,0.15)" : "rgba(136,136,136,0.15)",
+        color: isOwner ? "#F5A623" : "var(--text-muted)",
+        textTransform: "uppercase",
+      }}
+    >
+      {isOwner ? "Booked" : "Requested"}
+    </span>
+  );
+}
+
 // ─── Booking card ─────────────────────────────────────────────────────────────
 
 function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => void }) {
@@ -184,6 +229,7 @@ function BookingCard({ booking, onClick }: { booking: Booking; onClick: () => vo
       </p>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <StatusBadge status={booking.status} />
+        <RoleBadge role={booking.myRole} />
       </div>
     </button>
   );
@@ -351,8 +397,8 @@ function BookingModal({ booking, onClose }: { booking: Booking; onClose: () => v
           </div>
         </div>
 
-        {/* Footer — accept/decline only for requested */}
-        {booking.status === "requested" && (
+        {/* Footer — accept/decline only for owner bookings in requested state */}
+        {booking.status === "requested" && booking.myRole === "owner" && (
           <div
             style={{
               padding: "14px 22px",
