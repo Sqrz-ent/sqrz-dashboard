@@ -5,6 +5,7 @@ import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/sup
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel } from "~/lib/plans";
 import BookingChat from "~/components/BookingChat";
+import BookingWallet, { type WalletData } from "~/components/BookingWallet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,9 +66,42 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   if (!booking) return redirect("/office", { headers });
 
+  // Fetch or create wallet for confirmed/completed bookings
+  let wallet: WalletData | null = null;
+  const isConfirmedOrCompleted = ["confirmed", "completed"].includes(booking.status);
+  if (isConfirmedOrCompleted) {
+    const admin = createSupabaseAdminClient();
+    const { data: existingWallet } = await admin
+      .from("booking_wallets")
+      .select("*")
+      .eq("booking_id", booking.id)
+      .maybeSingle();
+
+    if (existingWallet) {
+      wallet = existingWallet as WalletData;
+    } else {
+      const proposal = (booking as { booking_proposals?: Array<{ rate?: number | null; currency?: string | null }> })
+        .booking_proposals?.[0];
+      const { data: newWallet } = await admin
+        .from("booking_wallets")
+        .insert({
+          booking_id: booking.id,
+          owner_profile_id: profile.id,
+          total_budget: proposal?.rate ?? 0,
+          currency: proposal?.currency ?? "EUR",
+          sqrz_fee_pct: 10,
+          status: "pending",
+        })
+        .select("*")
+        .single();
+      wallet = (newWallet as WalletData | null) ?? null;
+    }
+  }
+
   return Response.json(
     {
       booking,
+      wallet,
       profileId: profile.id as string,
       userEmail: (profile.email as string) ?? user.email ?? "",
       planId: (profile.plan_id as number | null) ?? null,
@@ -341,6 +375,27 @@ export async function action({ request, params }: Route.ActionArgs) {
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
 
+    return Response.json({ ok: true }, { headers });
+  }
+
+  if (intent === "wallet_save_costs") {
+    const transport = parseFloat(formData.get("transport") as string) || 0;
+    const hotel     = parseFloat(formData.get("hotel")     as string) || 0;
+    const food      = parseFloat(formData.get("food")      as string) || 0;
+    const admin = createSupabaseAdminClient();
+    await admin
+      .from("booking_wallets")
+      .update({ notes: JSON.stringify({ transport, hotel, food }) })
+      .eq("booking_id", params.id);
+    return Response.json({ ok: true }, { headers });
+  }
+
+  if (intent === "wallet_mark_paid") {
+    const admin = createSupabaseAdminClient();
+    await admin
+      .from("booking_wallets")
+      .update({ client_paid: true })
+      .eq("booking_id", params.id);
     return Response.json({ ok: true }, { headers });
   }
 
@@ -828,80 +883,6 @@ function TeamSection({ participants, bookingId }: { participants: Participant[];
   );
 }
 
-// ─── Payments section ─────────────────────────────────────────────────────────
-
-function PaymentsSection({ booking }: { booking: Booking }) {
-  const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
-
-  const proposal = booking.booking_proposals?.[0];
-  const isPaid = booking.status === "completed";
-  const hasProposalRate = proposal?.rate != null && proposal.rate > 0;
-  const isExternal = proposal?.payment_method === "external" || proposal?.payment_method == null;
-  const showManualCard = hasProposalRate && isExternal;
-
-  const sym = hasProposalRate ? currencySym(proposal!.currency) : "";
-  const rate = proposal?.rate;
-
-  return (
-    <section id="payments" style={{ paddingBottom: 40 }}>
-      <SectionHeading>Payments</SectionHeading>
-
-      {showManualCard ? (
-        <div style={card}>
-          {isPaid ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <p style={{ fontSize: 20, fontWeight: 700, color: "#4ade80", margin: 0, flex: 1 }}>
-                {sym}{rate!.toLocaleString()} — Paid ✓
-              </p>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, background: "rgba(74,222,128,0.12)", color: "#4ade80" }}>
-                Paid
-              </span>
-            </div>
-          ) : (
-            <div>
-              <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 14px" }}>
-                <span style={{ fontSize: 20, fontWeight: 700, color: "var(--text)", display: "block", marginBottom: 4 }}>
-                  {sym}{rate!.toLocaleString()}
-                </span>
-                Awaiting external payment
-              </p>
-              {fetcher.data?.error && (
-                <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 10px" }}>{fetcher.data.error}</p>
-              )}
-              <button
-                onClick={() => {
-                  const fd = new FormData();
-                  fd.append("intent", "mark_as_paid");
-                  fetcher.submit(fd, { method: "post" });
-                }}
-                disabled={fetcher.state !== "idle"}
-                style={{
-                  padding: "10px 20px",
-                  background: "#4ade80",
-                  color: "#111",
-                  border: "none",
-                  borderRadius: 9,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: fetcher.state !== "idle" ? "default" : "pointer",
-                  opacity: fetcher.state !== "idle" ? 0.7 : 1,
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                {fetcher.state !== "idle" ? "Saving…" : "Mark as Paid ✓"}
-              </button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div style={{ ...card, textAlign: "center", padding: "36px 24px" }}>
-          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No payment details yet.</p>
-        </div>
-      )}
-    </section>
-  );
-}
-
 // ─── Actions section ──────────────────────────────────────────────────────────
 
 function ActionsSection({ booking }: { booking: Booking }) {
@@ -990,9 +971,10 @@ function ActionsSection({ booking }: { booking: Booking }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BookingDetailPage() {
-  const { booking, profileId, userEmail, planId, isBeta } = useLoaderData<typeof loader>();
+  const { booking, wallet, profileId, userEmail, planId, isBeta } = useLoaderData<typeof loader>();
   const b = booking as unknown as Booking;
   const isRequested = b.status === "requested";
+  const isConfirmedOrCompleted = b.status === "confirmed" || b.status === "completed";
   const planLevel = getPlanLevel(planId as number | null, isBeta as boolean);
 
   const sections = isRequested
@@ -1004,7 +986,7 @@ export default function BookingDetailPage() {
     : [
         { id: "details",  label: "Details" },
         { id: "team",     label: "Team" },
-        { id: "payments", label: "Payments" },
+        ...(isConfirmedOrCompleted ? [{ id: "payments", label: "Payments" }] : []),
         { id: "actions",  label: "Actions" },
       ];
 
@@ -1106,7 +1088,9 @@ export default function BookingDetailPage() {
         {!isRequested && (
           <>
             <TeamSection participants={b.booking_participants} bookingId={b.id} />
-            <PaymentsSection booking={b} />
+            {isConfirmedOrCompleted && wallet && (
+              <BookingWallet wallet={wallet as WalletData} />
+            )}
           </>
         )}
 

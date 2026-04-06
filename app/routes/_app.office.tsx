@@ -75,7 +75,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // Flatten nested booking rows from participant join, skip nulls
   const buyerSet: Booking[] = (participantRows ?? [])
-    .map((row) => row.bookings as Booking | null)
+    .map((row) => (row.bookings as unknown) as Booking | null)
     .filter((b): b is Booking => !!b && !["archived"].includes(b.status))
     .map((b) => ({ ...b, myRole: "buyer" as const }));
 
