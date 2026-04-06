@@ -151,7 +151,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       const admin = createSupabaseAdminClient();
       const { data: buyer } = await admin
         .from("booking_participants")
-        .select("email, name, user_id")
+        .select("email, name, user_id, invite_token")
         .eq("booking_id", params.id)
         .eq("role", "buyer")
         .maybeSingle();
@@ -166,14 +166,10 @@ export async function action({ request, params }: Route.ActionArgs) {
 
       if (guestEmail) {
         const ownerName = (profile.name as string | null) ?? (profile.first_name as string | null) ?? "Your booking partner";
-        const { data: linkData } = await admin.auth.admin.generateLink({
-          type: "magiclink",
-          email: guestEmail,
-          options: {
-            redirectTo: `https://dashboard.sqrz.com/auth/callback?next=/booking/${params.id}`,
-          },
-        });
-        const magicLink = linkData?.properties?.action_link ?? `https://dashboard.sqrz.com/booking/${params.id}`;
+        const accessUrl = buyer?.invite_token
+          ? `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token}`
+          : `https://dashboard.sqrz.com/booking/${params.id}`;
+        const magicLink = accessUrl;
 
         const riderItems = [
           requireHotel && "🏨 Hotel",
@@ -240,7 +236,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       </div>
 
       <p style="color:#999;font-size:12px;text-align:center;">
-        This link will log you in automatically — no password needed.
+        This link gives you direct access to your booking — no login needed.
       </p>
     </div>
 
