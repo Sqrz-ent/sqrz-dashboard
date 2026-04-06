@@ -23,6 +23,18 @@ export default function Modal({
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = "hidden";
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (

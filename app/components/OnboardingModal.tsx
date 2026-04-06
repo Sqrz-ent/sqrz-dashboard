@@ -122,10 +122,16 @@ export default function OnboardingModal({
     return () => clearTimeout(t);
   }, []);
 
-  // Lock body scroll while open
+  // Lock body scroll while open (position:fixed prevents iOS Safari background scroll)
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = ""; };
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+    };
   }, []);
 
   // Fetch skills list on mount

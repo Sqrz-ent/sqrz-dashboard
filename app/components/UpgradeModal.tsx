@@ -90,7 +90,13 @@ export default function UpgradeModal({
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = ""; };
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.position = "";
+      document.body.style.width = "";
+    };
   }, []);
 
   const { title, subtitle } = HEADINGS[view];
