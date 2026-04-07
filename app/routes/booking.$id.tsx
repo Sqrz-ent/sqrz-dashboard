@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
   createSupabaseServerClient,
@@ -445,6 +445,20 @@ export async function action({ request, params }: Route.ActionArgs) {
       .update({ status: "completed" })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
+    return Response.json({ ok: true }, { headers });
+  }
+
+  if (intent === "mark_as_delivered") {
+    await supabase
+      .from("bookings")
+      .update({ status: "completed" })
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string);
+    const admin = createSupabaseAdminClient();
+    await admin
+      .from("booking_wallets")
+      .update({ payout_status: "approved", delivery_confirmed_at: new Date().toISOString() })
+      .eq("booking_id", params.id);
     return Response.json({ ok: true }, { headers });
   }
 
@@ -983,7 +997,43 @@ function TeamSection({ participants, bookingId }: { participants: TeamParticipan
   );
 }
 
-function ActionsSection({ booking }: { booking: Booking }) {
+// ─── Payment success banner ───────────────────────────────────────────────────
+
+function PaymentSuccessBanner() {
+  const [searchParams] = useSearchParams();
+  const [dismissed, setDismissed] = useState(false);
+
+  if (dismissed || searchParams.get("payment") !== "success") return null;
+
+  return (
+    <div
+      style={{
+        background: "rgba(74,222,128,0.12)",
+        border: "1px solid rgba(74,222,128,0.4)",
+        borderRadius: 10,
+        margin: "12px 24px",
+        padding: "12px 16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        fontFamily: FONT_BODY,
+      }}
+    >
+      <span style={{ color: "#4ade80", fontSize: 14, fontWeight: 600 }}>
+        ✓ Payment received — booking confirmed
+      </span>
+      <button
+        onClick={() => setDismissed(true)}
+        style={{ background: "none", border: "none", color: "#4ade80", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
+function ActionsSection({ booking, wallet }: { booking: Booking; wallet?: WalletData | null }) {
   const fetcher = useFetcher();
 
   function submitStatus(status: string) {
@@ -993,7 +1043,16 @@ function ActionsSection({ booking }: { booking: Booking }) {
     fetcher.submit(fd, { method: "post" });
   }
 
+  function submitMarkDelivered() {
+    const fd = new FormData();
+    fd.append("intent", "mark_as_delivered");
+    fetcher.submit(fd, { method: "post" });
+  }
+
   const isRequested = booking.status === "requested";
+  const isConfirmed = booking.status === "confirmed";
+  const clientPaid = wallet?.client_paid === true;
+
   const actionLink: React.CSSProperties = {
     background: "none",
     border: "none",
@@ -1036,12 +1095,21 @@ function ActionsSection({ booking }: { booking: Booking }) {
           </>
         ) : (
           <>
+            {isConfirmed && clientPaid && (
+              <button
+                style={actionLink}
+                onClick={submitMarkDelivered}
+                disabled={fetcher.state !== "idle"}
+              >
+                Mark as Delivered ✓
+              </button>
+            )}
             {booking.status !== "confirmed" && (
               <button style={actionLink} onClick={() => submitStatus("confirmed")} disabled={fetcher.state !== "idle"}>
                 Mark Confirmed
               </button>
             )}
-            {booking.status !== "completed" && (
+            {booking.status !== "completed" && !(isConfirmed && clientPaid) && (
               <button
                 style={{ ...actionLink, borderBottom: booking.status !== "archived" ? undefined : "none" }}
                 onClick={() => submitStatus("completed")}
@@ -1356,7 +1424,7 @@ function MemberView({
           </>
         )}
 
-        <ActionsSection booking={b} />
+        <ActionsSection booking={b} wallet={wallet} />
       </div>
 
       <BookingChat
@@ -1431,6 +1499,7 @@ export default function BookingAccessPage() {
     return (
       <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
         <TopBar isOwner={true} />
+        <PaymentSuccessBanner />
         <MemberView
           booking={b}
           wallet={wallet}

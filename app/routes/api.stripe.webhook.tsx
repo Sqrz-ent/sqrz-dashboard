@@ -98,6 +98,47 @@ export async function action({ request }: { request: Request }) {
       return Response.json({ received: true });
     }
 
+    // ── Instant booking payment ──────────────────────────────────────────────
+    if (session.metadata?.booking_type === "instant" && session.metadata?.booking_id) {
+      const bookingId = session.metadata.booking_id;
+      console.log("[webhook] instant booking payment received:", bookingId);
+
+      await supabase
+        .from("bookings")
+        .update({ status: "confirmed" })
+        .eq("id", bookingId);
+
+      // Create or update wallet with client_paid flag
+      const { data: existingWallet } = await supabase
+        .from("booking_wallets")
+        .select("id")
+        .eq("booking_id", bookingId)
+        .maybeSingle();
+
+      if (existingWallet) {
+        await supabase
+          .from("booking_wallets")
+          .update({ client_paid: true, payout_status: "pending" })
+          .eq("id", existingWallet.id);
+      } else {
+        const { data: bk } = await supabase
+          .from("bookings")
+          .select("owner_id")
+          .eq("id", bookingId)
+          .maybeSingle();
+
+        await supabase.from("booking_wallets").insert({
+          booking_id: bookingId,
+          owner_profile_id: bk?.owner_id ?? null,
+          total_budget: (session.amount_total ?? 0) / 100,
+          client_paid: true,
+          payout_status: "pending",
+        });
+      }
+
+      return Response.json({ received: true });
+    }
+
     // ── Subscription payment ─────────────────────────────────────────────────
     if (!session.subscription || !session.customer) {
       console.error("[webhook] missing subscription or customer");
