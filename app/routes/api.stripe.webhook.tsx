@@ -160,6 +160,33 @@ export async function action({ request }: ActionFunctionArgs) {
         });
       }
 
+      // Look up buyer to send confirmation email
+      const { data: buyer } = await supabase
+        .from("booking_participants")
+        .select("email, invite_token, name")
+        .eq("booking_id", bookingId)
+        .eq("role", "buyer")
+        .maybeSingle();
+
+      if (buyer?.email) {
+        const accessUrl = `https://dashboard.sqrz.com/booking/${bookingId}?token=${buyer.invite_token ?? ""}`;
+        try {
+          const { Resend } = await import("resend");
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          await resend.emails.send({
+            from: "SQRZ <noreply@sqrz.com>",
+            to: buyer.email,
+            subject: "Your booking is confirmed",
+            html: `<p>Hi ${buyer.name ?? "there"},</p><p>Payment received — your booking is confirmed.</p><p><a href="${accessUrl}">View your booking</a></p><p>— The SQRZ Team</p>`,
+          });
+          console.log("[webhook] confirmation email sent to:", buyer.email, "url:", accessUrl);
+        } catch (emailErr) {
+          console.error("[webhook] confirmation email failed:", emailErr);
+        }
+      } else {
+        console.warn("[webhook] no buyer found for booking:", bookingId);
+      }
+
       return Response.json({ received: true });
     }
 
