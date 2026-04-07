@@ -1,29 +1,38 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import type { ActionFunctionArgs } from "react-router";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-
 
 const toISO = (ts: number | null | undefined) =>
   ts ? new Date(ts * 1000).toISOString() : null;
 
-export async function action({ request }: { request: Request }) {
-  const body = await request.text();
-  const sig = request.headers.get("stripe-signature");
+export async function action({ request }: ActionFunctionArgs) {
+  const signature = request.headers.get("stripe-signature");
 
-  console.log("[webhook] received request — sig present:", !!sig, "body length:", body.length);
+  console.log("[webhook] received — signature present:", !!signature);
   console.log("[webhook] STRIPE_WEBHOOK_SECRET present:", !!process.env.STRIPE_WEBHOOK_SECRET);
+  console.log("[webhook] STRIPE_WEBHOOK_SECRET prefix:", process.env.STRIPE_WEBHOOK_SECRET?.slice(0, 12));
+
+  if (!signature) {
+    console.error("[webhook] missing stripe-signature header");
+    return new Response("No signature", { status: 400 });
+  }
+
+  // Read raw body as text — Stripe HMAC verification requires exact bytes
+  const rawBody = await request.text();
+  console.log("[webhook] raw body length:", rawBody.length);
 
   let event: Stripe.Event;
   try {
     event = stripe.webhooks.constructEvent(
-      body,
-      sig!,
+      rawBody,
+      signature,
       process.env.STRIPE_WEBHOOK_SECRET!
     );
   } catch (err: any) {
     console.error("[webhook] signature verification FAILED:", err.message);
-    return new Response(err.message, { status: 400 });
+    return new Response(`Webhook signature failed: ${err.message}`, { status: 400 });
   }
 
   console.log("[webhook] signature verified OK — event.type:", event.type, "event.id:", event.id);
