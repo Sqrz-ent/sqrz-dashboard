@@ -54,14 +54,10 @@ export async function action({ request }: { request: Request }) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
 
-    console.log("[webhook] event type:", event.type);
-    console.log("[webhook] session.id:", session.id);
-    console.log("[webhook] session.metadata:", JSON.stringify(session.metadata));
-    console.log("[webhook] booking_id from metadata:", session.metadata?.booking_id);
-    console.log("[webhook] booking_type from metadata:", session.metadata?.booking_type);
-    console.log("[webhook] session.subscription:", session.subscription);
-    console.log("[webhook] session.client_reference_id:", session.client_reference_id);
-    console.log("[webhook] amount_total:", session.amount_total);
+    console.log("[webhook] checkout.session.completed — session.id:", session.id);
+    console.log("[webhook] full metadata:", JSON.stringify(session.metadata));
+    console.log("[webhook] booking_type:", session.metadata?.booking_type, "| booking_id:", session.metadata?.booking_id, "| invite_token:", session.metadata?.invite_token);
+    console.log("[webhook] subscription:", session.subscription, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
 
     // ── Boost ad budget payment ──────────────────────────────────────────────
     const BOOST_AMOUNTS = [50, 100, 150, 300];
