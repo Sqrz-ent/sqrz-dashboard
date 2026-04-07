@@ -23,16 +23,21 @@ export async function action({ request }: ActionFunctionArgs) {
   const rawBody = await request.text();
   console.log("[webhook] raw body length:", rawBody.length);
 
+  const liveSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const testSecret = process.env.STRIPE_WEBHOOK_SECRET_TEST;
+
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(
-      rawBody,
-      signature,
-      process.env.STRIPE_WEBHOOK_SECRET!
-    );
-  } catch (err: any) {
-    console.error("[webhook] signature verification FAILED:", err.message);
-    return new Response(`Webhook signature failed: ${err.message}`, { status: 400 });
+    event = stripe.webhooks.constructEvent(rawBody, signature, liveSecret!);
+    console.log("[webhook] verified with LIVE secret");
+  } catch {
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, signature, testSecret!);
+      console.log("[webhook] verified with TEST secret");
+    } catch (err: any) {
+      console.error("[webhook] signature verification failed with both secrets:", err.message);
+      return new Response(`Webhook signature failed: ${err.message}`, { status: 400 });
+    }
   }
 
   console.log("[webhook] signature verified OK — event.type:", event.type, "event.id:", event.id);
