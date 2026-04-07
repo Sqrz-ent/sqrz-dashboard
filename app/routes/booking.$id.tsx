@@ -596,14 +596,9 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 // ─── Top bar ──────────────────────────────────────────────────────────────────
 
-function TopBar({ isOwner }: { isOwner: boolean }) {
+function TopBar() {
   return (
-    <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", height: 56, padding: "0 1.5rem", background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
-      {isOwner && (
-        <a href="/office" style={{ position: "absolute", left: "1.5rem", fontSize: 14, color: "var(--text-muted)", textDecoration: "none", fontFamily: FONT_BODY }}>
-          ← Back to Office
-        </a>
-      )}
+    <header style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 56, background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
       <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 28, display: "block" }} />
     </header>
   );
@@ -1394,11 +1389,11 @@ function MemberView({
       </div>
 
       {/* Page header */}
-      <div style={{ padding: "28px 24px 8px" }}>
+      <div style={{ padding: "28px 24px 8px", textAlign: "center" }}>
         <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
           {(b.title as string) ?? (b.service as string) ?? "Booking"}
         </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
           <StatusBadge status={(b.status as string) ?? "pending"} />
           {(b.city as string) && (
             <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}</span>
@@ -1445,7 +1440,7 @@ export default function BookingAccessPage() {
   if (data.accessType === "invalid_token") {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
-        <TopBar isOwner={false} />
+        <TopBar />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center" }}>
           <div>
             <div style={{ fontSize: 40, marginBottom: 16 }}>🔗</div>
@@ -1461,7 +1456,7 @@ export default function BookingAccessPage() {
   if (data.accessType === "reauth") {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
-        <TopBar isOwner={false} />
+        <TopBar />
         <ReauthForm bookingId={data.bookingId as string} />
       </div>
     );
@@ -1498,7 +1493,7 @@ export default function BookingAccessPage() {
   if (isOwner) {
     return (
       <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
-        <TopBar isOwner={true} />
+        <TopBar />
         <PaymentSuccessBanner />
         <MemberView
           booking={b}
@@ -1522,7 +1517,7 @@ export default function BookingAccessPage() {
 
   return (
     <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <TopBar isOwner={false} />
+      <TopBar />
 
       {accessType === "token" && (
         <div style={{ background: "rgba(245,166,35,0.08)", borderBottom: "1px solid rgba(245,166,35,0.2)", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
