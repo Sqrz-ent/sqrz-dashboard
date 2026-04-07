@@ -1223,6 +1223,24 @@ function MemberView({
 
   return (
     <>
+      {/* Booking title */}
+      <div style={{ padding: "28px 24px 8px", textAlign: "center" }}>
+        <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
+          {(b.title as string) ?? (b.service as string) ?? "Booking"}
+        </h1>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+          <StatusBadge status={(b.status as string) ?? "pending"} />
+          {(b.city as string) && (
+            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}</span>
+          )}
+          {(b.date_start as string) && (
+            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
+              {new Date(b.date_start as string).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Sticky section nav */}
       <div style={{
         position: "sticky",
@@ -1256,24 +1274,6 @@ function MemberView({
             {label}
           </button>
         ))}
-      </div>
-
-      {/* Page header */}
-      <div style={{ padding: "28px 24px 8px", textAlign: "center" }}>
-        <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
-          {(b.title as string) ?? (b.service as string) ?? "Booking"}
-        </h1>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-          <StatusBadge status={(b.status as string) ?? "pending"} />
-          {(b.city as string) && (
-            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}</span>
-          )}
-          {(b.date_start as string) && (
-            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-              {new Date(b.date_start as string).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-            </span>
-          )}
-        </div>
       </div>
 
       {/* Sections */}
