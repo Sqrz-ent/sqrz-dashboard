@@ -584,14 +584,14 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 function TopBar({ isOwner }: { isOwner: boolean }) {
   return (
-    <div style={{ padding: "14px 24px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--bg)" }}>
-      <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 28, display: "block" }} />
+    <header style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", height: 56, padding: "0 1.5rem", background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
       {isOwner && (
-        <a href="/office" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none", fontFamily: FONT_BODY }}>
+        <a href="/office" style={{ position: "absolute", left: "1.5rem", fontSize: 14, color: "var(--text-muted)", textDecoration: "none", fontFamily: FONT_BODY }}>
           ← Back to Office
         </a>
       )}
-    </div>
+      <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 28, display: "block" }} />
+    </header>
   );
 }
 
