@@ -587,7 +587,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 function TopBar() {
   return (
-    <header style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 56, background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
+    <header style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", height: 56, background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
       <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 28, display: "block" }} />
     </header>
   );
@@ -1300,7 +1300,7 @@ export default function BookingAccessPage() {
   // ── Invalid token ──────────────────────────────────────────────────────────
   if (data.accessType === "invalid_token") {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY, paddingTop: 56 }}>
         <TopBar />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center" }}>
           <div>
@@ -1316,7 +1316,7 @@ export default function BookingAccessPage() {
   // ── Re-auth ────────────────────────────────────────────────────────────────
   if (data.accessType === "reauth") {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY, paddingTop: 56 }}>
         <TopBar />
         <ReauthForm bookingId={data.bookingId as string} />
       </div>
@@ -1353,7 +1353,7 @@ export default function BookingAccessPage() {
   // ── Owner / authenticated member — full rich UI ────────────────────────────
   if (isOwner) {
     return (
-      <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)", paddingTop: 56 }}>
         <TopBar />
         <PaymentSuccessBanner />
         <MemberView
@@ -1377,7 +1377,7 @@ export default function BookingAccessPage() {
       : null;
 
   return (
-    <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)", paddingTop: 56 }}>
       <TopBar />
 
       {accessType === "token" && (
