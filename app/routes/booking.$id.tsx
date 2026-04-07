@@ -52,14 +52,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   // ── 1. TOKEN PATH ─────────────────────────────────────────────────────────
   const token = url.searchParams.get("token");
   if (token) {
+    console.log("[booking] token from URL:", token);
+    console.log("[booking] bookingId:", params.id);
+
     const admin = createSupabaseAdminClient();
-    const { data: row } = await admin
+    const { data: row, error: rowError } = await admin
       .from("booking_participants")
       .select("id, booking_id, email, role, invite_token, user_id, bookings(*)")
       .eq("booking_id", params.id)
       .eq("invite_token", token)
       .limit(1)
       .maybeSingle();
+
+    console.log("[booking] participant query result:", JSON.stringify(row));
+    console.log("[booking] participant query error:", JSON.stringify(rowError));
 
     if (!row) return Response.json({ accessType: "invalid_token" }, { headers });
 

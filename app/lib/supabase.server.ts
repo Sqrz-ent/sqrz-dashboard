@@ -61,11 +61,11 @@ export function createSupabaseServerClient(request: Request) {
  * Only use server-side for trusted operations.
  */
 export function createSupabaseAdminClient() {
+  const url = process.env.SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!serviceRoleKey) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
-  }
-  return createClient(import.meta.env.VITE_SUPABASE_URL as string, serviceRoleKey, {
+  if (!url) throw new Error("SUPABASE_URL is not set");
+  if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  return createClient(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 }
