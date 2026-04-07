@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
@@ -8,7 +8,6 @@ import {
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel } from "~/lib/plans";
 import { supabase as browserClient } from "~/lib/supabase.client";
-import BookingChat from "~/components/BookingChat";
 import BookingWallet, { type WalletData } from "~/components/BookingWallet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -37,16 +36,6 @@ type Proposal = {
   payment_method?: string | null;
 } | null;
 
-type TeamParticipant = {
-  id: string;
-  profile_id: string | null;
-  name: string | null;
-  email: string | null;
-  role: string | null;
-  pay: number | null;
-  pay_status: string | null;
-  invite_token: string | null;
-};
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -877,120 +866,6 @@ function ProposalSection({
   );
 }
 
-function TeamSection({ participants, bookingId }: { participants: TeamParticipant[]; bookingId: string }) {
-  const fetcher = useFetcher<{ ok?: boolean; invited?: string; error?: string }>();
-  const formRef = useRef<HTMLFormElement>(null);
-  const isSending = fetcher.state !== "idle";
-  const lastInvited = fetcher.state === "idle" && fetcher.data?.invited ? fetcher.data.invited : null;
-
-  useEffect(() => {
-    if (fetcher.state === "idle" && fetcher.data?.ok && fetcher.data.invited) {
-      formRef.current?.reset();
-    }
-  }, [fetcher.state, fetcher.data]);
-
-  const payStatusColor = (s: string | null) =>
-    s === "paid" ? "#4ade80" : s === "pending" ? ACCENT : "var(--text-muted)";
-
-  return (
-    <section id="team" style={{ paddingBottom: 40 }}>
-      <SectionHeading>Team</SectionHeading>
-
-      <div style={{ ...card, border: "1px solid rgba(245,166,35,0.2)", marginBottom: 16 }}>
-        <p style={{ ...lbl, marginBottom: 14 }}>Invite participant</p>
-        <fetcher.Form ref={formRef} method="post">
-          <input type="hidden" name="intent" value="invite_team_member" />
-          <input type="hidden" name="booking_id" value={bookingId} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-            <div>
-              <p style={{ ...lbl, marginBottom: 5 }}>Name</p>
-              <input name="name" type="text" placeholder="Alex Smith" required style={inputStyle} />
-            </div>
-            <div>
-              <p style={{ ...lbl, marginBottom: 5 }}>Email</p>
-              <input name="email" type="email" placeholder="alex@example.com" required style={inputStyle} />
-            </div>
-            <div>
-              <p style={{ ...lbl, marginBottom: 5 }}>Role</p>
-              <input name="role" type="text" placeholder="Audio Engineer" style={inputStyle} />
-            </div>
-            <div>
-              <p style={{ ...lbl, marginBottom: 5 }}>Pay</p>
-              <input name="pay" type="number" placeholder="500" style={inputStyle} />
-            </div>
-          </div>
-          {fetcher.data?.error && (
-            <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 10px" }}>{fetcher.data.error}</p>
-          )}
-          <button
-            type="submit"
-            disabled={isSending}
-            style={{
-              display: "block",
-              margin: "4px auto 0",
-              padding: "11px 28px",
-              background: ACCENT,
-              color: "#111",
-              border: "none",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: isSending ? "default" : "pointer",
-              opacity: isSending ? 0.6 : 1,
-              fontFamily: FONT_BODY,
-            }}
-          >
-            {isSending ? "Inviting…" : "Invite Participant"}
-          </button>
-        </fetcher.Form>
-      </div>
-
-      {lastInvited && (
-        <div style={{ background: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.25)", borderRadius: 10, padding: "10px 14px", marginBottom: 12, fontSize: 13, color: "#4ade80" }}>
-          ✓ Invite sent to {lastInvited}
-        </div>
-      )}
-
-      {participants.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "28px 24px", color: "var(--text-muted)", fontSize: 14 }}>
-          No participants yet.
-        </div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
-          {participants.map((p) => (
-            <div key={p.id} style={{ ...card, marginBottom: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(245,166,35,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, flexShrink: 0 }}>
-                  👤
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {p.name ?? "Team member"}
-                  </p>
-                  {p.role && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {p.role}
-                    </p>
-                  )}
-                </div>
-              </div>
-              {p.pay_status && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: payStatusColor(p.pay_status), textTransform: "capitalize" }}>
-                  {p.pay_status}
-                  {p.pay ? ` · ${currencySym(null)}${p.pay.toLocaleString()}` : ""}
-                </span>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 2 }}>
-                <button style={{ flex: 1, padding: "6px 0", background: "var(--surface-muted)", border: "none", borderRadius: 7, fontSize: 11, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>Message</button>
-                <button style={{ flex: 1, padding: "6px 0", background: "transparent", border: "1px solid var(--border)", borderRadius: 7, fontSize: 11, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>Invoice</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
 
 // ─── Payment success banner ───────────────────────────────────────────────────
 
@@ -1319,7 +1194,6 @@ function MemberView({
       ]
     : [
         { id: "details",  label: "Details" },
-        { id: "team",     label: "Team" },
         ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
         { id: "actions",  label: "Actions" },
       ];
@@ -1346,10 +1220,6 @@ function MemberView({
     const top = el.getBoundingClientRect().top + window.scrollY - 116;
     window.scrollTo({ top, behavior: "smooth" });
   }
-
-  const participants = ((b.booking_participants ?? []) as TeamParticipant[]).filter(
-    (p) => p.role !== "buyer"
-  );
 
   return (
     <>
@@ -1412,21 +1282,12 @@ function MemberView({
 
         {isRequested && <ProposalSection booking={b} planLevel={planLevel} />}
 
-        {!isRequested && (
-          <>
-            <TeamSection participants={participants} bookingId={b.id as string} />
-            {showPayments && wallet && <BookingWallet wallet={wallet} />}
-          </>
+        {!isRequested && showPayments && wallet && (
+          <BookingWallet wallet={wallet} />
         )}
 
         <ActionsSection booking={b} wallet={wallet} />
       </div>
-
-      <BookingChat
-        bookingId={(b.id as string) ?? ""}
-        currentUserEmail={userEmail}
-        isOwner={true}
-      />
     </>
   );
 }
@@ -1585,11 +1446,6 @@ export default function BookingAccessPage() {
         )}
       </div>
 
-      <BookingChat
-        bookingId={(b?.id as string) ?? ""}
-        currentUserEmail={userEmail ?? ""}
-        isOwner={false}
-      />
     </div>
   );
 }
