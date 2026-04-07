@@ -11,6 +11,9 @@ export async function action({ request }: { request: Request }) {
   const body = await request.text();
   const sig = request.headers.get("stripe-signature");
 
+  console.log("[webhook] received request — sig present:", !!sig, "body length:", body.length);
+  console.log("[webhook] STRIPE_WEBHOOK_SECRET present:", !!process.env.STRIPE_WEBHOOK_SECRET);
+
   let event: Stripe.Event;
   try {
     event = stripe.webhooks.constructEvent(
@@ -19,9 +22,11 @@ export async function action({ request }: { request: Request }) {
       process.env.STRIPE_WEBHOOK_SECRET!
     );
   } catch (err: any) {
-    console.error("[webhook] signature error:", err.message);
+    console.error("[webhook] signature verification FAILED:", err.message);
     return new Response(err.message, { status: 400 });
   }
+
+  console.log("[webhook] signature verified OK — event.type:", event.type, "event.id:", event.id);
 
   const supabase = createClient(
     process.env.SUPABASE_URL!,
@@ -48,6 +53,15 @@ export async function action({ request }: { request: Request }) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+
+    console.log("[webhook] event type:", event.type);
+    console.log("[webhook] session.id:", session.id);
+    console.log("[webhook] session.metadata:", JSON.stringify(session.metadata));
+    console.log("[webhook] booking_id from metadata:", session.metadata?.booking_id);
+    console.log("[webhook] booking_type from metadata:", session.metadata?.booking_type);
+    console.log("[webhook] session.subscription:", session.subscription);
+    console.log("[webhook] session.client_reference_id:", session.client_reference_id);
+    console.log("[webhook] amount_total:", session.amount_total);
 
     // ── Boost ad budget payment ──────────────────────────────────────────────
     const BOOST_AMOUNTS = [50, 100, 150, 300];
