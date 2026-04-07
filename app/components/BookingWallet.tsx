@@ -1,7 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFetcher } from "react-router";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+export type WalletAllocation = {
+  id: string;
+  role: string | null;
+  amount: number | null;
+  currency: string | null;
+  status: string | null;
+};
 
 export type WalletData = {
   id: string;
@@ -13,6 +21,7 @@ export type WalletData = {
   client_paid: boolean;
   payout_status: string | null;
   notes: string | null;
+  allocations?: WalletAllocation[];
 };
 
 interface Props {
@@ -43,7 +52,8 @@ const lbl: React.CSSProperties = {
 };
 
 function sym(currency: string | null) {
-  return currency === "EUR" ? "€" : currency === "GBP" ? "£" : "$";
+  const c = currency?.toUpperCase();
+  return c === "EUR" ? "€" : c === "GBP" ? "£" : "$";
 }
 
 function fmt(n: number) {
@@ -64,12 +74,29 @@ export default function BookingWallet({ wallet }: Props) {
   const [food,      setFood]      = useState<number>(savedNotes.food ?? 0);
   const [payoutToast, setPayoutToast] = useState(false);
 
-  const saveFetcher = useFetcher<{ ok?: boolean }>();
-  const paidFetcher = useFetcher<{ ok?: boolean }>();
+  const [showExpenseForm, setShowExpenseForm] = useState(false);
+  const [expLabel,  setExpLabel]  = useState("Transport");
+  const [expAmount, setExpAmount] = useState("");
+
+  const saveFetcher    = useFetcher<{ ok?: boolean }>();
+  const paidFetcher    = useFetcher<{ ok?: boolean }>();
+  const expenseFetcher = useFetcher<{ ok?: boolean }>();
+
+  // Close the form and reset on successful submission
+  useEffect(() => {
+    if (expenseFetcher.state === "idle" && expenseFetcher.data?.ok) {
+      setShowExpenseForm(false);
+      setExpLabel("Transport");
+      setExpAmount("");
+    }
+  }, [expenseFetcher.state, expenseFetcher.data]);
+
+  const allocations   = wallet.allocations ?? [];
+  const allocationSum = allocations.reduce((sum, a) => sum + (a.amount ?? 0), 0);
 
   const s        = sym(wallet.currency);
   const rate     = wallet.total_budget ?? 0;
-  const costs    = transport + hotel + food;
+  const costs    = transport + hotel + food + allocationSum;
   const netRaw   = rate - costs;
   const feePct   = wallet.sqrz_fee_pct ?? 10;
   const sqrzFee  = Math.round(netRaw * (feePct / 100) * 100) / 100;
@@ -215,6 +242,16 @@ export default function BookingWallet({ wallet }: Props) {
             </div>
           </div>
 
+          {/* DB expense allocations */}
+          {allocations.map((a) => (
+            <div key={a.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{a.role ?? "Expense"}</p>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
+                −{s}{fmt(a.amount ?? 0)}
+              </p>
+            </div>
+          ))}
+
           {/* SQRZ fee */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
             <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
@@ -241,6 +278,124 @@ export default function BookingWallet({ wallet }: Props) {
           </p>
         )}
       </div>
+
+      {/* ─── Add expense ─────────────────────────────────────────────── */}
+      {!showExpenseForm ? (
+        <button
+          onClick={() => setShowExpenseForm(true)}
+          style={{
+            display: "block",
+            width: "100%",
+            padding: "11px",
+            background: "transparent",
+            border: "1px dashed var(--border)",
+            borderRadius: 10,
+            color: "var(--text-muted)",
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+            marginBottom: 14,
+          }}
+        >
+          + Add expense
+        </button>
+      ) : (
+        <div style={{ ...card, border: "1px solid rgba(245,166,35,0.25)" }}>
+          <p style={{ ...lbl, margin: "0 0 12px" }}>Add expense</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: 10, marginBottom: 12 }}>
+            <div>
+              <p style={{ ...lbl, marginBottom: 5 }}>Label</p>
+              <select
+                value={expLabel}
+                onChange={(e) => setExpLabel(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  color: "var(--text)",
+                  fontSize: 13,
+                  outline: "none",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                <option>Transport</option>
+                <option>Hotel</option>
+                <option>Food</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div>
+              <p style={{ ...lbl, marginBottom: 5 }}>Amount</p>
+              <input
+                type="number"
+                min={0}
+                value={expAmount}
+                onChange={(e) => setExpAmount(e.target.value)}
+                placeholder="0"
+                style={{
+                  width: "100%",
+                  padding: "9px 10px",
+                  background: "var(--bg)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  color: "var(--text)",
+                  fontSize: 13,
+                  outline: "none",
+                  boxSizing: "border-box" as const,
+                  fontFamily: FONT_BODY,
+                }}
+              />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => {
+                const fd = new FormData();
+                fd.append("intent", "add_expense");
+                fd.append("wallet_id", wallet.id);
+                fd.append("expense_label", expLabel);
+                fd.append("expense_amount", expAmount);
+                fd.append("currency", wallet.currency ?? "EUR");
+                expenseFetcher.submit(fd, { method: "post" });
+              }}
+              disabled={expenseFetcher.state !== "idle" || !expAmount}
+              style={{
+                flex: 1,
+                padding: "10px",
+                background: ACCENT,
+                color: "#111",
+                border: "none",
+                borderRadius: 9,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: expenseFetcher.state !== "idle" || !expAmount ? "default" : "pointer",
+                opacity: expenseFetcher.state !== "idle" || !expAmount ? 0.6 : 1,
+                fontFamily: FONT_BODY,
+              }}
+            >
+              {expenseFetcher.state !== "idle" ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => { setShowExpenseForm(false); setExpLabel("Transport"); setExpAmount(""); }}
+              style={{
+                padding: "10px 18px",
+                background: "transparent",
+                border: "1px solid var(--border)",
+                borderRadius: 9,
+                fontSize: 13,
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                fontFamily: FONT_BODY,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ─── Card 2: Payment status ──────────────────────────────────── */}
       <div style={card}>

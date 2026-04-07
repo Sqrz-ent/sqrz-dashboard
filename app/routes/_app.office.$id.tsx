@@ -66,10 +66,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
   if (!booking) return redirect("/office", { headers });
 
-  // Fetch or create wallet for confirmed/completed bookings
+  // Fetch or create wallet for pending/confirmed/completed bookings
   let wallet: WalletData | null = null;
-  const isConfirmedOrCompleted = ["confirmed", "completed"].includes(booking.status);
-  if (isConfirmedOrCompleted) {
+  const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
+  if (showPaymentsTab) {
     const admin = createSupabaseAdminClient();
     const { data: existingWallet } = await admin
       .from("booking_wallets")
@@ -77,9 +77,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .eq("booking_id", booking.id)
       .maybeSingle();
 
-    if (existingWallet) {
-      wallet = existingWallet as WalletData;
-    } else {
+    let baseWallet = existingWallet;
+    if (!baseWallet) {
       const proposal = (booking as { booking_proposals?: Array<{ rate?: number | null; currency?: string | null }> })
         .booking_proposals?.[0];
       const { data: newWallet } = await admin
@@ -94,7 +93,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         })
         .select("*")
         .single();
-      wallet = (newWallet as WalletData | null) ?? null;
+      baseWallet = newWallet ?? null;
+    }
+
+    if (baseWallet) {
+      const { data: allocations } = await admin
+        .from("wallet_allocations")
+        .select("id, role, amount, currency, status")
+        .eq("wallet_id", baseWallet.id);
+      wallet = { ...(baseWallet as WalletData), allocations: allocations ?? [] };
     }
   }
 
@@ -396,6 +403,23 @@ export async function action({ request, params }: Route.ActionArgs) {
       .from("booking_wallets")
       .update({ client_paid: true })
       .eq("booking_id", params.id);
+    return Response.json({ ok: true }, { headers });
+  }
+
+  if (intent === "add_expense") {
+    const walletId  = formData.get("wallet_id") as string;
+    const expLabel  = formData.get("expense_label") as string;
+    const expAmount = parseFloat(formData.get("expense_amount") as string) || 0;
+    const currency  = formData.get("currency") as string;
+    const admin = createSupabaseAdminClient();
+    await admin.from("wallet_allocations").insert({
+      wallet_id: walletId,
+      participant_id: null,
+      role: expLabel,
+      amount: expAmount,
+      currency,
+      status: "pending",
+    });
     return Response.json({ ok: true }, { headers });
   }
 
@@ -974,7 +998,7 @@ export default function BookingDetailPage() {
   const { booking, wallet, profileId, userEmail, planId, isBeta } = useLoaderData<typeof loader>();
   const b = booking as unknown as Booking;
   const isRequested = b.status === "requested";
-  const isConfirmedOrCompleted = b.status === "confirmed" || b.status === "completed";
+  const showPayments = ["pending", "confirmed", "completed"].includes(b.status);
   const planLevel = getPlanLevel(planId as number | null, isBeta as boolean);
 
   const sections = isRequested
@@ -986,7 +1010,7 @@ export default function BookingDetailPage() {
     : [
         { id: "details",  label: "Details" },
         { id: "team",     label: "Team" },
-        ...(isConfirmedOrCompleted ? [{ id: "payments", label: "Payments" }] : []),
+        ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
         { id: "actions",  label: "Actions" },
       ];
 
@@ -1088,7 +1112,7 @@ export default function BookingDetailPage() {
         {!isRequested && (
           <>
             <TeamSection participants={b.booking_participants} bookingId={b.id} />
-            {isConfirmedOrCompleted && wallet && (
+            {showPayments && wallet && (
               <BookingWallet wallet={wallet as WalletData} />
             )}
           </>

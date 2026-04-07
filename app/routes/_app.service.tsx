@@ -108,14 +108,14 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
 
-  if (intent === "toggle_services") {
-    const { error } = await supabase.from("profiles").update({
-      services_active: !(profile.services_active as boolean),
-    }).eq("id", profile.id as string);
+  const adminClient = createSupabaseAdminClient();
+
+  if (intent === "toggle_service_active") {
+    const id = formData.get("id") as string;
+    const is_active = formData.get("is_active") === "true";
+    const { error } = await adminClient.from("profile_services").update({ is_active }).eq("id", id);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
-
-  const adminClient = createSupabaseAdminClient();
 
   if (intent === "add_service") {
     const priceOnRequest = formData.get("price_on_request") === "true";
@@ -430,56 +430,21 @@ export default function ServicePage() {
     services: Service[];
   };
 
-  const toggleFetcher = useFetcher();
   const serviceFetcher = useFetcher();
   const deleteFetcher = useFetcher();
+  const activeFetcher = useFetcher();
 
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
     open: false,
     editing: null,
   });
 
-  const servicesActive = profile.services_active as boolean;
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={sectionTitle}>Services</h1>
-
-      {/* Toggle services active */}
-      <div style={card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY }}>Publish your Services</div>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 4 }}>
-              {servicesActive ? "Your services are visible on your profile." : "Your services are hidden from your profile."}
-            </div>
-          </div>
-          <button
-            onClick={() => {
-              const fd = new FormData();
-              fd.append("intent", "toggle_services");
-              toggleFetcher.submit(fd, { method: "post" });
-            }}
-            disabled={toggleFetcher.state !== "idle"}
-            style={{
-              padding: "10px 20px",
-              background: servicesActive ? ACCENT : "var(--bg)",
-              color: servicesActive ? "#111" : "var(--text-muted)",
-              border: servicesActive ? "none" : "1px solid var(--border)",
-              borderRadius: 10,
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: "pointer",
-              fontFamily: FONT_BODY,
-              minWidth: 80,
-            }}
-          >
-            {toggleFetcher.state !== "idle" ? "…" : servicesActive ? "Active" : "Inactive"}
-          </button>
-        </div>
-      </div>
 
       {/* Services list */}
       <div style={card}>
@@ -498,8 +463,8 @@ export default function ServicePage() {
                   : null;
 
               return (
-                <div key={service.id} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 14, marginBottom: 14 }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+                <div key={service.id} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 14, marginBottom: 14, opacity: service.is_active ? 1 : 0.5, transition: "opacity 0.15s" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{service.title}</div>
                       {priceDisplay && (
@@ -521,6 +486,41 @@ export default function ServicePage() {
                         </div>
                       )}
                     </div>
+                    {/* Active/inactive toggle */}
+                    <button
+                      onClick={() => {
+                        const fd = new FormData();
+                        fd.append("intent", "toggle_service_active");
+                        fd.append("id", service.id);
+                        fd.append("is_active", String(!service.is_active));
+                        activeFetcher.submit(fd, { method: "post" });
+                      }}
+                      title={service.is_active ? "Active — click to pause" : "Inactive — click to activate"}
+                      style={{
+                        width: 36,
+                        height: 20,
+                        borderRadius: 10,
+                        border: "none",
+                        background: service.is_active ? ACCENT : "var(--surface-muted, #333)",
+                        cursor: "pointer",
+                        position: "relative",
+                        transition: "background 0.15s",
+                        flexShrink: 0,
+                        marginTop: 3,
+                      }}
+                    >
+                      <span style={{
+                        position: "absolute",
+                        top: 2,
+                        left: service.is_active ? 18 : 2,
+                        width: 16,
+                        height: 16,
+                        borderRadius: "50%",
+                        background: "#fff",
+                        transition: "left 0.15s",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+                      }} />
+                    </button>
                     <MenuDots
                       onEdit={() => setServiceModal({ open: true, editing: service })}
                       onDelete={() => {
