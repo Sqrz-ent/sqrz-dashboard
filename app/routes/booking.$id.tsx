@@ -583,16 +583,6 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ─── Top bar ──────────────────────────────────────────────────────────────────
-
-function TopBar() {
-  return (
-    <header style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", height: 56, background: "var(--surface)", borderBottom: "0.5px solid var(--border)" }}>
-      <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 28, display: "block" }} />
-    </header>
-  );
-}
-
 // ─── Member view sections ─────────────────────────────────────────────────────
 
 function DetailsSection({ booking }: { booking: Booking }) {
@@ -1223,34 +1213,17 @@ function MemberView({
 
   return (
     <>
-      {/* Booking title */}
-      <div style={{ padding: "28px 24px 8px", textAlign: "center" }}>
-        <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
-          {(b.title as string) ?? (b.service as string) ?? "Booking"}
-        </h1>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-          <StatusBadge status={(b.status as string) ?? "pending"} />
-          {(b.city as string) && (
-            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}</span>
-          )}
-          {(b.date_start as string) && (
-            <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-              {new Date(b.date_start as string).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Sticky section nav */}
+      {/* Sticky tab nav — first element, nothing above it */}
       <div style={{
         position: "sticky",
-        top: 56,
-        zIndex: 20,
-        background: "var(--bg)",
-        borderBottom: "1px solid var(--border)",
+        top: 0,
+        zIndex: 50,
+        background: "var(--surface)",
+        borderBottom: "0.5px solid var(--border)",
         display: "flex",
+        justifyContent: "center",
         alignItems: "center",
-        gap: 0,
+        gap: 8,
         padding: "0 24px",
       }}>
         {sections.map(({ id, label }) => (
@@ -1276,8 +1249,25 @@ function MemberView({
         ))}
       </div>
 
-      {/* Sections */}
+      {/* Content — title + sections */}
       <div style={{ padding: "24px 24px 0", maxWidth: 720, margin: "0 auto" }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
+            {(b.title as string) ?? (b.service as string) ?? "Booking"}
+          </h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+            <StatusBadge status={(b.status as string) ?? "pending"} />
+            {(b.city as string) && (
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}</span>
+            )}
+            {(b.date_start as string) && (
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                {new Date(b.date_start as string).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </span>
+            )}
+          </div>
+        </div>
+
         <DetailsSection booking={b} />
 
         {isRequested && <ProposalSection booking={b} planLevel={planLevel} />}
@@ -1300,8 +1290,7 @@ export default function BookingAccessPage() {
   // ── Invalid token ──────────────────────────────────────────────────────────
   if (data.accessType === "invalid_token") {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY, paddingTop: 56 }}>
-        <TopBar />
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center" }}>
           <div>
             <div style={{ fontSize: 40, marginBottom: 16 }}>🔗</div>
@@ -1316,8 +1305,7 @@ export default function BookingAccessPage() {
   // ── Re-auth ────────────────────────────────────────────────────────────────
   if (data.accessType === "reauth") {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY, paddingTop: 56 }}>
-        <TopBar />
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
         <ReauthForm bookingId={data.bookingId as string} />
       </div>
     );
@@ -1353,8 +1341,7 @@ export default function BookingAccessPage() {
   // ── Owner / authenticated member — full rich UI ────────────────────────────
   if (isOwner) {
     return (
-      <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)", paddingTop: 56 }}>
-        <TopBar />
+      <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
         <PaymentSuccessBanner />
         <MemberView
           booking={b}
@@ -1377,29 +1364,58 @@ export default function BookingAccessPage() {
       : null;
 
   return (
-    <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)", paddingTop: 56 }}>
-      <TopBar />
+    <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
 
-      {accessType === "token" && (
-        <div style={{ background: "rgba(245,166,35,0.08)", borderBottom: "1px solid rgba(245,166,35,0.2)", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>You're viewing this booking as a guest.</p>
-          <a href="/join" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none", whiteSpace: "nowrap" }}>Create a SQRZ account →</a>
+      {/* Sticky tab nav — first element */}
+      {tabs && (
+        <div style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
+          background: "var(--surface)",
+          borderBottom: "0.5px solid var(--border)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          gap: 8,
+          padding: "0 24px",
+        }}>
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as "details" | "proposal" | "actions")}
+              style={{
+                background: "none",
+                border: "none",
+                borderBottom: activeTab === tab ? `2px solid ${ACCENT}` : "2px solid transparent",
+                color: activeTab === tab ? ACCENT : "var(--text-muted)",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                textTransform: "capitalize",
+                fontFamily: FONT_BODY,
+                padding: "14px 14px",
+                lineHeight: "22px",
+              }}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
       )}
 
-      <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px" }}>
+      {/* Content */}
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 24px 0" }}>
         {!b ? (
           <p style={{ color: "var(--text-muted)", textAlign: "center" }}>Booking not found.</p>
         ) : (
           <>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <StatusBadge status={(b.status as string) ?? "pending"} />
-              </div>
-              <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 6px" }}>
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px" }}>
                 {(b.title as string) ?? (b.service as string) ?? "Booking"}
               </h1>
-              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+                <StatusBadge status={(b.status as string) ?? "pending"} />
                 {(b.date_start as string) && (
                   <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📅 {formatDate(b.date_start as string)}</span>
                 )}
@@ -1408,32 +1424,6 @@ export default function BookingAccessPage() {
                 )}
               </div>
             </div>
-
-            {tabs && (
-              <div style={{ display: "flex", gap: 4, marginBottom: 20, borderBottom: "1px solid var(--border)" }}>
-                {tabs.map((tab) => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab as "details" | "proposal" | "actions")}
-                    style={{
-                      padding: "8px 16px",
-                      background: "none",
-                      border: "none",
-                      borderBottom: activeTab === tab ? `2px solid ${ACCENT}` : "2px solid transparent",
-                      color: activeTab === tab ? ACCENT : "var(--text-muted)",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      textTransform: "capitalize",
-                      fontFamily: FONT_BODY,
-                      marginBottom: -1,
-                    }}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-            )}
 
             {(!tabs || activeTab === "details") && <GuestDetailsCard b={b} />}
             {tabs && activeTab === "proposal" && role === "buyer" && <GuestProposalCard proposal={proposal} />}
