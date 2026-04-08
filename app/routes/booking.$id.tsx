@@ -1085,10 +1085,10 @@ function GuestBuyerProposalCard({
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
   const [counterOpen, setCounterOpen] = useState(false);
-  const [counterRate, setCounterRate] = useState("");
+  const [counterRate, setCounterRate] = useState(String(proposal?.rate ?? ""));
+  const [counterCurrency, setCounterCurrency] = useState(proposal?.currency ?? "EUR");
   const [counterMessage, setCounterMessage] = useState("");
-  const [done, setDone] = useState<"counter_sent" | "declined" | null>(null);
-  const [showHistory, setShowHistory] = useState(false);
+  const [declined, setDeclined] = useState(false);
 
   if (!proposal) {
     return (
@@ -1098,24 +1098,32 @@ function GuestBuyerProposalCard({
     );
   }
 
-  if (done === "declined") {
+  // Terminal status states
+  if (declined || proposal.status === "declined") {
     return (
       <div style={{ ...card, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.06)" }}>
-        <p style={{ color: "#ef4444", fontSize: 14, margin: 0, fontWeight: 600 }}>Proposal declined.</p>
+        <p style={{ color: "#ef4444", fontSize: 14, margin: 0, fontWeight: 600 }}>You declined this proposal.</p>
       </div>
     );
   }
 
-  if (done === "counter_sent") {
+  if (proposal.status === "accepted") {
     return (
       <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
-        <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>✓ Counter proposal sent — waiting for response.</p>
+        <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
+          ✓ You have accepted this proposal — payment pending
+        </p>
       </div>
     );
   }
 
-  const isWaiting = proposal.sent_by === "buyer";
   const version = proposal.version ?? 1;
+  const sym = currencySym(proposal.currency);
+  const riderBadges = [
+    proposal.require_hotel && "Hotel",
+    proposal.require_travel && "Travel",
+    proposal.require_food && "Catering",
+  ].filter(Boolean) as string[];
 
   async function handleAccept() {
     setLoading("accept");
@@ -1129,7 +1137,6 @@ function GuestBuyerProposalCard({
       if (json.checkout_url) window.location.href = json.checkout_url;
     } catch (err) {
       console.error("[accept]", err);
-    } finally {
       setLoading(null);
     }
   }
@@ -1145,21 +1152,19 @@ function GuestBuyerProposalCard({
           proposal_id: proposal!.id,
           invite_token: bookingToken,
           rate: parseFloat(counterRate) || 0,
-          currency: proposal!.currency ?? "EUR",
+          currency: counterCurrency,
           message: counterMessage,
         }),
       });
-      setDone("counter_sent");
-      setCounterOpen(false);
+      window.location.reload();
     } catch (err) {
       console.error("[counter]", err);
-    } finally {
       setLoading(null);
     }
   }
 
   async function handleDecline() {
-    if (!window.confirm("Are you sure you want to decline this proposal?")) return;
+    if (!window.confirm("Are you sure? This will cancel the booking request.")) return;
     setLoading("decline");
     try {
       await fetch("/api/proposal/decline", {
@@ -1167,7 +1172,7 @@ function GuestBuyerProposalCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ booking_id: bookingId, invite_token: bookingToken }),
       });
-      setDone("declined");
+      setDeclined(true);
     } catch (err) {
       console.error("[decline]", err);
     } finally {
@@ -1175,71 +1180,87 @@ function GuestBuyerProposalCard({
     }
   }
 
+  const showActions = proposal.sent_by !== "buyer" && proposal.status === "sent";
+
   return (
     <>
+      {/* Proposal details card */}
       <div style={card}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: proposal.message ? 18 : 0 }}>
-          {proposal.rate != null && (
-            <div>
-              <p style={guestMetaLabel}>Rate</p>
-              <p style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
-                {proposal.rate} {proposal.currency ?? "EUR"}
-              </p>
-            </div>
-          )}
-          <div>
-            <p style={guestMetaLabel}>Requirements</p>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
-              {[
-                proposal.require_travel && "Travel",
-                proposal.require_hotel && "Hotel",
-                proposal.require_food && "Catering",
-              ].filter(Boolean).join(" · ") || "None"}
+        {/* Rate */}
+        {proposal.rate != null && (
+          <div style={{ marginBottom: 16 }}>
+            <p style={guestMetaLabel}>Rate</p>
+            <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+              {sym}{proposal.rate.toLocaleString()}
+              <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
+                {proposal.currency ?? "EUR"}
+              </span>
             </p>
           </div>
-        </div>
+        )}
+
+        {/* Rider badges */}
+        {riderBadges.length > 0 && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+            {riderBadges.map((b) => (
+              <span
+                key={b}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: "rgba(245,166,35,0.1)",
+                  color: ACCENT,
+                  border: "1px solid rgba(245,166,35,0.2)",
+                }}
+              >
+                {b}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Message */}
         {proposal.message && (
-          <div style={{ paddingTop: 18, borderTop: "1px solid var(--border)" }}>
-            <p style={guestMetaLabel}>Message from artist</p>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>{proposal.message}</p>
+          <div style={{ paddingTop: 14, borderTop: "1px solid var(--border)", marginBottom: 4 }}>
+            <p style={guestMetaLabel}>Message</p>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>
+              {proposal.message}
+            </p>
           </div>
         )}
-        {version > 1 && (
-          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
-            <button
-              onClick={() => setShowHistory((v) => !v)}
-              style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", padding: 0, fontFamily: FONT_BODY }}
-            >
-              {showHistory ? "Hide" : "View"} previous versions (v{version})
-            </button>
-            {showHistory && (
-              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 0" }}>
-                This is version {version} of the proposal.
-              </p>
-            )}
-          </div>
-        )}
+
+        {/* Version */}
+        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: proposal.message ? "12px 0 0" : "4px 0 0" }}>
+          Proposal v{version}
+        </p>
       </div>
 
-      {isWaiting ? (
+      {/* Waiting banner — buyer's own counter is pending */}
+      {proposal.sent_by === "buyer" && (
         <div style={{ ...card, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)" }}>
           <p style={{ color: ACCENT, fontSize: 14, margin: 0, fontWeight: 600 }}>
-            ⏳ Waiting for response to your counter proposal
+            Your counter proposal has been sent — waiting for response
           </p>
         </div>
-      ) : (
+      )}
+
+      {/* Action buttons */}
+      {showActions && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* Accept & Pay */}
           <button
             onClick={handleAccept}
             disabled={loading !== null}
             style={{
               width: "100%",
-              padding: "13px",
+              padding: "14px",
               background: ACCENT,
               color: "#111",
               border: "none",
               borderRadius: 10,
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: 700,
               cursor: loading !== null ? "default" : "pointer",
               opacity: loading === "accept" ? 0.7 : 1,
@@ -1249,10 +1270,11 @@ function GuestBuyerProposalCard({
             {loading === "accept" ? "Redirecting…" : "Accept & Pay"}
           </button>
 
+          {/* Counter Proposal */}
           {counterOpen ? (
             <div style={card}>
-              <p style={{ ...guestMetaLabel, marginBottom: 10 }}>Your Counter Offer</p>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 12 }}>
+              <p style={{ ...guestMetaLabel, marginBottom: 12 }}>Counter Proposal</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 10, marginBottom: 10 }}>
                 <input
                   type="number"
                   style={inputStyle}
@@ -1260,14 +1282,20 @@ function GuestBuyerProposalCard({
                   value={counterRate}
                   onChange={(e) => setCounterRate(e.target.value)}
                 />
-                <div style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                  {proposal.currency ?? "EUR"}
-                </div>
+                <select
+                  style={inputStyle}
+                  value={counterCurrency}
+                  onChange={(e) => setCounterCurrency(e.target.value)}
+                >
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
               </div>
               <textarea
                 rows={3}
-                style={{ ...inputStyle, resize: "vertical", marginBottom: 12 }}
-                placeholder="Add a message (optional)"
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 10 }}
+                placeholder="Explain your counter offer…"
                 value={counterMessage}
                 onChange={(e) => setCounterMessage(e.target.value)}
               />
@@ -1293,7 +1321,17 @@ function GuestBuyerProposalCard({
                 </button>
                 <button
                   onClick={() => setCounterOpen(false)}
-                  style={{ padding: "11px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-muted)", fontSize: 13, cursor: "pointer", fontFamily: FONT_BODY }}
+                  disabled={loading !== null}
+                  style={{
+                    padding: "11px 16px",
+                    background: "none",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    color: "var(--text-muted)",
+                    fontSize: 13,
+                    cursor: "pointer",
+                    fontFamily: FONT_BODY,
+                  }}
                 >
                   Cancel
                 </button>
@@ -1305,7 +1343,7 @@ function GuestBuyerProposalCard({
               disabled={loading !== null}
               style={{
                 width: "100%",
-                padding: "11px",
+                padding: "12px",
                 background: "transparent",
                 color: "var(--text)",
                 border: "1px solid var(--border)",
@@ -1316,25 +1354,27 @@ function GuestBuyerProposalCard({
                 fontFamily: FONT_BODY,
               }}
             >
-              Counter
+              Counter Proposal
             </button>
           )}
 
+          {/* Decline */}
           <button
             onClick={handleDecline}
             disabled={loading !== null}
             style={{
               background: "none",
               border: "none",
-              color: "#ef4444",
-              fontSize: 13,
+              color: "var(--text-muted)",
+              fontSize: 12,
               cursor: loading !== null ? "default" : "pointer",
-              padding: "6px 0",
+              padding: "4px 0",
               fontFamily: FONT_BODY,
               opacity: loading === "decline" ? 0.7 : 1,
+              textAlign: "center" as const,
             }}
           >
-            {loading === "decline" ? "Declining…" : "Decline proposal"}
+            {loading === "decline" ? "Declining…" : "Decline"}
           </button>
         </div>
       )}
