@@ -160,6 +160,15 @@ export async function action({ request }: ActionFunctionArgs) {
         });
       }
 
+      // Update proposal status to accepted (quote_accepted path)
+      if (session.metadata?.proposal_id) {
+        await supabase
+          .from("booking_proposals")
+          .update({ status: "accepted" })
+          .eq("id", session.metadata.proposal_id);
+        console.log("[webhook] proposal marked accepted:", session.metadata.proposal_id);
+      }
+
       // Look up buyer to send confirmation email
       const { data: buyer } = await supabase
         .from("booking_participants")

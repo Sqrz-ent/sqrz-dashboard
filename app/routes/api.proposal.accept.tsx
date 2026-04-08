@@ -65,12 +65,7 @@ export async function action({ request }: { request: Request }) {
       customer_email: participant.email,
     });
 
-    // Mark proposal accepted — booking status unchanged until webhook fires
-    await adminClient
-      .from("booking_proposals")
-      .update({ status: "accepted" })
-      .eq("id", proposal_id);
-
+    // Do NOT update proposal status here — webhook sets it to 'accepted' after payment
     return Response.json({ checkout_url: session.url });
   } else {
     // 3b. No payment needed — confirm directly

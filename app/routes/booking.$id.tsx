@@ -1207,7 +1207,8 @@ function GuestBuyerProposalCard({
     }
   }
 
-  const showActions = proposal.sent_by !== "buyer" && proposal.status === "sent";
+  const showActions = proposal.sent_by !== "buyer" &&
+    (proposal.status === "sent" || proposal.status === "countered");
 
   return (
     <>
