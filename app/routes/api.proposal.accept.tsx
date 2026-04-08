@@ -34,39 +34,56 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Proposal not found" }, { status: 404 });
   }
 
-  // 3. Create Stripe Checkout Session
-  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    line_items: [
-      {
-        price_data: {
-          currency: proposal.currency.toLowerCase(),
-          unit_amount: Math.round(proposal.rate * 100),
-          product_data: {
-            name: proposal.bookings.title,
-            description: `Booking with ${proposal.bookings.profiles?.name ?? "SQRZ Member"}`,
+  const requiresPayment = proposal.payment_method === "stripe";
+
+  if (requiresPayment) {
+    // 3a. Stripe path — create checkout, mark proposal accepted, webhook confirms booking
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency: proposal.currency.toLowerCase(),
+            unit_amount: Math.round(proposal.rate * 100),
+            product_data: {
+              name: proposal.bookings.title,
+              description: `Booking with ${proposal.bookings.profiles?.name ?? "SQRZ Member"}`,
+            },
           },
+          quantity: 1,
         },
-        quantity: 1,
+      ],
+      success_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}&payment=success`,
+      cancel_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}`,
+      metadata: {
+        booking_id,
+        invite_token,
+        proposal_id,
+        booking_type: "quote_accepted",
       },
-    ],
-    success_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}&payment=success`,
-    cancel_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}`,
-    metadata: {
-      booking_id,
-      invite_token,
-      proposal_id,
-      booking_type: "quote_accepted",
-    },
-    customer_email: participant.email,
-  });
+      customer_email: participant.email,
+    });
 
-  // 4. Mark proposal as accepted
-  await adminClient
-    .from("booking_proposals")
-    .update({ status: "accepted" })
-    .eq("id", proposal_id);
+    // Mark proposal accepted optimistically — booking status stays 'pending' until webhook fires
+    await adminClient
+      .from("booking_proposals")
+      .update({ status: "accepted" })
+      .eq("id", proposal_id);
 
-  return Response.json({ checkout_url: session.url });
+    return Response.json({ checkout_url: session.url });
+  } else {
+    // 3b. No payment needed — confirm directly, no Stripe involved
+    await adminClient
+      .from("booking_proposals")
+      .update({ status: "accepted" })
+      .eq("id", proposal_id);
+
+    await adminClient
+      .from("bookings")
+      .update({ status: "confirmed" })
+      .eq("id", booking_id);
+
+    return Response.json({ confirmed: true });
+  }
 }

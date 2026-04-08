@@ -215,7 +215,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     if (!participant) return Response.json({ error: "Unauthorized" }, { headers, status: 403 });
 
-    const newStatus = intent === "confirm_booking" ? "confirmed" : "requested";
+    const newStatus = intent === "confirm_booking" ? "confirmed" : "archived";
     const { error } = await admin.from("bookings").update({ status: newStatus }).eq("id", params.id);
     return Response.json({ ok: !error }, { headers });
   }
@@ -1101,6 +1101,7 @@ function GuestBuyerProposalCard({
   const [counterCurrency, setCounterCurrency] = useState(proposal?.currency ?? "EUR");
   const [counterMessage, setCounterMessage] = useState("");
   const [declined, setDeclined] = useState(false);
+  const [bookingConfirmed, setBookingConfirmed] = useState(false);
 
   console.log('[GuestBuyerProposalCard] proposal prop received:', proposal);
   if (!proposal) {
@@ -1120,11 +1121,12 @@ function GuestBuyerProposalCard({
     );
   }
 
-  if (proposal.status === "accepted") {
+  if (bookingConfirmed || proposal.status === "accepted") {
+    const isPaid = proposal.payment_method === "stripe";
     return (
       <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
         <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-          ✓ You have accepted this proposal — payment pending
+          {isPaid ? "✓ You have accepted this proposal — payment pending" : "✓ Booking confirmed"}
         </p>
       </div>
     );
@@ -1147,7 +1149,12 @@ function GuestBuyerProposalCard({
         body: JSON.stringify({ booking_id: bookingId, proposal_id: proposal!.id, invite_token: bookingToken }),
       });
       const json = await res.json();
-      if (json.checkout_url) window.location.href = json.checkout_url;
+      if (json.checkout_url) {
+        window.location.href = json.checkout_url;
+      } else if (json.confirmed) {
+        setBookingConfirmed(true);
+        setLoading(null);
+      }
     } catch (err) {
       console.error("[accept]", err);
       setLoading(null);
@@ -1395,37 +1402,51 @@ function GuestBuyerProposalCard({
   );
 }
 
-function GuestActionsCard({ bookingId, bookingToken, status }: { bookingId: string; bookingToken: string | null; status: string }) {
+function GuestActionsCard({ bookingToken, status }: { bookingId: string; bookingToken: string | null; status: string }) {
   const fetcher = useFetcher();
   const isPending = fetcher.state !== "idle";
-  const currentStatus = (fetcher.data as { ok?: boolean } | undefined)?.ok
-    ? fetcher.formData?.get("intent") === "confirm_booking" ? "confirmed" : "requested"
-    : status;
+  const withdrawn = (fetcher.data as { ok?: boolean } | undefined)?.ok &&
+    fetcher.formData?.get("intent") === "decline_booking";
+
+  if (withdrawn || status === "archived") {
+    return (
+      <div style={card}>
+        <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>Your booking request has been withdrawn.</p>
+      </div>
+    );
+  }
+
+  if (status !== "requested") {
+    return (
+      <div style={card}>
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+          No actions available at this stage.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div style={card}>
-      <p style={{ ...guestMetaLabel, marginBottom: 14 }}>Actions</p>
-      {currentStatus === "confirmed" ? (
-        <p style={{ color: "#4ade80", fontSize: 14, fontWeight: 600, margin: 0 }}>✓ Booking confirmed</p>
-      ) : (
-        <fetcher.Form method="post" style={{ display: "flex", gap: 10 }}>
-          <input type="hidden" name="bookingToken" value={bookingToken ?? ""} />
-          <button
-            name="intent" value="confirm_booking"
-            disabled={isPending}
-            style={{ flex: 1, padding: "12px", background: ACCENT, color: "#111", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-          >
-            {isPending ? "…" : "Confirm booking"}
-          </button>
-          <button
-            name="intent" value="decline_booking"
-            disabled={isPending}
-            style={{ padding: "12px 20px", background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)", borderRadius: 10, fontSize: 14, cursor: "pointer", fontFamily: FONT_BODY }}
-          >
-            Decline
-          </button>
-        </fetcher.Form>
-      )}
+      <fetcher.Form method="post">
+        <input type="hidden" name="bookingToken" value={bookingToken ?? ""} />
+        <button
+          name="intent"
+          value="decline_booking"
+          disabled={isPending}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            fontSize: 13,
+            cursor: isPending ? "default" : "pointer",
+            padding: 0,
+            fontFamily: FONT_BODY,
+          }}
+        >
+          {isPending ? "Withdrawing…" : "Withdraw request"}
+        </button>
+      </fetcher.Form>
     </div>
   );
 }
