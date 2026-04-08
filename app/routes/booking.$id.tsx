@@ -1090,6 +1090,7 @@ function GuestBuyerProposalCard({
   const [counterMessage, setCounterMessage] = useState("");
   const [declined, setDeclined] = useState(false);
 
+  console.log('[GuestBuyerProposalCard] proposal prop received:', proposal);
   if (!proposal) {
     return (
       <div style={card}>
@@ -1605,6 +1606,7 @@ function MemberView({
 
 export default function BookingAccessPage() {
   const data = useLoaderData<typeof loader>() as Record<string, unknown>;
+  console.log('[booking page] loader data proposal:', data.proposal);
 
   // ── Invalid token ──────────────────────────────────────────────────────────
   if (data.accessType === "invalid_token") {
