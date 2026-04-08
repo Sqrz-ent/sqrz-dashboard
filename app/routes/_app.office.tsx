@@ -217,9 +217,14 @@ function BookingCard({ booking }: { booking: Booking }) {
         cursor: "pointer",
       }}
     >
-      <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 5px", lineHeight: 1.35 }}>
+      <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 2px", lineHeight: 1.35 }}>
         {booking.title ?? booking.service ?? "Untitled"}
       </p>
+      {booking.title && booking.service && (
+        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 5px" }}>
+          {booking.service}
+        </p>
+      )}
       {booking.city && (
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 5px" }}>
           📍 {booking.city}{booking.venue ? ` · ${booking.venue}` : ""}

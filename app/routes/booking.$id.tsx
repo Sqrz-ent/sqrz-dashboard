@@ -1808,9 +1808,14 @@ function MemberView({
       {/* Content — title + sections */}
       <div style={{ padding: "24px 24px 0", maxWidth: 720, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px", lineHeight: 1.3 }}>
+          <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px", lineHeight: 1.3 }}>
             {(b.title as string) ?? (b.service as string) ?? "Booking"}
           </h1>
+          {(b.title as string) && (b.service as string) && (
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 10px" }}>
+              {b.service as string}
+            </p>
+          )}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
             <StatusBadge status={(b.status as string) ?? "pending"} />
             {(b.city as string) && (
@@ -1968,9 +1973,14 @@ export default function BookingAccessPage() {
         ) : (
           <>
             <div style={{ textAlign: "center", marginBottom: 24 }}>
-              <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px" }}>
+              <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
                 {(b.title as string) ?? (b.service as string) ?? "Booking"}
               </h1>
+              {(b.title as string) && (b.service as string) && (
+                <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 10px" }}>
+                  {b.service as string}
+                </p>
+              )}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
                 <StatusBadge status={(b.status as string) ?? "pending"} />
                 {(b.date_start as string) && (
