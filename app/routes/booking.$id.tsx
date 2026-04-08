@@ -171,7 +171,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       }
     }
 
-    const proposal = (booking.booking_proposals ?? [])[0] ?? null;
+    const sortedProposals = ((booking.booking_proposals ?? []) as Array<NonNullable<Proposal>>)
+      .slice()
+      .sort((a: any, b: any) => ((b.version ?? 0) - (a.version ?? 0)));
+    const proposal = sortedProposals[0] ?? null;
 
     return Response.json(
       {
@@ -738,12 +741,17 @@ function ProposalSection({
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
 
-  // Latest proposal by version (highest version first)
+  // All proposals sorted by version desc — latest first
   const allProposals = ((booking as { booking_proposals?: Array<NonNullable<Proposal>> }).booking_proposals ?? [])
     .slice()
     .sort((a, b) => ((b.version ?? 0) - (a.version ?? 0)));
   const latestProposal = allProposals[0] ?? null;
+  const buyerCounted = latestProposal?.sent_by === "buyer";
   const isRevise = !!latestProposal;
+
+  // If buyer has countered, hide the form until member clicks "Revise Proposal"
+  const [showForm, setShowForm] = useState(!buyerCounted);
+  const [showHistory, setShowHistory] = useState(false);
 
   const [form, setForm] = useState({
     rate: String(latestProposal?.rate ?? ""),
@@ -757,10 +765,13 @@ function ProposalSection({
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
   const canUseStripe = planLevel >= 1;
+  const sym = currencySym(latestProposal?.currency ?? "EUR");
 
   return (
     <section id="proposal" style={{ paddingBottom: 40 }}>
-      <SectionHeading>{isRevise ? "Revise Proposal" : "Proposal"}</SectionHeading>
+      <SectionHeading>
+        {buyerCounted ? "Counter Offer" : isRevise ? "Revise Proposal" : "Proposal"}
+      </SectionHeading>
 
       {sent ? (
         <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
@@ -769,117 +780,239 @@ function ProposalSection({
           </p>
         </div>
       ) : (
-        <div style={card}>
-          {/* Rate + Currency */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 14 }}>
-            <div>
-              <p style={{ ...lbl, marginBottom: 6 }}>Your Rate</p>
-              <input
-                type="number"
-                style={inputStyle}
-                value={form.rate}
-                onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
-                placeholder="1500"
-              />
+        <>
+          {/* Buyer counter banner */}
+          {buyerCounted && (
+            <div style={{ ...card, background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.25)", marginBottom: 4 }}>
+              <p style={{ color: "#60a5fa", fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", margin: "0 0 6px" }}>
+                Buyer countered
+              </p>
+              <p style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px" }}>
+                {sym}{(latestProposal!.rate ?? 0).toLocaleString()}
+                <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
+                  {latestProposal!.currency ?? "EUR"}
+                </span>
+              </p>
+              {latestProposal?.message && (
+                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+                  "{latestProposal.message}"
+                </p>
+              )}
             </div>
-            <div>
-              <p style={{ ...lbl, marginBottom: 6 }}>Currency</p>
-              <select
-                style={{ ...inputStyle }}
-                value={form.currency}
-                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-              >
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-                <option value="GBP">GBP</option>
-              </select>
-            </div>
-          </div>
+          )}
 
-          {/* Message */}
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ ...lbl, marginBottom: 6 }}>Message (optional)</p>
-            <textarea
-              rows={3}
-              style={{ ...inputStyle, resize: "vertical" }}
-              value={form.message}
-              onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
-              placeholder="Add a note to your proposal…"
-            />
-          </div>
+          {/* Revise button — shown when buyer countered and form is collapsed */}
+          {buyerCounted && !showForm && (
+            <button
+              onClick={() => setShowForm(true)}
+              style={{
+                width: "100%",
+                padding: "13px",
+                background: ACCENT,
+                color: "#111",
+                border: "none",
+                borderRadius: 10,
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT_BODY,
+                marginBottom: 12,
+              }}
+            >
+              Revise Proposal
+            </button>
+          )}
 
-          {/* Rider checkboxes */}
-          <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-            {(
-              [
-                { key: "require_travel", label: "Require Travel" },
-                { key: "require_hotel", label: "Require Hotel" },
-                { key: "require_food", label: "Require Food" },
-              ] as const
-            ).map(({ key, label: lbl2 }) => (
-              <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>
-                <input
-                  type="checkbox"
-                  checked={form[key]}
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
-                  style={{ accentColor: ACCENT, width: 15, height: 15 }}
-                />
-                {lbl2}
-              </label>
-            ))}
-          </div>
-
-          {/* Stripe payment toggle — paid users only */}
-          {canUseStripe && (
-            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 20, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={form.requires_payment}
-                onChange={(e) => setForm((f) => ({ ...f, requires_payment: e.target.checked }))}
-                style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
-              />
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Request payment via Stripe</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Buyer receives a Stripe payment link</p>
+          {/* Proposal form */}
+          {(!buyerCounted || showForm) && (
+            <div style={card}>
+              {/* Rate + Currency */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 14 }}>
+                <div>
+                  <p style={{ ...lbl, marginBottom: 6 }}>Your Rate</p>
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    value={form.rate}
+                    onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
+                    placeholder="1500"
+                  />
+                </div>
+                <div>
+                  <p style={{ ...lbl, marginBottom: 6 }}>Currency</p>
+                  <select
+                    style={{ ...inputStyle }}
+                    value={form.currency}
+                    onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                  >
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                    <option value="GBP">GBP</option>
+                  </select>
+                </div>
               </div>
-            </label>
-          )}
 
-          {fetcher.data?.error && (
-            <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
-          )}
+              {/* Message */}
+              <div style={{ marginBottom: 16 }}>
+                <p style={{ ...lbl, marginBottom: 6 }}>Message (optional)</p>
+                <textarea
+                  rows={3}
+                  style={{ ...inputStyle, resize: "vertical" }}
+                  value={form.message}
+                  onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
+                  placeholder="Add a note to your proposal…"
+                />
+              </div>
 
+              {/* Rider checkboxes */}
+              <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
+                {(
+                  [
+                    { key: "require_travel", label: "Require Travel" },
+                    { key: "require_hotel", label: "Require Hotel" },
+                    { key: "require_food", label: "Require Food" },
+                  ] as const
+                ).map(({ key, label: lbl2 }) => (
+                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                    <input
+                      type="checkbox"
+                      checked={form[key]}
+                      onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
+                      style={{ accentColor: ACCENT, width: 15, height: 15 }}
+                    />
+                    {lbl2}
+                  </label>
+                ))}
+              </div>
+
+              {/* Stripe payment toggle — paid users only */}
+              {canUseStripe && (
+                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 20, cursor: "pointer" }}>
+                  <input
+                    type="checkbox"
+                    checked={form.requires_payment}
+                    onChange={(e) => setForm((f) => ({ ...f, requires_payment: e.target.checked }))}
+                    style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
+                  />
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Request payment via Stripe</p>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Buyer receives a Stripe payment link</p>
+                  </div>
+                </label>
+              )}
+
+              {fetcher.data?.error && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
+              )}
+
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={() => {
+                    const fd = new FormData();
+                    fd.append("intent", "send_proposal");
+                    fd.append("rate", form.rate);
+                    fd.append("currency", form.currency);
+                    fd.append("message", form.message);
+                    fd.append("require_hotel", String(form.require_hotel));
+                    fd.append("require_travel", String(form.require_travel));
+                    fd.append("require_food", String(form.require_food));
+                    fd.append("requires_payment", String(form.requires_payment));
+                    if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
+                    fetcher.submit(fd, { method: "post" });
+                  }}
+                  disabled={fetcher.state !== "idle"}
+                  style={{
+                    flex: 1,
+                    padding: "13px",
+                    background: ACCENT,
+                    color: "#111",
+                    border: "none",
+                    borderRadius: 10,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: fetcher.state !== "idle" ? "default" : "pointer",
+                    opacity: fetcher.state !== "idle" ? 0.7 : 1,
+                    fontFamily: FONT_BODY,
+                  }}
+                >
+                  {fetcher.state !== "idle" ? "Sending…" : isRevise ? "Send Revised Proposal" : "Send Proposal"}
+                </button>
+                {buyerCounted && (
+                  <button
+                    onClick={() => setShowForm(false)}
+                    style={{
+                      padding: "13px 16px",
+                      background: "none",
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      color: "var(--text-muted)",
+                      fontSize: 13,
+                      cursor: "pointer",
+                      fontFamily: FONT_BODY,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Negotiation history toggle — only shown when multiple versions exist */}
+      {allProposals.length > 1 && (
+        <div style={{ marginTop: 16 }}>
           <button
-            onClick={() => {
-              const fd = new FormData();
-              fd.append("intent", "send_proposal");
-              fd.append("rate", form.rate);
-              fd.append("currency", form.currency);
-              fd.append("message", form.message);
-              fd.append("require_hotel", String(form.require_hotel));
-              fd.append("require_travel", String(form.require_travel));
-              fd.append("require_food", String(form.require_food));
-              fd.append("requires_payment", String(form.requires_payment));
-              if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
-              fetcher.submit(fd, { method: "post" });
-            }}
-            disabled={fetcher.state !== "idle"}
+            onClick={() => setShowHistory((h) => !h)}
             style={{
-              width: "100%",
-              padding: "13px",
-              background: ACCENT,
-              color: "#111",
+              background: "none",
               border: "none",
-              borderRadius: 10,
-              fontSize: 14,
-              fontWeight: 700,
-              cursor: fetcher.state !== "idle" ? "default" : "pointer",
-              opacity: fetcher.state !== "idle" ? 0.7 : 1,
+              color: "var(--text-muted)",
+              fontSize: 12,
+              cursor: "pointer",
+              padding: 0,
               fontFamily: FONT_BODY,
             }}
           >
-            {fetcher.state !== "idle" ? "Sending…" : isRevise ? "Revise Proposal" : "Send Proposal"}
+            {showHistory
+              ? "Hide negotiation history ▲"
+              : `View negotiation history (${allProposals.length} versions) ▼`}
           </button>
+          {showHistory && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+              {allProposals.map((p) => (
+                <div
+                  key={p.id}
+                  style={{
+                    ...card,
+                    marginBottom: 0,
+                    borderColor: p.sent_by === "buyer" ? "rgba(96,165,250,0.25)" : "var(--border)",
+                    background: p.sent_by === "buyer" ? "rgba(96,165,250,0.04)" : "var(--surface)",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", color: p.sent_by === "buyer" ? "#60a5fa" : ACCENT, marginRight: 8 }}>
+                        v{p.version ?? 1} · {p.sent_by === "buyer" ? "Buyer" : "You"}
+                      </span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+                        {currencySym(p.currency)}{(p.rate ?? 0).toLocaleString()} {p.currency}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "capitalize" as const }}>
+                      {p.status}
+                    </span>
+                  </div>
+                  {p.message && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
+                      {p.message}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </section>
