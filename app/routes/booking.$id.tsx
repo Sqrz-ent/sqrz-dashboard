@@ -267,7 +267,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     const requireHotel = formData.get("require_hotel") === "true";
     const requireTravel = formData.get("require_travel") === "true";
     const requireFood = formData.get("require_food") === "true";
-    const paymentMethod = (formData.get("payment_method") as string) || "external";
+    const requiresPayment = formData.get("requires_payment") === "true";
+    const existingProposalId = (formData.get("existing_proposal_id") as string) || null;
+
+    const admin = createSupabaseAdminClient();
 
     const { error: bookingError } = await supabase
       .from("bookings")
@@ -277,15 +280,39 @@ export async function action({ request, params }: Route.ActionArgs) {
 
     if (bookingError) return Response.json({ error: bookingError.message }, { status: 500, headers });
 
-    await supabase.from("booking_proposals").insert({
+    // Versioning: if revising an existing proposal, increment version and mark old as countered
+    let newVersion = 1;
+    let parentProposalId: string | null = null;
+
+    if (existingProposalId) {
+      const { data: prev } = await admin
+        .from("booking_proposals")
+        .select("version")
+        .eq("id", existingProposalId)
+        .single();
+
+      newVersion = (prev?.version ?? 1) + 1;
+      parentProposalId = existingProposalId;
+
+      await admin
+        .from("booking_proposals")
+        .update({ status: "countered" })
+        .eq("id", existingProposalId);
+    }
+
+    await admin.from("booking_proposals").insert({
       booking_id: params.id,
       rate,
       currency,
       require_hotel: requireHotel,
       require_travel: requireTravel,
       require_food: requireFood,
-      payment_method: paymentMethod,
+      payment_method: requiresPayment ? "stripe" : "external",
       message: message || null,
+      status: "sent",
+      sent_by: "member",
+      version: newVersion,
+      parent_proposal_id: parentProposalId,
     });
 
     try {
@@ -295,7 +322,6 @@ export async function action({ request, params }: Route.ActionArgs) {
         .eq("id", params.id)
         .maybeSingle();
 
-      const admin = createSupabaseAdminClient();
       const { data: buyer } = await admin
         .from("booking_participants")
         .select("email, name, user_id, invite_token")
@@ -704,15 +730,22 @@ function ProposalSection({
   planLevel: number;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
-  const proposal = (booking as { booking_proposals?: Array<Proposal> }).booking_proposals?.[0];
+
+  // Latest proposal by version (highest version first)
+  const allProposals = ((booking as { booking_proposals?: Array<NonNullable<Proposal>> }).booking_proposals ?? [])
+    .slice()
+    .sort((a, b) => ((b.version ?? 0) - (a.version ?? 0)));
+  const latestProposal = allProposals[0] ?? null;
+  const isRevise = !!latestProposal;
+
   const [form, setForm] = useState({
-    rate: String(proposal?.rate ?? ""),
-    currency: proposal?.currency ?? "EUR",
+    rate: String(latestProposal?.rate ?? ""),
+    currency: latestProposal?.currency ?? "EUR",
     message: "",
-    require_travel: proposal?.require_travel ?? false,
-    require_hotel: proposal?.require_hotel ?? false,
-    require_food: proposal?.require_food ?? false,
-    payment_method: proposal?.payment_method ?? "external",
+    require_travel: latestProposal?.require_travel ?? false,
+    require_hotel: latestProposal?.require_hotel ?? false,
+    require_food: latestProposal?.require_food ?? false,
+    requires_payment: latestProposal?.payment_method === "stripe",
   });
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
@@ -720,16 +753,17 @@ function ProposalSection({
 
   return (
     <section id="proposal" style={{ paddingBottom: 40 }}>
-      <SectionHeading>Proposal</SectionHeading>
+      <SectionHeading>{isRevise ? "Revise Proposal" : "Proposal"}</SectionHeading>
 
       {sent ? (
         <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
           <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-            ✓ Proposal sent — booking is now pending.
+            ✓ {isRevise ? "Revised proposal sent." : "Proposal sent — booking is now pending."}
           </p>
         </div>
       ) : (
         <div style={card}>
+          {/* Rate + Currency */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 14 }}>
             <div>
               <p style={{ ...lbl, marginBottom: 6 }}>Your Rate</p>
@@ -755,47 +789,7 @@ function ProposalSection({
             </div>
           </div>
 
-          <div style={{ marginBottom: 16 }}>
-            <p style={{ ...lbl, marginBottom: 10 }}>Payment Method</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {(
-                [
-                  { value: "external", label: "Handle externally", sub: "I'll invoice the client myself", disabled: false },
-                  { value: "stripe", label: "Request via SQRZ", sub: "Stripe payment link — Creator+", disabled: !canUseStripe },
-                ] as const
-              ).map((opt) => (
-                <label
-                  key={opt.value}
-                  style={{
-                    display: "flex",
-                    alignItems: "flex-start",
-                    gap: 10,
-                    padding: "10px 12px",
-                    borderRadius: 9,
-                    border: `1px solid ${form.payment_method === opt.value ? ACCENT : "var(--border)"}`,
-                    background: form.payment_method === opt.value ? "rgba(245,166,35,0.06)" : "var(--bg)",
-                    cursor: opt.disabled ? "not-allowed" : "pointer",
-                    opacity: opt.disabled ? 0.5 : 1,
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="payment_method"
-                    value={opt.value}
-                    checked={form.payment_method === opt.value}
-                    disabled={opt.disabled}
-                    onChange={() => !opt.disabled && setForm((f) => ({ ...f, payment_method: opt.value }))}
-                    style={{ accentColor: ACCENT, marginTop: 2, flexShrink: 0 }}
-                  />
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>{opt.label}</p>
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>{opt.sub}</p>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-
+          {/* Message */}
           <div style={{ marginBottom: 16 }}>
             <p style={{ ...lbl, marginBottom: 6 }}>Message (optional)</p>
             <textarea
@@ -807,6 +801,7 @@ function ProposalSection({
             />
           </div>
 
+          {/* Rider checkboxes */}
           <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
             {(
               [
@@ -827,6 +822,22 @@ function ProposalSection({
             ))}
           </div>
 
+          {/* Stripe payment toggle — paid users only */}
+          {canUseStripe && (
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 20, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={form.requires_payment}
+                onChange={(e) => setForm((f) => ({ ...f, requires_payment: e.target.checked }))}
+                style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
+              />
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Request payment via Stripe</p>
+                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Buyer receives a Stripe payment link</p>
+              </div>
+            </label>
+          )}
+
           {fetcher.data?.error && (
             <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
           )}
@@ -841,7 +852,8 @@ function ProposalSection({
               fd.append("require_hotel", String(form.require_hotel));
               fd.append("require_travel", String(form.require_travel));
               fd.append("require_food", String(form.require_food));
-              fd.append("payment_method", form.payment_method);
+              fd.append("requires_payment", String(form.requires_payment));
+              if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
               fetcher.submit(fd, { method: "post" });
             }}
             disabled={fetcher.state !== "idle"}
@@ -859,7 +871,7 @@ function ProposalSection({
               fontFamily: FONT_BODY,
             }}
           >
-            {fetcher.state !== "idle" ? "Sending…" : "Send Proposal"}
+            {fetcher.state !== "idle" ? "Sending…" : isRevise ? "Revise Proposal" : "Send Proposal"}
           </button>
         </div>
       )}
