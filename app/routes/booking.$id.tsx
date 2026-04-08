@@ -747,10 +747,11 @@ function ProposalSection({
     .sort((a, b) => ((b.version ?? 0) - (a.version ?? 0)));
   const latestProposal = allProposals[0] ?? null;
   const buyerCounted = latestProposal?.sent_by === "buyer";
+  const memberSentAndWaiting = latestProposal?.sent_by === "member" && latestProposal?.status === "sent";
   const isRevise = !!latestProposal;
 
-  // If buyer has countered, hide the form until member clicks "Revise Proposal"
-  const [showForm, setShowForm] = useState(!buyerCounted);
+  // Hide form when member is waiting for buyer response, or buyer has countered
+  const [showForm, setShowForm] = useState(!buyerCounted && !memberSentAndWaiting);
   const [showHistory, setShowHistory] = useState(false);
 
   const [form, setForm] = useState({
@@ -770,7 +771,7 @@ function ProposalSection({
   return (
     <section id="proposal" style={{ paddingBottom: 40 }}>
       <SectionHeading>
-        {buyerCounted ? "Counter Offer" : isRevise ? "Revise Proposal" : "Proposal"}
+        {buyerCounted ? "Counter Offer" : (showForm && isRevise) ? "Revise Proposal" : "Proposal"}
       </SectionHeading>
 
       {sent ? (
@@ -781,6 +782,72 @@ function ProposalSection({
         </div>
       ) : (
         <>
+          {/* Member sent proposal — waiting for buyer response */}
+          {memberSentAndWaiting && !showForm && (
+            <>
+              {/* Sent proposal summary (read-only) */}
+              <div style={card}>
+                <p style={{ ...lbl, marginBottom: 6 }}>Sent Proposal</p>
+                {latestProposal!.rate != null && (
+                  <p style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 10px" }}>
+                    {sym}{(latestProposal!.rate).toLocaleString()}
+                    <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
+                      {latestProposal!.currency ?? "EUR"}
+                    </span>
+                  </p>
+                )}
+                {[
+                  latestProposal!.require_hotel && "Hotel",
+                  latestProposal!.require_travel && "Travel",
+                  latestProposal!.require_food && "Catering",
+                ].filter(Boolean).length > 0 && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 10 }}>
+                    {[
+                      latestProposal!.require_hotel && "Hotel",
+                      latestProposal!.require_travel && "Travel",
+                      latestProposal!.require_food && "Catering",
+                    ].filter(Boolean).map((b2) => (
+                      <span key={b2 as string} style={{ padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "rgba(245,166,35,0.1)", color: ACCENT, border: "1px solid rgba(245,166,35,0.2)" }}>
+                        {b2}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {latestProposal!.message && (
+                  <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+                    {latestProposal!.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Waiting banner */}
+              <div style={{ ...card, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)" }}>
+                <p style={{ color: ACCENT, fontSize: 14, margin: 0, fontWeight: 600 }}>
+                  Proposal sent — waiting for buyer response
+                </p>
+              </div>
+
+              {/* Revise button */}
+              <button
+                onClick={() => setShowForm(true)}
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  padding: "10px 18px",
+                  fontFamily: FONT_BODY,
+                  marginTop: 4,
+                }}
+              >
+                Revise Proposal
+              </button>
+            </>
+          )}
+
           {/* Buyer counter banner */}
           {buyerCounted && (
             <div style={{ ...card, background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.25)", marginBottom: 4 }}>
@@ -824,7 +891,7 @@ function ProposalSection({
           )}
 
           {/* Proposal form */}
-          {(!buyerCounted || showForm) && (
+          {showForm && (
             <div style={card}>
               {/* Rate + Currency */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 14 }}>
@@ -937,7 +1004,7 @@ function ProposalSection({
                 >
                   {fetcher.state !== "idle" ? "Sending…" : isRevise ? "Send Revised Proposal" : "Send Proposal"}
                 </button>
-                {buyerCounted && (
+                {isRevise && (
                   <button
                     onClick={() => setShowForm(false)}
                     style={{
@@ -1667,20 +1734,15 @@ function MemberView({
   userEmail: string;
 }) {
   const b = booking;
-  const isRequested = b.status === "requested";
-  const showPayments = ["pending", "confirmed", "completed"].includes(b.status as string);
+  const showProposal = ["requested", "pending"].includes(b.status as string);
+  const showPayments = ["confirmed", "completed"].includes(b.status as string);
 
-  const sections = isRequested
-    ? [
-        { id: "details",  label: "Details" },
-        { id: "proposal", label: "Proposal" },
-        { id: "actions",  label: "Actions" },
-      ]
-    : [
-        { id: "details",  label: "Details" },
-        ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
-        { id: "actions",  label: "Actions" },
-      ];
+  const sections = [
+    { id: "details",  label: "Details" },
+    ...(showProposal ? [{ id: "proposal", label: "Proposal" }] : []),
+    ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
+    { id: "actions",  label: "Actions" },
+  ];
 
   const [activeSection, setActiveSection] = useState(sections[0].id);
 
@@ -1696,7 +1758,7 @@ function MemberView({
     }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [isRequested]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [b.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function scrollToSection(id: string) {
     const el = document.getElementById(id);
@@ -1764,9 +1826,9 @@ function MemberView({
 
         <DetailsSection booking={b} />
 
-        {isRequested && <ProposalSection booking={b} planLevel={planLevel} />}
+        {showProposal && <ProposalSection booking={b} planLevel={planLevel} />}
 
-        {!isRequested && showPayments && wallet && (
+        {showPayments && wallet && (
           <BookingWallet wallet={wallet} />
         )}
 
