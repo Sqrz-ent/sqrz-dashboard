@@ -22,10 +22,10 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. Get proposal details
+  // 2. Get proposal details — fetch requires_payment explicitly
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("*, bookings(title, owner_id, profiles(name))")
+    .select("rate, currency, requires_payment, booking_id, bookings(title, owner_id, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -34,10 +34,10 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Proposal not found" }, { status: 404 });
   }
 
-  const requiresPayment = proposal.payment_method === "stripe";
+  console.log("[accept] requires_payment:", proposal.requires_payment);
 
-  if (requiresPayment) {
-    // 3a. Stripe path — create checkout, mark proposal accepted, webhook confirms booking
+  if (proposal.requires_payment === true) {
+    // 3a. Stripe path — create checkout, booking stays 'pending' until webhook fires
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -65,7 +65,7 @@ export async function action({ request }: { request: Request }) {
       customer_email: participant.email,
     });
 
-    // Mark proposal accepted optimistically — booking status stays 'pending' until webhook fires
+    // Mark proposal accepted — booking status unchanged until webhook fires
     await adminClient
       .from("booking_proposals")
       .update({ status: "accepted" })
@@ -73,7 +73,7 @@ export async function action({ request }: { request: Request }) {
 
     return Response.json({ checkout_url: session.url });
   } else {
-    // 3b. No payment needed — confirm directly, no Stripe involved
+    // 3b. No payment needed — confirm directly
     await adminClient
       .from("booking_proposals")
       .update({ status: "accepted" })

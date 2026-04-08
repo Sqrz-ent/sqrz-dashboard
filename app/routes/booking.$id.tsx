@@ -37,6 +37,7 @@ type Proposal = {
   version?: number | null;
   sent_by?: string | null;
   parent_proposal_id?: string | null;
+  requires_payment?: boolean | null;
 } | null;
 
 
@@ -307,7 +308,7 @@ export async function action({ request, params }: Route.ActionArgs) {
       require_hotel: requireHotel,
       require_travel: requireTravel,
       require_food: requireFood,
-      payment_method: requiresPayment ? "stripe" : "external",
+      requires_payment: requiresPayment,
       message: message || null,
       status: "sent",
       sent_by: "member",
@@ -745,7 +746,7 @@ function ProposalSection({
     require_travel: latestProposal?.require_travel ?? false,
     require_hotel: latestProposal?.require_hotel ?? false,
     require_food: latestProposal?.require_food ?? false,
-    requires_payment: latestProposal?.payment_method === "stripe",
+    requires_payment: latestProposal?.requires_payment ?? false,
   });
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
@@ -1122,11 +1123,10 @@ function GuestBuyerProposalCard({
   }
 
   if (bookingConfirmed || proposal.status === "accepted") {
-    const isPaid = proposal.payment_method === "stripe";
     return (
       <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
         <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-          {isPaid ? "✓ You have accepted this proposal — payment pending" : "✓ Booking confirmed"}
+          {proposal.requires_payment ? "✓ You have accepted this proposal — payment pending" : "✓ Booking confirmed"}
         </p>
       </div>
     );
@@ -1154,6 +1154,7 @@ function GuestBuyerProposalCard({
       } else if (json.confirmed) {
         setBookingConfirmed(true);
         setLoading(null);
+        window.location.reload();
       }
     } catch (err) {
       console.error("[accept]", err);
