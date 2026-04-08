@@ -301,20 +301,26 @@ export async function action({ request, params }: Route.ActionArgs) {
         .eq("id", existingProposalId);
     }
 
-    await admin.from("booking_proposals").insert({
-      booking_id: params.id,
-      rate,
-      currency,
-      require_hotel: requireHotel,
-      require_travel: requireTravel,
-      require_food: requireFood,
-      requires_payment: requiresPayment,
-      message: message || null,
-      status: "sent",
-      sent_by: "member",
-      version: newVersion,
-      parent_proposal_id: parentProposalId,
-    });
+    const { data: insertData, error: insertError } = await admin
+      .from("booking_proposals")
+      .insert({
+        booking_id: params.id,
+        rate,
+        currency,
+        require_hotel: requireHotel,
+        require_travel: requireTravel,
+        require_food: requireFood,
+        requires_payment: requiresPayment,
+        message: message || null,
+        status: "sent",
+        sent_by: "member",
+        version: newVersion,
+        parent_proposal_id: parentProposalId,
+      })
+      .select();
+
+    console.log("[proposal insert] error:", insertError);
+    console.log("[proposal insert] data:", insertData);
 
     try {
       const { data: bkData } = await supabase
