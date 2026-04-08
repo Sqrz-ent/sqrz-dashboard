@@ -34,6 +34,9 @@ type Proposal = {
   require_travel: boolean | null;
   require_food: boolean | null;
   payment_method?: string | null;
+  version?: number | null;
+  sent_by?: string | null;
+  parent_proposal_id?: string | null;
 } | null;
 
 
@@ -83,6 +86,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .from("booking_proposals")
       .select("*")
       .eq("booking_id", params.id)
+      .order("version", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     return Response.json(
@@ -1069,6 +1074,274 @@ function GuestProposalCard({ proposal }: { proposal: Proposal }) {
   );
 }
 
+function GuestBuyerProposalCard({
+  proposal,
+  bookingId,
+  bookingToken,
+}: {
+  proposal: Proposal;
+  bookingId: string;
+  bookingToken: string | null;
+}) {
+  const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
+  const [counterOpen, setCounterOpen] = useState(false);
+  const [counterRate, setCounterRate] = useState("");
+  const [counterMessage, setCounterMessage] = useState("");
+  const [done, setDone] = useState<"counter_sent" | "declined" | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+
+  if (!proposal) {
+    return (
+      <div style={card}>
+        <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No proposal has been sent yet.</p>
+      </div>
+    );
+  }
+
+  if (done === "declined") {
+    return (
+      <div style={{ ...card, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.06)" }}>
+        <p style={{ color: "#ef4444", fontSize: 14, margin: 0, fontWeight: 600 }}>Proposal declined.</p>
+      </div>
+    );
+  }
+
+  if (done === "counter_sent") {
+    return (
+      <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
+        <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>✓ Counter proposal sent — waiting for response.</p>
+      </div>
+    );
+  }
+
+  const isWaiting = proposal.sent_by === "buyer";
+  const version = proposal.version ?? 1;
+
+  async function handleAccept() {
+    setLoading("accept");
+    try {
+      const res = await fetch("/api/proposal/accept", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_id: bookingId, proposal_id: proposal!.id, invite_token: bookingToken }),
+      });
+      const json = await res.json();
+      if (json.checkout_url) window.location.href = json.checkout_url;
+    } catch (err) {
+      console.error("[accept]", err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleCounter() {
+    setLoading("counter");
+    try {
+      await fetch("/api/proposal/counter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: bookingId,
+          proposal_id: proposal!.id,
+          invite_token: bookingToken,
+          rate: parseFloat(counterRate) || 0,
+          currency: proposal!.currency ?? "EUR",
+          message: counterMessage,
+        }),
+      });
+      setDone("counter_sent");
+      setCounterOpen(false);
+    } catch (err) {
+      console.error("[counter]", err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function handleDecline() {
+    if (!window.confirm("Are you sure you want to decline this proposal?")) return;
+    setLoading("decline");
+    try {
+      await fetch("/api/proposal/decline", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_id: bookingId, invite_token: bookingToken }),
+      });
+      setDone("declined");
+    } catch (err) {
+      console.error("[decline]", err);
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  return (
+    <>
+      <div style={card}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: proposal.message ? 18 : 0 }}>
+          {proposal.rate != null && (
+            <div>
+              <p style={guestMetaLabel}>Rate</p>
+              <p style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
+                {proposal.rate} {proposal.currency ?? "EUR"}
+              </p>
+            </div>
+          )}
+          <div>
+            <p style={guestMetaLabel}>Requirements</p>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+              {[
+                proposal.require_travel && "Travel",
+                proposal.require_hotel && "Hotel",
+                proposal.require_food && "Catering",
+              ].filter(Boolean).join(" · ") || "None"}
+            </p>
+          </div>
+        </div>
+        {proposal.message && (
+          <div style={{ paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+            <p style={guestMetaLabel}>Message from artist</p>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>{proposal.message}</p>
+          </div>
+        )}
+        {version > 1 && (
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", padding: 0, fontFamily: FONT_BODY }}
+            >
+              {showHistory ? "Hide" : "View"} previous versions (v{version})
+            </button>
+            {showHistory && (
+              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 0" }}>
+                This is version {version} of the proposal.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {isWaiting ? (
+        <div style={{ ...card, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)" }}>
+          <p style={{ color: ACCENT, fontSize: 14, margin: 0, fontWeight: 600 }}>
+            ⏳ Waiting for response to your counter proposal
+          </p>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button
+            onClick={handleAccept}
+            disabled={loading !== null}
+            style={{
+              width: "100%",
+              padding: "13px",
+              background: ACCENT,
+              color: "#111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: loading !== null ? "default" : "pointer",
+              opacity: loading === "accept" ? 0.7 : 1,
+              fontFamily: FONT_BODY,
+            }}
+          >
+            {loading === "accept" ? "Redirecting…" : "Accept & Pay"}
+          </button>
+
+          {counterOpen ? (
+            <div style={card}>
+              <p style={{ ...guestMetaLabel, marginBottom: 10 }}>Your Counter Offer</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 12 }}>
+                <input
+                  type="number"
+                  style={inputStyle}
+                  placeholder="Your rate"
+                  value={counterRate}
+                  onChange={(e) => setCounterRate(e.target.value)}
+                />
+                <div style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                  {proposal.currency ?? "EUR"}
+                </div>
+              </div>
+              <textarea
+                rows={3}
+                style={{ ...inputStyle, resize: "vertical", marginBottom: 12 }}
+                placeholder="Add a message (optional)"
+                value={counterMessage}
+                onChange={(e) => setCounterMessage(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  onClick={handleCounter}
+                  disabled={loading !== null || !counterRate}
+                  style={{
+                    flex: 1,
+                    padding: "11px",
+                    background: "var(--surface-muted)",
+                    color: "var(--text)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: loading !== null || !counterRate ? "default" : "pointer",
+                    opacity: loading === "counter" ? 0.7 : 1,
+                    fontFamily: FONT_BODY,
+                  }}
+                >
+                  {loading === "counter" ? "Sending…" : "Send Counter"}
+                </button>
+                <button
+                  onClick={() => setCounterOpen(false)}
+                  style={{ padding: "11px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, color: "var(--text-muted)", fontSize: 13, cursor: "pointer", fontFamily: FONT_BODY }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setCounterOpen(true)}
+              disabled={loading !== null}
+              style={{
+                width: "100%",
+                padding: "11px",
+                background: "transparent",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: loading !== null ? "default" : "pointer",
+                fontFamily: FONT_BODY,
+              }}
+            >
+              Counter
+            </button>
+          )}
+
+          <button
+            onClick={handleDecline}
+            disabled={loading !== null}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#ef4444",
+              fontSize: 13,
+              cursor: loading !== null ? "default" : "pointer",
+              padding: "6px 0",
+              fontFamily: FONT_BODY,
+              opacity: loading === "decline" ? 0.7 : 1,
+            }}
+          >
+            {loading === "decline" ? "Declining…" : "Decline proposal"}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
 function GuestActionsCard({ bookingId, bookingToken, status }: { bookingId: string; bookingToken: string | null; status: string }) {
   const fetcher = useFetcher();
   const isPending = fetcher.state !== "idle";
@@ -1432,7 +1705,13 @@ export default function BookingAccessPage() {
             </div>
 
             {(!tabs || activeTab === "details") && <GuestDetailsCard b={b} />}
-            {tabs && activeTab === "proposal" && role === "buyer" && <GuestProposalCard proposal={proposal} />}
+            {tabs && activeTab === "proposal" && role === "buyer" && (
+              <GuestBuyerProposalCard
+                proposal={proposal}
+                bookingId={b.id as string}
+                bookingToken={bookingToken}
+              />
+            )}
             {tabs && activeTab === "actions" && role === "buyer" && (
               <GuestActionsCard bookingId={b.id as string} bookingToken={bookingToken} status={b.status as string} />
             )}

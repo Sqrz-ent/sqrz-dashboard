@@ -123,7 +123,7 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     // ── Instant booking payment ──────────────────────────────────────────────
-    if (session.metadata?.booking_type === "instant" && session.metadata?.booking_id) {
+    if ((session.metadata?.booking_type === "instant" || session.metadata?.booking_type === "quote_accepted") && session.metadata?.booking_id) {
       const bookingId = session.metadata.booking_id;
       console.log("[webhook] instant booking payment received:", bookingId);
 
