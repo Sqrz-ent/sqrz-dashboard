@@ -447,6 +447,7 @@ export default function ProfilePage() {
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
   const [galleryUrls, setGalleryUrls] = useState<string[]>(initialGalleryUrls);
+  const [selectedLegalForm, setSelectedLegalForm] = useState<string>((profile.legal_form as string) ?? "");
 
   // Modal state
   const [skillsModalOpen, setSkillsModalOpen] = useState(false);
@@ -983,117 +984,203 @@ export default function ProfilePage() {
 
       {/* Section 7: Business Details */}
       {(() => {
-        const lf = ((profile.legal_form as string) ?? "").trim();
-        const isRegistered = ["GmbH", "UG", "AG"].some((f) => lf.toLowerCase() === f.toLowerCase());
-        const isFreelancer = ["Freelancer", "GbR", "Einzelunternehmer"].some((f) => lf.toLowerCase() === f.toLowerCase());
-        const showTradeRegister = isRegistered;
-        const showVat = isRegistered || isFreelancer;
-        const showRegulatoryBody = isRegistered || isFreelancer;
-        const showExternalPrivacy = isRegistered || isFreelancer;
+        const lf = selectedLegalForm.trim();
+        const isFreelancer = ["Freelancer / Selbstständig", "Sole Trader"].includes(lf);
+        const isPartnership = ["GbR", "Partnerschaft"].includes(lf);
+        const isGmbH = ["GmbH", "UG (haftungsbeschränkt)", "AG"].includes(lf);
+        const isIntlLtd = ["Ltd.", "S.L.", "SAS", "B.V."].includes(lf);
+        const isLatAm = ["S.A.S. (Colombia)", "S.A. (Latin America)", "Ltda. (Latin America)", "S.A. de C.V. (México)", "S. de R.L. de C.V. (México)", "MEI / Ltda. (Brasil)", "SpA (Chile)"].includes(lf);
+        const isOther = lf === "Other";
+        const hasForm = !!lf;
+
+        const showCompanyName = isPartnership || isGmbH || isIntlLtd || isLatAm || isOther;
+        const showCompanyAddress = isPartnership || isGmbH || isIntlLtd || isLatAm || isOther;
+        const showResponsiblePerson = hasForm;
+        const showVat = hasForm;
+        const showTradeRegister = isGmbH || isOther;
+        const showRegulatoryBody = isOther;
+        const showDpo = hasForm;
+        const showExternalPrivacy = hasForm;
+
+        const vatPlaceholder = isLatAm ? "e.g. NIT 900.123.456-7" : "e.g. DE123456789";
+
         return (
           <div style={card}>
             <CompletionBadge filled={businessFilled} total={4} />
             <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
             <businessFetcher.Form method="post">
               <input type="hidden" name="intent" value="update_business" />
+              <input type="hidden" name="company_tax_id" value={(profile.company_tax_id as string) ?? ""} />
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <div>
-                  <label style={labelStyle}>Company Name</label>
-                  <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Company Address</label>
-                  <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={labelStyle}>Tax ID</label>
-                  <input name="company_tax_id" defaultValue={(profile.company_tax_id as string) ?? ""} style={inputStyle} />
-                </div>
+
+                {/* Legal Form dropdown — always first */}
                 <div>
                   <label style={labelStyle}>Legal Form</label>
-                  <input name="legal_form" defaultValue={(profile.legal_form as string) ?? ""} placeholder="e.g. Einzelunternehmer, GmbH, LLC" style={inputStyle} />
+                  <select
+                    name="legal_form"
+                    value={selectedLegalForm}
+                    onChange={(e) => setSelectedLegalForm(e.target.value)}
+                    style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
+                  >
+                    <option value="">— Select legal form —</option>
+                    <optgroup label="Individual">
+                      <option>Freelancer / Selbstständig</option>
+                      <option>Sole Trader</option>
+                    </optgroup>
+                    <optgroup label="Partnership">
+                      <option>GbR</option>
+                      <option>Partnerschaft</option>
+                    </optgroup>
+                    <optgroup label="Limited Company">
+                      <option>GmbH</option>
+                      <option>UG (haftungsbeschränkt)</option>
+                      <option>AG</option>
+                      <option>Ltd.</option>
+                      <option>S.L.</option>
+                      <option>SAS</option>
+                      <option>B.V.</option>
+                    </optgroup>
+                    <optgroup label="Latin America">
+                      <option>S.A.S. (Colombia)</option>
+                      <option>S.A. (Latin America)</option>
+                      <option>Ltda. (Latin America)</option>
+                      <option>S.A. de C.V. (México)</option>
+                      <option>S. de R.L. de C.V. (México)</option>
+                      <option>MEI / Ltda. (Brasil)</option>
+                      <option>SpA (Chile)</option>
+                    </optgroup>
+                    <optgroup label="Other">
+                      <option>Other</option>
+                    </optgroup>
+                  </select>
                 </div>
 
-                {/* Legal & Compliance — merged */}
-                <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 16 }}>
-                  <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", margin: "0 0 6px", fontFamily: FONT_BODY }}>
-                    Legal &amp; Compliance
-                  </p>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
-                    Required in Germany and EU if you operate as a business. Shown in the legal footer on your profile page.
-                  </p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                    <div>
-                      <label style={labelStyle}>Responsible Person</label>
-                      <input
-                        name="responsible_person"
-                        defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
-                        style={inputStyle}
-                      />
-                    </div>
-                    {showVat && (
-                      <div>
-                        <label style={labelStyle}>VAT ID</label>
-                        <input
-                          name="vat_id"
-                          defaultValue={(profile.vat_id as string) ?? ""}
-                          style={inputStyle}
-                        />
-                      </div>
-                    )}
-                    {showTradeRegister && (
-                      <>
-                        <div>
-                          <label style={labelStyle}>Trade Register Court</label>
-                          <input
-                            name="trade_register_court"
-                            defaultValue={(profile.trade_register_court as string) ?? ""}
-                            style={inputStyle}
-                          />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Trade Register Number</label>
-                          <input
-                            name="trade_register_number"
-                            defaultValue={(profile.trade_register_number as string) ?? ""}
-                            style={inputStyle}
-                          />
-                        </div>
-                      </>
-                    )}
-                    {showRegulatoryBody && (
-                      <div>
-                        <label style={labelStyle}>Professional Regulatory Body</label>
-                        <input
-                          name="regulatory_body"
-                          defaultValue={(profile.regulatory_body as string) ?? ""}
-                          style={inputStyle}
-                        />
-                      </div>
-                    )}
-                    <div>
-                      <label style={labelStyle}>Data Protection Officer Email</label>
-                      <input
-                        type="email"
-                        name="dpo_email"
-                        defaultValue={(profile.dpo_email as string) ?? ""}
-                        style={inputStyle}
-                      />
-                    </div>
-                    {showExternalPrivacy && (
-                      <div>
-                        <label style={labelStyle}>External Privacy Policy URL</label>
-                        <input
-                          type="url"
-                          name="external_privacy_url"
-                          defaultValue={(profile.external_privacy_url as string) ?? ""}
-                          placeholder="https://example.com/privacy"
-                          style={inputStyle}
-                        />
-                      </div>
-                    )}
+                {/* Company Name — shown for entity types */}
+                {showCompanyName && (
+                  <div>
+                    <label style={labelStyle}>Company Name</label>
+                    <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
                   </div>
-                </div>
+                )}
+
+                {/* Company Address */}
+                {showCompanyAddress ? (
+                  <div>
+                    <label style={labelStyle}>Company Address</label>
+                    <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+                  </div>
+                ) : !hasForm ? (
+                  <>
+                    <div>
+                      <label style={labelStyle}>Company Name</label>
+                      <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Company Address</label>
+                      <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+                    </div>
+                  </>
+                ) : null}
+
+                {/* Hidden passthrough for fields not shown */}
+                {!showCompanyName && hasForm && (
+                  <input type="hidden" name="company_name" value={(profile.company_name as string) ?? ""} />
+                )}
+                {showCompanyAddress === false && hasForm && (
+                  <input type="hidden" name="company_address" value={(profile.company_address as string) ?? ""} />
+                )}
+
+                {/* Legal & Compliance — shown when a form is selected */}
+                {hasForm && (
+                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 16 }}>
+                    <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                      Legal &amp; Compliance
+                    </p>
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
+                      Shown in the legal footer on your profile page.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      {showResponsiblePerson && (
+                        <div>
+                          <label style={labelStyle}>Responsible Person</label>
+                          <input
+                            name="responsible_person"
+                            defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
+                            placeholder="Full legal name"
+                            style={inputStyle}
+                          />
+                        </div>
+                      )}
+                      {showVat && (
+                        <div>
+                          <label style={labelStyle}>VAT ID</label>
+                          <input
+                            name="vat_id"
+                            defaultValue={(profile.vat_id as string) ?? ""}
+                            placeholder={vatPlaceholder}
+                            style={inputStyle}
+                          />
+                        </div>
+                      )}
+                      {showTradeRegister && (
+                        <>
+                          <div>
+                            <label style={labelStyle}>Trade Register Court</label>
+                            <input
+                              name="trade_register_court"
+                              defaultValue={(profile.trade_register_court as string) ?? ""}
+                              placeholder="e.g. Amtsgericht Mannheim"
+                              style={inputStyle}
+                            />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Trade Register Number</label>
+                            <input
+                              name="trade_register_number"
+                              defaultValue={(profile.trade_register_number as string) ?? ""}
+                              placeholder="e.g. HRB 12345"
+                              style={inputStyle}
+                            />
+                          </div>
+                        </>
+                      )}
+                      {showRegulatoryBody && (
+                        <div>
+                          <label style={labelStyle}>Professional Regulatory Body</label>
+                          <input
+                            name="regulatory_body"
+                            defaultValue={(profile.regulatory_body as string) ?? ""}
+                            style={inputStyle}
+                          />
+                        </div>
+                      )}
+                      {showDpo && (
+                        <div>
+                          <label style={labelStyle}>Data Protection Officer Email</label>
+                          <input
+                            type="email"
+                            name="dpo_email"
+                            defaultValue={(profile.dpo_email as string) ?? ""}
+                            placeholder="datenschutz@example.com"
+                            style={inputStyle}
+                          />
+                        </div>
+                      )}
+                      {showExternalPrivacy && (
+                        <div>
+                          <label style={labelStyle}>External Privacy Policy URL</label>
+                          <input
+                            type="url"
+                            name="external_privacy_url"
+                            defaultValue={(profile.external_privacy_url as string) ?? ""}
+                            placeholder="https://..."
+                            style={inputStyle}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               {businessFetcher.data?.error && (
                 <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{(businessFetcher.data as { error?: string }).error}</p>
