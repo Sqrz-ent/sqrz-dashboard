@@ -242,6 +242,19 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "update_legal") {
+    const { error } = await supabase.from("profiles").update({
+      vat_id: formData.get("vat_id") as string || null,
+      trade_register_court: formData.get("trade_register_court") as string || null,
+      trade_register_number: formData.get("trade_register_number") as string || null,
+      responsible_person: formData.get("responsible_person") as string || null,
+      regulatory_body: formData.get("regulatory_body") as string || null,
+      dpo_email: formData.get("dpo_email") as string || null,
+      external_privacy_url: formData.get("external_privacy_url") as string || null,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   if (intent === "toggle_publish") {
     const { error } = await supabase.from("profiles").update({
       is_published: !(profile.is_published as boolean),
@@ -376,6 +389,7 @@ export default function ProfilePage() {
   const widgetsFetcher = useFetcher();
   const galleryFetcher = useFetcher();
   const businessFetcher = useFetcher();
+  const legalFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const publishFetcher = useFetcher();
   const gigHistoryFetcher = useFetcher();
   const videoFetcher = useFetcher();
@@ -1004,7 +1018,106 @@ export default function ProfilePage() {
         </businessFetcher.Form>
       </div>
 
-      {/* Section 8: Publish */}
+      {/* Section 8: Legal & Compliance */}
+      {(() => {
+        const lf = ((profile.legal_form as string) ?? "").trim();
+        const isRegistered = ["GmbH", "UG", "AG"].some((f) => lf.toLowerCase() === f.toLowerCase());
+        const isFreelancer = ["Freelancer", "GbR", "Einzelunternehmer"].some((f) => lf.toLowerCase() === f.toLowerCase());
+        const showTradeRegister = isRegistered;
+        const showVat = isRegistered || isFreelancer;
+        const showRegulatoryBody = isRegistered || isFreelancer;
+        const showExternalPrivacy = isRegistered || isFreelancer;
+        return (
+          <div style={card}>
+            <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 6 }}>Legal &amp; Compliance</h2>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 20px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
+              Required in Germany and EU if you operate as a business. Displayed in the legal footer on your profile page.
+            </p>
+            <legalFetcher.Form method="post">
+              <input type="hidden" name="intent" value="update_legal" />
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Responsible Person</label>
+                  <input
+                    name="responsible_person"
+                    defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Data Protection Officer Email</label>
+                  <input
+                    type="email"
+                    name="dpo_email"
+                    defaultValue={(profile.dpo_email as string) ?? ""}
+                    style={inputStyle}
+                  />
+                </div>
+                {showVat && (
+                  <div>
+                    <label style={labelStyle}>VAT ID</label>
+                    <input
+                      name="vat_id"
+                      defaultValue={(profile.vat_id as string) ?? ""}
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
+                {showTradeRegister && (
+                  <>
+                    <div>
+                      <label style={labelStyle}>Trade Register Court</label>
+                      <input
+                        name="trade_register_court"
+                        defaultValue={(profile.trade_register_court as string) ?? ""}
+                        style={inputStyle}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Trade Register Number</label>
+                      <input
+                        name="trade_register_number"
+                        defaultValue={(profile.trade_register_number as string) ?? ""}
+                        style={inputStyle}
+                      />
+                    </div>
+                  </>
+                )}
+                {showRegulatoryBody && (
+                  <div>
+                    <label style={labelStyle}>Professional Regulatory Body</label>
+                    <input
+                      name="regulatory_body"
+                      defaultValue={(profile.regulatory_body as string) ?? ""}
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
+                {showExternalPrivacy && (
+                  <div>
+                    <label style={labelStyle}>External Privacy Policy URL</label>
+                    <input
+                      type="url"
+                      name="external_privacy_url"
+                      defaultValue={(profile.external_privacy_url as string) ?? ""}
+                      placeholder="https://example.com/privacy"
+                      style={inputStyle}
+                    />
+                  </div>
+                )}
+              </div>
+              {legalFetcher.data?.error && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{legalFetcher.data.error}</p>
+              )}
+              <button type="submit" style={saveBtn} disabled={legalFetcher.state !== "idle"}>
+                {legalFetcher.state !== "idle" ? "Saving…" : "Save"}
+              </button>
+            </legalFetcher.Form>
+          </div>
+        );
+      })()}
+
+      {/* Section 9: Publish */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Publish</h2>
         <a
