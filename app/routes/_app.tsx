@@ -194,6 +194,37 @@ export default function AppLayout() {
   const planId = p?.plan_id as number | null | undefined;
   const showUpgrade = !planId || planId === 0;
 
+  // Compliance banner
+  const isPaid = planId != null && planId >= 1;
+  const hasCustomPixels = !!(
+    (p?.pixel_google as string) ||
+    (p?.pixel_facebook as string) ||
+    (p?.pixel_linkedin as string) ||
+    (p?.pixel_hubspot as string)
+  );
+  const impressumMissing =
+    !(p?.responsible_person as string) &&
+    !(p?.company_name as string) &&
+    !(p?.vat_id as string);
+  const shouldShowCompliance = isPaid && hasCustomPixels && impressumMissing;
+
+  const DISMISS_KEY = "sqrz_compliance_dismissed_until";
+  const [complianceDismissed, setComplianceDismissed] = useState(true); // start hidden, reveal after mount
+
+  useEffect(() => {
+    const until = localStorage.getItem(DISMISS_KEY);
+    if (!until || Date.now() > Number(until)) {
+      setComplianceDismissed(false);
+    }
+  }, []);
+
+  function dismissCompliance() {
+    localStorage.setItem(DISMISS_KEY, String(Date.now() + 7 * 24 * 60 * 60 * 1000));
+    setComplianceDismissed(true);
+  }
+
+  const showComplianceBanner = shouldShowCompliance && !complianceDismissed;
+
   return (
     <div
       style={{
@@ -411,6 +442,55 @@ export default function AppLayout() {
             </button>
           </div>
         </header>
+      )}
+
+      {/* ── Compliance warning banner ────────────────────────────────────────── */}
+      {showComplianceBanner && (
+        <div style={{
+          background: "rgba(245,166,35,0.12)",
+          borderBottom: "1px solid rgba(245,166,35,0.3)",
+          padding: "10px 20px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+          fontFamily: "ui-sans-serif, system-ui, sans-serif",
+        }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+          <p style={{ fontSize: 13, color: "var(--text)", margin: 0, lineHeight: 1.5, flex: 1, minWidth: 200 }}>
+            You have active tracking pixels on your profile. EU law requires you to display an
+            Impressum and privacy policy. Complete your business details to stay compliant.
+          </p>
+          <a
+            href="/profile#business"
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#F5A623",
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            Complete now →
+          </a>
+          <button
+            onClick={dismissCompliance}
+            aria-label="Dismiss"
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              fontSize: 16,
+              cursor: "pointer",
+              padding: "2px 4px",
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+          >
+            ✕
+          </button>
+        </div>
       )}
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
