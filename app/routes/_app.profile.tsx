@@ -238,19 +238,13 @@ export async function action({ request }: Route.ActionArgs) {
       company_address: formData.get("company_address") as string,
       company_tax_id: formData.get("company_tax_id") as string,
       legal_form: formData.get("legal_form") as string,
-    }).eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "update_legal") {
-    const { error } = await supabase.from("profiles").update({
-      vat_id: formData.get("vat_id") as string || null,
-      trade_register_court: formData.get("trade_register_court") as string || null,
-      trade_register_number: formData.get("trade_register_number") as string || null,
-      responsible_person: formData.get("responsible_person") as string || null,
-      regulatory_body: formData.get("regulatory_body") as string || null,
-      dpo_email: formData.get("dpo_email") as string || null,
-      external_privacy_url: formData.get("external_privacy_url") as string || null,
+      vat_id: (formData.get("vat_id") as string) || null,
+      trade_register_court: (formData.get("trade_register_court") as string) || null,
+      trade_register_number: (formData.get("trade_register_number") as string) || null,
+      responsible_person: (formData.get("responsible_person") as string) || null,
+      regulatory_body: (formData.get("regulatory_body") as string) || null,
+      dpo_email: (formData.get("dpo_email") as string) || null,
+      external_privacy_url: (formData.get("external_privacy_url") as string) || null,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -389,7 +383,6 @@ export default function ProfilePage() {
   const widgetsFetcher = useFetcher();
   const galleryFetcher = useFetcher();
   const businessFetcher = useFetcher();
-  const legalFetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const publishFetcher = useFetcher();
   const gigHistoryFetcher = useFetcher();
   const videoFetcher = useFetcher();
@@ -989,36 +982,6 @@ export default function ProfilePage() {
       </div>
 
       {/* Section 7: Business Details */}
-      <div style={card}>
-        <CompletionBadge filled={businessFilled} total={4} />
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
-        <businessFetcher.Form method="post">
-          <input type="hidden" name="intent" value="update_business" />
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Company Name</label>
-              <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Company Address</label>
-              <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Tax ID</label>
-              <input name="company_tax_id" defaultValue={(profile.company_tax_id as string) ?? ""} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Legal Form</label>
-              <input name="legal_form" defaultValue={(profile.legal_form as string) ?? ""} placeholder="e.g. Einzelunternehmer, GmbH, LLC" style={inputStyle} />
-            </div>
-          </div>
-          <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>
-            {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
-          </button>
-        </businessFetcher.Form>
-      </div>
-
-      {/* Section 8: Legal & Compliance */}
       {(() => {
         const lf = ((profile.legal_form as string) ?? "").trim();
         const isRegistered = ["GmbH", "UG", "AG"].some((f) => lf.toLowerCase() === f.toLowerCase());
@@ -1029,90 +992,116 @@ export default function ProfilePage() {
         const showExternalPrivacy = isRegistered || isFreelancer;
         return (
           <div style={card}>
-            <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 6 }}>Legal &amp; Compliance</h2>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 20px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
-              Required in Germany and EU if you operate as a business. Displayed in the legal footer on your profile page.
-            </p>
-            <legalFetcher.Form method="post">
-              <input type="hidden" name="intent" value="update_legal" />
+            <CompletionBadge filled={businessFilled} total={4} />
+            <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
+            <businessFetcher.Form method="post">
+              <input type="hidden" name="intent" value="update_business" />
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>Responsible Person</label>
-                  <input
-                    name="responsible_person"
-                    defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
-                    style={inputStyle}
-                  />
+                  <label style={labelStyle}>Company Name</label>
+                  <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Data Protection Officer Email</label>
-                  <input
-                    type="email"
-                    name="dpo_email"
-                    defaultValue={(profile.dpo_email as string) ?? ""}
-                    style={inputStyle}
-                  />
+                  <label style={labelStyle}>Company Address</label>
+                  <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
                 </div>
-                {showVat && (
-                  <div>
-                    <label style={labelStyle}>VAT ID</label>
-                    <input
-                      name="vat_id"
-                      defaultValue={(profile.vat_id as string) ?? ""}
-                      style={inputStyle}
-                    />
-                  </div>
-                )}
-                {showTradeRegister && (
-                  <>
+                <div>
+                  <label style={labelStyle}>Tax ID</label>
+                  <input name="company_tax_id" defaultValue={(profile.company_tax_id as string) ?? ""} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Legal Form</label>
+                  <input name="legal_form" defaultValue={(profile.legal_form as string) ?? ""} placeholder="e.g. Einzelunternehmer, GmbH, LLC" style={inputStyle} />
+                </div>
+
+                {/* Legal & Compliance — merged */}
+                <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 16 }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                    Legal &amp; Compliance
+                  </p>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
+                    Required in Germany and EU if you operate as a business. Shown in the legal footer on your profile page.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                     <div>
-                      <label style={labelStyle}>Trade Register Court</label>
+                      <label style={labelStyle}>Responsible Person</label>
                       <input
-                        name="trade_register_court"
-                        defaultValue={(profile.trade_register_court as string) ?? ""}
+                        name="responsible_person"
+                        defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
                         style={inputStyle}
                       />
                     </div>
+                    {showVat && (
+                      <div>
+                        <label style={labelStyle}>VAT ID</label>
+                        <input
+                          name="vat_id"
+                          defaultValue={(profile.vat_id as string) ?? ""}
+                          style={inputStyle}
+                        />
+                      </div>
+                    )}
+                    {showTradeRegister && (
+                      <>
+                        <div>
+                          <label style={labelStyle}>Trade Register Court</label>
+                          <input
+                            name="trade_register_court"
+                            defaultValue={(profile.trade_register_court as string) ?? ""}
+                            style={inputStyle}
+                          />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Trade Register Number</label>
+                          <input
+                            name="trade_register_number"
+                            defaultValue={(profile.trade_register_number as string) ?? ""}
+                            style={inputStyle}
+                          />
+                        </div>
+                      </>
+                    )}
+                    {showRegulatoryBody && (
+                      <div>
+                        <label style={labelStyle}>Professional Regulatory Body</label>
+                        <input
+                          name="regulatory_body"
+                          defaultValue={(profile.regulatory_body as string) ?? ""}
+                          style={inputStyle}
+                        />
+                      </div>
+                    )}
                     <div>
-                      <label style={labelStyle}>Trade Register Number</label>
+                      <label style={labelStyle}>Data Protection Officer Email</label>
                       <input
-                        name="trade_register_number"
-                        defaultValue={(profile.trade_register_number as string) ?? ""}
+                        type="email"
+                        name="dpo_email"
+                        defaultValue={(profile.dpo_email as string) ?? ""}
                         style={inputStyle}
                       />
                     </div>
-                  </>
-                )}
-                {showRegulatoryBody && (
-                  <div>
-                    <label style={labelStyle}>Professional Regulatory Body</label>
-                    <input
-                      name="regulatory_body"
-                      defaultValue={(profile.regulatory_body as string) ?? ""}
-                      style={inputStyle}
-                    />
+                    {showExternalPrivacy && (
+                      <div>
+                        <label style={labelStyle}>External Privacy Policy URL</label>
+                        <input
+                          type="url"
+                          name="external_privacy_url"
+                          defaultValue={(profile.external_privacy_url as string) ?? ""}
+                          placeholder="https://example.com/privacy"
+                          style={inputStyle}
+                        />
+                      </div>
+                    )}
                   </div>
-                )}
-                {showExternalPrivacy && (
-                  <div>
-                    <label style={labelStyle}>External Privacy Policy URL</label>
-                    <input
-                      type="url"
-                      name="external_privacy_url"
-                      defaultValue={(profile.external_privacy_url as string) ?? ""}
-                      placeholder="https://example.com/privacy"
-                      style={inputStyle}
-                    />
-                  </div>
-                )}
+                </div>
               </div>
-              {legalFetcher.data?.error && (
-                <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{legalFetcher.data.error}</p>
+              {businessFetcher.data?.error && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{(businessFetcher.data as { error?: string }).error}</p>
               )}
-              <button type="submit" style={saveBtn} disabled={legalFetcher.state !== "idle"}>
-                {legalFetcher.state !== "idle" ? "Saving…" : "Save"}
+              <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>
+                {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
               </button>
-            </legalFetcher.Form>
+            </businessFetcher.Form>
           </div>
         );
       })()}
