@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { useState, useEffect } from "react";
+import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -104,6 +104,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       plan_id: (profile.plan_id as number | null) ?? null,
       is_beta: (profile.is_beta as boolean) ?? false,
+      grow_qualified: (profile.grow_qualified as boolean) ?? false,
       campaigns: campaigns ?? [],
       privateLinks: privateLinks ?? [],
       email: (profile.email as string) ?? "",
@@ -140,15 +141,17 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, privateLinks, plan_id, is_beta, email } = useLoaderData<typeof loader>() as {
+  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, email } = useLoaderData<typeof loader>() as {
     campaigns: Campaign[];
     privateLinks: PrivateLink[];
     plan_id: number | null;
     is_beta: boolean;
+    grow_qualified: boolean;
     email: string;
     profile_id: string;
   };
   const fetcher = useFetcher();
+  const [searchParams] = useSearchParams();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
 
   const [promoteType, setPromoteType] = useState<string | null>(null);
@@ -157,6 +160,41 @@ export default function BoostPage() {
   const [budget, setBudget] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [success, setSuccess] = useState(false);
+
+  // Grow section state
+  const [growBudget, setGrowBudget] = useState(1000);
+  const [growLoading, setGrowLoading] = useState(false);
+  const [growError, setGrowError] = useState<string | null>(null);
+  const [growSuccess, setGrowSuccess] = useState(searchParams.get("grow") === "success");
+
+  useEffect(() => {
+    if (searchParams.get("grow") === "success") setGrowSuccess(true);
+  }, [searchParams]);
+
+  const growFee = growBudget * 0.2;
+  const growTotal = growBudget + growFee;
+
+  async function handleGrowCheckout() {
+    setGrowLoading(true);
+    setGrowError(null);
+    try {
+      const res = await fetch("/api/grow/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budget: growBudget }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.checkout_url) {
+        setGrowError(data.error ?? "Something went wrong");
+      } else {
+        window.location.href = data.checkout_url;
+      }
+    } catch {
+      setGrowError("Network error — please try again");
+    } finally {
+      setGrowLoading(false);
+    }
+  }
 
   const isSubmitting = fetcher.state !== "idle";
   const actionData = fetcher.data as { ok?: boolean } | undefined;
@@ -209,6 +247,148 @@ export default function BoostPage() {
       <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: -12, marginBottom: 28 }}>
         Activate targeted attention for your profile
       </p>
+
+      {/* ── SQRZ Grow section (grow_qualified only) ──────────────────────────── */}
+      {grow_qualified && (
+        <>
+          <div style={{
+            ...card,
+            background: "linear-gradient(135deg, rgba(245,166,35,0.07) 0%, var(--surface) 100%)",
+            border: "1.5px solid rgba(245,166,35,0.5)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+              <h2 style={{ ...sectionTitle, margin: 0 }}>SQRZ Grow</h2>
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase" as const,
+                background: "rgba(245,166,35,0.15)",
+                color: ACCENT,
+                padding: "3px 9px",
+                borderRadius: 20,
+                border: "1px solid rgba(245,166,35,0.3)",
+              }}>
+                Concierge
+              </span>
+            </div>
+            <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 20px", lineHeight: 1.6 }}>
+              Concierge campaign management — we handle everything.
+            </p>
+
+            <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", display: "flex", flexDirection: "column" as const, gap: 10 }}>
+              {[
+                "You set the budget — minimum $1,000",
+                "SQRZ adds a 20% management fee for full campaign handling",
+                "After payment, Will personally contacts you to define your strategy — Google, Meta, LinkedIn, TikTok, Spotify Ads or a mix — based on your goals and audience",
+              ].map((point) => (
+                <li key={point} style={{ display: "flex", gap: 10, fontSize: 14, color: "var(--text)", lineHeight: 1.6 }}>
+                  <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0 }}>•</span>
+                  {point}
+                </li>
+              ))}
+            </ul>
+
+            {growSuccess ? (
+              <div style={{
+                background: "rgba(34,197,94,0.1)",
+                border: "1px solid rgba(34,197,94,0.3)",
+                borderRadius: 10,
+                padding: "16px 18px",
+                fontSize: 14,
+                color: "#22c55e",
+                lineHeight: 1.6,
+              }}>
+                Payment received! Will be in touch within 24 hours to schedule your strategy session.
+              </div>
+            ) : (
+              <>
+                {/* Budget input */}
+                <div style={{ marginBottom: 20 }}>
+                  <label style={labelStyle}>Campaign budget (USD)</label>
+                  <input
+                    type="number"
+                    min={1000}
+                    step={100}
+                    value={growBudget}
+                    onChange={(e) => setGrowBudget(Math.max(1000, Number(e.target.value)))}
+                    style={{
+                      width: "100%",
+                      padding: "10px 13px",
+                      background: "var(--bg)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      fontSize: 15,
+                      color: "var(--text)",
+                      outline: "none",
+                      boxSizing: "border-box" as const,
+                      fontFamily: FONT_BODY,
+                    }}
+                  />
+                </div>
+
+                {/* Fee breakdown */}
+                <div style={{
+                  background: "var(--bg)",
+                  borderRadius: 10,
+                  padding: "14px 16px",
+                  marginBottom: 20,
+                  fontSize: 13,
+                  fontFamily: "monospace",
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+                    <span>Campaign budget</span>
+                    <span>${growBudget.toLocaleString()}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+                    <span>Management fee 20%</span>
+                    <span>+${growFee.toLocaleString()}</span>
+                  </div>
+                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--text)", fontSize: 14 }}>
+                    <span>Total charged</span>
+                    <span>${growTotal.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                {growError && (
+                  <p style={{ fontSize: 13, color: "#f87171", marginBottom: 12 }}>{growError}</p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleGrowCheckout}
+                  disabled={growLoading}
+                  style={{
+                    width: "100%",
+                    padding: "14px",
+                    background: growLoading ? "var(--surface-muted)" : ACCENT,
+                    color: growLoading ? "var(--text-muted)" : "#111",
+                    border: "none",
+                    borderRadius: 12,
+                    fontSize: 15,
+                    fontWeight: 700,
+                    cursor: growLoading ? "not-allowed" : "pointer",
+                    fontFamily: FONT_BODY,
+                    letterSpacing: "0.02em",
+                    transition: "background 0.15s",
+                  }}
+                >
+                  {growLoading ? "Preparing checkout…" : "Proceed to Payment →"}
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Separator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, margin: "4px 0 24px" }}>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+            <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.1em", textTransform: "uppercase" as const }}>
+              Self-serve boost
+            </span>
+            <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
+          </div>
+        </>
+      )}
 
       {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
 

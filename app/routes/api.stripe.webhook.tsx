@@ -122,6 +122,55 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ received: true });
     }
 
+    // ── Grow campaign payment ────────────────────────────────────────────────
+    if (session.metadata?.type === "grow_campaign" && session.metadata?.profile_id) {
+      const profileId = session.metadata.profile_id;
+      const paymentIntent = session.payment_intent as string | null;
+
+      console.log("[webhook] grow campaign payment received — profile:", profileId, "pi:", paymentIntent);
+
+      const { error: growError } = await supabase
+        .from("boost_campaigns")
+        .update({
+          status: "preparing",
+          stripe_payment_id: paymentIntent,
+        })
+        .eq("profile_id", profileId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (growError) {
+        console.error("[webhook] grow campaign update failed:", growError);
+      } else {
+        console.log("[webhook] grow campaign set to preparing — profile:", profileId);
+      }
+
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: "SQRZ <noreply@sqrz.com>",
+          to: "will@sqrz.com",
+          subject: `New Grow campaign payment — $${session.metadata.total}`,
+          html: `
+            <p>A new SQRZ Grow campaign payment has been received.</p>
+            <p><strong>Budget:</strong> $${session.metadata.budget}</p>
+            <p><strong>Management fee:</strong> $${session.metadata.fee}</p>
+            <p><strong>Total charged:</strong> $${session.metadata.total}</p>
+            <p><strong>Profile ID:</strong> ${profileId}</p>
+            <p><strong>Payment Intent:</strong> ${paymentIntent}</p>
+            <p>Contact the client within 24 hours to schedule their strategy session.</p>
+          `,
+        });
+        console.log("[webhook] grow campaign notification email sent");
+      } catch (emailErr) {
+        console.error("[webhook] grow campaign notification email failed:", emailErr);
+      }
+
+      return Response.json({ received: true });
+    }
+
     // ── Instant booking payment ──────────────────────────────────────────────
     if ((session.metadata?.booking_type === "instant" || session.metadata?.booking_type === "quote_accepted") && session.metadata?.booking_id) {
       const bookingId = session.metadata.booking_id;

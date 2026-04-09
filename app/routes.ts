@@ -34,6 +34,9 @@ export default [
   route("api/proposal/counter", "routes/api.proposal.counter.tsx"),
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
 
+  // Grow campaign checkout
+  route("api/grow/checkout", "routes/api.grow.checkout.tsx"),
+
   // Stripe API routes (server-only, action handlers)
   route("api/stripe/checkout", "routes/api.stripe.checkout.tsx"),
   route("api/stripe/connect", "routes/api.stripe.connect.tsx"),
