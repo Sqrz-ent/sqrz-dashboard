@@ -1122,7 +1122,7 @@ export default function ProfilePage() {
                           <label style={labelStyle}>{responsiblePersonLabel}</label>
                           <input
                             name="responsible_person"
-                            defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
+                            defaultValue={(profile.responsible_person as string) ?? ""}
                             placeholder="Full legal name"
                             style={inputStyle}
                           />
