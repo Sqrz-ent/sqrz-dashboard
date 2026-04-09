@@ -990,19 +990,25 @@ export default function ProfilePage() {
         const isGmbH = ["GmbH", "UG (haftungsbeschränkt)", "AG"].includes(lf);
         const isIntlLtd = ["Ltd.", "S.L.", "SAS", "B.V."].includes(lf);
         const isLatAm = ["S.A.S. (Colombia)", "S.A. (Latin America)", "Ltda. (Latin America)", "S.A. de C.V. (México)", "S. de R.L. de C.V. (México)", "MEI / Ltda. (Brasil)", "SpA (Chile)"].includes(lf);
+        const isUS = ["LLC (Limited Liability Company)", "C-Corp", "S-Corp", "Sole Proprietor (US)", "Partnership (US)"].includes(lf);
+        const isUSCorp = ["C-Corp", "S-Corp"].includes(lf);
         const isOther = lf === "Other";
         const hasForm = !!lf;
 
-        const showCompanyName = isPartnership || isGmbH || isIntlLtd || isLatAm || isOther;
-        const showCompanyAddress = isPartnership || isGmbH || isIntlLtd || isLatAm || isOther;
+        const showCompanyName = isPartnership || isGmbH || isIntlLtd || isLatAm || isUS || isOther;
+        const showCompanyAddress = isPartnership || isGmbH || isIntlLtd || isLatAm || isUS || isOther;
         const showResponsiblePerson = hasForm;
         const showVat = hasForm;
         const showTradeRegister = isGmbH || isOther;
+        const showStateOfIncorporation = isUSCorp;
         const showRegulatoryBody = isOther;
         const showDpo = hasForm;
         const showExternalPrivacy = hasForm;
 
-        const vatPlaceholder = isLatAm ? "e.g. NIT 900.123.456-7" : "e.g. DE123456789";
+        const vatLabel = isUS ? "EIN (Employer Identification Number)" : "VAT ID";
+        const vatPlaceholder = isUS ? "e.g. 12-3456789" : isLatAm ? "e.g. NIT 900.123.456-7" : "e.g. DE123456789";
+        const responsiblePersonLabel = isUS ? "Responsible Person / Registered Agent" : "Responsible Person";
+        const companyAddressLabel = isUS ? "Company Address (US)" : "Company Address";
 
         return (
           <div style={card}>
@@ -1040,6 +1046,13 @@ export default function ProfilePage() {
                       <option>SAS</option>
                       <option>B.V.</option>
                     </optgroup>
+                    <optgroup label="United States">
+                      <option>LLC (Limited Liability Company)</option>
+                      <option>C-Corp</option>
+                      <option>S-Corp</option>
+                      <option>Sole Proprietor (US)</option>
+                      <option>Partnership (US)</option>
+                    </optgroup>
                     <optgroup label="Latin America">
                       <option>S.A.S. (Colombia)</option>
                       <option>S.A. (Latin America)</option>
@@ -1066,7 +1079,7 @@ export default function ProfilePage() {
                 {/* Company Address */}
                 {showCompanyAddress ? (
                   <div>
-                    <label style={labelStyle}>Company Address</label>
+                    <label style={labelStyle}>{companyAddressLabel}</label>
                     <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
                   </div>
                 ) : !hasForm ? (
@@ -1102,7 +1115,7 @@ export default function ProfilePage() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       {showResponsiblePerson && (
                         <div>
-                          <label style={labelStyle}>Responsible Person</label>
+                          <label style={labelStyle}>{responsiblePersonLabel}</label>
                           <input
                             name="responsible_person"
                             defaultValue={(profile.responsible_person as string) || (profile.name as string) || ""}
@@ -1113,13 +1126,27 @@ export default function ProfilePage() {
                       )}
                       {showVat && (
                         <div>
-                          <label style={labelStyle}>VAT ID</label>
+                          <label style={labelStyle}>{vatLabel}</label>
                           <input
                             name="vat_id"
                             defaultValue={(profile.vat_id as string) ?? ""}
                             placeholder={vatPlaceholder}
                             style={inputStyle}
                           />
+                        </div>
+                      )}
+                      {showStateOfIncorporation && (
+                        <div>
+                          <label style={labelStyle}>State of Incorporation</label>
+                          <input
+                            name="trade_register_court"
+                            defaultValue={(profile.trade_register_court as string) ?? ""}
+                            placeholder="e.g. Delaware, Wyoming"
+                            style={inputStyle}
+                          />
+                          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", fontFamily: FONT_BODY }}>
+                            Stored as "Registered in: [state]" in the legal footer.
+                          </p>
                         </div>
                       )}
                       {showTradeRegister && (
