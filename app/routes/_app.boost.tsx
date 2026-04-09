@@ -382,101 +382,27 @@ export default function BoostPage() {
       {/* ── GROW section ─────────────────────────────────────────────────────── */}
       {grow_qualified ? (
         <>
-          <div style={{
-            ...card,
-            background: "linear-gradient(135deg, rgba(245,166,35,0.07) 0%, var(--surface) 100%)",
-            border: "1.5px solid rgba(245,166,35,0.5)",
-          }}>
-            <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", display: "flex", flexDirection: "column" as const, gap: 10 }}>
-              {[
-                `You set the budget — minimum $${growMinBudget.toLocaleString()} (your ad spend)`,
-                "SQRZ adds a 20% management fee for full campaign handling",
-                "After payment, Will personally contacts you to define your strategy — Google, Meta, LinkedIn, TikTok, Spotify Ads or a mix — based on your goals and audience",
-              ].map((point) => (
-                <li key={point} style={{ display: "flex", gap: 10, fontSize: 14, color: "var(--text)", lineHeight: 1.6 }}>
-                  <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0 }}>•</span>
-                  {point}
-                </li>
-              ))}
-            </ul>
-
-            {/* ── Strategy call CTA ─────────────────────────────────────────── */}
-            {isFirstCampaign ? (
-              <div style={{ marginBottom: 24 }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
-                  We recommend a quick call before your first campaign to make sure your budget works as hard as possible.
-                </p>
-                <a
-                  href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    padding: "13px",
-                    background: ACCENT,
-                    color: "#111",
-                    border: "none",
-                    borderRadius: 12,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    textAlign: "center" as const,
-                    textDecoration: "none",
-                    fontFamily: FONT_BODY,
-                    letterSpacing: "0.02em",
-                    boxSizing: "border-box" as const,
-                    marginBottom: 10,
-                  }}
-                >
-                  Book a Free Strategy Call →
-                </a>
-              </div>
-            ) : (
-              <div style={{ marginBottom: 24 }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
-                  Strategy unchanged? Skip the call and top up directly.
-                </p>
-                <a
-                  href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-block",
-                    padding: "10px 20px",
-                    background: "transparent",
-                    color: ACCENT,
-                    border: `1.5px solid ${ACCENT}`,
-                    borderRadius: 12,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    textDecoration: "none",
-                    fontFamily: FONT_BODY,
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  Book a Call
-                </a>
-              </div>
-            )}
+          <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
 
             {growSuccess ? (
               <div style={{
-                background: "rgba(34,197,94,0.1)",
-                border: "1px solid rgba(34,197,94,0.3)",
+                background: "rgba(34,197,94,0.08)",
+                border: "1px solid rgba(34,197,94,0.25)",
                 borderRadius: 10,
                 padding: "16px 18px",
                 fontSize: 14,
-                color: "#22c55e",
+                color: "var(--text)",
                 lineHeight: 1.6,
               }}>
                 Payment received! Will be in touch within 24 hours to schedule your strategy session.
               </div>
             ) : (
               <>
+                {/* 1. Form fields */}
                 {promoteField}
                 {audienceField}
 
-                {/* Budget */}
+                {/* Budget input */}
                 <div style={{ marginBottom: 20 }}>
                   <label style={labelStyle}>Campaign budget (USD)</label>
                   <input
@@ -506,109 +432,96 @@ export default function BoostPage() {
                 {/* Fee breakdown */}
                 <div style={{
                   background: "var(--bg)",
+                  border: "1px solid var(--border)",
                   borderRadius: 10,
                   padding: "14px 16px",
                   marginBottom: 20,
                   fontSize: 13,
-                  fontFamily: "monospace",
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
                     <span>Campaign budget</span>
-                    <span>${growBudget.toLocaleString()}</span>
+                    <span style={{ fontFamily: "monospace" }}>${growBudget.toLocaleString()}</span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
                     <span>Management fee (20%)</span>
-                    <span>+${growFee.toLocaleString()}</span>
+                    <span style={{ fontFamily: "monospace" }}>+${growFee.toLocaleString()}</span>
                   </div>
-                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 700, color: "var(--text)", fontSize: 14 }}>
+                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
                     <span>Total charged</span>
-                    <span>${growTotal.toLocaleString()}</span>
+                    <span style={{ fontFamily: "monospace" }}>${growTotal.toLocaleString()}</span>
                   </div>
                 </div>
 
-                {isFirstCampaign && (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-8px 0 16px", lineHeight: 1.5 }}>
-                    Already had your strategy call? Proceed to payment below.
-                  </p>
-                )}
-
                 {notesField}
 
+                {/* 2. Explainer bullets */}
+                <ul style={{ listStyle: "none", padding: 0, margin: "0 0 20px", display: "flex", flexDirection: "column" as const, gap: 8 }}>
+                  {[
+                    `You set the budget — minimum $${growMinBudget.toLocaleString()} (your ad spend)`,
+                    "SQRZ adds a 20% management fee for full campaign handling",
+                    "After payment, Will personally contacts you to define your strategy — Google, Meta, LinkedIn, TikTok, Spotify Ads or a mix — based on your goals and audience",
+                  ].map((point) => (
+                    <li key={point} style={{ display: "flex", gap: 10, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
+                      <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0 }}>•</span>
+                      {point}
+                    </li>
+                  ))}
+                </ul>
+
+                {/* 3. Context note + action buttons */}
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6 }}>
+                  {isFirstCampaign
+                    ? "We recommend a quick call before your first campaign to make sure your budget works as hard as possible."
+                    : "Strategy unchanged? Skip the call and top up directly."}
+                </p>
+
                 {growError && (
-                  <p style={{ fontSize: 13, color: "#f87171", marginBottom: 12 }}>{growError}</p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>{growError}</p>
                 )}
 
-                {isFirstCampaign ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={handleGrowCheckout}
-                      disabled={growLoading || !growCanSubmit}
-                      style={{
-                        width: "100%",
-                        padding: "14px",
-                        background: growLoading || !growCanSubmit ? "var(--surface-muted)" : "var(--surface-muted)",
-                        color: growLoading || !growCanSubmit ? "var(--text-muted)" : "var(--text-muted)",
-                        border: `1.5px solid var(--border)`,
-                        borderRadius: 12,
-                        fontSize: 14,
-                        fontWeight: 600,
-                        cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
-                        fontFamily: FONT_BODY,
-                        letterSpacing: "0.02em",
-                        transition: "background 0.15s",
-                      }}
-                    >
-                      {growLoading ? "Preparing checkout…" : "Skip call — Proceed to Payment →"}
-                    </button>
-                  </>
-                ) : (
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <a
-                      href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        flex: 1,
-                        padding: "14px",
-                        background: "transparent",
-                        color: ACCENT,
-                        border: `1.5px solid ${ACCENT}`,
-                        borderRadius: 12,
-                        fontSize: 14,
-                        fontWeight: 600,
-                        textAlign: "center" as const,
-                        textDecoration: "none",
-                        fontFamily: FONT_BODY,
-                        letterSpacing: "0.02em",
-                        boxSizing: "border-box" as const,
-                      }}
-                    >
-                      Book a Call
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleGrowCheckout}
-                      disabled={growLoading || !growCanSubmit}
-                      style={{
-                        flex: 1,
-                        padding: "14px",
-                        background: growLoading || !growCanSubmit ? "var(--surface-muted)" : ACCENT,
-                        color: growLoading || !growCanSubmit ? "var(--text-muted)" : "#111",
-                        border: "none",
-                        borderRadius: 12,
-                        fontSize: 14,
-                        fontWeight: 700,
-                        cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
-                        fontFamily: FONT_BODY,
-                        letterSpacing: "0.02em",
-                        transition: "background 0.15s",
-                      }}
-                    >
-                      {growLoading ? "Preparing…" : "Proceed to Payment →"}
-                    </button>
-                  </div>
-                )}
+                <div style={{ display: "flex", gap: 10 }}>
+                  <a
+                    href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      flex: 1,
+                      padding: "13px",
+                      background: "transparent",
+                      color: "var(--text)",
+                      border: "0.5px solid var(--border)",
+                      borderRadius: 12,
+                      fontSize: 14,
+                      fontWeight: 500,
+                      textAlign: "center" as const,
+                      textDecoration: "none",
+                      fontFamily: FONT_BODY,
+                      boxSizing: "border-box" as const,
+                    }}
+                  >
+                    Book a Call
+                  </a>
+                  <button
+                    type="button"
+                    onClick={handleGrowCheckout}
+                    disabled={growLoading || !growCanSubmit}
+                    style={{
+                      flex: 1,
+                      padding: "13px",
+                      background: growLoading || !growCanSubmit ? "var(--surface-muted)" : ACCENT,
+                      color: growLoading || !growCanSubmit ? "var(--text-muted)" : "#fff",
+                      border: "none",
+                      borderRadius: 12,
+                      fontSize: 14,
+                      fontWeight: 500,
+                      cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
+                      fontFamily: FONT_BODY,
+                      transition: "background 0.15s",
+                    }}
+                  >
+                    {growLoading ? "Preparing…" : "Proceed to Payment →"}
+                  </button>
+                </div>
               </>
             )}
           </div>
