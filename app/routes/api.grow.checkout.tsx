@@ -12,7 +12,13 @@ export async function action({ request }: Route.ActionArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  let body: { budget?: number };
+  let body: {
+    budget?: number;
+    promote_type?: string | null;
+    promote_link_id?: string | null;
+    target_audience?: string | null;
+    notes?: string | null;
+  };
   try {
     body = await request.json();
   } catch {
@@ -20,12 +26,16 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const budget = Number(body.budget);
-  if (!budget || budget < 1000) {
-    return Response.json({ error: "Minimum budget is $1,000" }, { status: 400, headers });
+  const isBeta = (profile.plan_id as number | null) === null || (profile.plan_id as number | null) === 4;
+  const minBudget = isBeta ? 100 : 1000;
+
+  if (!budget || budget < minBudget) {
+    return Response.json({ error: `Minimum budget is $${minBudget.toLocaleString()}` }, { status: 400, headers });
   }
 
-  const fee = budget * 0.2;
+  const fee = Math.round(budget * 0.2 * 100) / 100;
   const total = budget + fee;
+  const promoteType = body.promote_type ?? "profile";
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -56,11 +66,13 @@ export async function action({ request }: Route.ActionArgs) {
 
   await supabase.from("boost_campaigns").insert({
     profile_id: profile.id as string,
-    promote_type: "grow",
+    promote_type: promoteType,
+    promote_link_id: promoteType === "link" && body.promote_link_id ? body.promote_link_id : null,
+    target_audience: body.target_audience ?? null,
     budget_amount: budget,
     budget_currency: "USD",
     status: "pending",
-    notes: "grow campaign — awaiting payment",
+    notes: body.notes ?? "grow campaign — awaiting payment",
   });
 
   return Response.json({ checkout_url: session.url }, { headers });
