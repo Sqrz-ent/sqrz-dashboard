@@ -202,10 +202,7 @@ export default function AppLayout() {
     (p?.pixel_linkedin as string) ||
     (p?.pixel_hubspot as string)
   );
-  const impressumMissing =
-    !(p?.responsible_person as string) &&
-    !(p?.company_name as string) &&
-    !(p?.vat_id as string);
+  const impressumMissing = !(p?.responsible_person as string);
   const shouldShowCompliance = isPaid && hasCustomPixels && impressumMissing;
 
   const DISMISS_KEY = "sqrz_compliance_dismissed_until";
