@@ -74,13 +74,17 @@ const saveBtn: React.CSSProperties = {
 };
 
 function CompletionBadge({ filled, total }: { filled: number; total: number }) {
-  const done = filled === total;
+  const done = filled >= total && total > 0;
   return (
     <span style={{
-      position: "absolute", top: 16, right: 18,
+      position: "absolute", top: 14, right: 16,
       fontSize: 11, fontWeight: 700,
-      color: done ? ACCENT : "var(--text-muted)",
+      background: done ? "#F5A623" : "var(--surface-muted)",
+      color: done ? "#7a4800" : "var(--text-muted)",
+      padding: "3px 10px",
+      borderRadius: 20,
       fontFamily: FONT_BODY,
+      letterSpacing: "0.02em",
     }}>
       {done ? "✓ Complete" : `${filled}/${total}`}
     </span>
@@ -540,7 +544,7 @@ export default function ProfilePage() {
   const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
   const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
   const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud].filter(Boolean).length;
-  const businessFilled = [profile.company_name, profile.company_address, profile.company_tax_id, profile.legal_form].filter(Boolean).length;
+  const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
 
   const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
     { key: "website_url", emoji: "🌐", label: "Website" },
@@ -1012,7 +1016,7 @@ export default function ProfilePage() {
 
         return (
           <div style={card}>
-            <CompletionBadge filled={businessFilled} total={4} />
+            <CompletionBadge filled={businessFilled} total={1} />
             <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
             <businessFetcher.Form method="post">
               <input type="hidden" name="intent" value="update_business" />
