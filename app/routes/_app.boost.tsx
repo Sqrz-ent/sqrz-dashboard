@@ -101,7 +101,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const [{ data: campaigns }, { data: privateLinks }] = await Promise.all([
+  const [{ data: campaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
     supabase
       .from("boost_campaigns")
       .select("id, promote_type, promote_link_id, target_audience, budget_amount, budget_currency, status, created_at")
@@ -113,6 +113,10 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("id, label, link_slug, page_type")
       .eq("profile_id", profile.id as string)
       .eq("is_active", true),
+    supabase
+      .from("boost_campaigns")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profile.id as string),
   ]);
 
   return Response.json(
@@ -120,6 +124,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       plan_id: (profile.plan_id as number | null) ?? null,
       is_beta: (profile.is_beta as boolean) ?? false,
       grow_qualified: (profile.grow_qualified as boolean) ?? false,
+      campaign_count: campaignCount ?? 0,
       campaigns: campaigns ?? [],
       privateLinks: privateLinks ?? [],
       email: (profile.email as string) ?? "",
@@ -177,15 +182,17 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, email } = useLoaderData<typeof loader>() as {
+  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email } = useLoaderData<typeof loader>() as {
     campaigns: Campaign[];
     privateLinks: PrivateLink[];
     plan_id: number | null;
     is_beta: boolean;
     grow_qualified: boolean;
+    campaign_count: number;
     email: string;
     profile_id: string;
   };
+  const isFirstCampaign = campaign_count === 0;
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
@@ -393,6 +400,65 @@ export default function BoostPage() {
               ))}
             </ul>
 
+            {/* ── Strategy call CTA ─────────────────────────────────────────── */}
+            {isFirstCampaign ? (
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
+                  We recommend a quick call before your first campaign to make sure your budget works as hard as possible.
+                </p>
+                <a
+                  href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    padding: "13px",
+                    background: ACCENT,
+                    color: "#111",
+                    border: "none",
+                    borderRadius: 12,
+                    fontSize: 14,
+                    fontWeight: 700,
+                    textAlign: "center" as const,
+                    textDecoration: "none",
+                    fontFamily: FONT_BODY,
+                    letterSpacing: "0.02em",
+                    boxSizing: "border-box" as const,
+                    marginBottom: 10,
+                  }}
+                >
+                  Book a Free Strategy Call →
+                </a>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 24 }}>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
+                  Strategy unchanged? Skip the call and top up directly.
+                </p>
+                <a
+                  href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-block",
+                    padding: "10px 20px",
+                    background: "transparent",
+                    color: ACCENT,
+                    border: `1.5px solid ${ACCENT}`,
+                    borderRadius: 12,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    fontFamily: FONT_BODY,
+                    letterSpacing: "0.02em",
+                  }}
+                >
+                  Book a Call
+                </a>
+              </div>
+            )}
+
             {growSuccess ? (
               <div style={{
                 background: "rgba(34,197,94,0.1)",
@@ -460,33 +526,89 @@ export default function BoostPage() {
                   </div>
                 </div>
 
+                {isFirstCampaign && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-8px 0 16px", lineHeight: 1.5 }}>
+                    Already had your strategy call? Proceed to payment below.
+                  </p>
+                )}
+
                 {notesField}
 
                 {growError && (
                   <p style={{ fontSize: 13, color: "#f87171", marginBottom: 12 }}>{growError}</p>
                 )}
 
-                <button
-                  type="button"
-                  onClick={handleGrowCheckout}
-                  disabled={growLoading || !growCanSubmit}
-                  style={{
-                    width: "100%",
-                    padding: "14px",
-                    background: growLoading || !growCanSubmit ? "var(--surface-muted)" : ACCENT,
-                    color: growLoading || !growCanSubmit ? "var(--text-muted)" : "#111",
-                    border: "none",
-                    borderRadius: 12,
-                    fontSize: 15,
-                    fontWeight: 700,
-                    cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
-                    fontFamily: FONT_BODY,
-                    letterSpacing: "0.02em",
-                    transition: "background 0.15s",
-                  }}
-                >
-                  {growLoading ? "Preparing checkout…" : "Proceed to Payment →"}
-                </button>
+                {isFirstCampaign ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleGrowCheckout}
+                      disabled={growLoading || !growCanSubmit}
+                      style={{
+                        width: "100%",
+                        padding: "14px",
+                        background: growLoading || !growCanSubmit ? "var(--surface-muted)" : "var(--surface-muted)",
+                        color: growLoading || !growCanSubmit ? "var(--text-muted)" : "var(--text-muted)",
+                        border: `1.5px solid var(--border)`,
+                        borderRadius: 12,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
+                        fontFamily: FONT_BODY,
+                        letterSpacing: "0.02em",
+                        transition: "background 0.15s",
+                      }}
+                    >
+                      {growLoading ? "Preparing checkout…" : "Skip call — Proceed to Payment →"}
+                    </button>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <a
+                      href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        flex: 1,
+                        padding: "14px",
+                        background: "transparent",
+                        color: ACCENT,
+                        border: `1.5px solid ${ACCENT}`,
+                        borderRadius: 12,
+                        fontSize: 14,
+                        fontWeight: 600,
+                        textAlign: "center" as const,
+                        textDecoration: "none",
+                        fontFamily: FONT_BODY,
+                        letterSpacing: "0.02em",
+                        boxSizing: "border-box" as const,
+                      }}
+                    >
+                      Book a Call
+                    </a>
+                    <button
+                      type="button"
+                      onClick={handleGrowCheckout}
+                      disabled={growLoading || !growCanSubmit}
+                      style={{
+                        flex: 1,
+                        padding: "14px",
+                        background: growLoading || !growCanSubmit ? "var(--surface-muted)" : ACCENT,
+                        color: growLoading || !growCanSubmit ? "var(--text-muted)" : "#111",
+                        border: "none",
+                        borderRadius: 12,
+                        fontSize: 14,
+                        fontWeight: 700,
+                        cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
+                        fontFamily: FONT_BODY,
+                        letterSpacing: "0.02em",
+                        transition: "background 0.15s",
+                      }}
+                    >
+                      {growLoading ? "Preparing…" : "Proceed to Payment →"}
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
