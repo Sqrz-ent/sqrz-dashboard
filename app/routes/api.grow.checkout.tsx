@@ -26,8 +26,9 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const budget = Number(body.budget);
-  const isBeta = (profile.plan_id as number | null) === null || (profile.plan_id as number | null) === 4;
-  const minBudget = isBeta ? 100 : 1000;
+  const planId = profile.plan_id as number | null;
+  const isBeta = planId === null || planId === 4;
+  const minBudget = isBeta ? 100 : 500;
 
   if (!budget || budget < minBudget) {
     return Response.json({ error: `Minimum budget is $${minBudget.toLocaleString()}` }, { status: 400, headers });

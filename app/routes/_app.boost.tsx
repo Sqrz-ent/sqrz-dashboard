@@ -140,13 +140,34 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const promoteType = formData.get("promote_type") as string;
   const promoteLinkId = formData.get("promote_link_id") as string | null;
+  const newBudget = parseFloat(formData.get("budget_amount") as string);
+
+  // ── Monthly cap check ($300/month for standard Boost) ──────────────────────
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
+  const { data: monthlyBoosts } = await supabase
+    .from("boost_campaigns")
+    .select("budget_amount")
+    .eq("profile_id", profile.id as string)
+    .neq("promote_type", "grow")
+    .neq("status", "cancelled")
+    .gte("created_at", monthStart);
+
+  const monthlyTotal = (monthlyBoosts ?? []).reduce((sum, c) => sum + (c.budget_amount ?? 0), 0);
+
+  if (monthlyTotal + newBudget > 300) {
+    return Response.json({
+      ok: false,
+      limitError: true,
+      message: "You've reached your $300 monthly Boost limit. Want to run larger campaigns? Ask about SQRZ Grow.",
+    }, { headers });
+  }
 
   const { error } = await supabase.from("boost_campaigns").insert({
     profile_id: profile.id as string,
     promote_type: promoteType,
     promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
     target_audience: (formData.get("target_audience") as string) || null,
-    budget_amount: parseFloat(formData.get("budget_amount") as string),
+    budget_amount: newBudget,
     budget_currency: "USD",
     notes: (formData.get("notes") as string) || null,
     status: "draft",
@@ -180,7 +201,7 @@ export default function BoostPage() {
   const [boostSuccess, setBoostSuccess] = useState(false);
 
   // Grow-only state
-  const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 1000;
+  const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 500;
   const [growBudget, setGrowBudget] = useState(growMinBudget);
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);
@@ -222,7 +243,7 @@ export default function BoostPage() {
   }
 
   const isSubmitting = fetcher.state !== "idle";
-  const actionData = fetcher.data as { ok?: boolean } | undefined;
+  const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string } | undefined;
 
   if (actionData?.ok && !boostSuccess) {
     setBoostSuccess(true);
@@ -361,7 +382,7 @@ export default function BoostPage() {
           }}>
             <ul style={{ listStyle: "none", padding: 0, margin: "0 0 24px", display: "flex", flexDirection: "column" as const, gap: 10 }}>
               {[
-                `You set the budget — minimum $${growMinBudget.toLocaleString()}`,
+                `You set the budget — minimum $${growMinBudget.toLocaleString()} (your ad spend)`,
                 "SQRZ adds a 20% management fee for full campaign handling",
                 "After payment, Will personally contacts you to define your strategy — Google, Meta, LinkedIn, TikTok, Spotify Ads or a mix — based on your goals and audience",
               ].map((point) => (
@@ -511,6 +532,24 @@ export default function BoostPage() {
             </div>
 
             {notesField}
+
+            {actionData?.limitError && (
+              <div style={{
+                background: "rgba(245,166,35,0.08)",
+                border: "1px solid rgba(245,166,35,0.3)",
+                borderRadius: 10,
+                padding: "14px 16px",
+                marginBottom: 16,
+                fontSize: 13,
+                color: "var(--text)",
+                lineHeight: 1.6,
+              }}>
+                {actionData.message}
+                {grow_qualified && (
+                  <> <a href="#grow-section" style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>Switch to Grow →</a></>
+                )}
+              </div>
+            )}
 
             <button
               type="button"
