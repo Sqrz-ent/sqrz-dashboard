@@ -25,12 +25,14 @@ export type WalletData = {
   sqrz_fee_pct: number;
   client_paid: boolean;
   payout_status: string | null;
+  delivery_confirmed_at: string | null;
   notes: string | null;
   allocations?: WalletAllocation[];
 };
 
 interface Props {
   wallet: WalletData;
+  bookingStatus: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -109,16 +111,18 @@ function TypeBadge({ type }: { type: string }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function BookingWallet({ wallet }: Props) {
-  const [payoutToast, setPayoutToast] = useState(false);
+export default function BookingWallet({ wallet, bookingStatus }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
+  const [payoutLoading, setPayoutLoading] = useState(false);
+  const [payoutReleased, setPayoutReleased] = useState(wallet.payout_status === "released");
   const [newType,   setNewType]   = useState<string>("expense");
   const [newLabel,  setNewLabel]  = useState("Transport");
   const [newAmount, setNewAmount] = useState("");
 
-  const paidFetcher   = useFetcher<{ ok?: boolean }>();
-  const addFetcher    = useFetcher<{ ok?: boolean }>();
-  const payReqFetcher = useFetcher<{ ok?: boolean; url?: string }>();
+  const paidFetcher      = useFetcher<{ ok?: boolean }>();
+  const addFetcher       = useFetcher<{ ok?: boolean }>();
+  const payReqFetcher    = useFetcher<{ ok?: boolean; url?: string }>();
+  const deliveredFetcher = useFetcher<{ ok?: boolean }>();
 
   useEffect(() => {
     if (addFetcher.state === "idle" && addFetcher.data?.ok) {
@@ -158,6 +162,10 @@ export default function BookingWallet({ wallet }: Props) {
 
   const s = sym(wallet.currency);
   const isPaid = wallet.client_paid || (paidFetcher.state === "idle" && paidFetcher.data?.ok === true);
+  const isDelivered = wallet.payout_status === "approved" || wallet.payout_status === "released" || payoutReleased || !!wallet.delivery_confirmed_at ||
+    (deliveredFetcher.state === "idle" && deliveredFetcher.data?.ok === true);
+  const isPayoutActive = isPaid && (wallet.payout_status === "pending" || wallet.payout_status === "approved") && !payoutReleased;
+  const isConfirmedBooking = bookingStatus === "confirmed";
 
   function markAsPaid() {
     const fd = new FormData();
@@ -165,9 +173,27 @@ export default function BookingWallet({ wallet }: Props) {
     paidFetcher.submit(fd, { method: "post" });
   }
 
-  function requestPayout() {
-    setPayoutToast(true);
-    setTimeout(() => setPayoutToast(false), 3000);
+  async function requestPayout() {
+    setPayoutLoading(true);
+    try {
+      const res = await fetch("/api/payout/request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ booking_id: wallet.booking_id }),
+      });
+      const data = await res.json();
+      if (data.success) setPayoutReleased(true);
+    } catch (err) {
+      console.error("[payout]", err);
+    } finally {
+      setPayoutLoading(false);
+    }
+  }
+
+  function markAsDelivered() {
+    const fd = new FormData();
+    fd.append("intent", "mark_as_delivered");
+    deliveredFetcher.submit(fd, { method: "post" });
   }
 
   function requestPayment(allocationId: string, amount: number, currency: string) {
@@ -583,51 +609,69 @@ export default function BookingWallet({ wallet }: Props) {
               borderRadius: 20,
               fontSize: 11,
               fontWeight: 700,
-              background: "var(--surface-muted)",
-              color: "var(--text-muted)",
+              background: payoutReleased ? "rgba(74,222,128,0.12)" : "var(--surface-muted)",
+              color: payoutReleased ? "#4ade80" : "var(--text-muted)",
               textTransform: "capitalize",
             }}>
-              {wallet.payout_status ?? "Not initiated"}
+              {payoutReleased ? "Released ✓" : (wallet.payout_status ?? "Not initiated")}
             </span>
           </div>
-          <div style={{ position: "relative" }}>
+          {!payoutReleased && (
             <button
               onClick={requestPayout}
+              disabled={!isPayoutActive || payoutLoading}
               style={{
                 padding: "9px 18px",
-                background: "var(--surface-muted)",
-                color: "var(--text-muted)",
-                border: "1px solid var(--border)",
+                background: isPayoutActive ? ACCENT : "var(--surface-muted)",
+                color: isPayoutActive ? "#111" : "var(--text-muted)",
+                border: isPayoutActive ? "none" : "1px solid var(--border)",
                 borderRadius: 9,
                 fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
+                fontWeight: 700,
+                cursor: isPayoutActive && !payoutLoading ? "pointer" : "default",
+                opacity: payoutLoading ? 0.7 : 1,
                 fontFamily: FONT_BODY,
                 whiteSpace: "nowrap",
               }}
             >
-              Request payout
+              {payoutLoading ? "Processing…" : "Request Payout"}
             </button>
-            {payoutToast && (
-              <div style={{
-                position: "absolute",
-                right: 0,
-                top: "calc(100% + 8px)",
-                background: "var(--surface)",
-                border: "1px solid var(--border)",
-                borderRadius: 9,
-                padding: "10px 16px",
-                fontSize: 12,
-                color: "var(--text-muted)",
-                whiteSpace: "nowrap",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
-                zIndex: 10,
-              }}>
-                Coming soon — contact us for manual payout
-              </div>
-            )}
-          </div>
+          )}
         </div>
+
+        {/* Mark as Delivered */}
+        {isConfirmedBooking && isPaid && !isDelivered && (
+          <div style={{ borderTop: "1px solid var(--border)", marginTop: 16, paddingTop: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 3px" }}>Delivery</p>
+              <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>Confirm the service has been delivered</p>
+            </div>
+            <button
+              onClick={markAsDelivered}
+              disabled={deliveredFetcher.state !== "idle"}
+              style={{
+                padding: "9px 18px",
+                background: "rgba(74,222,128,0.12)",
+                color: "#4ade80",
+                border: "1px solid rgba(74,222,128,0.3)",
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: deliveredFetcher.state !== "idle" ? "default" : "pointer",
+                opacity: deliveredFetcher.state !== "idle" ? 0.7 : 1,
+                fontFamily: FONT_BODY,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {deliveredFetcher.state !== "idle" ? "Saving…" : "Mark as Delivered ✓"}
+            </button>
+          </div>
+        )}
+        {isDelivered && wallet.payout_status === "approved" && !payoutReleased && (
+          <p style={{ color: "#4ade80", fontSize: 12, margin: "12px 0 0", fontWeight: 600 }}>
+            ✓ Delivery confirmed — request payout above when ready
+          </p>
+        )}
       </div>
     </section>
   );

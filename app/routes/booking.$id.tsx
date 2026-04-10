@@ -842,6 +842,7 @@ function ProposalSection({
   planLevel: number;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const declineFetcher = useFetcher<{ ok?: boolean }>();
 
   // All proposals sorted by version desc — latest first
   const allProposals = ((booking as { booking_proposals?: Array<NonNullable<Proposal>> }).booking_proposals ?? [])
@@ -1002,9 +1003,9 @@ function ProposalSection({
           {showForm && (
             <div style={card}>
               {/* Rate + Currency */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 6 }}>
                 <div>
-                  <p style={{ ...lbl, marginBottom: 6 }}>Your Rate</p>
+                  <p style={{ ...lbl, marginBottom: 6 }}>Total Budget (what the booker pays)</p>
                   <input
                     type="number"
                     style={inputStyle}
@@ -1026,6 +1027,10 @@ function ProposalSection({
                   </select>
                 </div>
               </div>
+
+              <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 14px", lineHeight: 1.5 }}>
+                Enter the flat fee. Use the breakdown below to show how the budget is allocated — for transparency only.
+              </p>
 
               {/* Fee Breakdown */}
               <div style={{ marginBottom: 16 }}>
@@ -1097,6 +1102,32 @@ function ProposalSection({
                 <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "8px 0 0", lineHeight: 1.5 }}>
                   These are shown to the client for transparency. You are responsible for all crew and expense payments.
                 </p>
+                {form.rate && parseFloat(form.rate) > 0 && (
+                  <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--bg)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 5 }}>
+                    {(() => {
+                      const rate = parseFloat(form.rate) || 0;
+                      const breakdownTotal = lineItems.reduce((s, i) => s + (i.amount || 0), 0);
+                      const unallocated = rate - breakdownTotal;
+                      const symLive = currencySym(form.currency);
+                      return (
+                        <>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Total budget</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{rate.toLocaleString()}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Breakdown total</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{breakdownTotal.toLocaleString()}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 5 }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Unallocated</span>
+                            <span style={{ fontSize: 12, color: unallocated < 0 ? "#ef4444" : "var(--text-muted)" }}>{symLive}{Math.abs(unallocated).toLocaleString()}</span>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
               </div>
 
               {/* Message */}
@@ -1206,6 +1237,25 @@ function ProposalSection({
             </div>
           )}
         </>
+      )}
+
+      {/* Decline request — only shown for member when status is still requested */}
+      {(booking.status as string) === "requested" && (
+        <div style={{ textAlign: "center", marginTop: 12 }}>
+          <button
+            onClick={() => {
+              if (!window.confirm("Decline this booking request?")) return;
+              const fd = new FormData();
+              fd.append("intent", "update_status");
+              fd.append("status", "archived");
+              declineFetcher.submit(fd, { method: "post" });
+            }}
+            disabled={declineFetcher.state !== "idle"}
+            style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY, padding: "4px 0" }}
+          >
+            Decline Request
+          </button>
+        </div>
       )}
 
       {/* Negotiation history toggle — only shown when multiple versions exist */}
@@ -1969,7 +2019,6 @@ function MemberView({
     { id: "details",  label: "Details" },
     ...(showProposal ? [{ id: "proposal", label: "Proposal" }] : []),
     ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
-    { id: "actions",  label: "Actions" },
   ];
 
   const [activeSection, setActiveSection] = useState(sections[0].id);
@@ -2062,10 +2111,8 @@ function MemberView({
         {showProposal && <ProposalSection booking={b} planLevel={planLevel} />}
 
         {showPayments && wallet && (
-          <BookingWallet wallet={wallet} />
+          <BookingWallet wallet={wallet} bookingStatus={b.status as string} />
         )}
-
-        <ActionsSection booking={b} wallet={wallet} />
       </div>
     </>
   );
@@ -2143,63 +2190,19 @@ export default function BookingAccessPage() {
     );
   }
 
-  // ── Guest / participant — tab view ─────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<"details" | "proposal" | "actions">("details");
-
-  const tabs =
-    role === "buyer"
-      ? (["details", "proposal", "actions"] as const)
-      : role === "crew"
-      ? (["details"] as const)
-      : null;
+  // ── Guest / participant — single scrollable page ───────────────────────────
+  const isBuyer = role === "buyer";
+  const bStatus = b.status as string;
+  const isConfirmedOrCompleted = bStatus === "confirmed" || bStatus === "completed";
 
   return (
     <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
-
-      {/* Sticky tab nav — first element */}
-      {tabs && (
-        <div style={{
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          background: "var(--surface)",
-          borderBottom: "0.5px solid var(--border)",
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          gap: 8,
-          padding: "0 24px",
-        }}>
-          {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab as "details" | "proposal" | "actions")}
-              style={{
-                background: "none",
-                border: "none",
-                borderBottom: activeTab === tab ? `2px solid ${ACCENT}` : "2px solid transparent",
-                color: activeTab === tab ? ACCENT : "var(--text-muted)",
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: "pointer",
-                textTransform: "capitalize",
-                fontFamily: FONT_BODY,
-                padding: "14px 14px",
-                lineHeight: "22px",
-              }}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Content */}
-      <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 24px 0" }}>
+      <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 24px 80px" }}>
         {!b ? (
           <p style={{ color: "var(--text-muted)", textAlign: "center" }}>Booking not found.</p>
         ) : (
           <>
+            {/* 1. Booking header */}
             <div style={{ textAlign: "center", marginBottom: 24 }}>
               <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
                 {(b.title as string) ?? (b.service as string) ?? "Booking"}
@@ -2210,33 +2213,46 @@ export default function BookingAccessPage() {
                 </p>
               )}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-                <StatusBadge status={(b.status as string) ?? "pending"} />
+                <StatusBadge status={bStatus ?? "pending"} />
                 {(b.date_start as string) && (
                   <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📅 {formatDate(b.date_start as string)}</span>
                 )}
                 {(b.city as string) && (
-                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}{b.venue ? `, ${b.venue}` : ""}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>📍 {b.city as string}{b.venue ? `, ${b.venue as string}` : ""}</span>
                 )}
               </div>
             </div>
 
-            {(!tabs || activeTab === "details") && <GuestDetailsCard b={b} />}
-            {tabs && activeTab === "proposal" && role === "buyer" && (
-              <GuestBuyerProposalCard
-                proposal={proposal}
-                bookingId={b.id as string}
-                bookingToken={bookingToken}
-              />
-            )}
-            {tabs && activeTab === "actions" && role === "buyer" && (
-              <GuestActionsCard bookingId={b.id as string} bookingToken={bookingToken} status={b.status as string} />
+            {/* 2. Booking details card */}
+            <GuestDetailsCard b={b} />
+
+            {/* 3. Fee details + actions (buyer) */}
+            {isBuyer && proposal && (
+              <div style={{ marginTop: 8 }}>
+                <SectionHeading>Details</SectionHeading>
+                <GuestBuyerProposalCard
+                  proposal={proposal}
+                  bookingId={b.id as string}
+                  bookingToken={bookingToken}
+                />
+              </div>
             )}
 
-            {!tabs && proposal && <GuestProposalCard proposal={proposal} />}
+            {/* Non-buyer crew: read-only proposal */}
+            {!isBuyer && proposal && <GuestProposalCard proposal={proposal} />}
+
+            {/* 4. Confirmed status (buyer, when not already shown by GuestBuyerProposalCard) */}
+            {isBuyer && isConfirmedOrCompleted && !proposal && (
+              <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", marginTop: 8 }}>
+                <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
+                  ✓ Your booking is confirmed
+                  {(b.date_start as string) ? ` · ${formatDate(b.date_start as string)}` : ""}
+                </p>
+              </div>
+            )}
           </>
         )}
       </div>
-
     </div>
   );
 }
