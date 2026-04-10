@@ -30,6 +30,7 @@ export default [
 
   // API routes (server-only, action handlers)
   route("api/notify-guest", "routes/api.notify-guest.tsx"),
+  route("api/booking/create", "routes/api.booking.create.tsx"),
   route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
   route("api/proposal/counter", "routes/api.proposal.counter.tsx"),
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
