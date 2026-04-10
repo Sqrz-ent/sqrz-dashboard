@@ -213,12 +213,28 @@ export async function action({ request }: ActionFunctionArgs) {
           .eq("id", bookingId)
           .maybeSingle();
 
+        // Fetch plan fee for this booking owner
+        let feePct = 8;
+        if (bk?.owner_id) {
+          const { data: ownerProfile } = await supabase
+            .from("profiles")
+            .select("plan_id, plans(booking_fee_pct)")
+            .eq("id", bk.owner_id)
+            .maybeSingle();
+          feePct = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+        }
+
+        // Back-calculate rate from total charged (amount_total includes SQRZ fee)
+        const totalCharged = (session.amount_total ?? 0) / 100;
+        const rateFromTotal = Math.round((totalCharged / (1 + feePct / 100)) * 100) / 100;
+
         const { data: newWallet } = await supabase.from("booking_wallets").insert({
           booking_id: bookingId,
           owner_profile_id: bk?.owner_id ?? null,
-          total_budget: (session.amount_total ?? 0) / 100,
+          total_budget: rateFromTotal,
           client_paid: true,
           payout_status: "pending",
+          sqrz_fee_pct: feePct,
         }).select("id").single();
 
         walletId = newWallet?.id ?? null;

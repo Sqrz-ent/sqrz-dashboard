@@ -36,7 +36,15 @@ export async function action({ request }: { request: Request }) {
 
   const bk = proposal.bookings as unknown as { title: string; owner_id: string; profiles?: { name?: string } | null };
 
-  console.log("[accept] requires_payment:", proposal.requires_payment);
+  // 3. Fetch member's plan fee percentage
+  const { data: ownerProfile } = await adminClient
+    .from("profiles")
+    .select("plan_id, plans(booking_fee_pct)")
+    .eq("id", bk.owner_id)
+    .maybeSingle();
+  const feePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+
+  console.log("[accept] requires_payment:", proposal.requires_payment, "feePct:", feePct);
 
   if (proposal.requires_payment === true) {
     // 3a. Stripe path — create checkout, booking stays 'pending' until webhook fires
@@ -47,7 +55,7 @@ export async function action({ request }: { request: Request }) {
         {
           price_data: {
             currency: proposal.currency.toLowerCase(),
-            unit_amount: Math.round(proposal.rate * 1.1 * 100),
+            unit_amount: Math.round(proposal.rate * (1 + feePct / 100) * 100),
             product_data: {
               name: bk.title,
               description: `Booking with ${bk.profiles?.name ?? "SQRZ Member"}`,
@@ -102,7 +110,7 @@ export async function action({ request }: { request: Request }) {
             owner_profile_id: ownerProfileId,
             total_budget: proposal.rate ?? 0,
             currency: proposal.currency ?? "EUR",
-            sqrz_fee_pct: 10,
+            sqrz_fee_pct: feePct,
             status: "open",
             client_paid: false,
             payout_status: "pending",

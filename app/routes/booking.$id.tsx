@@ -89,13 +89,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       user_id: row.user_id,
     };
 
-    const { data: proposal } = await admin
-      .from("booking_proposals")
-      .select("*")
-      .eq("booking_id", params.id)
-      .order("version", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [{ data: proposal }, { data: tokenWallet }] = await Promise.all([
+      admin
+        .from("booking_proposals")
+        .select("*")
+        .eq("booking_id", params.id)
+        .order("version", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      admin
+        .from("booking_wallets")
+        .select("id, sqrz_fee_pct, client_paid, payout_status, total_budget, currency")
+        .eq("booking_id", params.id)
+        .maybeSingle(),
+    ]);
 
     return Response.json(
       {
@@ -107,7 +114,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         isOwner: false,
         proposal: proposal ?? null,
         bookingToken: token,
-        wallet: null,
+        wallet: tokenWallet ?? null,
         profileId: null,
         planId: null,
         isBeta: false,
@@ -1528,10 +1535,12 @@ function GuestBuyerProposalCard({
   proposal,
   bookingId,
   bookingToken,
+  walletFeePct,
 }: {
   proposal: Proposal;
   bookingId: string;
   bookingToken: string | null;
+  walletFeePct?: number | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
   const [counterOpen, setCounterOpen] = useState(false);
@@ -1644,8 +1653,10 @@ function GuestBuyerProposalCard({
   // Fee breakdown (when line_items present)
   const proposalLineItems = proposal.line_items ?? [];
   const hasBreakdown = proposalLineItems.length > 0;
-  const sqrzFee = Math.round((proposal.rate ?? 0) * 0.1 * 100) / 100;
-  const totalCharged = Math.round(((proposal.rate ?? 0) + sqrzFee) * 100) / 100;
+  // Use wallet's locked-in fee pct if available; otherwise null = fee not yet determined
+  const feePct: number | null = walletFeePct ?? null;
+  const sqrzFee = feePct != null ? Math.round((proposal.rate ?? 0) * (feePct / 100) * 100) / 100 : null;
+  const totalCharged = sqrzFee != null ? Math.round(((proposal.rate ?? 0) + sqrzFee) * 100) / 100 : null;
 
   return (
     <>
@@ -1667,14 +1678,22 @@ function GuestBuyerProposalCard({
         {/* SQRZ fee + total when no breakdown */}
         {!hasBreakdown && proposal.rate != null && (
           <div style={{ marginTop: 8, marginBottom: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee (10%)</span>
-              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
-              <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
-              <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
-            </div>
+            {feePct != null && sqrzFee != null && totalCharged != null ? (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
+                  <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
+                  <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
+                </div>
+              </>
+            ) : (
+              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 2px", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                Platform fee applies on payment
+              </p>
+            )}
           </div>
         )}
 
@@ -1691,16 +1710,22 @@ function GuestBuyerProposalCard({
                   </span>
                 </div>
               ))}
-              {/* SQRZ fee */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee (10%)</span>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
-              </div>
-              {/* Total charged */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
-                <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
-                <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
-              </div>
+              {feePct != null && sqrzFee != null && totalCharged != null ? (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
+                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
+                    <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
+                    <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
+                  </div>
+                </>
+              ) : (
+                <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 2px", paddingTop: 8 }}>
+                  Platform fee applies on payment
+                </p>
+              )}
             </div>
           </div>
         )}
@@ -2234,6 +2259,7 @@ export default function BookingAccessPage() {
                   proposal={proposal}
                   bookingId={b.id as string}
                   bookingToken={bookingToken}
+                  walletFeePct={(wallet as { sqrz_fee_pct?: number } | null)?.sqrz_fee_pct ?? null}
                 />
               </div>
             )}
