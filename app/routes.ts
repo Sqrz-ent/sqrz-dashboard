@@ -33,6 +33,7 @@ export default [
   route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
   route("api/proposal/counter", "routes/api.proposal.counter.tsx"),
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
+  route("api/payout", "routes/api.payout.tsx"),
 
   // Grow campaign checkout
   route("api/grow/checkout", "routes/api.grow.checkout.tsx"),
