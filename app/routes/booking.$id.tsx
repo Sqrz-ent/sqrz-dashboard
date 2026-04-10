@@ -89,7 +89,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       user_id: row.user_id,
     };
 
-    const [{ data: proposal }, { data: tokenWallet }] = await Promise.all([
+    const [{ data: proposal }, { data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
       admin
         .from("booking_proposals")
         .select("*")
@@ -102,7 +102,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .select("id, sqrz_fee_pct, client_paid, payout_status, total_budget, currency")
         .eq("booking_id", params.id)
         .maybeSingle(),
+      admin
+        .from("profiles")
+        .select("plan_id, plans(booking_fee_pct)")
+        .eq("id", (booking as any).owner_id)
+        .maybeSingle(),
     ]);
+    const proposalFeePct: number = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
 
     return Response.json(
       {
@@ -115,6 +121,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposal: proposal ?? null,
         bookingToken: token,
         wallet: tokenWallet ?? null,
+        proposalFeePct,
         profileId: null,
         planId: null,
         isBeta: false,
@@ -823,17 +830,39 @@ function DetailsSection({ booking }: { booking: Booking }) {
         </div>
       )}
 
-      {(booking as { booking_proposals?: Array<{ rate?: number | null; currency?: string | null }> })
-        .booking_proposals?.[0]?.rate != null && (
-        <div style={card}>
-          <p style={lbl}>Agreed Rate</p>
-          <p style={{ ...val, color: ACCENT, fontSize: 18, fontWeight: 700, marginTop: 4 }}>
-            {formatRate(
-              (booking as { booking_proposals: Array<{ rate: number | null; currency: string | null }> })
-                .booking_proposals[0].rate,
-              (booking as { booking_proposals: Array<{ rate: number | null; currency: string | null }> })
-                .booking_proposals[0].currency
+      {(() => {
+        const allProps = ((booking as { booking_proposals?: Array<NonNullable<Proposal>> }).booking_proposals ?? [])
+          .slice().sort((a: any, b2: any) => (b2.version ?? 0) - (a.version ?? 0));
+        const latestProp = allProps[0] ?? null;
+        if (!latestProp?.rate) return null;
+        const lineItems = latestProp.line_items ?? [];
+        const sym2 = currencySym(latestProp.currency);
+        return (
+          <div style={card}>
+            <p style={lbl}>Agreed Rate</p>
+            <p style={{ ...val, color: ACCENT, fontSize: 18, fontWeight: 700, marginTop: 4, marginBottom: lineItems.length ? 14 : 0 }}>
+              {formatRate(latestProp.rate, latestProp.currency)}
+            </p>
+            {lineItems.length > 0 && (
+              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                <p style={{ ...lbl, marginBottom: 8 }}>Breakdown</p>
+                {lineItems.map((item, idx) => (
+                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid var(--border)" }}>
+                    <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item.label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{sym2}{(item.amount || 0).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
             )}
+          </div>
+        );
+      })()}
+
+      {(booking as { description?: string | null }).description && (
+        <div style={card}>
+          <p style={lbl}>Message from requester</p>
+          <p style={{ ...val, color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65 }}>
+            {(booking as { description: string }).description}
           </p>
         </div>
       )}
@@ -917,15 +946,16 @@ function ProposalSection({
                   latestProposal!.require_travel && "Travel",
                   latestProposal!.require_food && "Catering",
                 ].filter(Boolean).length > 0 && (
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, marginBottom: 10 }}>
+                  <div style={{ marginBottom: 10 }}>
                     {[
                       latestProposal!.require_hotel && "Hotel",
                       latestProposal!.require_travel && "Travel",
                       latestProposal!.require_food && "Catering",
                     ].filter(Boolean).map((b2) => (
-                      <span key={b2 as string} style={{ padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, background: "rgba(245,166,35,0.1)", color: ACCENT, border: "1px solid rgba(245,166,35,0.2)" }}>
-                        {b2}
-                      </span>
+                      <div key={b2 as string} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{b2}</span>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Required</span>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -1536,11 +1566,13 @@ function GuestBuyerProposalCard({
   bookingId,
   bookingToken,
   walletFeePct,
+  proposalFeePct,
 }: {
   proposal: Proposal;
   bookingId: string;
   bookingToken: string | null;
   walletFeePct?: number | null;
+  proposalFeePct?: number | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
   const [counterOpen, setCounterOpen] = useState(false);
@@ -1550,7 +1582,6 @@ function GuestBuyerProposalCard({
   const [declined, setDeclined] = useState(false);
   const [bookingConfirmed, setBookingConfirmed] = useState(false);
 
-  console.log('[GuestBuyerProposalCard] proposal prop received:', proposal);
   if (!proposal) {
     return (
       <div style={card}>
@@ -1559,7 +1590,6 @@ function GuestBuyerProposalCard({
     );
   }
 
-  // Terminal status states
   if (declined || proposal.status === "declined") {
     return (
       <div style={{ ...card, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.06)" }}>
@@ -1568,23 +1598,26 @@ function GuestBuyerProposalCard({
     );
   }
 
-  if (bookingConfirmed || proposal.status === "accepted") {
-    return (
-      <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
-        <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-          {proposal.requires_payment ? "✓ You have accepted this proposal — payment pending" : "✓ Booking confirmed"}
-        </p>
-      </div>
-    );
-  }
-
+  const isAccepted = bookingConfirmed || proposal.status === "accepted";
   const version = proposal.version ?? 1;
   const sym = currencySym(proposal.currency);
-  const riderBadges = [
+  const riderItems = [
     proposal.require_hotel && "Hotel",
     proposal.require_travel && "Travel",
     proposal.require_food && "Catering",
   ].filter(Boolean) as string[];
+
+  // Fee: prefer wallet-locked pct (post-payment), then plan pct (pre-payment)
+  const feePct: number | null = walletFeePct ?? proposalFeePct ?? null;
+  const sqrzFee = feePct != null ? Math.round((proposal.rate ?? 0) * (feePct / 100) * 100) / 100 : null;
+  const totalCharged = sqrzFee != null ? Math.round(((proposal.rate ?? 0) + sqrzFee) * 100) / 100 : null;
+
+  const proposalLineItems = proposal.line_items ?? [];
+  const hasBreakdown = proposalLineItems.length > 0;
+
+  const showActions = !isAccepted &&
+    proposal.sent_by !== "buyer" &&
+    (proposal.status === "sent" || proposal.status === "countered");
 
   async function handleAccept() {
     setLoading("accept");
@@ -1647,93 +1680,81 @@ function GuestBuyerProposalCard({
     }
   }
 
-  const showActions = proposal.sent_by !== "buyer" &&
-    (proposal.status === "sent" || proposal.status === "countered");
-
-  // Fee breakdown (when line_items present)
-  const proposalLineItems = proposal.line_items ?? [];
-  const hasBreakdown = proposalLineItems.length > 0;
-  // Use wallet's locked-in fee pct if available; otherwise null = fee not yet determined
-  const feePct: number | null = walletFeePct ?? null;
-  const sqrzFee = feePct != null ? Math.round((proposal.rate ?? 0) * (feePct / 100) * 100) / 100 : null;
-  const totalCharged = sqrzFee != null ? Math.round(((proposal.rate ?? 0) + sqrzFee) * 100) / 100 : null;
-
   return (
     <>
+      {/* Confirmed banner — shown without hiding the details below (FIX 3) */}
+      {isAccepted && (
+        <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", marginBottom: 8 }}>
+          <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
+            ✓ {proposal.requires_payment ? "Payment received — booking confirmed" : "Booking confirmed"}
+          </p>
+        </div>
+      )}
+
       {/* Proposal details card */}
       <div style={card}>
-        {/* Artist rate — always shown */}
+        {/* FIX 1: Total rate (renamed from "Artist rate") */}
         {proposal.rate != null && (
-          <div style={{ marginBottom: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Artist rate</span>
-              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
-                {sym}{proposal.rate.toLocaleString()}
-                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-muted)", marginLeft: 5 }}>{proposal.currency ?? "EUR"}</span>
-              </span>
-            </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+            <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Total rate</span>
+            <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
+              {sym}{proposal.rate.toLocaleString()}
+              <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-muted)", marginLeft: 5 }}>{proposal.currency ?? "EUR"}</span>
+            </span>
+          </div>
+        )}
 
+        {/* FIX 2: Breakdown first, then platform fee */}
+        {hasBreakdown && (
+          <div style={{ marginTop: 12, paddingBottom: 4 }}>
+            <p style={{ ...guestMetaLabel, marginBottom: 8 }}>Breakdown (for transparency)</p>
+            {proposalLineItems.map((item, idx) => (
+              <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ color: "var(--text)", fontSize: 13 }}>{item.label}</span>
+                <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{sym}{(item.amount || 0).toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Platform fee section */}
+        {proposal.rate != null && (
+          <div style={{ marginTop: 12 }}>
+            <p style={{ ...guestMetaLabel, marginBottom: 8 }}>Platform fee</p>
             {feePct != null && sqrzFee != null && totalCharged != null ? (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
                   <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
                   <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 8px" }}>
-                  <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 4px" }}>
+                  <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
                   <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
                 </div>
               </>
             ) : (
-              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 2px", paddingTop: 4 }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 8px" }}>
                 Platform fee applies on payment
               </p>
             )}
           </div>
         )}
 
-        {hasBreakdown && (
-          /* ── Breakdown (informational) ── */
-          <div style={{ marginBottom: 4, marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-            <p style={{ ...guestMetaLabel, marginBottom: 12 }}>Breakdown (for transparency)</p>
-            <div>
-              {proposalLineItems.map((item, idx) => (
-                <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span style={{ color: "var(--text)", fontSize: 13 }}>{item.label}</span>
-                  <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
-                    {sym}{(item.amount || 0).toLocaleString()}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Rider badges */}
-        {riderBadges.length > 0 && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, marginTop: hasBreakdown ? 16 : 0 }}>
-            {riderBadges.map((b) => (
-              <span
-                key={b}
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: 6,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  background: "rgba(245,166,35,0.1)",
-                  color: ACCENT,
-                  border: "1px solid rgba(245,166,35,0.2)",
-                }}
-              >
-                {b}
-              </span>
+        {/* FIX 5: Rider requirements as muted text rows */}
+        {riderItems.length > 0 && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+            {riderItems.map((item) => (
+              <div key={item} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item}</span>
+                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Required</span>
+              </div>
             ))}
           </div>
         )}
 
         {/* Message */}
         {proposal.message && (
-          <div style={{ paddingTop: 14, borderTop: "1px solid var(--border)", marginBottom: 4 }}>
+          <div style={{ paddingTop: 14, borderTop: "1px solid var(--border)", marginTop: 8 }}>
             <p style={guestMetaLabel}>Message</p>
             <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>
               {proposal.message}
@@ -1741,14 +1762,13 @@ function GuestBuyerProposalCard({
           </div>
         )}
 
-        {/* Version */}
         <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "12px 0 0" }}>
           Proposal v{version}
         </p>
       </div>
 
       {/* Waiting banner — buyer's own counter is pending */}
-      {proposal.sent_by === "buyer" && (
+      {proposal.sent_by === "buyer" && !isAccepted && (
         <div style={{ ...card, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)" }}>
           <p style={{ color: ACCENT, fontSize: 14, margin: 0, fontWeight: 600 }}>
             Your counter proposal has been sent — waiting for response
@@ -1756,10 +1776,9 @@ function GuestBuyerProposalCard({
         </div>
       )}
 
-      {/* Action buttons */}
+      {/* FIX 2: Action buttons — Accept button shows exact total */}
       {showActions && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Accept & Pay */}
           <button
             onClick={handleAccept}
             disabled={loading !== null}
@@ -1777,10 +1796,15 @@ function GuestBuyerProposalCard({
               fontFamily: FONT_BODY,
             }}
           >
-            {loading === "accept" ? "Redirecting…" : "Accept & Pay"}
+            {loading === "accept"
+              ? "Redirecting…"
+              : proposal.requires_payment
+                ? totalCharged != null
+                  ? `Accept & Pay ${sym}${totalCharged.toLocaleString()}`
+                  : "Accept & Pay"
+                : "Accept"}
           </button>
 
-          {/* Counter Proposal */}
           {counterOpen ? (
             <div style={card}>
               <p style={{ ...guestMetaLabel, marginBottom: 12 }}>Counter Proposal</p>
@@ -1868,7 +1892,6 @@ function GuestBuyerProposalCard({
             </button>
           )}
 
-          {/* Decline */}
           <button
             onClick={handleDecline}
             disabled={loading !== null}
@@ -2163,6 +2186,7 @@ export default function BookingAccessPage() {
     wallet,
     planId,
     isBeta,
+    proposalFeePct,
   } = data as {
     booking: Booking;
     userEmail: string;
@@ -2174,6 +2198,7 @@ export default function BookingAccessPage() {
     wallet: WalletData | null;
     planId: number | null;
     isBeta: boolean;
+    proposalFeePct?: number | null;
   };
 
   const b = booking;
@@ -2239,6 +2264,7 @@ export default function BookingAccessPage() {
                   bookingId={b.id as string}
                   bookingToken={bookingToken}
                   walletFeePct={(wallet as { sqrz_fee_pct?: number } | null)?.sqrz_fee_pct ?? null}
+                  proposalFeePct={proposalFeePct ?? null}
                 />
               </div>
             )}
