@@ -36,18 +36,25 @@ export async function action({ request }: { request: Request }) {
 
   const bk = proposal.bookings as unknown as { title: string; owner_id: string; profiles?: { name?: string } | null };
 
-  // 3. Fetch member's plan fee percentage
+  // 3. Fetch member's Connect account + plan fee percentage
   const { data: ownerProfile } = await adminClient
     .from("profiles")
-    .select("plan_id, plans(booking_fee_pct)")
+    .select("stripe_connect_id, plan_id, plans(booking_fee_pct)")
     .eq("id", bk.owner_id)
-    .maybeSingle();
-  const feePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+    .single();
 
-  console.log("[accept] requires_payment:", proposal.requires_payment, "feePct:", feePct);
+  const feePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+  const connectId: string | null = ownerProfile?.stripe_connect_id ?? null;
+
+  // Amount calculations (in cents)
+  const rate = proposal.rate;
+  const feeAmount = Math.round(rate * feePct / 100 * 100);
+  const totalAmount = Math.round(rate * 100) + feeAmount;
+
+  console.log("[accept] requires_payment:", proposal.requires_payment, "feePct:", feePct, "rate:", rate, "total:", totalAmount / 100, "connectId:", connectId);
 
   if (proposal.requires_payment === true) {
-    // 3a. Stripe path — create checkout, booking stays 'pending' until webhook fires
+    // Stripe destination charge — fee stays on platform, net goes directly to member's Connect account
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -55,7 +62,7 @@ export async function action({ request }: { request: Request }) {
         {
           price_data: {
             currency: proposal.currency.toLowerCase(),
-            unit_amount: Math.round(proposal.rate * (1 + feePct / 100) * 100),
+            unit_amount: totalAmount,
             product_data: {
               name: bk.title,
               description: `Booking with ${bk.profiles?.name ?? "SQRZ Member"}`,
@@ -64,6 +71,12 @@ export async function action({ request }: { request: Request }) {
           quantity: 1,
         },
       ],
+      payment_intent_data: connectId
+        ? {
+            application_fee_amount: feeAmount,
+            transfer_data: { destination: connectId },
+          }
+        : undefined,
       success_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}&payment=success`,
       cancel_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}`,
       metadata: {
@@ -71,6 +84,9 @@ export async function action({ request }: { request: Request }) {
         invite_token,
         proposal_id,
         booking_type: "quote_accepted",
+        owner_profile_id: bk.owner_id,
+        rate: rate.toString(),
+        fee_pct: feePct.toString(),
       },
       customer_email: participant.email,
     });
@@ -78,7 +94,7 @@ export async function action({ request }: { request: Request }) {
     // Do NOT update proposal status here — webhook sets it to 'accepted' after payment
     return Response.json({ checkout_url: session.url });
   } else {
-    // 3b. No payment needed — confirm directly
+    // No payment needed — confirm directly
     await adminClient
       .from("booking_proposals")
       .update({ status: "accepted" })
@@ -89,11 +105,10 @@ export async function action({ request }: { request: Request }) {
       .update({ status: "confirmed" })
       .eq("id", booking_id);
 
-    // 3c. Create wallet + allocations from line_items
+    // Create wallet + allocations from line_items
     try {
       const ownerProfileId = bk.owner_id;
 
-      // Check if wallet already exists
       const { data: existingWallet } = await adminClient
         .from("booking_wallets")
         .select("id")
@@ -121,7 +136,6 @@ export async function action({ request }: { request: Request }) {
         walletId = newWallet?.id ?? null;
       }
 
-      // Insert wallet_allocations from line_items
       const lineItems = proposal.line_items as Array<{ label: string; type: string; amount: number }> | null;
       if (walletId && lineItems?.length) {
         await adminClient.from("wallet_allocations").insert(

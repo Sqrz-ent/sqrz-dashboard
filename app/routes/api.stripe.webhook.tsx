@@ -201,9 +201,14 @@ export async function action({ request }: ActionFunctionArgs) {
 
       let walletId: string | null = existingWallet?.id ?? null;
 
-      // Fetch proposal rate for secured_amount (quote_accepted only)
+      const totalCharged = (session.amount_total ?? 0) / 100;
+
+      // For quote_accepted: rate is stored in metadata (member's take-home)
+      // For instant: rate is the full instant_price (no separate fee stored yet)
       let proposalRate: number | null = null;
-      if (session.metadata?.proposal_id) {
+      if (session.metadata?.rate) {
+        proposalRate = Number(session.metadata.rate);
+      } else if (session.metadata?.proposal_id) {
         const { data: pData } = await supabase
           .from("booking_proposals")
           .select("rate")
@@ -211,8 +216,6 @@ export async function action({ request }: ActionFunctionArgs) {
           .maybeSingle();
         proposalRate = pData?.rate ?? null;
       }
-
-      const totalCharged = (session.amount_total ?? 0) / 100;
 
       if (existingWallet) {
         // Update existing wallet: mark paid + set secured_amount if not already set
@@ -229,9 +232,9 @@ export async function action({ request }: ActionFunctionArgs) {
           .eq("id", bookingId)
           .maybeSingle();
 
-        // Fetch plan fee for this booking owner
-        let feePct = 8;
-        if (bk?.owner_id) {
+        // Use fee_pct from metadata if available (set by api.proposal.accept); else fetch from plan
+        let feePct = session.metadata?.fee_pct ? Number(session.metadata.fee_pct) : 8;
+        if (!session.metadata?.fee_pct && bk?.owner_id) {
           const { data: ownerProfile } = await supabase
             .from("profiles")
             .select("plan_id, plans(booking_fee_pct)")
