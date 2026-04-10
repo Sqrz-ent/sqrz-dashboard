@@ -3,6 +3,7 @@ import type { Route } from "./+types/_app.payments";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
+import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 
 // Connect accounts were created in test mode — use test key for Express login links
@@ -74,6 +75,24 @@ type SubInfo = {
   nextBilling: number | null; // unix timestamp
 };
 
+type WalletRow = {
+  id: string;
+  booking_id: string;
+  total_budget: number | null;
+  secured_amount: number | null;
+  sqrz_fee_pct: number | null;
+  client_paid: boolean | null;
+  payout_status: string | null;
+  status: string | null;
+  created_at: string;
+  released_amount: number | null;
+  currency: string | null;
+  booking_title: string;
+  booking_status: string | null;
+  client_name: string | null;
+  client_email: string | null;
+};
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -89,74 +108,127 @@ export async function loader({ request }: Route.LoaderArgs) {
   const customerId = (profile.stripe_customer_id as string | null) ?? null;
   const planId = profile.plan_id as number | null;
 
-  // ── Stripe Express login link (test key — accounts created in test mode) ──
-  let stripeExpressUrl: string | null = null;
-  if (connectId && connectStatus === "active") {
-    try {
-      const loginLink = await stripeTest.accounts.createLoginLink(connectId);
-      stripeExpressUrl = loginLink.url;
-    } catch (e) {
-      console.error("[payments] Stripe Express link failed:", e);
-    }
-  }
+  const admin = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
-  // ── Stripe billing portal URL ─────────────────────────────────────────────
-  let billingPortalUrl: string | null = null;
-  if (customerId) {
-    try {
-      const session = await stripe.billingPortal.sessions.create({
-        customer: customerId,
-        return_url: `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/payments`,
-      });
-      billingPortalUrl = session.url;
-    } catch (e) {
-      console.error("[payments] Billing portal failed:", e);
-    }
+  // ── Booking wallets ───────────────────────────────────────────────────────
+  const [
+    walletsResult,
+    stripeExpressResult,
+    billingPortalResult,
+    planResult,
+    stripeSubResult,
+  ] = await Promise.allSettled([
+    admin
+      .from("booking_wallets")
+      .select("id, booking_id, total_budget, secured_amount, sqrz_fee_pct, client_paid, payout_status, status, created_at, released_amount, currency")
+      .eq("owner_profile_id", profile.id)
+      .order("created_at", { ascending: false }),
+
+    // Stripe Express login link (test key — accounts created in test mode)
+    connectId && connectStatus === "active"
+      ? stripeTest.accounts.createLoginLink(connectId).catch(() => null)
+      : Promise.resolve(null),
+
+    // Stripe billing portal URL
+    customerId
+      ? stripe.billingPortal.sessions.create({
+          customer: customerId,
+          return_url: `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/payments`,
+        }).catch(() => null)
+      : Promise.resolve(null),
+
+    // Plan name
+    planId
+      ? supabase.from("plans").select("name").eq("id", planId).maybeSingle()
+      : Promise.resolve({ data: null }),
+
+    // Stripe subscription info
+    customerId
+      ? stripe.subscriptions.list({
+          customer: customerId,
+          status: "active",
+          limit: 1,
+          expand: ["data.items.data.price"],
+        }).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+
+  const walletsRaw =
+    walletsResult.status === "fulfilled" ? (walletsResult.value.data ?? []) : [];
+
+  const stripeExpressUrl: string | null =
+    stripeExpressResult.status === "fulfilled" && stripeExpressResult.value
+      ? (stripeExpressResult.value as { url: string }).url
+      : null;
+
+  const billingPortalUrl: string | null =
+    billingPortalResult.status === "fulfilled" && billingPortalResult.value
+      ? (billingPortalResult.value as { url: string }).url
+      : null;
+
+  const planData =
+    planResult.status === "fulfilled" && planResult.value
+      ? (planResult.value as { data: { name?: string } | null }).data
+      : null;
+
+  const stripeSubs =
+    stripeSubResult.status === "fulfilled" ? stripeSubResult.value : null;
+
+  // ── Enrich wallets with booking title + client name ───────────────────────
+  let walletRows: WalletRow[] = [];
+  if (walletsRaw.length > 0) {
+    const bookingIds = walletsRaw.map((w: any) => w.booking_id);
+
+    const [bookingsRes, participantsRes] = await Promise.all([
+      admin.from("bookings").select("id, title, status").in("id", bookingIds),
+      admin
+        .from("booking_participants")
+        .select("booking_id, name, email")
+        .in("booking_id", bookingIds)
+        .eq("role", "buyer"),
+    ]);
+
+    const bookingMap = Object.fromEntries(
+      (bookingsRes.data ?? []).map((b: any) => [b.id, b])
+    );
+    const participantMap = Object.fromEntries(
+      (participantsRes.data ?? []).map((p: any) => [p.booking_id, p])
+    );
+
+    walletRows = walletsRaw.map((w: any): WalletRow => ({
+      ...w,
+      booking_title: bookingMap[w.booking_id]?.title ?? "Untitled",
+      booking_status: bookingMap[w.booking_id]?.status ?? null,
+      client_name: participantMap[w.booking_id]?.name ?? null,
+      client_email: participantMap[w.booking_id]?.email ?? null,
+    }));
   }
 
   // ── Subscription info ────────────────────────────────────────────────────
   let subInfo: SubInfo = {
-    planName: null,
+    planName: (planData?.name as string) ?? null,
     interval: null,
     amount: null,
     currency: null,
     nextBilling: null,
   };
 
-  // Plan name from DB
-  if (planId) {
-    const { data: plan } = await supabase
-      .from("plans")
-      .select("name")
-      .eq("id", planId)
-      .maybeSingle();
-    subInfo.planName = (plan?.name as string) ?? null;
-  }
-
-  // Billing details from Stripe
-  if (customerId) {
-    try {
-      const subs = await stripe.subscriptions.list({
-        customer: customerId,
-        status: "active",
-        limit: 1,
-        expand: ["data.items.data.price"],
-      });
-      const sub = subs.data[0];
-      if (sub) {
-        const price = sub.items.data[0]?.price;
-        subInfo.interval = (price?.recurring?.interval as "month" | "year") ?? null;
-        subInfo.amount = price?.unit_amount ?? null;
-        subInfo.currency = price?.currency ?? null;
-        subInfo.nextBilling = (sub as any).current_period_end ?? sub.items.data[0]?.current_period_end ?? null;
-      }
-    } catch {
-      // Non-fatal
+  if (stripeSubs) {
+    const sub = (stripeSubs as any).data?.[0];
+    if (sub) {
+      const price = sub.items.data[0]?.price;
+      subInfo.interval = (price?.recurring?.interval as "month" | "year") ?? null;
+      subInfo.amount = price?.unit_amount ?? null;
+      subInfo.currency = price?.currency ?? null;
+      subInfo.nextBilling = sub.current_period_end ?? sub.items.data[0]?.current_period_end ?? null;
     }
   }
 
   return Response.json(
-    { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl },
+    { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl, walletRows },
     { headers }
   );
 }
@@ -178,19 +250,38 @@ function formatAmount(amount: number, currency: string) {
   }).format(amount / 100);
 }
 
+function fmt(amount: number | null | undefined, currency?: string | null) {
+  if (amount == null) return "—";
+  const cur = (currency ?? "EUR").toUpperCase();
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: cur,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short", day: "numeric", year: "numeric",
+  });
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
-  const { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl } =
+  const { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl, walletRows } =
     useLoaderData<typeof loader>() as {
       connectStatus: string;
       subInfo: SubInfo;
       planId: number | null;
       stripeExpressUrl: string | null;
       billingPortalUrl: string | null;
+      walletRows: WalletRow[];
     };
 
   const connectFetcher = useFetcher();
+  const payoutFetcher = useFetcher();
   const isConnecting = connectFetcher.state !== "idle";
 
   const isActive = connectStatus === "active";
@@ -206,8 +297,34 @@ export default function PaymentsPage() {
       ].filter(Boolean).join(" · ")
     : null;
 
+  // ── Summary metrics ────────────────────────────────────────────────────────
+  const totalEarned = walletRows
+    .filter(w => w.payout_status === "released")
+    .reduce((s, w) => s + (w.released_amount ?? w.secured_amount ?? 0), 0);
+
+  const pendingPayout = walletRows
+    .filter(w => w.client_paid && (w.payout_status === "pending" || w.payout_status === "approved"))
+    .reduce((s, w) => s + (w.secured_amount ?? 0), 0);
+
+  const awaitingPayment = walletRows
+    .filter(w => !w.client_paid)
+    .reduce((s, w) => s + (w.secured_amount ?? 0), 0);
+
+  const sqrzFeesPaid = walletRows
+    .filter(w => w.client_paid)
+    .reduce((s, w) => s + ((w.total_budget ?? 0) - (w.secured_amount ?? 0)), 0);
+
+  // Default currency from most recent wallet with a value
+  const defaultCurrency = walletRows.find(w => w.currency)?.currency ?? "EUR";
+
+  // ── Payout loading state ───────────────────────────────────────────────────
+  const payingOutBookingId: string | null =
+    payoutFetcher.state !== "idle" && payoutFetcher.formData
+      ? (payoutFetcher.formData.get("booking_id") as string)
+      : null;
+
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 24px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={{
         fontFamily: FONT_DISPLAY,
         fontSize: 36,
@@ -221,7 +338,138 @@ export default function PaymentsPage() {
         Payments
       </h1>
 
-      {/* ── Section 1: Client Payments ── */}
+      {/* ── Summary cards ── */}
+      {walletRows.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 24 }}>
+          <MetricCard label="Total Earned" value={fmt(totalEarned, defaultCurrency)} accent />
+          <MetricCard label="Pending Payout" value={fmt(pendingPayout, defaultCurrency)} />
+          <MetricCard label="Awaiting Payment" value={fmt(awaitingPayment, defaultCurrency)} muted />
+          <MetricCard label="SQRZ Fees Paid" value={fmt(sqrzFeesPaid, defaultCurrency)} muted />
+        </div>
+      )}
+
+      {/* ── Payments table ── */}
+      <div style={{ ...card, padding: 0, overflow: "hidden" }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
+          <p style={cardTitle}>Booking Payments</p>
+        </div>
+
+        {walletRows.length === 0 ? (
+          <div style={{ padding: "40px 24px", textAlign: "center" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
+              No booking payments yet. Payments appear here once a client confirms a booking.
+            </p>
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  {["Date", "Booking", "Client", "Total", "Your Rate", "Status", "Action"].map(h => (
+                    <th key={h} style={{
+                      padding: "10px 16px",
+                      textAlign: "left",
+                      fontFamily: FONT_DISPLAY,
+                      fontSize: 11,
+                      fontWeight: 800,
+                      color: "var(--text-muted)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.1em",
+                      whiteSpace: "nowrap",
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {walletRows.map((w, i) => {
+                  const cur = w.currency ?? defaultCurrency;
+                  const isPayingOut = payingOutBookingId === w.booking_id;
+                  const canRequestPayout = !!w.client_paid && (w.payout_status === "pending" || w.payout_status === "approved");
+
+                  return (
+                    <tr
+                      key={w.id}
+                      style={{
+                        borderBottom: i < walletRows.length - 1 ? "1px solid var(--border)" : "none",
+                        background: "transparent",
+                      }}
+                    >
+                      {/* Date */}
+                      <td style={{ padding: "14px 16px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                        {fmtDate(w.created_at)}
+                      </td>
+
+                      {/* Booking */}
+                      <td style={{ padding: "14px 16px", maxWidth: 180 }}>
+                        <a
+                          href={`/booking/${w.booking_id}`}
+                          style={{ color: "var(--text)", textDecoration: "none", fontWeight: 600 }}
+                        >
+                          {w.booking_title}
+                        </a>
+                      </td>
+
+                      {/* Client */}
+                      <td style={{ padding: "14px 16px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                        {w.client_name ?? "—"}
+                      </td>
+
+                      {/* Total (what client paid) */}
+                      <td style={{ padding: "14px 16px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                        {fmt(w.total_budget, cur)}
+                      </td>
+
+                      {/* Your rate */}
+                      <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
+                        {fmt(w.secured_amount, cur)}
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: "14px 16px" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          <PaymentBadge paid={!!w.client_paid} />
+                          <PayoutBadge status={w.payout_status} />
+                        </div>
+                      </td>
+
+                      {/* Action */}
+                      <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
+                        {canRequestPayout ? (
+                          <payoutFetcher.Form method="post" action="/api/payout" style={{ margin: 0 }}>
+                            <input type="hidden" name="booking_id" value={w.booking_id} />
+                            <button
+                              type="submit"
+                              disabled={isPayingOut}
+                              style={{
+                                padding: "6px 14px",
+                                background: ACCENT,
+                                border: "none",
+                                borderRadius: 8,
+                                color: "#111",
+                                fontSize: 12,
+                                fontWeight: 700,
+                                cursor: isPayingOut ? "default" : "pointer",
+                                fontFamily: FONT_BODY,
+                                opacity: isPayingOut ? 0.6 : 1,
+                              }}
+                            >
+                              {isPayingOut ? "…" : "Request Payout"}
+                            </button>
+                          </payoutFetcher.Form>
+                        ) : w.payout_status === "released" ? (
+                          <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 600 }}>Released ✓</span>
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Section: Client Payments (Connect) ── */}
       <div style={card}>
         <div style={cardHeader}>
           <p style={cardTitle}>Client Payments</p>
@@ -315,7 +563,7 @@ export default function PaymentsPage() {
         )}
       </div>
 
-      {/* ── Section 2: SQRZ Subscription ── */}
+      {/* ── Section: SQRZ Subscription ── */}
       <div style={card}>
         <div style={cardHeader}>
           <p style={cardTitle}>Your SQRZ Plan</p>
@@ -372,4 +620,131 @@ export default function PaymentsPage() {
       </div>
     </div>
   );
+}
+
+// ─── Sub-components ────────────────────────────────────────────────────────────
+
+function MetricCard({ label, value, accent, muted }: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <div style={{
+      background: "var(--surface)",
+      border: `1px solid ${accent ? "rgba(245,166,35,0.4)" : "rgba(245,166,35,0.2)"}`,
+      borderRadius: 12,
+      padding: "18px 20px",
+    }}>
+      <p style={{
+        fontFamily: FONT_DISPLAY,
+        fontSize: 11,
+        fontWeight: 800,
+        color: "var(--text-muted)",
+        textTransform: "uppercase",
+        letterSpacing: "0.12em",
+        margin: "0 0 8px",
+      }}>{label}</p>
+      <p style={{
+        fontFamily: FONT_DISPLAY,
+        fontSize: 28,
+        fontWeight: 800,
+        color: accent ? ACCENT : muted ? "var(--text-muted)" : "var(--text)",
+        margin: 0,
+        lineHeight: 1,
+      }}>{value}</p>
+    </div>
+  );
+}
+
+function PaymentBadge({ paid }: { paid: boolean }) {
+  return (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 4,
+      fontSize: 11,
+      fontWeight: 600,
+      color: paid ? "#22c55e" : "var(--text-muted)",
+      background: paid ? "rgba(34,197,94,0.1)" : "var(--surface-muted)",
+      borderRadius: 5,
+      padding: "2px 7px",
+      whiteSpace: "nowrap",
+    }}>
+      {paid ? "Paid ✓" : "Unpaid"}
+    </span>
+  );
+}
+
+function PayoutBadge({ status }: { status: string | null }) {
+  if (!status || status === "pending") {
+    return (
+      <span style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#F3B130",
+        background: "rgba(243,177,48,0.1)",
+        borderRadius: 5,
+        padding: "2px 7px",
+        whiteSpace: "nowrap",
+      }}>
+        Pending
+      </span>
+    );
+  }
+  if (status === "approved") {
+    return (
+      <span style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#60a5fa",
+        background: "rgba(96,165,250,0.1)",
+        borderRadius: 5,
+        padding: "2px 7px",
+        whiteSpace: "nowrap",
+      }}>
+        Approved
+      </span>
+    );
+  }
+  if (status === "released") {
+    return (
+      <span style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#22c55e",
+        background: "rgba(34,197,94,0.1)",
+        borderRadius: 5,
+        padding: "2px 7px",
+        whiteSpace: "nowrap",
+      }}>
+        Released ✓
+      </span>
+    );
+  }
+  if (status === "disputed") {
+    return (
+      <span style={{
+        display: "inline-flex",
+        alignItems: "center",
+        fontSize: 11,
+        fontWeight: 600,
+        color: "#ef4444",
+        background: "rgba(239,68,68,0.1)",
+        borderRadius: 5,
+        padding: "2px 7px",
+        whiteSpace: "nowrap",
+      }}>
+        Disputed
+      </span>
+    );
+  }
+  return null;
 }
