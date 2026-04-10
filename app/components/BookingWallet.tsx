@@ -174,7 +174,7 @@ export default function BookingWallet({ wallet, bookingStatus }: Props) {
   async function requestPayout() {
     setPayoutLoading(true);
     try {
-      const res = await fetch("/api/payout/request", {
+      const res = await fetch("/api/payout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ booking_id: wallet.booking_id }),
