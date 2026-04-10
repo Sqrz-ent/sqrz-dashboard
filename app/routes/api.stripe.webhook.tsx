@@ -201,10 +201,26 @@ export async function action({ request }: ActionFunctionArgs) {
 
       let walletId: string | null = existingWallet?.id ?? null;
 
+      // Fetch proposal rate for secured_amount (quote_accepted only)
+      let proposalRate: number | null = null;
+      if (session.metadata?.proposal_id) {
+        const { data: pData } = await supabase
+          .from("booking_proposals")
+          .select("rate")
+          .eq("id", session.metadata.proposal_id)
+          .maybeSingle();
+        proposalRate = pData?.rate ?? null;
+      }
+
+      const totalCharged = (session.amount_total ?? 0) / 100;
+
       if (existingWallet) {
+        // Update existing wallet: mark paid + set secured_amount if not already set
+        const updateData: Record<string, unknown> = { client_paid: true, payout_status: "pending", total_budget: totalCharged };
+        if (proposalRate != null) updateData.secured_amount = proposalRate;
         await supabase
           .from("booking_wallets")
-          .update({ client_paid: true, payout_status: "pending" })
+          .update(updateData)
           .eq("id", existingWallet.id);
       } else {
         const { data: bk } = await supabase
@@ -224,14 +240,14 @@ export async function action({ request }: ActionFunctionArgs) {
           feePct = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
         }
 
-        // Back-calculate rate from total charged (amount_total includes SQRZ fee)
-        const totalCharged = (session.amount_total ?? 0) / 100;
-        const rateFromTotal = Math.round((totalCharged / (1 + feePct / 100)) * 100) / 100;
+        // secured_amount = member's rate; total_budget = what booker paid
+        const securedAmount = proposalRate ?? Math.round((totalCharged / (1 + feePct / 100)) * 100) / 100;
 
         const { data: newWallet } = await supabase.from("booking_wallets").insert({
           booking_id: bookingId,
           owner_profile_id: bk?.owner_id ?? null,
-          total_budget: rateFromTotal,
+          total_budget: totalCharged,
+          secured_amount: securedAmount,
           client_paid: true,
           payout_status: "pending",
           sqrz_fee_pct: feePct,

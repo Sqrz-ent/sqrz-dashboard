@@ -21,6 +21,7 @@ export type WalletData = {
   booking_id: string;
   owner_profile_id: string;
   total_budget: number | null;
+  secured_amount: number | null;
   currency: string | null;
   sqrz_fee_pct: number;
   client_paid: boolean;
@@ -148,17 +149,14 @@ export default function BookingWallet({ wallet, bookingStatus }: Props) {
   const promoAllocs   = byType("promo");
   const expenseAllocs = byType("expense");
 
-  const incomeSum  = incomeAllocs.reduce((s, a)  => s + (a.amount ?? 0), 0);
-  const crewSum    = crewAllocs.reduce((s, a)    => s + (a.amount ?? 0), 0);
-  const promoSum   = promoAllocs.reduce((s, a)   => s + (a.amount ?? 0), 0);
-  const expenseSum = expenseAllocs.reduce((s, a) => s + (a.amount ?? 0), 0);
-
   const hasTypedAllocations = allocations.some((a) => !!a.allocation_type);
-  const effectiveIncome = hasTypedAllocations ? incomeSum : (wallet.total_budget ?? 0);
 
-  const feePct  = wallet.sqrz_fee_pct ?? 10;
-  const sqrzFee = Math.round(effectiveIncome * (feePct / 100) * 100) / 100;
-  const net     = Math.round((effectiveIncome - crewSum - promoSum - expenseSum - sqrzFee) * 100) / 100;
+  const feePct = wallet.sqrz_fee_pct ?? 8;
+  // member's rate = what they receive exactly; booker pays member's rate + SQRZ fee on top
+  const memberRate  = wallet.secured_amount ?? wallet.total_budget ?? 0;
+  const sqrzFee     = Math.round(memberRate * (feePct / 100) * 100) / 100;
+  const bookerPays  = wallet.total_budget ?? Math.round((memberRate + sqrzFee) * 100) / 100;
+  const net         = memberRate; // member always receives exactly their rate
 
   const s = sym(wallet.currency);
   const isPaid = wallet.client_paid || (paidFetcher.state === "idle" && paidFetcher.data?.ok === true);
@@ -362,69 +360,61 @@ export default function BookingWallet({ wallet, bookingStatus }: Props) {
           borderRadius: 10,
           padding: "14px 16px",
         }}>
-          <p style={{ ...lbl, margin: "0 0 6px" }}>Total budget</p>
+          <p style={{ ...lbl, margin: "0 0 6px" }}>Your Rate</p>
           <p style={{ color: "var(--text)", fontSize: 22, fontWeight: 800, margin: 0, fontFamily: FONT_DISPLAY }}>
-            {s}{fmt(wallet.total_budget ?? 0)}
+            {s}{fmt(memberRate)}
           </p>
         </div>
         <div style={{
           flex: 1,
           background: "var(--bg)",
-          border: `1px solid ${net >= 0 ? "rgba(245,166,35,0.3)" : "rgba(239,68,68,0.3)"}`,
+          border: "1px solid rgba(245,166,35,0.3)",
           borderRadius: 10,
           padding: "14px 16px",
         }}>
-          <p style={{ ...lbl, margin: "0 0 6px" }}>Your net</p>
-          <p style={{ color: net >= 0 ? ACCENT : "#ef4444", fontSize: 22, fontWeight: 800, margin: 0, fontFamily: FONT_DISPLAY }}>
-            {net < 0 ? "−" : ""}{s}{fmt(net)}
+          <p style={{ ...lbl, margin: "0 0 6px" }}>Your Net</p>
+          <p style={{ color: ACCENT, fontSize: 22, fontWeight: 800, margin: 0, fontFamily: FONT_DISPLAY }}>
+            {s}{fmt(net)}
           </p>
         </div>
       </div>
 
-      {/* ─── Grouped breakdown ─────────────────────────────────────────── */}
+      {/* ─── Fee breakdown card ─────────────────────────────────────────── */}
       <div style={card}>
-        {hasTypedAllocations ? (
-          <>
-            <GroupSection type="income"  items={incomeAllocs} />
-            <GroupSection type="crew"    items={crewAllocs} />
-            <GroupSection type="promo"   items={promoAllocs} />
-            <GroupSection type="expense" items={expenseAllocs} />
-          </>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-            <p style={{ color: "var(--text)", fontSize: 13, margin: 0 }}>Booking rate</p>
-            <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>
-              {s}{fmt(wallet.total_budget ?? 0)}
-            </p>
-          </div>
-        )}
+        {/* Your rate row */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>Your rate</p>
+          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(memberRate)}</p>
+        </div>
 
-        {/* SQRZ fee */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 0",
-          borderBottom: "1px solid var(--border)",
-          marginTop: hasTypedAllocations ? 8 : 0,
-        }}>
+        {/* SQRZ fee — added on top, paid by booker */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
             SQRZ fee{" "}
-            <span style={{ fontSize: 11, opacity: 0.65 }}>({feePct}% of income)</span>
+            <span style={{ fontSize: 11, opacity: 0.65 }}>({feePct}% · paid by booker)</span>
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
-            −{s}{fmt(sqrzFee)}
+            +{s}{fmt(sqrzFee)}
           </p>
         </div>
 
-        {/* Your net total */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 0 2px" }}>
-          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 700, margin: 0 }}>Your net</p>
-          <p style={{ color: net >= 0 ? ACCENT : "#ef4444", fontSize: 16, fontWeight: 800, margin: 0 }}>
-            {net < 0 ? "−" : ""}{s}{fmt(net)}
-          </p>
+        {/* Booker pays total */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0 2px" }}>
+          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>Booker pays</p>
+          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 800, margin: 0 }}>{s}{fmt(bookerPays)}</p>
         </div>
       </div>
+
+      {/* ─── Internal allocation breakdown (optional) ───────────────────── */}
+      {hasTypedAllocations && (
+        <div style={card}>
+          <p style={{ ...lbl, margin: "0 0 4px" }}>Budget allocation</p>
+          <GroupSection type="income"  items={incomeAllocs} />
+          <GroupSection type="crew"    items={crewAllocs} />
+          <GroupSection type="promo"   items={promoAllocs} />
+          <GroupSection type="expense" items={expenseAllocs} />
+        </div>
+      )}
 
       {/* ─── Add line item ─────────────────────────────────────────────── */}
       {!showAddForm ? (

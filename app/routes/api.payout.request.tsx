@@ -16,7 +16,7 @@ export async function action({ request }: { request: Request }) {
   // Get wallet + owner profile + connect ID
   const { data: wallet } = await adminClient
     .from("booking_wallets")
-    .select("*, profiles!owner_profile_id(stripe_connect_id, plan_id, plans(booking_fee_pct))")
+    .select("id, total_budget, secured_amount, currency, payout_status, client_paid, sqrz_fee_pct, profiles!owner_profile_id(stripe_connect_id, plan_id, plans(booking_fee_pct))")
     .eq("booking_id", booking_id)
     .maybeSingle();
 
@@ -29,9 +29,9 @@ export async function action({ request }: { request: Request }) {
   type WalletProfile = { stripe_connect_id?: string | null; plan_id?: number | null; plans?: { booking_fee_pct?: number } | null };
   const profile = wallet.profiles as WalletProfile | null;
 
-  const feePct: number = wallet.sqrz_fee_pct ?? profile?.plans?.booking_fee_pct ?? 8;
-  const netAmount = Math.round((wallet.total_budget ?? 0) * (1 - feePct / 100) * 100) / 100;
   const connectId = profile?.stripe_connect_id;
+  // Member receives exactly their rate (secured_amount). SQRZ keeps the difference.
+  const netAmount = Math.round((wallet.secured_amount ?? wallet.total_budget ?? 0) * 100) / 100;
 
   if (!connectId) return Response.json({ error: "No Connect account" }, { status: 400 });
 

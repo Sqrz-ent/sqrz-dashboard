@@ -1662,35 +1662,30 @@ function GuestBuyerProposalCard({
     <>
       {/* Proposal details card */}
       <div style={card}>
-        {/* Total fee — always shown */}
+        {/* Artist rate — always shown */}
         {proposal.rate != null && (
-          <div style={{ marginBottom: hasBreakdown ? 16 : 4 }}>
-            <p style={guestMetaLabel}>Total Fee</p>
-            <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
-              {sym}{proposal.rate.toLocaleString()}
-              <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
-                {proposal.currency ?? "EUR"}
+          <div style={{ marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Artist rate</span>
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
+                {sym}{proposal.rate.toLocaleString()}
+                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-muted)", marginLeft: 5 }}>{proposal.currency ?? "EUR"}</span>
               </span>
-            </p>
-          </div>
-        )}
+            </div>
 
-        {/* SQRZ fee + total when no breakdown */}
-        {!hasBreakdown && proposal.rate != null && (
-          <div style={{ marginTop: 8, marginBottom: 4 }}>
             {feePct != null && sqrzFee != null && totalCharged != null ? (
               <>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                   <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
-                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
-                  <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 8px" }}>
+                  <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total</span>
                   <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
                 </div>
               </>
             ) : (
-              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 2px", borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 2px", paddingTop: 4 }}>
                 Platform fee applies on payment
               </p>
             )}
@@ -1699,7 +1694,7 @@ function GuestBuyerProposalCard({
 
         {hasBreakdown && (
           /* ── Breakdown (informational) ── */
-          <div style={{ marginBottom: 4 }}>
+          <div style={{ marginBottom: 4, marginTop: 8, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
             <p style={{ ...guestMetaLabel, marginBottom: 12 }}>Breakdown (for transparency)</p>
             <div>
               {proposalLineItems.map((item, idx) => (
@@ -1710,22 +1705,6 @@ function GuestBuyerProposalCard({
                   </span>
                 </div>
               ))}
-              {feePct != null && sqrzFee != null && totalCharged != null ? (
-                <>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
-                    <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
-                  </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
-                    <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
-                    <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
-                  </div>
-                </>
-              ) : (
-                <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "8px 0 2px", paddingTop: 8 }}>
-                  Platform fee applies on payment
-                </p>
-              )}
             </div>
           </div>
         )}

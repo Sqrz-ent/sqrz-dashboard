@@ -109,6 +109,7 @@ export async function action({ request }: { request: Request }) {
             booking_id,
             owner_profile_id: ownerProfileId,
             total_budget: proposal.rate ?? 0,
+            secured_amount: proposal.rate ?? 0,
             currency: proposal.currency ?? "EUR",
             sqrz_fee_pct: feePct,
             status: "open",
