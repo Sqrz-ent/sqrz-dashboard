@@ -4,6 +4,21 @@ import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import Modal from "~/components/Modal";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -117,6 +132,16 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "reorder_services") {
+    const order = JSON.parse(formData.get("order") as string) as Array<{ id: string; sort_order: number }>;
+    await Promise.all(
+      order.map(({ id, sort_order }) =>
+        adminClient.from("profile_services").update({ sort_order }).eq("id", id).eq("profile_id", profile.id as string)
+      )
+    );
+    return Response.json({ ok: true }, { headers });
+  }
+
   if (intent === "add_service") {
     const priceOnRequest = formData.get("price_on_request") === "true";
     const bookingType = formData.get("booking_type") as string || "quote";
@@ -180,6 +205,130 @@ type Service = {
   instant_price: number | null;
   instant_currency: string | null;
 };
+
+// ── Sortable service row ──────────────────────────────────────────────────────
+
+function SortableServiceRow({
+  service,
+  onEdit,
+  onDelete,
+  onToggleActive,
+}: {
+  service: Service;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleActive: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: service.id });
+
+  const priceDisplay =
+    service.price_label === "Price on request"
+      ? "Price on request"
+      : service.price_min != null || service.price_max != null
+      ? `${service.currency ?? "€"}${service.price_min ?? ""}${service.price_max != null ? ` – ${service.currency ?? "€"}${service.price_max}` : ""}`
+      : null;
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        borderBottom: "1px solid var(--border)",
+        paddingBottom: 14,
+        marginBottom: 14,
+        opacity: isDragging ? 0.5 : service.is_active ? 1 : 0.5,
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 8,
+      }}
+    >
+      {/* Drag handle */}
+      <button
+        {...attributes}
+        {...listeners}
+        style={{
+          background: "none",
+          border: "none",
+          padding: "2px 4px",
+          marginTop: 2,
+          cursor: isDragging ? "grabbing" : "grab",
+          color: "var(--text-muted)",
+          fontSize: 16,
+          lineHeight: 1,
+          flexShrink: 0,
+          opacity: 0.4,
+          touchAction: "none",
+        }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.8"; }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = "0.4"; }}
+        aria-label="Drag to reorder"
+        tabIndex={-1}
+      >
+        ⠿
+      </button>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{service.title}</div>
+            {priceDisplay && (
+              <div style={{ fontSize: 13, color: service.price_label === "Price on request" ? "var(--text-muted)" : ACCENT, marginTop: 2, fontWeight: 600 }}>
+                {priceDisplay}
+              </div>
+            )}
+            {service.description && (
+              <div style={{
+                fontSize: 13,
+                color: "var(--text-muted)",
+                marginTop: 4,
+                overflow: "hidden",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}>
+                {service.description}
+              </div>
+            )}
+          </div>
+          {/* Active toggle */}
+          <button
+            onClick={onToggleActive}
+            title={service.is_active ? "Active — click to pause" : "Inactive — click to activate"}
+            style={{
+              width: 36,
+              height: 20,
+              borderRadius: 10,
+              border: "none",
+              background: service.is_active ? ACCENT : "var(--surface-muted, #333)",
+              cursor: "pointer",
+              position: "relative",
+              transition: "background 0.15s",
+              flexShrink: 0,
+              marginTop: 3,
+            }}
+          >
+            <span style={{
+              position: "absolute",
+              top: 2,
+              left: service.is_active ? 18 : 2,
+              width: 16,
+              height: 16,
+              borderRadius: "50%",
+              background: "#fff",
+              transition: "left 0.15s",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
+            }} />
+          </button>
+          <MenuDots onEdit={onEdit} onDelete={onDelete} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ServiceModal ──────────────────────────────────────────────────────────────
 
 function ServiceModal({
   isOpen,
@@ -272,7 +421,6 @@ function ServiceModal({
           />
         </div>
 
-        {/* Price on request — hidden when instant booking is on */}
         {!isInstant && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
             <input
@@ -284,7 +432,6 @@ function ServiceModal({
           </label>
         )}
 
-        {/* Price range — hidden when price-on-request or instant booking */}
         {!priceOnRequest && !isInstant && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 10 }}>
             <div>
@@ -322,10 +469,8 @@ function ServiceModal({
           </div>
         )}
 
-        {/* Divider */}
         <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
 
-        {/* Instant Booking toggle */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: isPremium ? "var(--text)" : "var(--text-muted)", fontFamily: FONT_BODY }}>
@@ -383,7 +528,6 @@ function ServiceModal({
           </p>
         )}
 
-        {/* Fixed price — shown only when instant booking is on */}
         {isInstant && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
             <div>
@@ -424,8 +568,10 @@ function ServiceModal({
   );
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export default function ServicePage() {
-  const { profile, services } = useLoaderData<typeof loader>() as {
+  const { profile, services: initialServices } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     services: Service[];
   };
@@ -433,20 +579,49 @@ export default function ServicePage() {
   const serviceFetcher = useFetcher();
   const deleteFetcher = useFetcher();
   const activeFetcher = useFetcher();
+  const reorderFetcher = useFetcher();
 
+  const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
     open: false,
     editing: null,
   });
 
+  // Keep local state in sync when loader re-runs (after add/delete/edit)
+  useEffect(() => {
+    setServices(initialServices);
+  }, [initialServices]);
+
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = services.findIndex((s) => s.id === active.id);
+    const newIndex = services.findIndex((s) => s.id === over.id);
+    const reordered = arrayMove(services, oldIndex, newIndex);
+
+    // Optimistic update
+    setServices(reordered);
+
+    // Persist new order
+    const order = reordered.map((s, i) => ({ id: s.id, sort_order: i }));
+    const fd = new FormData();
+    fd.append("intent", "reorder_services");
+    fd.append("order", JSON.stringify(order));
+    reorderFetcher.submit(fd, { method: "post" });
+  }
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={sectionTitle}>Services</h1>
 
-      {/* Services list */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 18 }}>Your Services</h2>
 
@@ -454,86 +629,30 @@ export default function ServicePage() {
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No services added yet.</p>
         ) : (
           <div style={{ marginBottom: 16 }}>
-            {services.map((service) => {
-              const priceDisplay =
-                service.price_label === "Price on request"
-                  ? "Price on request"
-                  : service.price_min != null || service.price_max != null
-                  ? `${service.currency ?? "€"}${service.price_min ?? ""}${service.price_max != null ? ` – ${service.currency ?? "€"}${service.price_max}` : ""}`
-                  : null;
-
-              return (
-                <div key={service.id} style={{ borderBottom: "1px solid var(--border)", paddingBottom: 14, marginBottom: 14, opacity: service.is_active ? 1 : 0.5, transition: "opacity 0.15s" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{service.title}</div>
-                      {priceDisplay && (
-                        <div style={{ fontSize: 13, color: service.price_label === "Price on request" ? "var(--text-muted)" : ACCENT, marginTop: 2, fontWeight: 600 }}>
-                          {priceDisplay}
-                        </div>
-                      )}
-                      {service.description && (
-                        <div style={{
-                          fontSize: 13,
-                          color: "var(--text-muted)",
-                          marginTop: 4,
-                          overflow: "hidden",
-                          display: "-webkit-box",
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: "vertical",
-                        }}>
-                          {service.description}
-                        </div>
-                      )}
-                    </div>
-                    {/* Active/inactive toggle */}
-                    <button
-                      onClick={() => {
-                        const fd = new FormData();
-                        fd.append("intent", "toggle_service_active");
-                        fd.append("id", service.id);
-                        fd.append("is_active", String(!service.is_active));
-                        activeFetcher.submit(fd, { method: "post" });
-                      }}
-                      title={service.is_active ? "Active — click to pause" : "Inactive — click to activate"}
-                      style={{
-                        width: 36,
-                        height: 20,
-                        borderRadius: 10,
-                        border: "none",
-                        background: service.is_active ? ACCENT : "var(--surface-muted, #333)",
-                        cursor: "pointer",
-                        position: "relative",
-                        transition: "background 0.15s",
-                        flexShrink: 0,
-                        marginTop: 3,
-                      }}
-                    >
-                      <span style={{
-                        position: "absolute",
-                        top: 2,
-                        left: service.is_active ? 18 : 2,
-                        width: 16,
-                        height: 16,
-                        borderRadius: "50%",
-                        background: "#fff",
-                        transition: "left 0.15s",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
-                      }} />
-                    </button>
-                    <MenuDots
-                      onEdit={() => setServiceModal({ open: true, editing: service })}
-                      onDelete={() => {
-                        const fd = new FormData();
-                        fd.append("intent", "delete_service");
-                        fd.append("id", service.id);
-                        deleteFetcher.submit(fd, { method: "post" });
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={services.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                {services.map((service) => (
+                  <SortableServiceRow
+                    key={service.id}
+                    service={service}
+                    onEdit={() => setServiceModal({ open: true, editing: service })}
+                    onDelete={() => {
+                      const fd = new FormData();
+                      fd.append("intent", "delete_service");
+                      fd.append("id", service.id);
+                      deleteFetcher.submit(fd, { method: "post" });
+                    }}
+                    onToggleActive={() => {
+                      const fd = new FormData();
+                      fd.append("intent", "toggle_service_active");
+                      fd.append("id", service.id);
+                      fd.append("is_active", String(!service.is_active));
+                      activeFetcher.submit(fd, { method: "post" });
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         )}
 
