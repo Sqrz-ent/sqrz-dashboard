@@ -171,6 +171,17 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ received: true });
     }
 
+    // ── Allocation payment (income line item paid individually) ──────────────
+    if (session.metadata?.booking_type === "allocation_payment" && session.metadata?.wallet_allocation_id) {
+      const allocationId = session.metadata.wallet_allocation_id;
+      console.log("[webhook] allocation payment received:", allocationId);
+      await supabase
+        .from("wallet_allocations")
+        .update({ status: "paid", paid_at: new Date().toISOString() })
+        .eq("id", allocationId);
+      return Response.json({ received: true });
+    }
+
     // ── Instant booking payment ──────────────────────────────────────────────
     if ((session.metadata?.booking_type === "instant" || session.metadata?.booking_type === "quote_accepted") && session.metadata?.booking_id) {
       const bookingId = session.metadata.booking_id;
@@ -188,6 +199,8 @@ export async function action({ request }: ActionFunctionArgs) {
         .eq("booking_id", bookingId)
         .maybeSingle();
 
+      let walletId: string | null = existingWallet?.id ?? null;
+
       if (existingWallet) {
         await supabase
           .from("booking_wallets")
@@ -200,22 +213,57 @@ export async function action({ request }: ActionFunctionArgs) {
           .eq("id", bookingId)
           .maybeSingle();
 
-        await supabase.from("booking_wallets").insert({
+        const { data: newWallet } = await supabase.from("booking_wallets").insert({
           booking_id: bookingId,
           owner_profile_id: bk?.owner_id ?? null,
           total_budget: (session.amount_total ?? 0) / 100,
           client_paid: true,
           payout_status: "pending",
-        });
+        }).select("id").single();
+
+        walletId = newWallet?.id ?? null;
       }
 
-      // Update proposal status to accepted (quote_accepted path)
+      // Update proposal status to accepted (quote_accepted path) and create allocations
       if (session.metadata?.proposal_id) {
         await supabase
           .from("booking_proposals")
           .update({ status: "accepted" })
           .eq("id", session.metadata.proposal_id);
         console.log("[webhook] proposal marked accepted:", session.metadata.proposal_id);
+
+        // Create wallet allocations from proposal line_items
+        if (walletId) {
+          const { data: proposalData } = await supabase
+            .from("booking_proposals")
+            .select("line_items, currency")
+            .eq("id", session.metadata.proposal_id)
+            .maybeSingle();
+
+          const lineItems = proposalData?.line_items as Array<{ label: string; type: string; amount: number }> | null;
+          if (lineItems?.length) {
+            // Only insert if no allocations yet for this wallet
+            const { count } = await supabase
+              .from("wallet_allocations")
+              .select("id", { count: "exact", head: true })
+              .eq("wallet_id", walletId);
+
+            if (!count || count === 0) {
+              await supabase.from("wallet_allocations").insert(
+                lineItems.map((item) => ({
+                  wallet_id: walletId,
+                  allocation_type: item.type,
+                  label: item.label,
+                  role: item.label,
+                  amount: item.amount,
+                  currency: proposalData?.currency ?? "EUR",
+                  status: "pending",
+                }))
+              );
+              console.log("[webhook] created", lineItems.length, "allocations for wallet:", walletId);
+            }
+          }
+        }
       }
 
       // Look up buyer to send confirmation email

@@ -22,10 +22,10 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. Get proposal details — fetch requires_payment explicitly
+  // 2. Get proposal details including line_items
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("rate, currency, requires_payment, booking_id, bookings(title, owner_id, profiles(name))")
+    .select("rate, currency, requires_payment, booking_id, line_items, bookings(title, owner_id, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -33,6 +33,8 @@ export async function action({ request }: { request: Request }) {
   if (!proposal) {
     return Response.json({ error: "Proposal not found" }, { status: 404 });
   }
+
+  const bk = proposal.bookings as unknown as { title: string; owner_id: string; profiles?: { name?: string } | null };
 
   console.log("[accept] requires_payment:", proposal.requires_payment);
 
@@ -47,8 +49,8 @@ export async function action({ request }: { request: Request }) {
             currency: proposal.currency.toLowerCase(),
             unit_amount: Math.round(proposal.rate * 100),
             product_data: {
-              name: proposal.bookings.title,
-              description: `Booking with ${proposal.bookings.profiles?.name ?? "SQRZ Member"}`,
+              name: bk.title,
+              description: `Booking with ${bk.profiles?.name ?? "SQRZ Member"}`,
             },
           },
           quantity: 1,
@@ -78,6 +80,56 @@ export async function action({ request }: { request: Request }) {
       .from("bookings")
       .update({ status: "confirmed" })
       .eq("id", booking_id);
+
+    // 3c. Create wallet + allocations from line_items
+    try {
+      const ownerProfileId = bk.owner_id;
+
+      // Check if wallet already exists
+      const { data: existingWallet } = await adminClient
+        .from("booking_wallets")
+        .select("id")
+        .eq("booking_id", booking_id)
+        .maybeSingle();
+
+      let walletId: string | null = existingWallet?.id ?? null;
+
+      if (!walletId) {
+        const { data: newWallet } = await adminClient
+          .from("booking_wallets")
+          .insert({
+            booking_id,
+            owner_profile_id: ownerProfileId,
+            total_budget: proposal.rate ?? 0,
+            currency: proposal.currency ?? "EUR",
+            sqrz_fee_pct: 10,
+            status: "open",
+            client_paid: false,
+            payout_status: "pending",
+          })
+          .select("id")
+          .single();
+        walletId = newWallet?.id ?? null;
+      }
+
+      // Insert wallet_allocations from line_items
+      const lineItems = proposal.line_items as Array<{ label: string; type: string; amount: number }> | null;
+      if (walletId && lineItems?.length) {
+        await adminClient.from("wallet_allocations").insert(
+          lineItems.map((item) => ({
+            wallet_id: walletId,
+            allocation_type: item.type,
+            label: item.label,
+            role: item.label,
+            amount: item.amount,
+            currency: proposal.currency ?? "EUR",
+            status: "pending",
+          }))
+        );
+      }
+    } catch (err) {
+      console.error("[accept] wallet/allocation creation failed:", err);
+    }
 
     return Response.json({ confirmed: true });
   }
