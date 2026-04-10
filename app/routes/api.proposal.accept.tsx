@@ -47,7 +47,7 @@ export async function action({ request }: { request: Request }) {
         {
           price_data: {
             currency: proposal.currency.toLowerCase(),
-            unit_amount: Math.round(proposal.rate * 100),
+            unit_amount: Math.round(proposal.rate * 1.1 * 100),
             product_data: {
               name: bk.title,
               description: `Booking with ${bk.profiles?.name ?? "SQRZ Member"}`,

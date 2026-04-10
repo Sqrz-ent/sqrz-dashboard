@@ -16,7 +16,6 @@ type Booking = Record<string, unknown>;
 
 export type LineItem = {
   label: string;
-  type: "income" | "crew" | "promo" | "expense";
   amount: number;
 };
 
@@ -283,14 +282,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     const lineItemsRaw = (formData.get("line_items") as string) || null;
 
     let lineItems: LineItem[] | null = null;
-    let rate = rateRaw;
+    const rate = rateRaw;
     try {
       if (lineItemsRaw) {
         lineItems = JSON.parse(lineItemsRaw) as LineItem[];
-        const incomeSum = lineItems
-          .filter((i) => i.type === "income")
-          .reduce((s, i) => s + (i.amount || 0), 0);
-        if (incomeSum > 0) rate = incomeSum;
       }
     } catch { /* ignore parse error */ }
 
@@ -874,12 +869,8 @@ function ProposalSection({
   const [lineItems, setLineItems] = useState<LineItem[]>(() => {
     const existing = latestProposal?.line_items;
     if (existing?.length) return existing;
-    const defaultAmt = parseFloat(latestProposal?.rate?.toString() ?? "") || 0;
-    return [{ label: "Artist Fee", type: "income", amount: defaultAmt }];
+    return [{ label: "Artist Fee", amount: 0 }];
   });
-
-  const lineItemTotal = lineItems.reduce((s, i) => s + (i.amount || 0), 0);
-  const incomeTotal   = lineItems.filter((i) => i.type === "income").reduce((s, i) => s + (i.amount || 0), 0);
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
   const canUseStripe = planLevel >= 1;
@@ -1038,87 +1029,56 @@ function ProposalSection({
 
               {/* Fee Breakdown */}
               <div style={{ marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <p style={{ ...lbl, margin: 0 }}>Fee Breakdown</p>
-                  <span style={{ color: "var(--text-muted)", fontSize: 11 }}>
-                    Total: {currencySym(form.currency)}{lineItemTotal.toLocaleString()}
-                    {incomeTotal !== lineItemTotal && (
-                      <span style={{ marginLeft: 6, color: ACCENT }}>
-                        · Income: {currencySym(form.currency)}{incomeTotal.toLocaleString()}
-                      </span>
-                    )}
-                  </span>
-                </div>
+                <p style={{ ...lbl, marginBottom: 8 }}>Breakdown (optional)</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {lineItems.map((item, idx) => {
-                    const typeBadgeColor =
-                      item.type === "income" ? ACCENT :
-                      item.type === "crew"   ? "#60a5fa" :
-                      item.type === "promo"  ? "#a78bfa" :
-                      "var(--text-muted)";
-                    return (
-                      <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 110px 90px 32px", gap: 7, alignItems: "center" }}>
-                        <input
-                          type="text"
-                          value={item.label}
-                          onChange={(e) => {
-                            const next = [...lineItems];
-                            next[idx] = { ...item, label: e.target.value };
-                            setLineItems(next);
-                          }}
-                          placeholder="Label"
-                          style={{ ...inputStyle, padding: "8px 10px" }}
-                        />
-                        <select
-                          value={item.type}
-                          onChange={(e) => {
-                            const next = [...lineItems];
-                            next[idx] = { ...item, type: e.target.value as LineItem["type"] };
-                            setLineItems(next);
-                          }}
-                          style={{ ...inputStyle, padding: "8px 10px", color: typeBadgeColor }}
-                        >
-                          <option value="income">Income</option>
-                          <option value="crew">Crew</option>
-                          <option value="promo">Promo</option>
-                          <option value="expense">Expense</option>
-                        </select>
-                        <input
-                          type="number"
-                          min={0}
-                          value={item.amount || ""}
-                          onChange={(e) => {
-                            const next = [...lineItems];
-                            next[idx] = { ...item, amount: parseFloat(e.target.value) || 0 };
-                            setLineItems(next);
-                          }}
-                          placeholder="0"
-                          style={{ ...inputStyle, padding: "8px 10px", textAlign: "right" as const }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setLineItems(lineItems.filter((_, i) => i !== idx))}
-                          style={{
-                            background: "none",
-                            border: "1px solid var(--border)",
-                            borderRadius: 6,
-                            color: "var(--text-muted)",
-                            fontSize: 14,
-                            cursor: "pointer",
-                            padding: "6px 8px",
-                            lineHeight: 1,
-                            fontFamily: FONT_BODY,
-                          }}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {lineItems.map((item, idx) => (
+                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 90px 32px", gap: 7, alignItems: "center" }}>
+                      <input
+                        type="text"
+                        value={item.label}
+                        onChange={(e) => {
+                          const next = [...lineItems];
+                          next[idx] = { ...item, label: e.target.value };
+                          setLineItems(next);
+                        }}
+                        placeholder="e.g. Artist Fee, Crew, Transport…"
+                        style={{ ...inputStyle, padding: "8px 10px" }}
+                      />
+                      <input
+                        type="number"
+                        min={0}
+                        value={item.amount || ""}
+                        onChange={(e) => {
+                          const next = [...lineItems];
+                          next[idx] = { ...item, amount: parseFloat(e.target.value) || 0 };
+                          setLineItems(next);
+                        }}
+                        placeholder="0"
+                        style={{ ...inputStyle, padding: "8px 10px", textAlign: "right" as const }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setLineItems(lineItems.filter((_, i) => i !== idx))}
+                        style={{
+                          background: "none",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          color: "var(--text-muted)",
+                          fontSize: 14,
+                          cursor: "pointer",
+                          padding: "6px 8px",
+                          lineHeight: 1,
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
                 </div>
                 <button
                   type="button"
-                  onClick={() => setLineItems([...lineItems, { label: "", type: "income", amount: 0 }])}
+                  onClick={() => setLineItems([...lineItems, { label: "", amount: 0 }])}
                   style={{
                     marginTop: 7,
                     background: "none",
@@ -1134,6 +1094,9 @@ function ProposalSection({
                 >
                   + Add Line Item
                 </button>
+                <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "8px 0 0", lineHeight: 1.5 }}>
+                  These are shown to the client for transparency. You are responsible for all crew and expense payments.
+                </p>
               </div>
 
               {/* Message */}
@@ -1631,54 +1594,57 @@ function GuestBuyerProposalCard({
   // Fee breakdown (when line_items present)
   const proposalLineItems = proposal.line_items ?? [];
   const hasBreakdown = proposalLineItems.length > 0;
-  const breakdownTotal = proposalLineItems.reduce((s, i) => s + (i.amount || 0), 0);
-  const breakdownIncomeTotal = proposalLineItems
-    .filter((i) => i.type === "income")
-    .reduce((s, i) => s + (i.amount || 0), 0);
-  const breakdownFee = Math.round(breakdownIncomeTotal * 0.1 * 100) / 100;
-  const totalCharged = Math.round((breakdownTotal + breakdownFee) * 100) / 100;
-
-  const BREAKDOWN_TYPE_COLORS: Record<string, { bg: string; text: string }> = {
-    income:  { bg: "rgba(245,166,35,0.12)",  text: "#F5A623" },
-    crew:    { bg: "rgba(96,165,250,0.12)",  text: "#60a5fa" },
-    promo:   { bg: "rgba(167,139,250,0.12)", text: "#a78bfa" },
-    expense: { bg: "var(--surface-muted)",   text: "var(--text-muted)" },
-  };
+  const sqrzFee = Math.round((proposal.rate ?? 0) * 0.1 * 100) / 100;
+  const totalCharged = Math.round(((proposal.rate ?? 0) + sqrzFee) * 100) / 100;
 
   return (
     <>
       {/* Proposal details card */}
       <div style={card}>
-        {hasBreakdown ? (
-          /* ── Fee breakdown ── */
+        {/* Total fee — always shown */}
+        {proposal.rate != null && (
+          <div style={{ marginBottom: hasBreakdown ? 16 : 4 }}>
+            <p style={guestMetaLabel}>Total Fee</p>
+            <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
+              {sym}{proposal.rate.toLocaleString()}
+              <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
+                {proposal.currency ?? "EUR"}
+              </span>
+            </p>
+          </div>
+        )}
+
+        {/* SQRZ fee + total when no breakdown */}
+        {!hasBreakdown && proposal.rate != null && (
+          <div style={{ marginTop: 8, marginBottom: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee (10%)</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
+              <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
+              <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
+            </div>
+          </div>
+        )}
+
+        {hasBreakdown && (
+          /* ── Breakdown (informational) ── */
           <div style={{ marginBottom: 4 }}>
-            <p style={{ ...guestMetaLabel, marginBottom: 12 }}>Fee Breakdown</p>
+            <p style={{ ...guestMetaLabel, marginBottom: 12 }}>Breakdown (for transparency)</p>
             <div>
-              {proposalLineItems.map((item, idx) => {
-                const tc = BREAKDOWN_TYPE_COLORS[item.type] ?? BREAKDOWN_TYPE_COLORS.expense;
-                return (
-                  <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ display: "inline-block", padding: "2px 7px", borderRadius: 20, fontSize: 10, fontWeight: 700, textTransform: "uppercase", background: tc.bg, color: tc.text }}>
-                        {item.type}
-                      </span>
-                      <span style={{ color: "var(--text)", fontSize: 13 }}>{item.label}</span>
-                    </div>
-                    <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
-                      {sym}{(item.amount || 0).toLocaleString()}
-                    </span>
-                  </div>
-                );
-              })}
-              {/* Total */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total</span>
-                <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>{sym}{breakdownTotal.toLocaleString()}</span>
-              </div>
+              {proposalLineItems.map((item, idx) => (
+                <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                  <span style={{ color: "var(--text)", fontSize: 13 }}>{item.label}</span>
+                  <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
+                    {sym}{(item.amount || 0).toLocaleString()}
+                  </span>
+                </div>
+              ))}
               {/* SQRZ fee */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                 <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee (10%)</span>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{breakdownFee.toLocaleString()}</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{sym}{sqrzFee.toLocaleString()}</span>
               </div>
               {/* Total charged */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 2px" }}>
@@ -1687,19 +1653,6 @@ function GuestBuyerProposalCard({
               </div>
             </div>
           </div>
-        ) : (
-          /* ── Single rate ── */
-          proposal.rate != null && (
-            <div style={{ marginBottom: 16 }}>
-              <p style={guestMetaLabel}>Rate</p>
-              <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0, lineHeight: 1.2 }}>
-                {sym}{proposal.rate.toLocaleString()}
-                <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
-                  {proposal.currency ?? "EUR"}
-                </span>
-              </p>
-            </div>
-          )
         )}
 
         {/* Rider badges */}
