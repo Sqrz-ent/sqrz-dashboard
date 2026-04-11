@@ -135,7 +135,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       }
     }
 
-    return redirect(decodedNext ?? "/dashboard", { headers });
+    return redirect(decodedNext ?? "/", { headers });
   }
 
   // No query params — render the client component to handle hash fragment
