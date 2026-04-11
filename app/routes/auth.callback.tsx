@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 
 export async function loader() {
   return {};
@@ -9,39 +8,52 @@ export default function AuthCallback() {
   const [status, setStatus] = useState("Signing you in…");
 
   useEffect(() => {
-    const supabase = createClient(
-      import.meta.env.VITE_SUPABASE_URL,
-      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
-    );
-
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get("code");
-    const next = params.get("next") ?? "/";
-    const destination = next.startsWith("/booking") ? next : "/";
-
-    if (code) {
-      // Exchange happens CLIENT-SIDE — verifier is in localStorage here
-      supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
-        if (error) {
-          console.error("[callback] exchange error:", error.message);
-          setStatus("Sign in failed — please try again");
-          setTimeout(() => window.location.replace("/"), 2000);
-        } else {
-          window.location.replace(destination);
+    const checkSession = async () => {
+      const { createClient } = await import("@supabase/supabase-js");
+      const supabase = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        {
+          auth: {
+            flowType: "implicit",
+            detectSessionInUrl: true,
+            persistSession: true,
+          },
         }
-      });
-      return;
-    }
+      );
 
-    // No code — check for existing session (returning user)
-    supabase.auth.getSession().then(({ data: { session } }) => {
+      // detectSessionInUrl: true auto-processes the #access_token hash fragment.
+      // Give it a moment then check.
+      await new Promise((r) => setTimeout(r, 500));
+
+      const { data: { session } } = await supabase.auth.getSession();
+
       if (session) {
-        window.location.replace(destination);
-      } else {
+        const next = new URLSearchParams(window.location.search).get("next") ?? "/";
+        window.location.replace(next.startsWith("/booking") ? next : "/");
+        return;
+      }
+
+      // Listen for auth state change in case the 500ms wasn't enough
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (event, session) => {
+          if (event === "SIGNED_IN" && session) {
+            subscription.unsubscribe();
+            clearTimeout(fallbackTimer);
+            const next = new URLSearchParams(window.location.search).get("next") ?? "/";
+            window.location.replace(next.startsWith("/booking") ? next : "/");
+          }
+        }
+      );
+
+      const fallbackTimer = setTimeout(() => {
+        subscription.unsubscribe();
         setStatus("Sign in failed — please try again");
         setTimeout(() => window.location.replace("/"), 2000);
-      }
-    });
+      }, 8000);
+    };
+
+    checkSession();
   }, []);
 
   return (

@@ -51,6 +51,9 @@ export function createSupabaseServerClient(request: Request) {
           });
         },
       },
+      auth: {
+        flowType: "implicit",
+      },
     }
   );
   return { supabase, headers };
