@@ -5,6 +5,8 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
+import UpgradeBanner from "~/components/UpgradeBanner";
 
 // Connect accounts were created in test mode — use test key for Express login links
 const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
@@ -288,6 +290,8 @@ export default function PaymentsPage() {
   const isActive = connectStatus === "active";
   const isPending = connectStatus === "pending";
   const hasPlan = !!planId && planId > 0;
+  const locked = getPlanLevel(planId, false) < FEATURE_GATES.domain;
+  
 
   const planLabel = subInfo.planName
     ? [
@@ -339,6 +343,12 @@ export default function PaymentsPage() {
         Payments
       </h1>
 
+      {locked && (
+  <UpgradeBanner planName="Creator plan" upgradeParam="creator" />
+)}
+
+
+<div style={locked ? { opacity: 0.45, pointerEvents: "none" } : {}}> 
       {/* ── Summary cards ── */}
       {walletRows.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 24 }}>
@@ -623,6 +633,7 @@ export default function PaymentsPage() {
   );
 }
 
+</div>
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 function MetricCard({ label, value, accent, muted }: {
