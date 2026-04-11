@@ -1,201 +1,126 @@
 import { useEffect } from "react";
-import { useLoaderData, useNavigate, useSearchParams } from "react-router";
-import { createServerClient, createBrowserClient, parseCookieHeader, serializeCookieHeader } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
+import { useNavigate, useSearchParams } from "react-router";
+import { createBrowserClient } from "@supabase/ssr";
 import type { Route } from "./+types/auth.callback";
 
 // ─── Server loader ────────────────────────────────────────────────────────────
-// Exchanges the code and writes session cookies into the JSON response headers.
-// We do NOT server-redirect — the client navigates after cookies are set.
+// Implicit flow: session arrives as a hash fragment, invisible to the server.
+// Loader just renders the page shell; client handles everything.
 
-export async function loader({ request }: Route.LoaderArgs) {
-  const url = new URL(request.url);
-  const code = url.searchParams.get("code");
-  const next = url.searchParams.get("next");
-  const token_hash = url.searchParams.get("token_hash");
-  const type = url.searchParams.get("type");
-
-  const decodedNext = next ? decodeURIComponent(next) : "/";
-  const destination = decodedNext.startsWith("/booking/") ? decodedNext : "/";
-
-  // PKCE flow (standard magic link, OAuth)
-  if (code) {
-    const headers = new Headers();
-
-    const supabase = createServerClient(
-      process.env.SUPABASE_URL!,
-      process.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return parseCookieHeader(request.headers.get("Cookie") ?? "")
-              .filter((c): c is { name: string; value: string } => c.value !== undefined);
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              headers.append("Set-Cookie", serializeCookieHeader(name, value, options))
-            );
-          },
-        },
-      }
-    );
-
-    const { data: sessionData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-
-    if (exchangeError || !sessionData?.user) {
-      return Response.json({ next: "/login", error: exchangeError?.message ?? "Auth failed" }, { headers });
-    }
-
-    const authedUser = sessionData.user;
-
-    // Link user_id to booking_participants on any auth (e.g. claim flow)
-    if (authedUser.email) {
-      await supabase
-        .from("booking_participants")
-        .update({ user_id: authedUser.id, joined_at: new Date().toISOString() })
-        .eq("email", authedUser.email)
-        .is("user_id", null);
-    }
-
-    // Apply the user's chosen handle / referral from the join form if present
-    const cookieHeader = request.headers.get("Cookie") ?? "";
-    const pendingHandle = cookieHeader.match(/sqrz_pending_handle=([^;]+)/)?.[1];
-    const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
-
-    if (pendingHandle || pendingRef) {
-      const admin = createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
-
-      if (pendingHandle) {
-        const { data: taken } = await admin
-          .from("profiles")
-          .select("id")
-          .eq("slug", pendingHandle)
-          .neq("user_id", authedUser.id)
-          .maybeSingle();
-
-        if (!taken) {
-          await admin.from("profiles").update({ slug: pendingHandle }).eq("user_id", authedUser.id);
-        }
-      }
-
-      if (pendingRef) {
-        await admin
-          .from("profiles")
-          .update({ referred_by_code: pendingRef })
-          .eq("user_id", authedUser.id)
-          .is("referred_by_code", null);
-      }
-
-      headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
-      headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
-    }
-
-    // Return JSON with cookies in headers — client navigates after browser sets them
-    return Response.json({ next: destination, error: null }, { headers });
-  }
-
-  // Token hash flow (admin-generated links)
-  if (token_hash && type) {
-    const headers = new Headers();
-
-    const supabase = createServerClient(
-      process.env.SUPABASE_URL!,
-      process.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return parseCookieHeader(request.headers.get("Cookie") ?? "")
-              .filter((c): c is { name: string; value: string } => c.value !== undefined);
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              headers.append("Set-Cookie", serializeCookieHeader(name, value, options))
-            );
-          },
-        },
-      }
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: otpError } = await supabase.auth.verifyOtp({ token_hash, type: type as any });
-
-    return Response.json(
-      { next: otpError ? "/login" : destination, error: otpError?.message ?? null },
-      { headers }
-    );
-  }
-
-  // No server params — client component handles hash fragment (implicit flow)
-  return Response.json({ next: destination, error: null });
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function loader(_: Route.LoaderArgs) {
+  return Response.json({});
 }
 
 // ─── Client component ─────────────────────────────────────────────────────────
-// Handles two cases:
-//   1. Server already exchanged code → loader data has `next`, navigate there
-//   2. Hash fragment flow (implicit) → exchange token client-side then navigate
 
 export default function AuthCallback() {
-  const loaderData = useLoaderData<typeof loader>() as { next: string; error: string | null } | null;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    const hash = window.location.hash;
+    const supabase = createBrowserClient(
+      import.meta.env.VITE_SUPABASE_URL as string,
+      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+      {
+        auth: {
+          flowType: "implicit",
+          detectSessionInUrl: true,
+        },
+      }
+    );
 
-    // ── Hash fragment flow (implicit / email OTP) ──────────────────────────
-    if (hash) {
-      const params = new URLSearchParams(hash.replace(/^#/, ""));
+    const nextParam = searchParams.get("next");
+    const decodedNext = nextParam ? decodeURIComponent(nextParam) : "/";
+    const destination = decodedNext.startsWith("/booking/") ? decodedNext : "/";
 
-      if (params.get("error")) {
-        const errorDesc = params.get("error_description") ?? "This link has expired.";
-        document.body.innerHTML = `
-          <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
-            <div style="text-align:center;padding:40px;max-width:420px">
-              <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.25em">[<span style="color:#F5A623"> SQRZ </span>]</span>
-              <h2 style="color:#fff;margin:24px 0 8px">Link expired</h2>
-              <p style="color:rgba(255,255,255,.5);font-size:14px;margin:0 0 24px">${errorDesc.replace(/\+/g, " ")}</p>
-              <p style="color:rgba(255,255,255,.35);font-size:13px">Please ask to be reinvited.</p>
-            </div>
+    function handleError(desc: string) {
+      document.body.innerHTML = `
+        <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
+          <div style="text-align:center;padding:40px;max-width:420px">
+            <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.25em">[<span style="color:#F5A623"> SQRZ </span>]</span>
+            <h2 style="color:#fff;margin:24px 0 8px">Link expired</h2>
+            <p style="color:rgba(255,255,255,.5);font-size:14px;margin:0 0 24px">${desc.replace(/\+/g, " ")}</p>
+            <p style="color:rgba(255,255,255,.35);font-size:13px">Please ask to be reinvited.</p>
           </div>
-        `;
+        </div>
+      `;
+    }
+
+    // Check for hash error first (e.g. expired link)
+    const hash = window.location.hash;
+    if (hash) {
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
+      if (hashParams.get("error")) {
+        handleError(hashParams.get("error_description") ?? "This link has expired.");
         return;
       }
+    }
 
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token") ?? "";
-
-      if (access_token) {
-        const supabase = createBrowserClient(
-          import.meta.env.VITE_SUPABASE_URL as string,
-          import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-        );
-
-        const nextParam = searchParams.get("next");
-        const destination = nextParam ? decodeURIComponent(nextParam) : "/";
-
-        supabase.auth.setSession({ access_token, refresh_token }).then(() => {
-          navigate(destination, { replace: true });
-        });
+    async function afterSignIn(userId: string, email: string | undefined) {
+      // Link booking_participants row to this user
+      if (email) {
+        await supabase
+          .from("booking_participants")
+          .update({ user_id: userId, joined_at: new Date().toISOString() })
+          .eq("email", email)
+          .is("user_id", null);
       }
-      return;
+
+      // Apply pending handle / referral set during the join flow
+      const pendingHandle = document.cookie.match(/sqrz_pending_handle=([^;]+)/)?.[1];
+      const pendingRef    = document.cookie.match(/sqrz_pending_ref=([^;]+)/)?.[1];
+
+      if (pendingHandle || pendingRef) {
+        if (pendingHandle) {
+          // Only update slug if not already taken by another profile
+          const { data: taken } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("slug", pendingHandle)
+            .neq("user_id", userId)
+            .maybeSingle();
+
+          if (!taken) {
+            await supabase.from("profiles").update({ slug: pendingHandle }).eq("user_id", userId);
+          }
+        }
+
+        if (pendingRef) {
+          await supabase
+            .from("profiles")
+            .update({ referred_by_code: pendingRef })
+            .eq("user_id", userId)
+            .is("referred_by_code", null);
+        }
+
+        // Clear pending cookies
+        document.cookie = "sqrz_pending_handle=; Path=/; Max-Age=0";
+        document.cookie = "sqrz_pending_ref=; Path=/; Max-Age=0";
+      }
+
+      navigate(destination, { replace: true });
     }
 
-    // ── Server already exchanged code (PKCE) ──────────────────────────────
-    // Small delay ensures the browser has processed the Set-Cookie headers
-    // from the loader response before the next page load hits the server.
-    if (loaderData) {
-      const timer = setTimeout(() => {
-        navigate(loaderData.next, { replace: true });
-      }, 100);
-      return () => clearTimeout(timer);
-    }
+    // onAuthStateChange fires as soon as detectSessionInUrl processes the hash
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        subscription.unsubscribe();
+        afterSignIn(session.user.id, session.user.email);
+      }
+    });
+
+    // Also check if already signed in (page reload / token already in storage)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        subscription.unsubscribe();
+        afterSignIn(session.user.id, session.user.email);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const hasError = loaderData?.error && loaderData.next === "/login";
 
   return (
     <div
@@ -210,7 +135,7 @@ export default function AuthCallback() {
         fontSize: 14,
       }}
     >
-      {hasError ? "Authentication failed — redirecting…" : "Signing you in…"}
+      Signing you in…
     </div>
   );
 }
