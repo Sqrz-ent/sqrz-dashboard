@@ -4,9 +4,10 @@
 // plan_id 5      → level 2 (Boost)
 // plan_id 2, 3   → level 3 (Grow / Grow Pro)
 // is_beta true   → level 2 (Boost access regardless of plan_id)
+// growQualified  → level 2 (same as Boost, for qualified leads)
 
-export function getPlanLevel(planId: number | null | undefined, isBeta?: boolean): number {
-  if (isBeta) return 2;
+export function getPlanLevel(planId: number | null | undefined, isBeta?: boolean, growQualified?: boolean): number {
+  if (isBeta || growQualified) return 2;
   if (!planId) return 0;
   if (planId === 1 || planId === 4) return 1;
   if (planId === 5) return 2;
