@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
-import { createBrowserClient } from "@supabase/ssr";
+import { useSearchParams } from "react-router";
 import type { Route } from "./+types/auth.callback";
 
 // ─── Server loader ────────────────────────────────────────────────────────────
@@ -15,26 +14,27 @@ export async function loader(_: Route.LoaderArgs) {
 // ─── Client component ─────────────────────────────────────────────────────────
 
 export default function AuthCallback() {
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    const supabase = createBrowserClient(
-      import.meta.env.VITE_SUPABASE_URL as string,
-      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-      {
-        auth: {
-          flowType: "implicit",
-          detectSessionInUrl: true,
-        },
-      }
-    );
+    // This project uses Vite — env vars are baked in at build time as import.meta.env.VITE_*
+    // There is no window.__env / window.ENV pattern here.
+    const url = import.meta.env.VITE_SUPABASE_URL as string;
+    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
 
-    const nextParam = searchParams.get("next");
-    const decodedNext = nextParam ? decodeURIComponent(nextParam) : "/";
-    const destination = decodedNext.startsWith("/booking/") ? decodedNext : "/";
+    console.log("[auth/callback] Hash:", window.location.hash);
+    console.log("[auth/callback] Search:", window.location.search);
 
-    function handleError(desc: string) {
+    if (!url || !key) {
+      console.error("[auth/callback] Missing Supabase env vars on client");
+      return;
+    }
+
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+
+    // Show error screen for expired / invalid links
+    if (hashParams.get("error")) {
+      const desc = hashParams.get("error_description") ?? "This link has expired.";
       document.body.innerHTML = `
         <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
           <div style="text-align:center;padding:40px;max-width:420px">
@@ -45,19 +45,18 @@ export default function AuthCallback() {
           </div>
         </div>
       `;
+      return;
     }
 
-    // Check for hash error first (e.g. expired link)
-    const hash = window.location.hash;
-    if (hash) {
-      const hashParams = new URLSearchParams(hash.replace(/^#/, ""));
-      if (hashParams.get("error")) {
-        handleError(hashParams.get("error_description") ?? "This link has expired.");
-        return;
-      }
+    const nextParam = searchParams.get("next");
+    const decodedNext = nextParam ? decodeURIComponent(nextParam) : "/";
+    const destination = decodedNext.startsWith("/booking/") ? decodedNext : "/";
+
+    function hardRedirect(to: string) {
+      window.location.href = to;
     }
 
-    async function afterSignIn(userId: string, email: string | undefined) {
+    async function afterSignIn(supabase: import("@supabase/supabase-js").SupabaseClient, userId: string, email: string | undefined) {
       // Link booking_participants row to this user
       if (email) {
         await supabase
@@ -73,7 +72,6 @@ export default function AuthCallback() {
 
       if (pendingHandle || pendingRef) {
         if (pendingHandle) {
-          // Only update slug if not already taken by another profile
           const { data: taken } = await supabase
             .from("profiles")
             .select("id")
@@ -94,31 +92,52 @@ export default function AuthCallback() {
             .is("referred_by_code", null);
         }
 
-        // Clear pending cookies
         document.cookie = "sqrz_pending_handle=; Path=/; Max-Age=0";
         document.cookie = "sqrz_pending_ref=; Path=/; Max-Age=0";
       }
 
-      navigate(destination, { replace: true });
+      hardRedirect(destination);
     }
 
-    // onAuthStateChange fires as soon as detectSessionInUrl processes the hash
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "SIGNED_IN" && session?.user) {
-        subscription.unsubscribe();
-        afterSignIn(session.user.id, session.user.email);
-      }
-    });
+    // Use createClient from @supabase/supabase-js directly so detectSessionInUrl
+    // processes the hash fragment independently of the SSR cookie layer.
+    import("@supabase/supabase-js").then(({ createClient }) => {
+      const supabase = createClient(url, key, {
+        auth: {
+          flowType: "implicit",
+          detectSessionInUrl: true,
+          persistSession: true,
+          autoRefreshToken: true,
+        },
+      });
 
-    // Also check if already signed in (page reload / token already in storage)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        subscription.unsubscribe();
-        afterSignIn(session.user.id, session.user.email);
-      }
-    });
+      // onAuthStateChange fires automatically when detectSessionInUrl processes the hash
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+        console.log("[auth/callback] event:", event, "session:", !!session);
+        if (event === "SIGNED_IN" && session?.user) {
+          subscription.unsubscribe();
+          clearTimeout(fallbackTimer);
+          afterSignIn(supabase, session.user.id, session.user.email);
+        }
+      });
 
-    return () => subscription.unsubscribe();
+      // Also check for an existing session immediately (page reload / token already stored)
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        console.log("[auth/callback] existing session:", !!session);
+        if (session?.user) {
+          subscription.unsubscribe();
+          clearTimeout(fallbackTimer);
+          afterSignIn(supabase, session.user.id, session.user.email);
+        }
+      });
+
+      // 8s hard fallback — if nothing fires, force a reload to root
+      const fallbackTimer = setTimeout(() => {
+        subscription.unsubscribe();
+        console.log("[auth/callback] timeout — forcing reload");
+        hardRedirect("/");
+      }, 8000);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
