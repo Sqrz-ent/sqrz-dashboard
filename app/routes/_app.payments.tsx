@@ -102,8 +102,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
-  // Gate: free users cannot access payments
-  if (!profile.plan_id) return redirect("/", { headers });
+
 
   const connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
   const connectId = (profile.stripe_connect_id as string | null) ?? null;
