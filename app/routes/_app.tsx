@@ -34,8 +34,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       return redirect(next);
     }
 
-    // Otherwise — no dashboard access
-    return redirect('/guest-access');
+    // Guest profiles are deprecated — fall through to dashboard
+    return redirect('/dashboard');
   }
 
   // Fetch subscription + plan for AccountPanel (parallel queries)
