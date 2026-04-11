@@ -5,15 +5,9 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "~/lib/supabase.client";
 
-interface Channel {
-  id: string;
-  name: string | null;
-  booking_id: string;
-}
-
 interface Message {
   id: string;
-  channel_id: string;
+  booking_id: string;
   sender_id: string | null;
   sender_name: string | null;
   message: string | null;
@@ -33,8 +27,6 @@ export default function BookingChat({
 }: BookingChatProps) {
   console.log("[BookingChat] render props:", { bookingId, currentUserEmail });
   const [open, setOpen] = useState(false);
-  const [channels, setChannels] = useState<Channel[]>([]);
-  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [text, setText] = useState("");
@@ -50,33 +42,15 @@ export default function BookingChat({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Step 1: fetch channels on mount ──────────────────────────────────────────
+  // ── Fetch messages + realtime subscription ────────────────────────────────────
   useEffect(() => {
     if (!bookingId) return;
-
-    supabase
-      .from("channels")
-      .select("*")
-      .eq("booking_id", bookingId)
-      .then(({ data }) => {
-        const rows = (data ?? []) as Channel[];
-        setChannels(rows);
-        if (rows.length > 0 && !activeChannelId) {
-          setActiveChannelId(rows[0].id);
-        }
-      });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingId]);
-
-  // ── Step 2: fetch messages + subscribe on activeChannelId change ─────────────
-  useEffect(() => {
-    if (!activeChannelId) return;
 
     // Fetch initial messages
     supabase
       .from("messages")
-      .select("id, channel_id, message, sender_name, sender_id, created_at")
-      .eq("channel_id", activeChannelId)
+      .select("id, booking_id, message, sender_name, sender_id, created_at")
+      .eq("booking_id", bookingId)
       .order("created_at", { ascending: true })
       .then(({ data }) => {
         setMessages((data ?? []) as Message[]);
@@ -84,14 +58,14 @@ export default function BookingChat({
 
     // Realtime subscription
     const channel = supabase
-      .channel("messages")
+      .channel(`booking-${bookingId}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "messages",
-          filter: `channel_id=eq.${activeChannelId}`,
+          filter: `booking_id=eq.${bookingId}`,
         },
         (payload) => {
           setMessages((prev) => [...prev, payload.new as Message]);
@@ -105,7 +79,8 @@ export default function BookingChat({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeChannelId, open]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookingId, open]);
 
   // ── Auto-scroll to bottom ────────────────────────────────────────────────────
   useEffect(() => {
@@ -123,49 +98,15 @@ export default function BookingChat({
     const content = text.trim();
     if (!content || sending) return;
 
-    let channelId = activeChannelId;
-
-    // Create a default channel if none exists
-    if (!channelId) {
-      const { data: newChannel } = await supabase
-        .from("channels")
-        .insert({ booking_id: bookingId, name: "general" })
-        .select()
-        .single();
-      if (newChannel) {
-        const c = newChannel as Channel;
-        setChannels((prev) => [...prev, c]);
-        setActiveChannelId(c.id);
-        channelId = c.id;
-      }
-    }
-
-    if (!channelId) return;
-
     setSending(true);
     await supabase.from("messages").insert({
       booking_id: bookingId,
-      channel_id: channelId,
       message: content,
       sender_id: authUser?.id ?? null,
       sender_name: authUser?.email ?? currentUserEmail ?? null,
     });
     setText("");
     setSending(false);
-  }
-
-  // ── New channel (owner only) ──────────────────────────────────────────────────
-  async function handleNewChannel() {
-    const { data } = await supabase
-      .from("channels")
-      .insert({ booking_id: bookingId, name: "general" })
-      .select()
-      .single();
-    if (data) {
-      const c = data as Channel;
-      setChannels((prev) => [...prev, c]);
-      setActiveChannelId(c.id);
-    }
   }
 
   // ── Styles ───────────────────────────────────────────────────────────────────
@@ -247,75 +188,6 @@ export default function BookingChat({
               ×
             </button>
           </div>
-
-          {/* Channel tabs */}
-          {channels.length > 1 && (
-            <div
-              style={{
-                display: "flex",
-                gap: 0,
-                borderBottom: "1px solid var(--border)",
-                flexShrink: 0,
-                overflowX: "auto",
-              }}
-            >
-              {channels.map((ch) => (
-                <button
-                  key={ch.id}
-                  onClick={() => setActiveChannelId(ch.id)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    borderBottom:
-                      activeChannelId === ch.id
-                        ? `2px solid ${accent}`
-                        : "2px solid transparent",
-                    color:
-                      activeChannelId === ch.id
-                        ? accent
-                        : "var(--text-muted)",
-                    fontSize: 12,
-                    fontWeight: activeChannelId === ch.id ? 700 : 500,
-                    padding: "8px 14px",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    marginBottom: -1,
-                    fontFamily,
-                  }}
-                >
-                  {ch.name ?? "Channel"}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* New channel button (owner only) */}
-          {isOwner && (
-            <div
-              style={{
-                padding: "6px 12px",
-                borderBottom: "1px solid var(--border)",
-                flexShrink: 0,
-              }}
-            >
-              <button
-                onClick={handleNewChannel}
-                style={{
-                  background: "none",
-                  border: "1px solid rgba(245,166,35,0.25)",
-                  borderRadius: 6,
-                  color: accent,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  padding: "4px 10px",
-                  cursor: "pointer",
-                  fontFamily,
-                }}
-              >
-                + New Channel
-              </button>
-            </div>
-          )}
 
           {/* Message list */}
           <div
@@ -439,7 +311,7 @@ export default function BookingChat({
                 borderRadius: 9,
                 padding: "9px 11px",
                 color: "var(--text)",
-                fontSize: 12,
+                fontSize: 16,
                 outline: "none",
                 fontFamily,
                 opacity: sending ? 0.6 : 1,
