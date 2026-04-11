@@ -33,16 +33,37 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   );
 
+  const decodedNext = next ? decodeURIComponent(next) : "/dashboard";
+
   // PKCE flow (standard magic link, OAuth)
   if (code) {
-    const { data: sessionData } = await supabase.auth.exchangeCodeForSession(code);
+    const { data: sessionData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (exchangeError || !sessionData?.user) {
+      // Exchange failed — send to login so they can retry
+      return redirect("/login", { headers });
+    }
+
+    const authedUser = sessionData.user;
+
+    // Link user_id to booking_participants on any auth (e.g. claim flow)
+    if (authedUser.email) {
+      await supabase
+        .from('booking_participants')
+        .update({
+          user_id: authedUser.id,
+          joined_at: new Date().toISOString()
+        })
+        .eq('email', authedUser.email)
+        .is('user_id', null);
+    }
 
     // Apply the user's chosen handle from the join form if present
     const cookieHeader = request.headers.get("Cookie") ?? "";
     const pendingHandle = cookieHeader.match(/sqrz_pending_handle=([^;]+)/)?.[1];
     const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
 
-    if (sessionData?.user && (pendingHandle || pendingRef)) {
+    if (pendingHandle || pendingRef) {
       const admin = createClient(
         process.env.SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -54,14 +75,14 @@ export async function loader({ request }: Route.LoaderArgs) {
           .from("profiles")
           .select("id")
           .eq("slug", pendingHandle)
-          .neq("user_id", sessionData.user.id)
+          .neq("user_id", authedUser.id)
           .maybeSingle();
 
         if (!taken) {
           await admin
             .from("profiles")
             .update({ slug: pendingHandle })
-            .eq("user_id", sessionData.user.id);
+            .eq("user_id", authedUser.id);
         }
       }
 
@@ -69,7 +90,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         await admin
           .from("profiles")
           .update({ referred_by_code: pendingRef })
-          .eq("user_id", sessionData.user.id)
+          .eq("user_id", authedUser.id)
           .is("referred_by_code", null); // only set if not already set
       }
 
@@ -77,39 +98,26 @@ export async function loader({ request }: Route.LoaderArgs) {
       headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
       headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
     }
+
+    // Follow /booking/ next param if present (guest/buyer token links)
+    if (decodedNext.startsWith('/booking/')) {
+      return redirect(decodedNext, { headers });
+    }
+
+    // All other cases → dashboard, session cookie in headers
+    return redirect("/dashboard", { headers });
   }
 
-  
   // Token hash flow (admin-generated links)
   if (token_hash && type) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await supabase.auth.verifyOtp({ token_hash, type: type as any });
-  }
+    const { error: otpError } = await supabase.auth.verifyOtp({ token_hash, type: type as any });
 
-  if (code || (token_hash && type)) {
-    const decodedNext = next ? decodeURIComponent(next) : null;
-
-    const { data: { user: authedUser } } = await supabase.auth.getUser();
-    if (authedUser) {
-      // Link user_id to booking_participants on any auth (e.g. claim flow)
-      if (authedUser.email) {
-        await supabase
-          .from('booking_participants')
-          .update({
-            user_id: authedUser.id,
-            joined_at: new Date().toISOString()
-          })
-          .eq('email', authedUser.email)
-          .is('user_id', null);
-      }
-
-      // Follow /booking/ next param if present
-      if (decodedNext?.startsWith('/booking/')) {
-        return redirect(decodedNext, { headers });
-      }
+    if (!otpError) {
+      return redirect(decodedNext.startsWith('/booking/') ? decodedNext : "/dashboard", { headers });
     }
 
-    return redirect(decodedNext ?? "/", { headers });
+    return redirect("/login", { headers });
   }
 
   // No query params — render the client component to handle hash fragment
@@ -131,7 +139,7 @@ export default function AuthCallback() {
 
     const params = new URLSearchParams(hash.replace(/^#/, ""));
     const next = searchParams.get("next");
-    const destination = next ? decodeURIComponent(next) : "/";
+    const destination = next ? decodeURIComponent(next) : "/dashboard";
 
     // Hash contains an error (e.g. expired invite link)
     if (params.get("error")) {
