@@ -13,37 +13,38 @@ export async function loader({ request }: Route.LoaderArgs) {
   const token_hash = url.searchParams.get("token_hash");
   const type = url.searchParams.get("type");
 
-  // Use a Response object so Set-Cookie and Location go in the same response
-  const response = new Response();
-
-  const supabase = createServerClient(
-    process.env.SUPABASE_URL!,
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return parseCookieHeader(request.headers.get("Cookie") ?? "")
-            .filter((c): c is { name: string; value: string } => c.value !== undefined);
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.headers.append("Set-Cookie", serializeCookieHeader(name, value, options));
-          });
-        },
-      },
-    }
-  );
-
   const decodedNext = next ? decodeURIComponent(next) : "/";
 
   // PKCE flow (standard magic link, OAuth)
   if (code) {
+    // Create a plain Headers object — supabase setAll closure writes Set-Cookie here,
+    // then we set Location on the same object and return one Response with both.
+    const headers = new Headers();
+
+    const supabase = createServerClient(
+      process.env.SUPABASE_URL!,
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return parseCookieHeader(request.headers.get("Cookie") ?? "")
+              .filter((c): c is { name: string; value: string } => c.value !== undefined);
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              headers.append("Set-Cookie", serializeCookieHeader(name, value, options))
+            );
+          },
+        },
+      }
+    );
+
     const { data: sessionData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
     if (exchangeError || !sessionData?.user) {
       // Exchange failed — send to login so they can retry
-      response.headers.set("Location", "/login");
-      return new Response(null, { status: 302, headers: response.headers });
+      headers.set("Location", "/login");
+      return new Response(null, { status: 302, headers });
     }
 
     const authedUser = sessionData.user;
@@ -71,7 +72,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
 
-      // Check the handle isn't already taken by a different profile
       if (pendingHandle) {
         const { data: taken } = await admin
           .from("profiles")
@@ -93,28 +93,49 @@ export async function loader({ request }: Route.LoaderArgs) {
           .from("profiles")
           .update({ referred_by_code: pendingRef })
           .eq("user_id", authedUser.id)
-          .is("referred_by_code", null); // only set if not already set
+          .is("referred_by_code", null);
       }
 
-      // Clear the pending cookies
-      response.headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
-      response.headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
+      headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
+      headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
     }
 
-    // Follow /booking/ next param if present (guest/buyer token links)
-    const destination = decodedNext.startsWith('/booking/') ? decodedNext : "/";
-    response.headers.set("Location", destination);
-    return new Response(null, { status: 302, headers: response.headers });
+    // Follow /booking/ next param for guest/buyer token links; everything else → root
+    headers.set("Location", decodedNext.startsWith('/booking/') ? decodedNext : "/");
+    return new Response(null, { status: 302, headers });
   }
 
   // Token hash flow (admin-generated links)
   if (token_hash && type) {
+    const headers = new Headers();
+
+    const supabase = createServerClient(
+      process.env.SUPABASE_URL!,
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY!,
+      {
+        cookies: {
+          getAll() {
+            return parseCookieHeader(request.headers.get("Cookie") ?? "")
+              .filter((c): c is { name: string; value: string } => c.value !== undefined);
+          },
+          setAll(cookiesToSet) {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              headers.append("Set-Cookie", serializeCookieHeader(name, value, options))
+            );
+          },
+        },
+      }
+    );
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: otpError } = await supabase.auth.verifyOtp({ token_hash, type: type as any });
 
-    const destination = !otpError && decodedNext.startsWith('/booking/') ? decodedNext : "/";
-    response.headers.set("Location", otpError ? "/login" : destination);
-    return new Response(null, { status: 302, headers: response.headers });
+    if (otpError) {
+      headers.set("Location", "/login");
+    } else {
+      headers.set("Location", decodedNext.startsWith('/booking/') ? decodedNext : "/");
+    }
+    return new Response(null, { status: 302, headers });
   }
 
   // No query params — render the client component to handle hash fragment
