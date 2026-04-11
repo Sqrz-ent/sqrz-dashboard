@@ -1,10 +1,12 @@
 import { useEffect } from "react";
-import { redirect, useNavigate, useSearchParams } from "react-router";
+import { useLoaderData, useNavigate, useSearchParams } from "react-router";
 import { createServerClient, createBrowserClient, parseCookieHeader, serializeCookieHeader } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import type { Route } from "./+types/auth.callback";
 
-// ─── Server loader — handles query-param flows (PKCE, token_hash) ─────────────
+// ─── Server loader ────────────────────────────────────────────────────────────
+// Exchanges the code and writes session cookies into the JSON response headers.
+// We do NOT server-redirect — the client navigates after cookies are set.
 
 export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
@@ -14,11 +16,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const type = url.searchParams.get("type");
 
   const decodedNext = next ? decodeURIComponent(next) : "/";
+  const destination = decodedNext.startsWith("/booking/") ? decodedNext : "/";
 
   // PKCE flow (standard magic link, OAuth)
   if (code) {
-    // Create a plain Headers object — supabase setAll closure writes Set-Cookie here,
-    // then we set Location on the same object and return one Response with both.
     const headers = new Headers();
 
     const supabase = createServerClient(
@@ -42,9 +43,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     const { data: sessionData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
     if (exchangeError || !sessionData?.user) {
-      // Exchange failed — send to login so they can retry
-      headers.set("Location", "/login");
-      return new Response(null, { status: 302, headers });
+      return Response.json({ next: "/login", error: exchangeError?.message ?? "Auth failed" }, { headers });
     }
 
     const authedUser = sessionData.user;
@@ -52,16 +51,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     // Link user_id to booking_participants on any auth (e.g. claim flow)
     if (authedUser.email) {
       await supabase
-        .from('booking_participants')
-        .update({
-          user_id: authedUser.id,
-          joined_at: new Date().toISOString()
-        })
-        .eq('email', authedUser.email)
-        .is('user_id', null);
+        .from("booking_participants")
+        .update({ user_id: authedUser.id, joined_at: new Date().toISOString() })
+        .eq("email", authedUser.email)
+        .is("user_id", null);
     }
 
-    // Apply the user's chosen handle from the join form if present
+    // Apply the user's chosen handle / referral from the join form if present
     const cookieHeader = request.headers.get("Cookie") ?? "";
     const pendingHandle = cookieHeader.match(/sqrz_pending_handle=([^;]+)/)?.[1];
     const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
@@ -81,10 +77,7 @@ export async function loader({ request }: Route.LoaderArgs) {
           .maybeSingle();
 
         if (!taken) {
-          await admin
-            .from("profiles")
-            .update({ slug: pendingHandle })
-            .eq("user_id", authedUser.id);
+          await admin.from("profiles").update({ slug: pendingHandle }).eq("user_id", authedUser.id);
         }
       }
 
@@ -100,9 +93,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
     }
 
-    // Follow /booking/ next param for guest/buyer token links; everything else → root
-    headers.set("Location", decodedNext.startsWith('/booking/') ? decodedNext : "/");
-    return new Response(null, { status: 302, headers });
+    // Return JSON with cookies in headers — client navigates after browser sets them
+    return Response.json({ next: destination, error: null }, { headers });
   }
 
   // Token hash flow (admin-generated links)
@@ -130,67 +122,80 @@ export async function loader({ request }: Route.LoaderArgs) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: otpError } = await supabase.auth.verifyOtp({ token_hash, type: type as any });
 
-    if (otpError) {
-      headers.set("Location", "/login");
-    } else {
-      headers.set("Location", decodedNext.startsWith('/booking/') ? decodedNext : "/");
-    }
-    return new Response(null, { status: 302, headers });
+    return Response.json(
+      { next: otpError ? "/login" : destination, error: otpError?.message ?? null },
+      { headers }
+    );
   }
 
-  // No query params — render the client component to handle hash fragment
-  return null;
+  // No server params — client component handles hash fragment (implicit flow)
+  return Response.json({ next: destination, error: null });
 }
 
-
-// ─── Client component — handles hash-fragment flows ───────────────────────────
-// Supabase implicit flow puts access_token / error in window.location.hash
-// which is invisible to the server loader.
+// ─── Client component ─────────────────────────────────────────────────────────
+// Handles two cases:
+//   1. Server already exchanged code → loader data has `next`, navigate there
+//   2. Hash fragment flow (implicit) → exchange token client-side then navigate
 
 export default function AuthCallback() {
+  const loaderData = useLoaderData<typeof loader>() as { next: string; error: string | null } | null;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
     const hash = window.location.hash;
-    if (!hash) return;
 
-    const params = new URLSearchParams(hash.replace(/^#/, ""));
-    const next = searchParams.get("next");
-    const destination = next ? decodeURIComponent(next) : "/";
+    // ── Hash fragment flow (implicit / email OTP) ──────────────────────────
+    if (hash) {
+      const params = new URLSearchParams(hash.replace(/^#/, ""));
 
-    // Hash contains an error (e.g. expired invite link)
-    if (params.get("error")) {
-      const errorDesc = params.get("error_description") ?? "This link has expired.";
-      document.body.innerHTML = `
-        <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
-          <div style="text-align:center;padding:40px;max-width:420px">
-            <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.25em">[<span style="color:#F5A623"> SQRZ </span>]</span>
-            <h2 style="color:#fff;margin:24px 0 8px">Link expired</h2>
-            <p style="color:rgba(255,255,255,.5);font-size:14px;margin:0 0 24px">${errorDesc.replace(/\+/g, " ")}</p>
-            <p style="color:rgba(255,255,255,.35);font-size:13px">Please ask to be reinvited.</p>
+      if (params.get("error")) {
+        const errorDesc = params.get("error_description") ?? "This link has expired.";
+        document.body.innerHTML = `
+          <div style="min-height:100vh;background:#111;display:flex;align-items:center;justify-content:center;font-family:ui-sans-serif,system-ui,sans-serif">
+            <div style="text-align:center;padding:40px;max-width:420px">
+              <span style="color:#fff;font-size:20px;font-weight:800;letter-spacing:.25em">[<span style="color:#F5A623"> SQRZ </span>]</span>
+              <h2 style="color:#fff;margin:24px 0 8px">Link expired</h2>
+              <p style="color:rgba(255,255,255,.5);font-size:14px;margin:0 0 24px">${errorDesc.replace(/\+/g, " ")}</p>
+              <p style="color:rgba(255,255,255,.35);font-size:13px">Please ask to be reinvited.</p>
+            </div>
           </div>
-        </div>
-      `;
+        `;
+        return;
+      }
+
+      const access_token = params.get("access_token");
+      const refresh_token = params.get("refresh_token") ?? "";
+
+      if (access_token) {
+        const supabase = createBrowserClient(
+          import.meta.env.VITE_SUPABASE_URL as string,
+          import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+        );
+
+        const nextParam = searchParams.get("next");
+        const destination = nextParam ? decodeURIComponent(nextParam) : "/";
+
+        supabase.auth.setSession({ access_token, refresh_token }).then(() => {
+          navigate(destination, { replace: true });
+        });
+      }
       return;
     }
 
-    // Hash contains an access token (implicit flow)
-    const access_token = params.get("access_token");
-    const refresh_token = params.get("refresh_token") ?? "";
-
-    if (access_token) {
-      const supabase = createBrowserClient(
-        import.meta.env.VITE_SUPABASE_URL as string,
-        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
-      );
-
-      supabase.auth.setSession({ access_token, refresh_token }).then(() => {
-        navigate(destination, { replace: true });
-      });
+    // ── Server already exchanged code (PKCE) ──────────────────────────────
+    // Small delay ensures the browser has processed the Set-Cookie headers
+    // from the loader response before the next page load hits the server.
+    if (loaderData) {
+      const timer = setTimeout(() => {
+        navigate(loaderData.next, { replace: true });
+      }, 100);
+      return () => clearTimeout(timer);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const hasError = loaderData?.error && loaderData.next === "/login";
 
   return (
     <div
@@ -205,7 +210,7 @@ export default function AuthCallback() {
         fontSize: 14,
       }}
     >
-      Signing you in…
+      {hasError ? "Authentication failed — redirecting…" : "Signing you in…"}
     </div>
   );
 }
