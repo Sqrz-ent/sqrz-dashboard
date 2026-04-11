@@ -85,61 +85,31 @@ export async function loader({ request }: Route.LoaderArgs) {
     await supabase.auth.verifyOtp({ token_hash, type: type as any });
   }
 
-  // If query params were present, check user_type then redirect with session cookie set.
-  // If neither was present, fall through to the client component which
-  // handles the #access_token= / #error= hash fragment.
+  
   if (code || (token_hash && type)) {
-    const decodedNext = next ? decodeURIComponent(next) : null;
+  const decodedNext = next ? decodeURIComponent(next) : null;
 
-    const { data: { user: authedUser } } = await supabase.auth.getUser();
-    if (authedUser) {
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('user_type')
-        .eq('user_id', authedUser.id)
-        .maybeSingle();
-
-      // Always link user_id to booking_participants before any redirect
-      if (authedUser.email) {
-        await supabase
-          .from('booking_participants')
-          .update({
-            user_id: authedUser.id,
-            joined_at: new Date().toISOString()
-          })
-          .eq('email', authedUser.email)
-          .is('user_id', null);
-      }
-
-      // Follow /booking/ next param for all user types
-      if (decodedNext?.startsWith('/booking/')) {
-        return redirect(decodedNext, { headers });
-      }
-
-      if (profile?.user_type === 'guest') {
-        // Redirect to their most recent booking
-        const { data: participant } = await supabase
-          .from('booking_participants')
-          .select('booking_id')
-          .eq('user_id', authedUser.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        return redirect(
-          participant?.booking_id
-            ? `/booking/${participant.booking_id}`
-            : '/guest-access',
-          { headers }
-        );
-      }
+  const { data: { user: authedUser } } = await supabase.auth.getUser();
+  if (authedUser) {
+    // Link user_id to booking_participants on any auth (e.g. claim flow)
+    if (authedUser.email) {
+      await supabase
+        .from('booking_participants')
+        .update({
+          user_id: authedUser.id,
+          joined_at: new Date().toISOString()
+        })
+        .eq('email', authedUser.email)
+        .is('user_id', null);
     }
 
-    return redirect(decodedNext ?? "/", { headers });
+    // Follow /booking/ next param if present
+    if (decodedNext?.startsWith('/booking/')) {
+      return redirect(decodedNext, { headers });
+    }
   }
 
-  // No query params — render the client component to handle hash fragment
-  return null;
+  return redirect(decodedNext ?? "/", { headers });
 }
 
 // ─── Client component — handles hash-fragment flows ───────────────────────────
