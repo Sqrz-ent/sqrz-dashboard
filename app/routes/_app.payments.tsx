@@ -629,11 +629,13 @@ export default function PaymentsPage() {
           )}
         </div>
       </div>
+     </div>
+
     </div>
   );
 }
 
-</div>
+
 // ─── Sub-components ────────────────────────────────────────────────────────────
 
 function MetricCard({ label, value, accent, muted }: {
@@ -760,3 +762,4 @@ function PayoutBadge({ status }: { status: string | null }) {
   }
   return null;
 }
+
