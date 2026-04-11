@@ -79,38 +79,43 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
+  
   // Token hash flow (admin-generated links)
   if (token_hash && type) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await supabase.auth.verifyOtp({ token_hash, type: type as any });
   }
 
-  
   if (code || (token_hash && type)) {
-  const decodedNext = next ? decodeURIComponent(next) : null;
+    const decodedNext = next ? decodeURIComponent(next) : null;
 
-  const { data: { user: authedUser } } = await supabase.auth.getUser();
-  if (authedUser) {
-    // Link user_id to booking_participants on any auth (e.g. claim flow)
-    if (authedUser.email) {
-      await supabase
-        .from('booking_participants')
-        .update({
-          user_id: authedUser.id,
-          joined_at: new Date().toISOString()
-        })
-        .eq('email', authedUser.email)
-        .is('user_id', null);
+    const { data: { user: authedUser } } = await supabase.auth.getUser();
+    if (authedUser) {
+      // Link user_id to booking_participants on any auth (e.g. claim flow)
+      if (authedUser.email) {
+        await supabase
+          .from('booking_participants')
+          .update({
+            user_id: authedUser.id,
+            joined_at: new Date().toISOString()
+          })
+          .eq('email', authedUser.email)
+          .is('user_id', null);
+      }
+
+      // Follow /booking/ next param if present
+      if (decodedNext?.startsWith('/booking/')) {
+        return redirect(decodedNext, { headers });
+      }
     }
 
-    // Follow /booking/ next param if present
-    if (decodedNext?.startsWith('/booking/')) {
-      return redirect(decodedNext, { headers });
-    }
+    return redirect(decodedNext ?? "/", { headers });
   }
 
-  return redirect(decodedNext ?? "/", { headers });
+  // No query params — render the client component to handle hash fragment
+  return null;
 }
+
 
 // ─── Client component — handles hash-fragment flows ───────────────────────────
 // Supabase implicit flow puts access_token / error in window.location.hash
