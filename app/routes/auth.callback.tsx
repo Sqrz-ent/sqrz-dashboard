@@ -17,18 +17,9 @@ export default function AuthCallback() {
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    // This project uses Vite — env vars are baked in at build time as import.meta.env.VITE_*
-    // There is no window.__env / window.ENV pattern here.
-    const url = import.meta.env.VITE_SUPABASE_URL as string;
-    const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string;
-
-    console.log("[auth/callback] Hash:", window.location.hash);
-    console.log("[auth/callback] Search:", window.location.search);
-
-    if (!url || !key) {
-      console.error("[auth/callback] Missing Supabase env vars on client");
-      return;
-    }
+    console.log("[auth/callback] url present:", !!import.meta.env.VITE_SUPABASE_URL);
+    console.log("[auth/callback] key present:", !!import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY);
+    console.log("[auth/callback] full URL:", window.location.href);
 
     const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 
@@ -102,14 +93,17 @@ export default function AuthCallback() {
     // Use createClient from @supabase/supabase-js directly so detectSessionInUrl
     // processes the hash fragment independently of the SSR cookie layer.
     import("@supabase/supabase-js").then(({ createClient }) => {
-      const supabase = createClient(url, key, {
-        auth: {
-          flowType: "implicit",
-          detectSessionInUrl: true,
-          persistSession: true,
-          autoRefreshToken: true,
-        },
-      });
+      const supabase = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        {
+          auth: {
+            detectSessionInUrl: true,
+            persistSession: true,
+            autoRefreshToken: true,
+          },
+        }
+      );
 
       // onAuthStateChange fires automatically when detectSessionInUrl processes the hash
       const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
