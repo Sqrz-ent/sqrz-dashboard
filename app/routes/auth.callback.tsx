@@ -13,7 +13,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const token_hash = url.searchParams.get("token_hash");
   const type = url.searchParams.get("type");
 
-  const headers = new Headers();
+  // Use a Response object so Set-Cookie and Location go in the same response
+  const response = new Response();
 
   const supabase = createServerClient(
     process.env.SUPABASE_URL!,
@@ -26,14 +27,14 @@ export async function loader({ request }: Route.LoaderArgs) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value, options }) => {
-            headers.append("Set-Cookie", serializeCookieHeader(name, value, options));
+            response.headers.append("Set-Cookie", serializeCookieHeader(name, value, options));
           });
         },
       },
     }
   );
 
-  const decodedNext = next ? decodeURIComponent(next) : "/dashboard";
+  const decodedNext = next ? decodeURIComponent(next) : "/";
 
   // PKCE flow (standard magic link, OAuth)
   if (code) {
@@ -41,7 +42,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     if (exchangeError || !sessionData?.user) {
       // Exchange failed — send to login so they can retry
-      return redirect("/login", { headers });
+      response.headers.set("Location", "/login");
+      return new Response(null, { status: 302, headers: response.headers });
     }
 
     const authedUser = sessionData.user;
@@ -95,17 +97,14 @@ export async function loader({ request }: Route.LoaderArgs) {
       }
 
       // Clear the pending cookies
-      headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
-      headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
+      response.headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
+      response.headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
     }
 
     // Follow /booking/ next param if present (guest/buyer token links)
-    if (decodedNext.startsWith('/booking/')) {
-      return redirect(decodedNext, { headers });
-    }
-
-    // All other cases → dashboard, session cookie in headers
-    return redirect("/dashboard", { headers });
+    const destination = decodedNext.startsWith('/booking/') ? decodedNext : "/";
+    response.headers.set("Location", destination);
+    return new Response(null, { status: 302, headers: response.headers });
   }
 
   // Token hash flow (admin-generated links)
@@ -113,11 +112,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error: otpError } = await supabase.auth.verifyOtp({ token_hash, type: type as any });
 
-    if (!otpError) {
-      return redirect(decodedNext.startsWith('/booking/') ? decodedNext : "/dashboard", { headers });
-    }
-
-    return redirect("/login", { headers });
+    const destination = !otpError && decodedNext.startsWith('/booking/') ? decodedNext : "/";
+    response.headers.set("Location", otpError ? "/login" : destination);
+    return new Response(null, { status: 302, headers: response.headers });
   }
 
   // No query params — render the client component to handle hash fragment
@@ -139,7 +136,7 @@ export default function AuthCallback() {
 
     const params = new URLSearchParams(hash.replace(/^#/, ""));
     const next = searchParams.get("next");
-    const destination = next ? decodeURIComponent(next) : "/dashboard";
+    const destination = next ? decodeURIComponent(next) : "/";
 
     // Hash contains an error (e.g. expired invite link)
     if (params.get("error")) {
