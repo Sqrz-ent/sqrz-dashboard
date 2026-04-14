@@ -18,12 +18,14 @@ interface BookingChatProps {
   bookingId: string;
   currentUserEmail: string;
   isOwner: boolean;
+  onAfterSend?: (message: string) => void;
 }
 
 export default function BookingChat({
   bookingId,
   currentUserEmail,
   isOwner,
+  onAfterSend,
 }: BookingChatProps) {
   console.log("[BookingChat] render props:", { bookingId, currentUserEmail });
   const [open, setOpen] = useState(false);
@@ -107,6 +109,7 @@ export default function BookingChat({
     });
     setText("");
     setSending(false);
+    onAfterSend?.(content);
   }
 
   // ── Styles ───────────────────────────────────────────────────────────────────

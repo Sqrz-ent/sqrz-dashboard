@@ -9,6 +9,7 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel } from "~/lib/plans";
 import { supabase as browserClient } from "~/lib/supabase.client";
 import BookingWallet, { type WalletData } from "~/components/BookingWallet";
+import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2141,6 +2142,12 @@ function MemberView({
           <BookingWallet wallet={wallet} bookingStatus={b.status as string} />
         )}
       </div>
+
+      <BookingChat
+        bookingId={b.id as string}
+        currentUserEmail={userEmail}
+        isOwner={true}
+      />
     </>
   );
 }
@@ -2224,6 +2231,19 @@ export default function BookingAccessPage() {
   const bStatus = b.status as string;
   const isConfirmedOrCompleted = bStatus === "confirmed" || bStatus === "completed";
 
+  function handleBuyerChatSend(message: string) {
+    // Notify the booking owner — fire and forget
+    fetch("/api/notify-member", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bookingId: b.id as string,
+        buyerEmail: userEmail,
+        message,
+      }),
+    }).catch(() => { /* non-fatal */ });
+  }
+
   return (
     <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 24px 80px" }}>
@@ -2284,6 +2304,14 @@ export default function BookingAccessPage() {
           </>
         )}
       </div>
+
+      {/* Chat bubble — works for both token buyers (anon) and authenticated participants */}
+      <BookingChat
+        bookingId={b.id as string}
+        currentUserEmail={userEmail}
+        isOwner={false}
+        onAfterSend={handleBuyerChatSend}
+      />
     </div>
   );
 }
