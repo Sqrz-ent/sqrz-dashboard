@@ -103,7 +103,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const { data: services } = await supabase
+  const adminClient = createSupabaseAdminClient();
+  const { data: services } = await adminClient
     .from("profile_services")
     .select("*")
     .eq("profile_id", profile.id as string)
