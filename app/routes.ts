@@ -27,7 +27,6 @@ export default [
   ]),
 
   // API routes (server-only, action handlers)
-  route("api/onboarding/service", "routes/api.onboarding.service.tsx"),
   route("api/notify-guest", "routes/api.notify-guest.tsx"),
   route("api/booking/create", "routes/api.booking.create.tsx"),
   route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
