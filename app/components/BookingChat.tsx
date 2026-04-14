@@ -18,6 +18,8 @@ interface BookingChatProps {
   bookingId: string;
   currentUserEmail: string;
   isOwner: boolean;
+  /** Display name to use as sender_name — no email addresses ever exposed */
+  senderName?: string;
   onAfterSend?: (message: string) => void;
 }
 
@@ -25,6 +27,7 @@ export default function BookingChat({
   bookingId,
   currentUserEmail,
   isOwner,
+  senderName,
   onAfterSend,
 }: BookingChatProps) {
   console.log("[BookingChat] render props:", { bookingId, currentUserEmail });
@@ -105,7 +108,7 @@ export default function BookingChat({
       booking_id: bookingId,
       message: content,
       sender_id: authUser?.id ?? null,
-      sender_name: authUser?.email ?? currentUserEmail ?? null,
+      sender_name: senderName ?? null,
     });
     setText("");
     setSending(false);

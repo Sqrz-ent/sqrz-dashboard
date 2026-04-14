@@ -60,34 +60,147 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // ── 1. TOKEN PATH ─────────────────────────────────────────────────────────
+  const admin = createSupabaseAdminClient();
   const token = url.searchParams.get("token");
-  if (token) {
-    console.log("[booking] token from URL:", token);
-    console.log("[booking] bookingId:", params.id);
 
-    const admin = createSupabaseAdminClient();
-    const { data: row, error: rowError } = await admin
+  // Always check session upfront — needed for token+session merge path
+  const { data: { user } } = await supabase.auth.getUser();
+
+  // Helper: compute a display name from a profile — never exposes email domain
+  function profileSenderName(p: Record<string, unknown> | null): string | null {
+    if (!p) return null;
+    return (p.brand_name as string | null) ||
+      (p.name as string | null) ||
+      ([p.first_name, p.last_name].filter(Boolean).join(" ") || null) ||
+      ((p.email as string | null)?.split("@")[0] ?? null);
+  }
+
+  // ── VALIDATE TOKEN (when present) ─────────────────────────────────────────
+  let tokenRow: Record<string, unknown> | null = null;
+  if (token) {
+    const { data: row } = await admin
       .from("booking_participants")
-      .select("id, booking_id, email, role, invite_token, user_id, bookings(*)")
+      .select("id, booking_id, email, name, role, invite_token, user_id, bookings(*)")
       .eq("booking_id", params.id)
       .eq("invite_token", token)
       .limit(1)
       .maybeSingle();
 
-    console.log("[booking] participant query result:", JSON.stringify(row));
-    console.log("[booking] participant query error:", JSON.stringify(rowError));
-
     if (!row) return Response.json({ accessType: "invalid_token" }, { headers });
+    tokenRow = row as Record<string, unknown>;
 
-    const booking = (row as Record<string, unknown>).bookings as Booking;
+    // Link participant to auth user if session exists and not already linked
+    if (user && !tokenRow.user_id) {
+      await admin
+        .from("booking_participants")
+        .update({ user_id: user.id })
+        .eq("id", tokenRow.id as string);
+    }
+  }
+
+  // ── TOKEN + SESSION: full authenticated experience ─────────────────────────
+  if (tokenRow && user) {
+    const profile = await getCurrentProfile(supabase, user.id);
+
+    const { data: booking } = await admin
+      .from("bookings")
+      .select("*, booking_participants(*), booking_proposals(*)")
+      .eq("id", params.id)
+      .maybeSingle();
+
+    if (!booking) return Response.json({ accessType: "invalid_token" }, { headers });
+
+    const isOwner = !!(profile && booking.owner_id === profile.id);
+
+    const [{ data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
+      admin
+        .from("booking_wallets")
+        .select("id, sqrz_fee_pct, client_paid, payout_status, total_budget, currency")
+        .eq("booking_id", params.id)
+        .maybeSingle(),
+      admin
+        .from("profiles")
+        .select("plan_id, plans(booking_fee_pct)")
+        .eq("id", booking.owner_id)
+        .maybeSingle(),
+    ]);
+    const proposalFeePct: number = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+
+    let wallet: WalletData | null = null;
+    if (isOwner) {
+      const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
+      if (showPaymentsTab) {
+        const { data: existingWallet } = await admin
+          .from("booking_wallets")
+          .select("*")
+          .eq("booking_id", booking.id)
+          .maybeSingle();
+
+        let baseWallet = existingWallet;
+        if (!baseWallet) {
+          const firstProposal = (booking.booking_proposals ?? [])[0];
+          const { data: newWallet } = await admin
+            .from("booking_wallets")
+            .insert({
+              booking_id: booking.id,
+              owner_profile_id: profile!.id,
+              total_budget: firstProposal?.rate ?? 0,
+              currency: firstProposal?.currency ?? "EUR",
+              sqrz_fee_pct: 10,
+              status: "pending",
+            })
+            .select("*")
+            .single();
+          baseWallet = newWallet ?? null;
+        }
+        if (baseWallet) {
+          const { data: allocations } = await admin
+            .from("wallet_allocations")
+            .select("id, label, role, allocation_type, amount, currency, status, stripe_payment_link_url, paid_at, boost_campaign_id")
+            .eq("wallet_id", baseWallet.id);
+          wallet = { ...(baseWallet as WalletData), allocations: allocations ?? [] };
+        }
+      }
+    } else {
+      wallet = tokenWallet as WalletData | null;
+    }
+
+    const sortedProposals = ((booking.booking_proposals ?? []) as Array<NonNullable<Proposal>>)
+      .slice()
+      .sort((a: any, b: any) => ((b.version ?? 0) - (a.version ?? 0)));
+    const proposal = sortedProposals[0] ?? null;
+
+    return Response.json(
+      {
+        accessType: "authenticated",
+        booking,
+        participant: null,
+        role: isOwner ? "owner" : (tokenRow.role as string),
+        userEmail: (profile?.email as string) ?? user.email ?? "",
+        isOwner,
+        proposal: proposal ?? null,
+        bookingToken: token,   // keep so buyer actions still work via token path
+        wallet,
+        profileId: (profile?.id as string) ?? null,
+        planId: (profile?.plan_id as number | null) ?? null,
+        isBeta: (profile?.is_beta as boolean) ?? false,
+        proposalFeePct,
+        senderName: profileSenderName(profile as Record<string, unknown> | null),
+      },
+      { headers }
+    );
+  }
+
+  // ── TOKEN ONLY (no session) ────────────────────────────────────────────────
+  if (tokenRow) {
+    const booking = tokenRow.bookings as Booking;
     const participant: GuestParticipant = {
-      id: row.id,
-      booking_id: row.booking_id,
-      email: row.email,
-      role: row.role,
-      invite_token: row.invite_token,
-      user_id: row.user_id,
+      id: tokenRow.id as string,
+      booking_id: tokenRow.booking_id as string,
+      email: tokenRow.email as string | null,
+      role: tokenRow.role as string,
+      invite_token: tokenRow.invite_token as string,
+      user_id: tokenRow.user_id as string | null,
     };
 
     const [{ data: proposal }, { data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
@@ -111,13 +224,17 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     ]);
     const proposalFeePct: number = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
 
+    // Sender name: use participant name field; fall back to email prefix (no domain)
+    const senderName = (tokenRow.name as string | null) ||
+      ((tokenRow.email as string | null)?.split("@")[0] ?? null);
+
     return Response.json(
       {
         accessType: "token",
         booking,
         participant,
-        role: row.role as string,
-        userEmail: row.email ?? "",
+        role: tokenRow.role as string,
+        userEmail: (tokenRow.email as string) ?? "",
         isOwner: false,
         proposal: proposal ?? null,
         bookingToken: token,
@@ -126,17 +243,15 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         profileId: null,
         planId: null,
         isBeta: false,
+        senderName,
       },
       { headers }
     );
   }
 
-  // ── 2. SESSION PATH ───────────────────────────────────────────────────────
-  const { data: { user } } = await supabase.auth.getUser();
-
+  // ── SESSION ONLY (no token) ────────────────────────────────────────────────
   if (user) {
     const profile = await getCurrentProfile(supabase, user.id);
-    const admin = createSupabaseAdminClient();
 
     const { data: booking } = await admin
       .from("bookings")
@@ -152,7 +267,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       const isParticipant = (booking.booking_participants ?? []).some(
         (p: { user_id: string | null }) => p.user_id === user.id
       );
-      if (!isParticipant) return Response.json({ accessType: "invalid_token" }, { headers });
+      if (!isParticipant) return Response.json({ accessType: "no_access" }, { headers });
     }
 
     // Wallet + allocations for owner on bookable statuses
@@ -211,12 +326,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         profileId: (profile?.id as string) ?? null,
         planId: (profile?.plan_id as number | null) ?? null,
         isBeta: (profile?.is_beta as boolean) ?? false,
+        senderName: profileSenderName(profile as Record<string, unknown> | null),
       },
       { headers }
     );
   }
 
-  // ── 3. NO TOKEN, NO SESSION ───────────────────────────────────────────────
+  // ── NO TOKEN, NO SESSION ──────────────────────────────────────────────────
   return Response.json({ accessType: "reauth", bookingId: params.id }, { headers });
 }
 
@@ -2033,11 +2149,13 @@ function MemberView({
   wallet,
   planLevel,
   userEmail,
+  senderName,
 }: {
   booking: Booking;
   wallet: WalletData | null;
   planLevel: number;
   userEmail: string;
+  senderName: string | null;
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
@@ -2147,6 +2265,7 @@ function MemberView({
         bookingId={b.id as string}
         currentUserEmail={userEmail}
         isOwner={true}
+        senderName={senderName ?? undefined}
       />
     </>
   );
@@ -2167,6 +2286,21 @@ export default function BookingAccessPage() {
             <div style={{ fontSize: 40, marginBottom: 16 }}>🔗</div>
             <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: "0 0 8px" }}>Invalid or expired link</h2>
             <p style={{ color: "var(--text-muted)", fontSize: 14 }}>This booking link is no longer valid. Check your email for the correct link.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── No access ──────────────────────────────────────────────────────────────
+  if (data.accessType === "no_access") {
+    return (
+      <div style={{ minHeight: "100vh", background: "var(--bg)", fontFamily: FONT_BODY }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center" }}>
+          <div>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>🔒</div>
+            <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: "0 0 8px" }}>You don't have access to this booking</h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 14 }}>You're signed in but you're not a participant in this booking.</p>
           </div>
         </div>
       </div>
@@ -2194,6 +2328,7 @@ export default function BookingAccessPage() {
     planId,
     isBeta,
     proposalFeePct,
+    senderName,
   } = data as {
     booking: Booking;
     userEmail: string;
@@ -2206,6 +2341,7 @@ export default function BookingAccessPage() {
     planId: number | null;
     isBeta: boolean;
     proposalFeePct?: number | null;
+    senderName: string | null;
   };
 
   const b = booking;
@@ -2221,6 +2357,7 @@ export default function BookingAccessPage() {
           wallet={wallet}
           planLevel={planLevel}
           userEmail={userEmail}
+          senderName={senderName}
         />
       </div>
     );
@@ -2310,6 +2447,7 @@ export default function BookingAccessPage() {
         bookingId={b.id as string}
         currentUserEmail={userEmail}
         isOwner={false}
+        senderName={senderName ?? undefined}
         onAfterSend={handleBuyerChatSend}
       />
     </div>
