@@ -6,9 +6,9 @@ import { supabase as browserSupabase } from "~/lib/supabase.client";
 interface OnboardingModalProps {
   profileId: string;
   slug: string;
-  initialFirstName?: string;
-  initialLastName?: string;
+  initialName?: string;
   initialAvatarUrl?: string;
+  initialEmail?: string;
   onComplete: () => void;
 }
 
@@ -17,17 +17,15 @@ interface OnboardingModalProps {
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 const ACCENT = "#F5A623";
-
-const SKILL_CATEGORIES = [
-  "Performing Arts & Entertainment",
-  "Media & Creative Arts",
-  "Web & App Development",
-  "Academic & Scholar",
-] as const;
-
 const TOTAL_STEPS = 4;
 
+const CURRENCIES = ["EUR", "USD", "GBP", "CHF", "SEK", "NOK", "DKK", "AUD", "CAD", "BRL", "MXN", "COP"];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────
+
+function emailUsername(email: string): string {
+  return email.split("@")[0] ?? "";
+}
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -56,15 +54,15 @@ const primaryBtn: React.CSSProperties = {
 };
 
 const ghostBtn: React.CSSProperties = {
-  width: "100%",
-  padding: "11px",
   background: "none",
   color: "var(--text-muted)",
   border: "none",
-  borderRadius: 12,
   fontSize: 13,
   cursor: "pointer",
   fontFamily: FONT_BODY,
+  padding: "8px 0",
+  textDecoration: "underline",
+  textUnderlineOffset: 3,
 };
 
 // ─── Progress dots ─────────────────────────────────────────────────────────
@@ -93,28 +91,37 @@ function ProgressDots({ step }: { step: number }) {
 export default function OnboardingModal({
   profileId,
   slug,
-  initialFirstName = "",
-  initialLastName = "",
+  initialName = "",
   initialAvatarUrl = "",
+  initialEmail = "",
   onComplete,
 }: OnboardingModalProps) {
   const [step, setStep] = useState(1);
   const [visible, setVisible] = useState(false);
 
-  // Step 1 state
-  const [firstName, setFirstName]     = useState(initialFirstName);
-  const [lastName, setLastName]       = useState(initialLastName);
-  const [avatarUrl, setAvatarUrl]     = useState(initialAvatarUrl);
-  const [uploading, setUploading]     = useState(false);
+  // Step 1
+  const defaultName = initialName || emailUsername(initialEmail);
+  const [displayName, setDisplayName] = useState(defaultName);
+  const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
+  const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
-  const [nameError, setNameError]     = useState("");
+  const [nameError, setNameError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Step 2 state
-  const [allSkills, setAllSkills] = useState<{ id: number; name: string; category: string }[]>([]);
-  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(new Set());
-  const [activeSkillTab, setActiveSkillTab] = useState<string>(SKILL_CATEGORIES[0]);
-  const [skillsLoading, setSkillsLoading] = useState(false);
+  // Step 2
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
+  // Step 3
+  const [serviceTitle, setServiceTitle] = useState("");
+  const [isInstant, setIsInstant] = useState(false);
+  const [servicePrice, setServicePrice] = useState("");
+  const [serviceCurrency, setServiceCurrency] = useState("EUR");
+  const [serviceDescription, setServiceDescription] = useState("");
+  const [serviceSaving, setServiceSaving] = useState(false);
+  const [serviceError, setServiceError] = useState("");
 
   // Fade in on mount
   useEffect(() => {
@@ -122,7 +129,7 @@ export default function OnboardingModal({
     return () => clearTimeout(t);
   }, []);
 
-  // Lock body scroll while open (position:fixed prevents iOS Safari background scroll)
+  // Lock body scroll
   useEffect(() => {
     document.body.style.overflow = "hidden";
     document.body.style.position = "fixed";
@@ -134,22 +141,7 @@ export default function OnboardingModal({
     };
   }, []);
 
-  // Fetch skills list on mount
-  useEffect(() => {
-    setSkillsLoading(true);
-    browserSupabase
-      .from("skills")
-      .select("id, name, category")
-      .eq("type", "skill")
-      .eq("is_visible", true)
-      .order("name", { ascending: true })
-      .then(({ data }) => {
-        setAllSkills(data ?? []);
-        setSkillsLoading(false);
-      });
-  }, []);
-
-  // ── Dismiss (skip entirely) ──────────────────────────────────────────────
+  // ── Dismiss (skip all) ───────────────────────────────────────────────────
 
   async function dismiss() {
     await browserSupabase
@@ -159,7 +151,7 @@ export default function OnboardingModal({
     onComplete();
   }
 
-  // ── Step 1: save name + avatar ───────────────────────────────────────────
+  // ── Step 1: avatar upload ────────────────────────────────────────────────
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -174,7 +166,6 @@ export default function OnboardingModal({
       .from("profile-pictures")
       .upload(path, file, { upsert: true });
     if (uploadError) {
-      console.log("avatar upload error:", uploadError);
       setUploadStatus("Upload failed.");
       setUploading(false);
       return;
@@ -189,51 +180,83 @@ export default function OnboardingModal({
   }
 
   async function submitStep1() {
-    if (!firstName.trim() || !lastName.trim()) {
-      setNameError("First and last name are required.");
+    if (!displayName.trim()) {
+      setNameError("Display name is required.");
       return;
     }
     setNameError("");
+    const trimmed = displayName.trim();
+    const parts = trimmed.split(/\s+/);
+    const firstName = parts[0] ?? trimmed;
+    const lastName = parts.slice(1).join(" ") || "";
     await browserSupabase
       .from("profiles")
-      .update({ first_name: firstName.trim(), last_name: lastName.trim(), name: `${firstName.trim()} ${lastName.trim()}` })
+      .update({ name: trimmed, first_name: firstName, last_name: lastName })
       .eq("id", profileId);
     setStep(2);
   }
 
-  // ── Step 2: toggle skill ─────────────────────────────────────────────────
+  // ── Step 2: password ─────────────────────────────────────────────────────
 
-  async function toggleSkill(skillId: number) {
-    const isSelected = selectedSkillIds.has(skillId);
-    setSelectedSkillIds((prev) => {
-      const next = new Set(prev);
-      if (isSelected) next.delete(skillId); else next.add(skillId);
-      return next;
-    });
-    if (isSelected) {
-      await browserSupabase.from("profile_skills")
-        .delete()
-        .eq("profile_id", profileId)
-        .eq("skill_id", skillId);
-    } else {
-      await browserSupabase.from("profile_skills")
-        .upsert({ profile_id: profileId, skill_id: skillId });
+  async function submitPassword() {
+    setPasswordError("");
+    if (password.length < 8) {
+      setPasswordError("Password must be at least 8 characters.");
+      return;
     }
+    if (password !== confirmPassword) {
+      setPasswordError("Passwords don't match.");
+      return;
+    }
+    setPasswordSaving(true);
+    const { error } = await browserSupabase.auth.updateUser({ password });
+    setPasswordSaving(false);
+    if (error) {
+      setPasswordError(error.message);
+      return;
+    }
+    setStep(3);
+  }
+
+  // ── Step 3: first service ────────────────────────────────────────────────
+
+  async function submitService() {
+    setServiceError("");
+    if (!serviceTitle.trim()) {
+      setServiceError("Service title is required.");
+      return;
+    }
+    if (isInstant && !servicePrice) {
+      setServiceError("Please enter a price for the fixed-price service.");
+      return;
+    }
+    setServiceSaving(true);
+    const { error } = await browserSupabase.from("profile_services").insert({
+      profile_id: profileId,
+      title: serviceTitle.trim(),
+      description: serviceDescription.trim() || null,
+      booking_type: isInstant ? "instant" : "quote",
+      instant_price: isInstant ? (parseFloat(servicePrice) || null) : null,
+      instant_currency: isInstant ? serviceCurrency : null,
+      is_active: true,
+      sort_order: 0,
+    });
+    setServiceSaving(false);
+    if (error) {
+      setServiceError("Failed to save service. Please try again.");
+      return;
+    }
+    setStep(4);
   }
 
   // ── Step 4: finish ───────────────────────────────────────────────────────
 
-  async function finish(seePlans: boolean) {
+  async function finish() {
     await browserSupabase
       .from("profiles")
       .update({ onboarding_completed: true })
       .eq("id", profileId);
     onComplete();
-    if (seePlans) {
-      // navigate to upgrade modal — handled by parent via URL param
-      window.history.replaceState(null, "", "?upgrade=1");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    }
   }
 
   // ── Overlay wrapper ──────────────────────────────────────────────────────
@@ -261,7 +284,6 @@ export default function OnboardingModal({
           borderRadius: 20,
           width: "100%",
           maxWidth: 460,
-          height: 540,
           maxHeight: "calc(100vh - 32px)",
           display: "flex",
           flexDirection: "column",
@@ -296,7 +318,7 @@ export default function OnboardingModal({
 
         <ProgressDots step={step} />
 
-        {/* ── Step 1: Photo + Name ─────────────────────────────────────── */}
+        {/* ── Step 1: Name & Photo ─────────────────────────────────────── */}
         {step === 1 && (
           <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
             <h2 style={{
@@ -307,16 +329,34 @@ export default function OnboardingModal({
               Let&apos;s set up your profile
             </h2>
             <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 24px" }}>
-              This is what people see when they visit your page.
+              First, tell us who you are
             </p>
+
+            {/* Display name */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
+                Display name
+              </label>
+              <input
+                style={inputStyle}
+                value={displayName}
+                onChange={e => { setDisplayName(e.target.value); setNameError(""); }}
+                placeholder="Your name"
+                autoFocus
+                onKeyDown={e => e.key === "Enter" && submitStep1()}
+              />
+              {nameError && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: "6px 0 0" }}>{nameError}</p>
+              )}
+            </div>
 
             {/* Avatar */}
             <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 24 }}>
               <div
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  width: 80,
-                  height: 80,
+                  width: 72,
+                  height: 72,
                   borderRadius: "50%",
                   background: avatarUrl ? "transparent" : "var(--surface-muted)",
                   border: `2px solid ${avatarUrl ? ACCENT : "var(--border)"}`,
@@ -326,7 +366,7 @@ export default function OnboardingModal({
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: 32,
+                  fontSize: 28,
                 }}
               >
                 {avatarUrl
@@ -353,9 +393,9 @@ export default function OnboardingModal({
                 >
                   {uploading ? "Uploading…" : avatarUrl ? "Change photo" : "Add photo"}
                 </button>
-                {uploadStatus && (
-                  <p style={{ margin: "6px 0 0", fontSize: 11, color: ACCENT }}>{uploadStatus}</p>
-                )}
+                <p style={{ margin: "5px 0 0", fontSize: 11, color: uploadStatus ? ACCENT : "var(--text-muted)" }}>
+                  {uploadStatus || "Optional"}
+                </p>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -366,151 +406,68 @@ export default function OnboardingModal({
               </div>
             </div>
 
-            {/* Name fields */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+            <button onClick={submitStep1} style={primaryBtn}>Continue</button>
+          </div>
+        )}
+
+        {/* ── Step 2: Set Password ─────────────────────────────────────── */}
+        {step === 2 && (
+          <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <h2 style={{
+              fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
+              color: "var(--text)", textTransform: "uppercase",
+              letterSpacing: "0.02em", margin: "0 0 6px", lineHeight: 1.1,
+            }}>
+              Secure your account
+            </h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 24px" }}>
+              Set a password so you can always log back in
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                  First name
+                  Password
                 </label>
                 <input
+                  type="password"
                   style={inputStyle}
-                  value={firstName}
-                  onChange={e => { setFirstName(e.target.value); setNameError(""); }}
-                  placeholder="Jane"
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setPasswordError(""); }}
+                  placeholder="Min. 8 characters"
                   autoFocus
                 />
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                  Last name
+                  Confirm password
                 </label>
                 <input
+                  type="password"
                   style={inputStyle}
-                  value={lastName}
-                  onChange={e => { setLastName(e.target.value); setNameError(""); }}
-                  placeholder="Smith"
-                  onKeyDown={e => e.key === "Enter" && submitStep1()}
+                  value={confirmPassword}
+                  onChange={e => { setConfirmPassword(e.target.value); setPasswordError(""); }}
+                  placeholder="Repeat password"
+                  onKeyDown={e => e.key === "Enter" && submitPassword()}
                 />
               </div>
+              {passwordError && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: 0 }}>{passwordError}</p>
+              )}
             </div>
 
-            {nameError && (
-              <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{nameError}</p>
-            )}
-
-            <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 8 }}>
-              <button onClick={submitStep1} style={primaryBtn}>Continue</button>
-              {!avatarUrl && (
-                <button onClick={submitStep1} style={ghostBtn}>
-                  Skip photo, just save name
-                </button>
-              )}
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <button onClick={submitPassword} disabled={passwordSaving} style={{ ...primaryBtn, opacity: passwordSaving ? 0.7 : 1 }}>
+                {passwordSaving ? "Saving…" : "Set Password"}
+              </button>
+              <button onClick={() => setStep(3)} style={ghostBtn}>
+                Skip for now
+              </button>
             </div>
           </div>
         )}
 
-        {/* ── Step 2: Skills picker ────────────────────────────────────── */}
-        {step === 2 && (
-          <div style={{ animation: "obFadeIn 0.18s ease", display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            <h2 style={{
-              fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
-              color: "var(--text)", textTransform: "uppercase",
-              letterSpacing: "0.02em", margin: "0 0 6px", lineHeight: 1.1,
-              flexShrink: 0,
-            }}>
-              What do you do?
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 16px", flexShrink: 0 }}>
-              Pick all that apply.
-            </p>
-
-            {/* Category label */}
-            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY, flexShrink: 0 }}>
-              Choose a category
-            </p>
-
-            {/* Category tabs */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 0, flexWrap: "wrap", flexShrink: 0 }}>
-              {SKILL_CATEGORIES.map((cat) => {
-                const isActive = activeSkillTab === cat;
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveSkillTab(cat)}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: 20,
-                      border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                      background: isActive ? "rgba(245,166,35,0.15)" : "var(--surface-muted)",
-                      color: isActive ? ACCENT : "var(--text)",
-                      fontSize: 13,
-                      fontWeight: isActive ? 700 : 600,
-                      cursor: "pointer",
-                      fontFamily: FONT_BODY,
-                    }}
-                  >
-                    {cat}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Divider */}
-            <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0 10px", flexShrink: 0 }} />
-
-            {/* Skills label */}
-            <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY, flexShrink: 0 }}>
-              Select your skills
-            </p>
-
-            {/* Skill tags — flex: 1 fills remaining space, scrolls internally */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, flex: 1, overflowY: "auto", minHeight: 0, alignContent: "flex-start", marginBottom: 8 }}>
-              {skillsLoading ? (
-                <p style={{ color: "var(--text-muted)", fontSize: 13, fontFamily: FONT_BODY }}>Loading…</p>
-              ) : (
-                allSkills
-                  .filter((s) => s.category === activeSkillTab)
-                  .map((skill) => {
-                    const isSelected = selectedSkillIds.has(skill.id);
-                    return (
-                      <button
-                        key={skill.id}
-                        onClick={() => toggleSkill(skill.id)}
-                        style={{
-                          padding: "6px 13px",
-                          borderRadius: 20,
-                          border: isSelected ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                          background: isSelected ? "rgba(245,166,35,0.1)" : "transparent",
-                          color: isSelected ? ACCENT : "var(--text-muted)",
-                          fontSize: 13,
-                          fontWeight: isSelected ? 600 : 400,
-                          cursor: "pointer",
-                          fontFamily: FONT_BODY,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 5,
-                        }}
-                      >
-                        {skill.name}
-                        {isSelected && <span style={{ fontSize: 11, opacity: 0.8 }}>✕</span>}
-                      </button>
-                    );
-                  })
-              )}
-            </div>
-
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px", fontFamily: FONT_BODY, flexShrink: 0, minHeight: 16 }}>
-              {selectedSkillIds.size > 0 ? `${selectedSkillIds.size} skill${selectedSkillIds.size !== 1 ? "s" : ""} selected` : ""}
-            </p>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
-              <button onClick={() => setStep(3)} style={primaryBtn}>Continue</button>
-              <button onClick={() => setStep(3)} style={ghostBtn}>Skip for now</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 3: Preview / Page live ──────────────────────────────── */}
+        {/* ── Step 3: First Service ─────────────────────────────────────── */}
         {step === 3 && (
           <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
             <h2 style={{
@@ -518,25 +475,153 @@ export default function OnboardingModal({
               color: "var(--text)", textTransform: "uppercase",
               letterSpacing: "0.02em", margin: "0 0 6px", lineHeight: 1.1,
             }}>
-              Your page is live 🎉
+              What do you offer?
             </h2>
             <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 22px" }}>
-              Anyone can already find you here:
+              Add your first service — you can always edit this later
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
+              {/* Title */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
+                  Service title
+                </label>
+                <input
+                  style={inputStyle}
+                  value={serviceTitle}
+                  onChange={e => { setServiceTitle(e.target.value); setServiceError(""); }}
+                  placeholder="e.g. DJ Set, Audio Mixing, Photography"
+                  autoFocus
+                />
+              </div>
+
+              {/* Booking type toggle */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>
+                  Pricing
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[
+                    { label: "Quote (I'll send a price)", value: false },
+                    { label: "Fixed price", value: true },
+                  ].map(({ label, value }) => (
+                    <button
+                      key={label}
+                      onClick={() => setIsInstant(value)}
+                      style={{
+                        flex: 1,
+                        padding: "9px 12px",
+                        borderRadius: 10,
+                        border: isInstant === value ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                        background: isInstant === value ? "rgba(245,166,35,0.12)" : "var(--surface-muted)",
+                        color: isInstant === value ? ACCENT : "var(--text-muted)",
+                        fontSize: 12,
+                        fontWeight: isInstant === value ? 700 : 500,
+                        cursor: "pointer",
+                        fontFamily: FONT_BODY,
+                        textAlign: "center",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Fixed price fields */}
+              {isInstant && (
+                <div style={{ display: "flex", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
+                      Price
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      style={inputStyle}
+                      value={servicePrice}
+                      onChange={e => { setServicePrice(e.target.value); setServiceError(""); }}
+                      placeholder="0.00"
+                    />
+                  </div>
+                  <div style={{ width: 100 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
+                      Currency
+                    </label>
+                    <select
+                      style={{ ...inputStyle, padding: "12px 10px" }}
+                      value={serviceCurrency}
+                      onChange={e => setServiceCurrency(e.target.value)}
+                    >
+                      {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Description */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
+                  Description <span style={{ fontWeight: 400, textTransform: "none" }}>(optional)</span>
+                </label>
+                <textarea
+                  style={{ ...inputStyle, resize: "none", height: 72 }}
+                  value={serviceDescription}
+                  maxLength={120}
+                  onChange={e => setServiceDescription(e.target.value)}
+                  placeholder="Brief description of this service"
+                />
+                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "3px 0 0", textAlign: "right" }}>
+                  {serviceDescription.length}/120
+                </p>
+              </div>
+
+              {serviceError && (
+                <p style={{ color: "#ef4444", fontSize: 12, margin: 0 }}>{serviceError}</p>
+              )}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+              <button onClick={submitService} disabled={serviceSaving} style={{ ...primaryBtn, opacity: serviceSaving ? 0.7 : 1 }}>
+                {serviceSaving ? "Saving…" : "Add Service"}
+              </button>
+              <button onClick={() => setStep(4)} style={ghostBtn}>
+                Skip for now
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: Done ─────────────────────────────────────────────── */}
+        {step === 4 && (
+          <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <h2 style={{
+              fontFamily: FONT_DISPLAY, fontSize: 36, fontWeight: 800,
+              color: "var(--text)", textTransform: "uppercase",
+              letterSpacing: "0.02em", margin: "0 0 6px", lineHeight: 1.1,
+            }}>
+              You&apos;re all set! 🎉
+            </h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 28px" }}>
+              Your page is live. Share it with the world.
             </p>
 
             {/* URL display */}
             <div style={{
               background: "var(--bg)",
-              border: `1px solid ${ACCENT}`,
-              borderRadius: 12,
-              padding: "14px 18px",
-              marginBottom: 16,
+              border: `1.5px solid ${ACCENT}`,
+              borderRadius: 14,
+              padding: "18px 20px",
+              marginBottom: 28,
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",
               gap: 12,
             }}>
-              <span style={{ fontSize: 15, fontWeight: 600, color: ACCENT, fontFamily: "monospace", wordBreak: "break-all" }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: ACCENT, fontFamily: "monospace", wordBreak: "break-all" }}>
                 {slug}.sqrz.com
               </span>
               <a
@@ -544,11 +629,11 @@ export default function OnboardingModal({
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  padding: "7px 14px",
+                  padding: "8px 16px",
                   background: ACCENT,
                   color: "#111",
                   borderRadius: 8,
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: 700,
                   textDecoration: "none",
                   whiteSpace: "nowrap",
@@ -559,82 +644,9 @@ export default function OnboardingModal({
               </a>
             </div>
 
-            {/* Iframe preview */}
-            <div style={{
-              borderRadius: 12,
-              overflow: "hidden",
-              border: "1px solid var(--border)",
-              marginBottom: 24,
-              height: 220,
-              position: "relative",
-            }}>
-              <iframe
-                src={`https://${slug}.sqrz.com`}
-                title="Profile preview"
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  border: "none",
-                  pointerEvents: "none",
-                }}
-                loading="lazy"
-              />
-              <div style={{
-                position: "absolute",
-                inset: 0,
-                cursor: "default",
-              }} />
-            </div>
-
-            <button onClick={() => setStep(4)} style={primaryBtn}>Continue</button>
-          </div>
-        )}
-
-        {/* ── Step 4: Plan nudge ───────────────────────────────────────── */}
-        {step === 4 && (
-          <div style={{ animation: "obFadeIn 0.18s ease", flex: 1, overflowY: "auto", minHeight: 0 }}>
-            <h2 style={{
-              fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800,
-              color: "var(--text)", textTransform: "uppercase",
-              letterSpacing: "0.02em", margin: "0 0 6px", lineHeight: 1.1,
-            }}>
-              You&apos;re all set
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: "0 0 28px" }}>
-              You&apos;re on the free plan. Unlock more when you&apos;re ready.
-            </p>
-
-            {/* Feature highlights */}
-            <div style={{
-              background: "var(--bg)",
-              borderRadius: 12,
-              padding: "16px 18px",
-              marginBottom: 24,
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}>
-              {[
-                ["🔒", "Custom domain"],
-                ["🔒", "Boost campaigns"],
-                ["🔒", "Private links"],
-                ["🔒", "Media library"],
-              ].map(([icon, label]) => (
-                <div key={label} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontSize: 14 }}>{icon}</span>
-                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{label}</span>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <button onClick={() => finish(true)} style={primaryBtn}>
-                See plans
-              </button>
-              <button onClick={() => finish(false)} style={ghostBtn}>
-                Stay on free plan
-              </button>
-            </div>
+            <button onClick={finish} style={primaryBtn}>
+              Go to my dashboard
+            </button>
           </div>
         )}
       </div>

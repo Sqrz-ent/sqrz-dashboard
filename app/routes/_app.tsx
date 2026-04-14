@@ -536,9 +536,9 @@ export default function AppLayout() {
         <OnboardingModal
           profileId={p.id as string}
           slug={p.slug as string}
-          initialFirstName={(p.first_name as string) ?? ""}
-          initialLastName={(p.last_name as string) ?? ""}
+          initialName={(p.name as string) ?? ""}
           initialAvatarUrl={(p.avatar_url as string) ?? ""}
+          initialEmail={(p.email as string) ?? ""}
           onComplete={() => setShowOnboarding(false)}
         />
       )}
