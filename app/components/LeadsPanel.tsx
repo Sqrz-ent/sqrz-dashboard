@@ -3,7 +3,6 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router";
 import { supabase } from "~/lib/supabase.client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -22,6 +21,9 @@ interface Conversation {
   id: string;
   status: string;
   created_at: string;
+  title: string | null;
+  service: string | null;
+  buyer_label: string | null;
   messages: ConvMessage[];
 }
 
@@ -38,6 +40,19 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getConvTitle(conv: Conversation): string {
+  if (conv.status === "lead") {
+    return conv.buyer_label ?? "Guest via chat";
+  }
+  if (conv.title && conv.title !== "Booking Request") {
+    return conv.title;
+  }
+  if (conv.service) {
+    return conv.service;
+  }
+  return "Booking request";
+}
 
 function timeAgo(dateStr: string): string {
   const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -251,62 +266,41 @@ function ConversationThread({
         </button>
       </div>
 
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid var(--border)" }}>
-        {isLead ? (
-          <>
-            <button
-              onClick={onConvert}
-              style={{
-                flex: 1,
-                padding: "8px 12px",
-                background: "#F5A623",
-                border: "none",
-                borderRadius: 8,
-                color: "#111",
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Convert to booking →
-            </button>
-            <button
-              onClick={onDecline}
-              style={{
-                padding: "8px 12px",
-                background: "none",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                color: "var(--text-muted)",
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              Decline
-            </button>
-          </>
-        ) : (
-          <Link
-            to={`/office/${conv.id}`}
+      {/* Actions — only shown for lead status */}
+      {isLead && (
+        <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid var(--border)" }}>
+          <button
+            onClick={onConvert}
             style={{
               flex: 1,
               padding: "8px 12px",
-              background: "rgba(245,166,35,0.1)",
-              border: "1px solid rgba(245,166,35,0.25)",
+              background: "#F5A623",
+              border: "none",
               borderRadius: 8,
-              color: "#F5A623",
+              color: "#111",
               fontSize: 12,
-              fontWeight: 600,
+              fontWeight: 700,
               cursor: "pointer",
-              textDecoration: "none",
-              textAlign: "center",
             }}
           >
-            Open in Office →
-          </Link>
-        )}
-      </div>
+            Convert to booking →
+          </button>
+          <button
+            onClick={onDecline}
+            style={{
+              padding: "8px 12px",
+              background: "none",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              color: "var(--text-muted)",
+              fontSize: 12,
+              cursor: "pointer",
+            }}
+          >
+            Decline
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -339,7 +333,7 @@ export default function LeadsPanel({
       // Step 1: fetch all bookings owned by this profile
       const { data: bookings } = await supabase
         .from("bookings")
-        .select("id, status, created_at")
+        .select("id, status, created_at, title, service")
         .eq("owner_id", profileId)
         .order("created_at", { ascending: false });
 
@@ -348,13 +342,29 @@ export default function LeadsPanel({
         return;
       }
 
-      // Step 2: fetch all messages for those bookings
       const bookingIds = (bookings as { id: string }[]).map((b) => b.id);
-      const { data: messages } = await supabase
-        .from("messages")
-        .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
-        .in("booking_id", bookingIds)
-        .order("created_at", { ascending: true });
+
+      // Step 2: fetch messages + buyer participants in parallel
+      const [{ data: messages }, { data: participants }] = await Promise.all([
+        supabase
+          .from("messages")
+          .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
+          .in("booking_id", bookingIds)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("booking_participants")
+          .select("booking_id, email")
+          .in("booking_id", bookingIds)
+          .eq("role", "buyer"),
+      ]);
+
+      // Build buyer label map (email + " via chat" for lead title display)
+      const buyerLabelMap: Record<string, string> = {};
+      for (const p of (participants ?? []) as { booking_id: string; email: string | null }[]) {
+        if (p.booking_id && p.email) {
+          buyerLabelMap[p.booking_id] = `${p.email} via chat`;
+        }
+      }
 
       // Group messages by booking_id
       const msgsByBooking: Record<string, ConvMessage[]> = {};
@@ -365,8 +375,9 @@ export default function LeadsPanel({
       }
 
       // Merge and sort by latest activity
-      const convs: Conversation[] = (bookings as Conversation[]).map((b) => ({
+      const convs: Conversation[] = (bookings as Array<{ id: string; status: string; created_at: string; title: string | null; service: string | null }>).map((b) => ({
         ...b,
+        buyer_label: buyerLabelMap[b.id] ?? null,
         messages: msgsByBooking[b.id] ?? [],
       }));
 
@@ -561,7 +572,7 @@ export default function LeadsPanel({
                             minWidth: 0,
                           }}
                         >
-                          Booking request
+                          {getConvTitle(conv)}
                         </p>
                         {unreadCount > 0 && (
                           <span
