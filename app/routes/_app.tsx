@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -124,6 +124,7 @@ export default function AppLayout() {
 
   const p = profile as Record<string, unknown> | null;
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
   const upgradeParam = searchParams.get("upgrade");
   const upgradeOpen = !!upgradeParam;
@@ -536,10 +537,10 @@ export default function AppLayout() {
         <OnboardingModal
           profileId={p.id as string}
           slug={p.slug as string}
-          initialName={(p.name as string) ?? ""}
+          initialFirstName={(p.first_name as string) ?? ""}
+          initialLastName={(p.last_name as string) ?? ""}
           initialAvatarUrl={(p.avatar_url as string) ?? ""}
-          initialEmail={(p.email as string) ?? ""}
-          onComplete={() => setShowOnboarding(false)}
+          onComplete={() => { setShowOnboarding(false); revalidator.revalidate(); }}
         />
       )}
 

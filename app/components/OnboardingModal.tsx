@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import { useFetcher } from "react-router";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -6,9 +7,9 @@ import { supabase as browserSupabase } from "~/lib/supabase.client";
 interface OnboardingModalProps {
   profileId: string;
   slug: string;
-  initialName?: string;
+  initialFirstName?: string;
+  initialLastName?: string;
   initialAvatarUrl?: string;
-  initialEmail?: string;
   onComplete: () => void;
 }
 
@@ -21,11 +22,7 @@ const TOTAL_STEPS = 4;
 
 const CURRENCIES = ["EUR", "USD", "GBP", "CHF", "SEK", "NOK", "DKK", "AUD", "CAD", "BRL", "MXN", "COP"];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
-
-function emailUsername(email: string): string {
-  return email.split("@")[0] ?? "";
-}
+// ─── Styles ───────────────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -33,11 +30,21 @@ const inputStyle: React.CSSProperties = {
   background: "var(--bg)",
   border: "1px solid var(--border)",
   borderRadius: 10,
-  fontSize: 15,
+  fontSize: 16, // 16px prevents iOS Safari zoom
   color: "var(--text)",
   outline: "none",
   boxSizing: "border-box",
   fontFamily: FONT_BODY,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: "var(--text-muted)",
+  textTransform: "uppercase",
+  letterSpacing: "0.07em",
+  display: "block",
+  marginBottom: 5,
 };
 
 const primaryBtn: React.CSSProperties = {
@@ -91,37 +98,49 @@ function ProgressDots({ step }: { step: number }) {
 export default function OnboardingModal({
   profileId,
   slug,
-  initialName = "",
+  initialFirstName = "",
+  initialLastName = "",
   initialAvatarUrl = "",
-  initialEmail = "",
   onComplete,
 }: OnboardingModalProps) {
   const [step, setStep] = useState(1);
   const [visible, setVisible] = useState(false);
 
-  // Step 1
-  const defaultName = initialName || emailUsername(initialEmail);
-  const [displayName, setDisplayName] = useState(defaultName);
+  // Step 1 — Name & Photo
+  const [firstName, setFirstName] = useState(initialFirstName);
+  const [lastName, setLastName] = useState(initialLastName);
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [nameError, setNameError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Step 2
+  // Step 2 — Password
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
 
-  // Step 3
+  // Step 3 — Service
+  const serviceFetcher = useFetcher<{ ok: boolean; error?: string }>();
   const [serviceTitle, setServiceTitle] = useState("");
-  const [isInstant, setIsInstant] = useState(false);
-  const [servicePrice, setServicePrice] = useState("");
+  const [priceOnRequest, setPriceOnRequest] = useState(false);
+  const [servicePriceMin, setServicePriceMin] = useState("");
+  const [servicePriceMax, setServicePriceMax] = useState("");
   const [serviceCurrency, setServiceCurrency] = useState("EUR");
   const [serviceDescription, setServiceDescription] = useState("");
-  const [serviceSaving, setServiceSaving] = useState(false);
   const [serviceError, setServiceError] = useState("");
+
+  // Advance to step 4 when fetcher completes
+  useEffect(() => {
+    if (serviceFetcher.state === "idle" && serviceFetcher.data) {
+      if (serviceFetcher.data.ok) {
+        setStep(4);
+      } else {
+        setServiceError(serviceFetcher.data.error ?? "Failed to save service. Please try again.");
+      }
+    }
+  }, [serviceFetcher.state, serviceFetcher.data]);
 
   // Fade in on mount
   useEffect(() => {
@@ -129,7 +148,7 @@ export default function OnboardingModal({
     return () => clearTimeout(t);
   }, []);
 
-  // Lock body scroll
+  // Lock body scroll (prevents iOS Safari background scroll)
   useEffect(() => {
     document.body.style.overflow = "hidden";
     document.body.style.position = "fixed";
@@ -151,7 +170,7 @@ export default function OnboardingModal({
     onComplete();
   }
 
-  // ── Step 1: avatar upload ────────────────────────────────────────────────
+  // ── Step 1: name + avatar ────────────────────────────────────────────────
 
   async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -165,11 +184,7 @@ export default function OnboardingModal({
     const { error: uploadError } = await browserSupabase.storage
       .from("profile-pictures")
       .upload(path, file, { upsert: true });
-    if (uploadError) {
-      setUploadStatus("Upload failed.");
-      setUploading(false);
-      return;
-    }
+    if (uploadError) { setUploadStatus("Upload failed."); setUploading(false); return; }
     const { data: urlData } = browserSupabase.storage.from("profile-pictures").getPublicUrl(path);
     const publicUrl = urlData.publicUrl;
     await browserSupabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", profileId);
@@ -180,18 +195,15 @@ export default function OnboardingModal({
   }
 
   async function submitStep1() {
-    if (!displayName.trim()) {
-      setNameError("Display name is required.");
-      return;
-    }
+    if (!firstName.trim()) { setNameError("First name is required."); return; }
     setNameError("");
-    const trimmed = displayName.trim();
-    const parts = trimmed.split(/\s+/);
-    const firstName = parts[0] ?? trimmed;
-    const lastName = parts.slice(1).join(" ") || "";
     await browserSupabase
       .from("profiles")
-      .update({ name: trimmed, first_name: firstName, last_name: lastName })
+      .update({
+        first_name: firstName.trim(),
+        last_name: lastName.trim(),
+        name: [firstName.trim(), lastName.trim()].filter(Boolean).join(" "),
+      })
       .eq("id", profileId);
     setStep(2);
   }
@@ -200,53 +212,32 @@ export default function OnboardingModal({
 
   async function submitPassword() {
     setPasswordError("");
-    if (password.length < 8) {
-      setPasswordError("Password must be at least 8 characters.");
-      return;
-    }
-    if (password !== confirmPassword) {
-      setPasswordError("Passwords don't match.");
-      return;
-    }
+    if (password.length < 8) { setPasswordError("Password must be at least 8 characters."); return; }
+    if (password !== confirmPassword) { setPasswordError("Passwords don't match."); return; }
     setPasswordSaving(true);
     const { error } = await browserSupabase.auth.updateUser({ password });
     setPasswordSaving(false);
-    if (error) {
-      setPasswordError(error.message);
-      return;
-    }
+    if (error) { setPasswordError(error.message); return; }
     setStep(3);
   }
 
-  // ── Step 3: first service ────────────────────────────────────────────────
+  // ── Step 3: first service (submits to /service action via fetcher) ────────
 
-  async function submitService() {
+  function submitService() {
     setServiceError("");
-    if (!serviceTitle.trim()) {
-      setServiceError("Service title is required.");
-      return;
+    if (!serviceTitle.trim()) { setServiceError("Service title is required."); return; }
+    const fd = new FormData();
+    fd.append("intent", "add_service");
+    fd.append("title", serviceTitle.trim());
+    fd.append("description", serviceDescription.trim());
+    fd.append("booking_type", "quote");
+    fd.append("price_on_request", String(priceOnRequest));
+    if (!priceOnRequest) {
+      fd.append("price_min", servicePriceMin);
+      fd.append("price_max", servicePriceMax);
+      fd.append("currency", serviceCurrency);
     }
-    if (isInstant && !servicePrice) {
-      setServiceError("Please enter a price for the fixed-price service.");
-      return;
-    }
-    setServiceSaving(true);
-    const { error } = await browserSupabase.from("profile_services").insert({
-      profile_id: profileId,
-      title: serviceTitle.trim(),
-      description: serviceDescription.trim() || null,
-      booking_type: isInstant ? "instant" : "quote",
-      instant_price: isInstant ? (parseFloat(servicePrice) || null) : null,
-      instant_currency: isInstant ? serviceCurrency : null,
-      is_active: true,
-      sort_order: 0,
-    });
-    setServiceSaving(false);
-    if (error) {
-      setServiceError("Failed to save service. Please try again.");
-      return;
-    }
-    setStep(4);
+    serviceFetcher.submit(fd, { method: "post", action: "/service" });
   }
 
   // ── Step 4: finish ───────────────────────────────────────────────────────
@@ -259,7 +250,7 @@ export default function OnboardingModal({
     onComplete();
   }
 
-  // ── Overlay wrapper ──────────────────────────────────────────────────────
+  // ── Overlay ──────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -297,20 +288,14 @@ export default function OnboardingModal({
           position: "relative",
         }}
       >
-        {/* Dismiss link */}
+        {/* Dismiss */}
         <button
           onClick={dismiss}
           style={{
-            position: "absolute",
-            top: 16,
-            right: 18,
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 12,
-            cursor: "pointer",
-            fontFamily: FONT_BODY,
-            padding: 0,
+            position: "absolute", top: 16, right: 18,
+            background: "none", border: "none",
+            color: "var(--text-muted)", fontSize: 12,
+            cursor: "pointer", fontFamily: FONT_BODY, padding: 0,
           }}
         >
           I&apos;ll do this later
@@ -332,41 +317,43 @@ export default function OnboardingModal({
               First, tell us who you are
             </p>
 
-            {/* Display name */}
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                Display name
-              </label>
-              <input
-                style={inputStyle}
-                value={displayName}
-                onChange={e => { setDisplayName(e.target.value); setNameError(""); }}
-                placeholder="Your name"
-                autoFocus
-                onKeyDown={e => e.key === "Enter" && submitStep1()}
-              />
-              {nameError && (
-                <p style={{ color: "#ef4444", fontSize: 12, margin: "6px 0 0" }}>{nameError}</p>
-              )}
+            {/* First + Last name */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 8 }}>
+              <div>
+                <label style={labelStyle}>First name</label>
+                <input
+                  style={inputStyle}
+                  value={firstName}
+                  onChange={e => { setFirstName(e.target.value); setNameError(""); }}
+                  placeholder="Jane"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Last name</label>
+                <input
+                  style={inputStyle}
+                  value={lastName}
+                  onChange={e => { setLastName(e.target.value); setNameError(""); }}
+                  placeholder="Smith"
+                  onKeyDown={e => e.key === "Enter" && submitStep1()}
+                />
+              </div>
             </div>
+            {nameError && (
+              <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{nameError}</p>
+            )}
 
             {/* Avatar */}
-            <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 24, marginTop: 16 }}>
               <div
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  width: 72,
-                  height: 72,
-                  borderRadius: "50%",
+                  width: 72, height: 72, borderRadius: "50%",
                   background: avatarUrl ? "transparent" : "var(--surface-muted)",
                   border: `2px solid ${avatarUrl ? ACCENT : "var(--border)"}`,
-                  cursor: "pointer",
-                  overflow: "hidden",
-                  flexShrink: 0,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 28,
+                  cursor: "pointer", overflow: "hidden", flexShrink: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
                 }}
               >
                 {avatarUrl
@@ -382,13 +369,9 @@ export default function OnboardingModal({
                     padding: "8px 16px",
                     background: "var(--surface-muted)",
                     border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--text)",
-                    cursor: uploading ? "not-allowed" : "pointer",
-                    fontFamily: FONT_BODY,
-                    opacity: uploading ? 0.6 : 1,
+                    borderRadius: 8, fontSize: 13, fontWeight: 600,
+                    color: "var(--text)", cursor: uploading ? "not-allowed" : "pointer",
+                    fontFamily: FONT_BODY, opacity: uploading ? 0.6 : 1,
                   }}
                 >
                   {uploading ? "Uploading…" : avatarUrl ? "Change photo" : "Add photo"}
@@ -396,13 +379,7 @@ export default function OnboardingModal({
                 <p style={{ margin: "5px 0 0", fontSize: 11, color: uploadStatus ? ACCENT : "var(--text-muted)" }}>
                   {uploadStatus || "Optional"}
                 </p>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  onChange={handleAvatarChange}
-                  style={{ display: "none" }}
-                />
+                <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
               </div>
             </div>
 
@@ -426,9 +403,7 @@ export default function OnboardingModal({
 
             <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                  Password
-                </label>
+                <label style={labelStyle}>Password</label>
                 <input
                   type="password"
                   style={inputStyle}
@@ -439,9 +414,7 @@ export default function OnboardingModal({
                 />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                  Confirm password
-                </label>
+                <label style={labelStyle}>Confirm password</label>
                 <input
                   type="password"
                   style={inputStyle}
@@ -460,9 +433,7 @@ export default function OnboardingModal({
               <button onClick={submitPassword} disabled={passwordSaving} style={{ ...primaryBtn, opacity: passwordSaving ? 0.7 : 1 }}>
                 {passwordSaving ? "Saving…" : "Set Password"}
               </button>
-              <button onClick={() => setStep(3)} style={ghostBtn}>
-                Skip for now
-              </button>
+              <button onClick={() => setStep(3)} style={ghostBtn}>Skip for now</button>
             </div>
           </div>
         )}
@@ -484,9 +455,7 @@ export default function OnboardingModal({
             <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
               {/* Title */}
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                  Service title
-                </label>
+                <label style={labelStyle}>Service title</label>
                 <input
                   style={inputStyle}
                   value={serviceTitle}
@@ -496,63 +465,40 @@ export default function OnboardingModal({
                 />
               </div>
 
-              {/* Booking type toggle */}
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>
-                  Pricing
-                </label>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {[
-                    { label: "Quote (I'll send a price)", value: false },
-                    { label: "Fixed price", value: true },
-                  ].map(({ label, value }) => (
-                    <button
-                      key={label}
-                      onClick={() => setIsInstant(value)}
-                      style={{
-                        flex: 1,
-                        padding: "9px 12px",
-                        borderRadius: 10,
-                        border: isInstant === value ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                        background: isInstant === value ? "rgba(245,166,35,0.12)" : "var(--surface-muted)",
-                        color: isInstant === value ? ACCENT : "var(--text-muted)",
-                        fontSize: 12,
-                        fontWeight: isInstant === value ? 700 : 500,
-                        cursor: "pointer",
-                        fontFamily: FONT_BODY,
-                        textAlign: "center",
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Price on request toggle */}
+              <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
+                <input
+                  type="checkbox"
+                  checked={priceOnRequest}
+                  onChange={e => setPriceOnRequest(e.target.checked)}
+                  style={{ width: 16, height: 16, accentColor: ACCENT }}
+                />
+                Price on request
+              </label>
 
-              {/* Fixed price fields */}
-              {isInstant && (
-                <div style={{ display: "flex", gap: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                      Price
-                    </label>
+              {/* Price range — hidden when price on request */}
+              {!priceOnRequest && (
+                <div>
+                  <label style={labelStyle}>Price range <span style={{ fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 90px", gap: 8 }}>
                     <input
                       type="number"
                       min="0"
-                      step="0.01"
                       style={inputStyle}
-                      value={servicePrice}
-                      onChange={e => { setServicePrice(e.target.value); setServiceError(""); }}
-                      placeholder="0.00"
+                      value={servicePriceMin}
+                      onChange={e => setServicePriceMin(e.target.value)}
+                      placeholder="Min"
                     />
-                  </div>
-                  <div style={{ width: 100 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
-                      Currency
-                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      style={inputStyle}
+                      value={servicePriceMax}
+                      onChange={e => setServicePriceMax(e.target.value)}
+                      placeholder="Max"
+                    />
                     <select
-                      style={{ ...inputStyle, padding: "12px 10px" }}
+                      style={{ ...inputStyle, padding: "12px 8px" }}
                       value={serviceCurrency}
                       onChange={e => setServiceCurrency(e.target.value)}
                     >
@@ -564,7 +510,7 @@ export default function OnboardingModal({
 
               {/* Description */}
               <div>
-                <label style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5 }}>
+                <label style={labelStyle}>
                   Description <span style={{ fontWeight: 400, textTransform: "none" }}>(optional)</span>
                 </label>
                 <textarea
@@ -585,12 +531,14 @@ export default function OnboardingModal({
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-              <button onClick={submitService} disabled={serviceSaving} style={{ ...primaryBtn, opacity: serviceSaving ? 0.7 : 1 }}>
-                {serviceSaving ? "Saving…" : "Add Service"}
+              <button
+                onClick={submitService}
+                disabled={serviceFetcher.state !== "idle"}
+                style={{ ...primaryBtn, opacity: serviceFetcher.state !== "idle" ? 0.7 : 1 }}
+              >
+                {serviceFetcher.state !== "idle" ? "Saving…" : "Add Service"}
               </button>
-              <button onClick={() => setStep(4)} style={ghostBtn}>
-                Skip for now
-              </button>
+              <button onClick={() => setStep(4)} style={ghostBtn}>Skip for now</button>
             </div>
           </div>
         )}
@@ -609,7 +557,6 @@ export default function OnboardingModal({
               Your page is live. Share it with the world.
             </p>
 
-            {/* URL display */}
             <div style={{
               background: "var(--bg)",
               border: `1.5px solid ${ACCENT}`,
@@ -629,24 +576,16 @@ export default function OnboardingModal({
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
-                  padding: "8px 16px",
-                  background: ACCENT,
-                  color: "#111",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  textDecoration: "none",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
+                  padding: "8px 16px", background: ACCENT, color: "#111",
+                  borderRadius: 8, fontSize: 13, fontWeight: 700,
+                  textDecoration: "none", whiteSpace: "nowrap", flexShrink: 0,
                 }}
               >
                 Open →
               </a>
             </div>
 
-            <button onClick={finish} style={primaryBtn}>
-              Go to my dashboard
-            </button>
+            <button onClick={finish} style={primaryBtn}>Go to my dashboard</button>
           </div>
         )}
       </div>
