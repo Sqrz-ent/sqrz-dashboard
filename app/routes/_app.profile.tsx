@@ -183,6 +183,7 @@ export async function action({ request }: Route.ActionArgs) {
     const lastName = formData.get("last_name") as string;
     const name = [firstName, lastName].filter(Boolean).join(" ").trim();
     const { error } = await supabase.from("profiles").update({
+      brand_name: (formData.get("brand_name") as string) || null,
       first_name: firstName,
       last_name: lastName,
       name: name || null,
@@ -541,7 +542,7 @@ export default function ProfilePage() {
   }
 
   // Completion counts
-  const basicFilled = [profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
+  const basicFilled = [profile.brand_name, profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
   const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
   const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud].filter(Boolean).length;
   const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
@@ -599,18 +600,27 @@ export default function ProfilePage() {
 
       {/* Section 1: Basic Info */}
       <div style={card}>
-        <CompletionBadge filled={basicFilled} total={4} />
+        <CompletionBadge filled={basicFilled} total={5} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Basic Info</h2>
         <basicFetcher.Form method="post">
           <input type="hidden" name="intent" value="update_basic" />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
-            <div>
-              <label style={labelStyle}>First Name</label>
-              <input name="first_name" defaultValue={(profile.first_name as string) ?? ""} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Last Name</label>
-              <input name="last_name" defaultValue={(profile.last_name as string) ?? ""} style={inputStyle} />
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Brand name / Stage name</label>
+            <input
+              name="brand_name"
+              defaultValue={(profile.brand_name as string) ?? ""}
+              style={inputStyle}
+              placeholder="e.g. DJ Bongo, Will Villa, Locura Sound"
+            />
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0", fontFamily: "inherit" }}>
+              This is your public name — how you appear on your profile
+            </p>
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={labelStyle}>Legal name (for invoicing)</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <input name="first_name" defaultValue={(profile.first_name as string) ?? ""} style={inputStyle} placeholder="First name" />
+              <input name="last_name" defaultValue={(profile.last_name as string) ?? ""} style={inputStyle} placeholder="Last name" />
             </div>
           </div>
           <div style={{ marginBottom: 12 }}>
