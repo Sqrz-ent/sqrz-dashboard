@@ -231,21 +231,19 @@ export default function OnboardingModal({
       return;
     }
     setServiceSaving(true);
-    const res = await fetch("/api/onboarding/service", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: serviceTitle.trim(),
-        description: serviceDescription.trim() || null,
-        booking_type: isInstant ? "instant" : "quote",
-        instant_price: isInstant ? servicePrice : null,
-        instant_currency: isInstant ? serviceCurrency : null,
-      }),
+    const { error } = await browserSupabase.from("profile_services").insert({
+      profile_id: profileId,
+      title: serviceTitle.trim(),
+      description: serviceDescription.trim() || null,
+      booking_type: isInstant ? "instant" : "quote",
+      instant_price: isInstant ? (parseFloat(servicePrice) || null) : null,
+      instant_currency: isInstant ? serviceCurrency : null,
+      is_active: true,
+      sort_order: 0,
     });
-    const json = await res.json() as { ok?: boolean; error?: string };
     setServiceSaving(false);
-    if (!res.ok || json.error) {
-      setServiceError(json.error ?? "Failed to save service. Please try again.");
+    if (error) {
+      setServiceError("Failed to save service. Please try again.");
       return;
     }
     setStep(4);
