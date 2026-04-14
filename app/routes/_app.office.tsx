@@ -16,7 +16,17 @@ type Booking = {
   date_end: string | null;
   city: string | null;
   venue: string | null;
-  myRole: "owner" | "buyer";
+};
+
+type BuyerBooking = {
+  id: string;
+  title: string | null;
+  service: string | null;
+  status: string;
+  date_start: string | null;
+  created_at: string | null;
+  owner_name: string;
+  invite_token: string | null;
 };
 
 type Service = {
@@ -84,7 +94,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const admin = createSupabaseAdminClient();
 
   const [
-    { data: ownerBookings, error: ownerError },
+    { data: ownerBookingsRaw },
     { data: participantRows },
     { data: services },
   ] = await Promise.all([
@@ -95,7 +105,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .order("created_at", { ascending: false }),
     admin
       .from("booking_participants")
-      .select("bookings(id, title, service, status, date_start, date_end, city, venue)")
+      .select("invite_token, bookings(id, title, service, status, date_start, date_end, created_at, owner_id)")
       .eq("user_id", user.id)
       .eq("role", "buyer"),
     admin
@@ -106,20 +116,62 @@ export async function loader({ request }: Route.LoaderArgs) {
       .order("sort_order"),
   ]);
 
-  console.log("[office] owner bookings error:", ownerError);
-  console.log("[office] owner bookings count:", ownerBookings?.length);
+  const ownerBookings: Booking[] = ownerBookingsRaw ?? [];
 
-  const ownerSet: Booking[] = (ownerBookings ?? []).map((b) => ({ ...b, myRole: "owner" as const }));
+  type RawBooking = {
+    id: string;
+    title: string | null;
+    service: string | null;
+    status: string;
+    date_start: string | null;
+    date_end: string | null;
+    created_at: string | null;
+    owner_id: string;
+  };
 
-  const buyerSet: Booking[] = (participantRows ?? [])
-    .map((row) => (row.bookings as unknown) as Booking | null)
-    .filter((b): b is Booking => !!b && !["archived"].includes(b.status))
-    .map((b) => ({ ...b, myRole: "buyer" as const }));
+  // Build buyer bookings — exclude archived, exclude any where user is also the owner
+  const ownerIdSet = new Set(ownerBookings.map((b) => b.id));
+  const buyerRows = (participantRows ?? [])
+    .map((row) => ({
+      invite_token: row.invite_token as string | null,
+      booking: row.bookings as unknown as RawBooking | null,
+    }))
+    .filter((r): r is { invite_token: string | null; booking: RawBooking } =>
+      !!r.booking && !Array.isArray(r.booking) && !["archived"].includes(r.booking.status) && !ownerIdSet.has(r.booking.id)
+    );
 
-  const ownerIds = new Set(ownerSet.map((b) => b.id));
-  const merged = [...ownerSet, ...buyerSet.filter((b) => !ownerIds.has(b.id))];
+  // Fetch owner profile names
+  const ownerIds = [...new Set(buyerRows.map((r) => r.booking.owner_id).filter(Boolean))];
+  let ownerNameMap: Record<string, string> = {};
+  if (ownerIds.length > 0) {
+    const { data: ownerProfiles } = await admin
+      .from("profiles")
+      .select("id, name, brand_name, first_name, last_name")
+      .in("id", ownerIds);
+    for (const p of ownerProfiles ?? []) {
+      ownerNameMap[p.id] =
+        p.brand_name ||
+        p.name ||
+        [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+        "Unknown";
+    }
+  }
 
-  return Response.json({ bookings: merged, services: services ?? [] }, { headers });
+  const buyerBookings: BuyerBooking[] = buyerRows.map((r) => ({
+    id: r.booking.id,
+    title: r.booking.title,
+    service: r.booking.service,
+    status: r.booking.status,
+    date_start: r.booking.date_start,
+    created_at: r.booking.created_at,
+    owner_name: ownerNameMap[r.booking.owner_id] ?? "Unknown",
+    invite_token: r.invite_token,
+  }));
+
+  return Response.json(
+    { ownerBookings, buyerBookings, services: services ?? [] },
+    { headers }
+  );
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -210,30 +262,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ─── Role badge ───────────────────────────────────────────────────────────────
-
-function RoleBadge({ role }: { role: "owner" | "buyer" }) {
-  const isOwner = role === "owner";
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        padding: "2px 7px",
-        borderRadius: 5,
-        fontSize: 10,
-        fontWeight: 600,
-        letterSpacing: "0.04em",
-        background: isOwner ? "rgba(245,166,35,0.15)" : "rgba(136,136,136,0.15)",
-        color: isOwner ? "#F5A623" : "var(--text-muted)",
-        textTransform: "uppercase",
-      }}
-    >
-      {isOwner ? "Booked" : "Requested"}
-    </span>
-  );
-}
-
-// ─── Booking card ─────────────────────────────────────────────────────────────
+// ─── Booking card (My Bookings kanban) ────────────────────────────────────────
 
 function BookingCard({ booking }: { booking: Booking }) {
   return (
@@ -269,10 +298,47 @@ function BookingCard({ booking }: { booking: Booking }) {
       <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 10px" }}>
         {formatDate(booking.date_start)}
       </p>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <StatusBadge status={booking.status} />
-        <RoleBadge role={booking.myRole} />
+      <StatusBadge status={booking.status} />
+    </a>
+  );
+}
+
+// ─── My Requests row ──────────────────────────────────────────────────────────
+
+function MyRequestRow({ booking }: { booking: BuyerBooking }) {
+  const href = booking.invite_token
+    ? `/booking/${booking.id}?token=${booking.invite_token}`
+    : `/booking/${booking.id}`;
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 16px",
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        textDecoration: "none",
+        marginBottom: 8,
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {booking.title ?? booking.service ?? "Untitled"}
+        </p>
+        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "2px 0 0" }}>
+          {booking.owner_name}
+        </p>
       </div>
+      <StatusBadge status={booking.status} />
+      <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
+        {formatDate(booking.date_start)}
+      </span>
     </a>
   );
 }
@@ -643,14 +709,17 @@ function NewBookingModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OfficePage() {
-  const { bookings, services } = useLoaderData<typeof loader>() as { bookings: Booking[]; services: Service[] };
+  const { ownerBookings, buyerBookings, services } = useLoaderData<typeof loader>() as {
+    ownerBookings: Booking[];
+    buyerBookings: BuyerBooking[];
+    services: Service[];
+  };
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   function handleSuccess(clientEmail: string) {
     setToast(`Booking created — link sent to ${clientEmail}`);
     setTimeout(() => setToast(null), 5000);
-    // Refresh the kanban by navigating to self
     window.location.reload();
   }
 
@@ -709,7 +778,7 @@ export default function OfficePage() {
         </button>
       </div>
 
-      {/* Kanban board */}
+      {/* ─── SECTION 1: My Bookings (kanban) ─────────────────────────────────── */}
       <div
         style={{
           display: "flex",
@@ -720,7 +789,7 @@ export default function OfficePage() {
         }}
       >
         {COLUMNS.map((col) => {
-          const colBookings = bookings.filter((b) => b.status === col.key);
+          const colBookings = ownerBookings.filter((b) => b.status === col.key);
           return (
             <div
               key={col.key}
@@ -791,6 +860,31 @@ export default function OfficePage() {
           );
         })}
       </div>
+
+      {/* ─── SECTION 2: My Requests (list, only if any) ───────────────────────── */}
+      {buyerBookings.length > 0 && (
+        <div style={{ marginTop: 40 }}>
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              paddingTop: 28,
+              marginBottom: 16,
+            }}
+          >
+            <h2 style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 2px" }}>
+              My Requests
+            </h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+              Bookings you've made with other creators
+            </p>
+          </div>
+          <div style={{ maxWidth: 600 }}>
+            {buyerBookings.map((booking) => (
+              <MyRequestRow key={booking.id} booking={booking} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <NewBookingModal
         isOpen={modalOpen}
