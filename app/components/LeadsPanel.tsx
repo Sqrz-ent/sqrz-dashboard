@@ -552,17 +552,18 @@ export default function LeadsPanel({
         style={{
           position: "fixed",
           top: 0,
-          right: open ? 0 : -420,
-          width: 380,
+          left: 0,
+          width: 420,
           height: "100vh",
           background: "var(--surface)",
-          borderLeft: "1px solid var(--border)",
-          boxShadow: "-12px 0 48px rgba(0,0,0,0.55)",
+          borderRight: "1px solid var(--border)",
+          boxShadow: "12px 0 48px rgba(0,0,0,0.55)",
           zIndex: 9991,
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
-          transition: "right 0.25s cubic-bezier(0.25,0.8,0.25,1)",
+          transform: open ? "translateX(0)" : "translateX(-100%)",
+          transition: "transform 0.25s cubic-bezier(0.25,0.8,0.25,1)",
           fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
         }}
       >
@@ -827,13 +828,15 @@ export default function LeadsPanel({
         @media (max-width: 480px) {
           .sqrz-msgs-panel {
             top: auto !important;
-            bottom: ${open ? "0" : "-100%"} !important;
-            right: 0 !important;
-            width: 100% !important;
+            left: 0 !important;
+            bottom: 0 !important;
+            width: 100vw !important;
             height: 85vh !important;
-            border-left: none !important;
+            border-right: none !important;
             border-top: 1px solid var(--border) !important;
             border-radius: 16px 16px 0 0 !important;
+            transform: ${open ? "translateY(0)" : "translateY(100%)"} !important;
+            transition: transform 0.25s cubic-bezier(0.25,0.8,0.25,1) !important;
           }
         }
       `}</style>
