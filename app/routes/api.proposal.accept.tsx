@@ -22,10 +22,10 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 2. Get proposal details including line_items
+  // 2. Get proposal details including line_items and tax_pct
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("rate, currency, requires_payment, booking_id, line_items, bookings(title, owner_id, profiles(name))")
+    .select("rate, currency, requires_payment, booking_id, line_items, tax_pct, bookings(title, owner_id, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -50,9 +50,12 @@ export async function action({ request }: { request: Request }) {
   const connectId: string | null = ownerProfile?.stripe_connect_id ?? null;
 
   // Amount calculations (in cents)
+  // net = what member quoted; SQRZ fee on net only; tax added on top
   const rate = proposal.rate;
-  const feeAmount = Math.round(rate * feePct / 100 * 100);
-  const totalAmount = Math.round(rate * 100) + feeAmount;
+  const taxPct: number = (proposal.tax_pct as number | null) ?? 0;
+  const taxAmount = Math.round(rate * taxPct / 100 * 100);
+  const feeAmount = Math.round(rate * feePct / 100 * 100);  // fee on net, not on net+tax
+  const totalAmount = Math.round(rate * 100) + taxAmount + feeAmount;
 
   console.log("[accept] requires_payment:", proposal.requires_payment, "feePct:", feePct, "rate:", rate, "total:", totalAmount / 100, "connectId:", connectId);
 
@@ -90,6 +93,7 @@ export async function action({ request }: { request: Request }) {
         owner_profile_id: bk.owner_id,
         rate: rate.toString(),
         fee_pct: feePct.toString(),
+        tax_pct: taxPct.toString(),
       },
       customer_email: participant.email,
     });

@@ -45,6 +45,16 @@ type Proposal = {
   parent_proposal_id?: string | null;
   requires_payment?: boolean | null;
   line_items?: LineItem[] | null;
+  tax_pct?: number | null;
+} | null;
+
+type MemberInfo = {
+  name: string | null;
+  company_name: string | null;
+  legal_form: string | null;
+  vat_id: string | null;
+  company_address: string | null;
+  responsible_person: string | null;
 } | null;
 
 
@@ -120,12 +130,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
       admin
         .from("profiles")
-        .select("plan_id, email, plans(booking_fee_pct)")
+        .select("plan_id, email, name, brand_name, company_name, legal_form, vat_id, company_address, responsible_person, plans(booking_fee_pct)")
         .eq("id", booking.owner_id)
         .maybeSingle(),
     ]);
     const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
     const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
+    const memberInfo: MemberInfo = ownerPlan ? {
+      name: (ownerPlan.brand_name as string | null) ?? (ownerPlan.name as string | null) ?? null,
+      company_name: (ownerPlan.company_name as string | null) ?? null,
+      legal_form: (ownerPlan.legal_form as string | null) ?? null,
+      vat_id: (ownerPlan.vat_id as string | null) ?? null,
+      company_address: (ownerPlan.company_address as string | null) ?? null,
+      responsible_person: (ownerPlan.responsible_person as string | null) ?? null,
+    } : null;
 
     let wallet: WalletData | null = null;
     if (isOwner) {
@@ -186,6 +204,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         planId: (profile?.plan_id as number | null) ?? null,
         isBeta: (profile?.is_beta as boolean) ?? false,
         proposalFeePct,
+        memberInfo,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
         memberEmail: (ownerPlan?.email as string | null) ?? null,
@@ -221,12 +240,20 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
       admin
         .from("profiles")
-        .select("plan_id, email, plans(booking_fee_pct)")
+        .select("plan_id, email, name, brand_name, company_name, legal_form, vat_id, company_address, responsible_person, plans(booking_fee_pct)")
         .eq("id", (booking as any).owner_id)
         .maybeSingle(),
     ]);
     const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
     const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
+    const memberInfoToken: MemberInfo = ownerPlan ? {
+      name: (ownerPlan.brand_name as string | null) ?? (ownerPlan.name as string | null) ?? null,
+      company_name: (ownerPlan.company_name as string | null) ?? null,
+      legal_form: (ownerPlan.legal_form as string | null) ?? null,
+      vat_id: (ownerPlan.vat_id as string | null) ?? null,
+      company_address: (ownerPlan.company_address as string | null) ?? null,
+      responsible_person: (ownerPlan.responsible_person as string | null) ?? null,
+    } : null;
 
     // Sender name: use participant name field; fall back to email prefix (no domain)
     const senderName = (tokenRow.name as string | null) ||
@@ -244,6 +271,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         bookingToken: token,
         wallet: tokenWallet ?? null,
         proposalFeePct,
+        memberInfo: memberInfoToken,
         profileId: null,
         planId: null,
         isBeta: false,
@@ -317,6 +345,31 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .sort((a: any, b: any) => ((b.version ?? 0) - (a.version ?? 0)));
     const proposal = sortedProposals[0] ?? null;
 
+    // Fetch owner's plan + business info (for non-owner participants; owner uses their own profile)
+    let sessionProposalFeePct: number | null = null;
+    let sessionMemberInfo: MemberInfo = null;
+    let sessionMemberEmail: string | null = null;
+    if (!isOwner || true) {
+      // Always fetch — member wants to see their own biz info too
+      const ownerId = isOwner ? profile!.id : booking.owner_id;
+      const { data: ownerPlanSess } = await admin
+        .from("profiles")
+        .select("plan_id, email, name, brand_name, company_name, legal_form, vat_id, company_address, responsible_person, plans(booking_fee_pct)")
+        .eq("id", ownerId)
+        .maybeSingle();
+      const ownerPlanIdSess = (ownerPlanSess?.plan_id as number | null) ?? null;
+      sessionProposalFeePct = ownerPlanIdSess === null ? 0 : ((ownerPlanSess?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
+      sessionMemberEmail = (ownerPlanSess?.email as string | null) ?? null;
+      sessionMemberInfo = ownerPlanSess ? {
+        name: (ownerPlanSess.brand_name as string | null) ?? (ownerPlanSess.name as string | null) ?? null,
+        company_name: (ownerPlanSess.company_name as string | null) ?? null,
+        legal_form: (ownerPlanSess.legal_form as string | null) ?? null,
+        vat_id: (ownerPlanSess.vat_id as string | null) ?? null,
+        company_address: (ownerPlanSess.company_address as string | null) ?? null,
+        responsible_person: (ownerPlanSess.responsible_person as string | null) ?? null,
+      } : null;
+    }
+
     return Response.json(
       {
         accessType: "authenticated",
@@ -331,6 +384,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         profileId: (profile?.id as string) ?? null,
         planId: (profile?.plan_id as number | null) ?? null,
         isBeta: (profile?.is_beta as boolean) ?? false,
+        proposalFeePct: sessionProposalFeePct,
+        memberInfo: sessionMemberInfo,
+        memberEmail: sessionMemberEmail,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
       },
@@ -417,6 +473,8 @@ export async function action({ request, params }: Route.ActionArgs) {
     const requiresPayment = formData.get("requires_payment") === "true";
     const existingProposalId = (formData.get("existing_proposal_id") as string) || null;
     const lineItemsRaw = (formData.get("line_items") as string) || null;
+    const taxPctRaw = formData.get("tax_pct") as string | null;
+    const taxPct = taxPctRaw ? (parseFloat(taxPctRaw) || null) : null;
 
     let lineItems: LineItem[] | null = null;
     const rate = rateRaw;
@@ -472,6 +530,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         version: newVersion,
         parent_proposal_id: parentProposalId,
         line_items: lineItems ?? null,
+        tax_pct: taxPct,
       })
       .select();
 
@@ -875,7 +934,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 // ─── Member view sections ─────────────────────────────────────────────────────
 
-function DetailsSection({ booking }: { booking: Booking }) {
+function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?: MemberInfo }) {
   const b = booking;
 
   return (
@@ -970,6 +1029,26 @@ function DetailsSection({ booking }: { booking: Booking }) {
           </p>
         </div>
       )}
+
+      {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
+        <div style={card}>
+          <p style={lbl}>Seller Information</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {(memberInfo.company_name || memberInfo.name) && (
+              <p style={{ ...val, fontWeight: 600 }}>{memberInfo.company_name ?? memberInfo.name}</p>
+            )}
+            {memberInfo.legal_form && (
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.legal_form}</p>
+            )}
+            {memberInfo.company_address && (
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.company_address}</p>
+            )}
+            {memberInfo.vat_id && (
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>VAT: {memberInfo.vat_id}</p>
+            )}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -1008,6 +1087,9 @@ function ProposalSection({
     require_food: latestProposal?.require_food ?? false,
     requires_payment: latestProposal?.requires_payment ?? (planLevel >= 1 && !!stripeConnectId),
   });
+
+  const [taxEnabled, setTaxEnabled] = useState(!!(latestProposal?.tax_pct));
+  const [taxPct, setTaxPct] = useState(String(latestProposal?.tax_pct ?? ""));
 
   const [lineItems, setLineItems] = useState<LineItem[]>(() => {
     const existing = latestProposal?.line_items;
@@ -1172,6 +1254,38 @@ function ProposalSection({
                 </div>
               </div>
 
+              {/* Tax toggle */}
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taxEnabled ? 10 : 0 }}>
+                  <input
+                    type="checkbox"
+                    checked={taxEnabled}
+                    onChange={(e) => {
+                      setTaxEnabled(e.target.checked);
+                      if (!e.target.checked) setTaxPct("");
+                    }}
+                    style={{ accentColor: ACCENT, width: 15, height: 15 }}
+                  />
+                  <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: FONT_BODY }}>Add Tax</span>
+                </label>
+                {taxEnabled && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 23 }}>
+                    <p style={{ ...lbl, marginBottom: 0, whiteSpace: "nowrap" }}>Tax rate</p>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="any"
+                      style={{ ...inputStyle, width: 80, padding: "8px 10px", textAlign: "right" as const }}
+                      value={taxPct}
+                      onChange={(e) => setTaxPct(e.target.value)}
+                      placeholder="e.g. 19"
+                    />
+                    <span style={{ fontSize: 13, color: "var(--text-muted)" }}>%</span>
+                  </div>
+                )}
+              </div>
+
               <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 14px", lineHeight: 1.5 }}>
                 Enter the flat fee. Use the breakdown below to show how the budget is allocated — for transparency only.
               </p>
@@ -1274,10 +1388,53 @@ function ProposalSection({
                 )}
               </div>
 
-              {/* Tax & fee disclaimer */}
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 16px", fontStyle: "italic", lineHeight: 1.55 }}>
-                Enter your net rate excluding any applicable taxes. You are responsible for invoicing and local tax compliance (e.g. Umsatzsteuer in Germany). SQRZ fees apply to the total amount entered.
-              </p>
+              {/* Fee preview */}
+              {form.rate && parseFloat(form.rate) > 0 && (
+                (() => {
+                  const net = parseFloat(form.rate) || 0;
+                  const taxRate = taxEnabled ? (parseFloat(taxPct) || 0) : 0;
+                  const taxAmt = Math.round(net * taxRate / 100 * 100) / 100;
+                  const symLive = currencySym(form.currency);
+                  // We don't know feePct here (server side), use a placeholder if not available
+                  // We'll show the breakdown with SQRZ fee only if we have a plan level >= 1
+                  const feeAmt = canUseStripe ? Math.round(net * 8 / 100 * 100) / 100 : 0;
+                  const bookerPays = Math.round((net + taxAmt + feeAmt) * 100) / 100;
+                  const youReceive = Math.round((net - feeAmt) * 100) / 100;
+                  return (
+                    <div style={{ marginBottom: 16, padding: "12px 14px", background: "var(--bg)", borderRadius: 8 }}>
+                      <p style={{ ...lbl, marginBottom: 8 }}>Fee Preview</p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Total budget (net)</span>
+                          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{symLive}{net.toLocaleString()}</span>
+                        </div>
+                        {taxAmt > 0 && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>VAT ({taxRate}%)</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{taxAmt.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {canUseStripe && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>SQRZ fee (8% of net)</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{feeAmt.toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 5 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{bookerPays.toLocaleString()}</span>
+                        </div>
+                        {canUseStripe && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>You receive (before Stripe fees)</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{youReceive.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()
+              )}
 
               {/* Message */}
               <div style={{ marginBottom: 16 }}>
@@ -1363,6 +1520,7 @@ function ProposalSection({
                     fd.append("require_food", String(form.require_food));
                     fd.append("requires_payment", String(form.requires_payment));
                     fd.append("line_items", JSON.stringify(lineItems.filter((i) => i.label && i.amount > 0)));
+                    if (taxEnabled && taxPct) fd.append("tax_pct", taxPct);
                     if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
                     fetcher.submit(fd, { method: "post" });
                   }}
@@ -1741,8 +1899,12 @@ function GuestBuyerProposalCard({
 
   // Fee: prefer wallet-locked pct (post-payment), then plan pct (pre-payment)
   const feePct: number | null = walletFeePct ?? proposalFeePct ?? null;
-  const sqrzFee = feePct != null ? Math.round((proposal.rate ?? 0) * (feePct / 100) * 100) / 100 : null;
-  const totalCharged = sqrzFee != null ? Math.round(((proposal.rate ?? 0) + sqrzFee) * 100) / 100 : null;
+  const net = proposal.rate ?? 0;
+  const taxRate = proposal.tax_pct ?? 0;
+  const taxAmt = taxRate > 0 ? Math.round(net * taxRate / 100 * 100) / 100 : 0;
+  // SQRZ fee is calculated on NET only (before tax)
+  const sqrzFee = feePct != null ? Math.round(net * (feePct / 100) * 100) / 100 : null;
+  const totalCharged = sqrzFee != null ? Math.round((net + taxAmt + sqrzFee) * 100) / 100 : null;
 
   const proposalLineItems = proposal.line_items ?? [];
   const hasBreakdown = proposalLineItems.length > 0;
@@ -1843,20 +2005,49 @@ function GuestBuyerProposalCard({
 
       {/* Proposal details card */}
       <div style={card}>
-        {/* FIX 1: Total rate (renamed from "Artist rate") */}
+        {/* Rate breakdown */}
         {proposal.rate != null && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-            <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Total rate</span>
-            <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
-              {sym}{proposal.rate.toLocaleString()}
-              <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-muted)", marginLeft: 5 }}>{proposal.currency ?? "EUR"}</span>
-            </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Your rate (net)</span>
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
+                {sym}{net.toLocaleString()}
+                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-muted)", marginLeft: 5 }}>{proposal.currency ?? "EUR"}</span>
+              </span>
+            </div>
+
+            {taxAmt > 0 && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>VAT ({taxRate}%)</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{taxAmt.toLocaleString()}</span>
+              </div>
+            )}
+
+            {proposal.requires_payment && feePct != null && feePct > 0 && sqrzFee != null && (
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}% of net)</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
+              </div>
+            )}
+
+            {proposal.requires_payment && totalCharged != null && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 4px" }}>
+                <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
+                <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
+              </div>
+            )}
           </div>
         )}
 
-        {/* FIX 2: Breakdown first, then platform fee */}
+        {proposal.requires_payment && (
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 4px", lineHeight: 1.55 }}>
+            Stripe payment processing fees (typically 1.5–3%) are deducted from the payout and may vary by card type and country.
+          </p>
+        )}
+
+        {/* Optional breakdown (for transparency) */}
         {hasBreakdown && (
-          <div style={{ marginTop: 12, paddingBottom: 4 }}>
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)", paddingBottom: 4 }}>
             <p style={{ ...guestMetaLabel, marginBottom: 8 }}>Breakdown (for transparency)</p>
             {proposalLineItems.map((item, idx) => (
               <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
@@ -1864,21 +2055,6 @@ function GuestBuyerProposalCard({
                 <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{sym}{(item.amount || 0).toLocaleString()}</span>
               </div>
             ))}
-          </div>
-        )}
-
-        {/* Platform fee section — only for Stripe-enabled proposals with a real fee */}
-        {proposal.rate != null && proposal.requires_payment && feePct != null && feePct > 0 && sqrzFee != null && totalCharged != null && (
-          <div style={{ marginTop: 12 }}>
-            <p style={{ ...guestMetaLabel, marginBottom: 8 }}>Platform fee</p>
-            <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
-              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 4px" }}>
-              <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
-              <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
-            </div>
           </div>
         )}
 
@@ -1944,8 +2120,8 @@ function GuestBuyerProposalCard({
                 ? totalCharged != null
                   ? `Accept & Pay ${sym}${totalCharged.toLocaleString()}`
                   : "Accept & Pay"
-                : proposal.rate != null
-                  ? `Accept — ${sym}${(proposal.rate as number).toLocaleString()} ${proposal.currency ?? "EUR"}`
+                : net > 0
+                  ? `Accept — ${sym}${net.toLocaleString()} ${proposal.currency ?? "EUR"}`
                   : "Accept"}
           </button>
 
@@ -2178,6 +2354,7 @@ function MemberView({
   userEmail,
   senderName,
   stripeConnectId,
+  memberInfo,
 }: {
   booking: Booking;
   wallet: WalletData | null;
@@ -2185,6 +2362,7 @@ function MemberView({
   userEmail: string;
   senderName: string | null;
   stripeConnectId: string | null;
+  memberInfo?: MemberInfo;
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
@@ -2281,7 +2459,7 @@ function MemberView({
           </div>
         </div>
 
-        <DetailsSection booking={b} />
+        <DetailsSection booking={b} memberInfo={memberInfo} />
 
         {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} />}
 
@@ -2357,6 +2535,7 @@ export default function BookingAccessPage() {
     planId,
     isBeta,
     proposalFeePct,
+    memberInfo,
     stripeConnectId,
     senderName,
     memberEmail,
@@ -2372,6 +2551,7 @@ export default function BookingAccessPage() {
     planId: number | null;
     isBeta: boolean;
     proposalFeePct?: number | null;
+    memberInfo?: MemberInfo;
     stripeConnectId?: string | null;
     senderName: string | null;
     memberEmail?: string | null;
@@ -2392,6 +2572,7 @@ export default function BookingAccessPage() {
           userEmail={userEmail}
           senderName={senderName}
           stripeConnectId={stripeConnectId ?? null}
+          memberInfo={memberInfo}
         />
       </div>
     );
@@ -2445,6 +2626,27 @@ export default function BookingAccessPage() {
 
             {/* 2. Booking details card */}
             <GuestDetailsCard b={b} />
+
+            {/* Seller Information */}
+            {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
+              <div style={{ ...card, marginTop: 8 }}>
+                <p style={guestMetaLabel}>Seller Information</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
+                  {(memberInfo.company_name || memberInfo.name) && (
+                    <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>{memberInfo.company_name ?? memberInfo.name}</p>
+                  )}
+                  {memberInfo.legal_form && (
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.legal_form}</p>
+                  )}
+                  {memberInfo.company_address && (
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.company_address}</p>
+                  )}
+                  {memberInfo.vat_id && (
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>VAT: {memberInfo.vat_id}</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* 3. Fee details + actions (buyer) */}
             {isBuyer && proposal && (
