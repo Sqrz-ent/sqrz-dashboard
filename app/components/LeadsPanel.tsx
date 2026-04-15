@@ -2,7 +2,7 @@
 // Desktop: right panel (380px), Mobile: bottom sheet
 
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { supabase } from "~/lib/supabase.client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +39,16 @@ const STATUS_COLOR: Record<string, string> = {
   archived:  "#888888",
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  lead:      "Lead",
+  requested: "Requested",
+  pending:   "Pending",
+  confirmed: "Confirmed",
+  completed: "Completed",
+  declined:  "Declined",
+  archived:  "Archived",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getConvTitle(conv: Conversation): string {
@@ -62,11 +72,57 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function formatTimestamp(dateStr: string): string {
+  return new Date(dateStr).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function truncate(str: string, len: number): string {
   return str.length > len ? str.slice(0, len) + "…" : str;
 }
 
-// ─── Thread view ─────────────────────────────────────────────────────────────
+function avatarLetter(conv: Conversation): string {
+  return getConvTitle(conv).charAt(0).toUpperCase();
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const color = STATUS_COLOR[status] ?? "#888888";
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 7px",
+        borderRadius: 6,
+        background: `${color}22`,
+        color,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: "0.02em",
+        textTransform: "capitalize",
+        flexShrink: 0,
+      }}
+    >
+      <span
+        style={{
+          width: 5,
+          height: 5,
+          borderRadius: "50%",
+          background: color,
+          display: "inline-block",
+        }}
+      />
+      {STATUS_LABEL[status] ?? status}
+    </span>
+  );
+}
+
+// ─── Thread view ──────────────────────────────────────────────────────────────
 
 function ConversationThread({
   conv,
@@ -85,7 +141,8 @@ function ConversationThread({
   const [authUserId, setAuthUserId] = useState<string | null>(null);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialRef = useRef(true);
 
   // Get auth user id (different from profiles.id for migrated users)
   useEffect(() => {
@@ -94,8 +151,9 @@ function ConversationThread({
     });
   }, []);
 
-  // Fetch messages on open
+  // Fetch messages on open — reset initial flag so we snap on first load
   useEffect(() => {
+    isInitialRef.current = true;
     supabase
       .from("messages")
       .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
@@ -130,9 +188,16 @@ function ConversationThread({
     return () => { supabase.removeChannel(ch); };
   }, [conv.id]);
 
-  // Auto-scroll
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  // Scroll to bottom — instant on initial load, smooth on new messages
+  useLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    if (isInitialRef.current) {
+      el.scrollTop = el.scrollHeight;
+      isInitialRef.current = false;
+    } else {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
   }, [messages]);
 
   async function handleSend() {
@@ -148,7 +213,6 @@ function ConversationThread({
         is_read: false,
       });
       setReply("");
-      // Guest email notification handled server-side
     } catch (e) {
       console.error("Send failed:", e);
     } finally {
@@ -157,30 +221,32 @@ function ConversationThread({
   }
 
   const isLead = conv.status === "lead";
+  const buyerName = conv.buyer_label
+    ? conv.buyer_label.replace(" via chat", "")
+    : getConvTitle(conv);
 
   return (
-    <div style={{ background: "var(--surface-muted)", borderRadius: 10, overflow: "hidden" }}>
-      {/* Messages */}
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+      {/* Messages — scrollable area */}
       <div
+        ref={messagesContainerRef}
         style={{
-          maxHeight: 240,
+          flex: 1,
           overflowY: "auto",
-          padding: "10px 12px",
+          padding: "14px 16px",
           display: "flex",
           flexDirection: "column",
-          gap: 8,
+          gap: 12,
         }}
       >
         {messages.length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", margin: "16px 0" }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", margin: "auto" }}>
             No messages yet
           </p>
         ) : (
           messages.map((msg) => {
             const isOwner = msg.sender_id === authUserId;
-            const displayName = msg.sender_name === "Guest"
-              ? "Guest"
-              : (msg.sender_name ?? "Guest");
+            const senderLabel = msg.sender_name ?? (isOwner ? "You" : "Guest");
             return (
               <div
                 key={msg.id}
@@ -188,44 +254,63 @@ function ConversationThread({
                   display: "flex",
                   flexDirection: "column",
                   alignItems: isOwner ? "flex-end" : "flex-start",
+                  gap: 3,
                 }}
               >
-                <div
+                {/* Sender name */}
+                <span
                   style={{
-                    background: isOwner ? "rgba(245,166,35,0.15)" : "var(--surface)",
-                    border: `1px solid ${isOwner ? "rgba(245,166,35,0.3)" : "var(--border)"}`,
-                    borderRadius: isOwner ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
-                    padding: "7px 11px",
-                    maxWidth: "85%",
+                    color: "var(--text-muted)",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    paddingLeft: isOwner ? 0 : 2,
+                    paddingRight: isOwner ? 2 : 0,
                   }}
                 >
-                  {!isOwner && (
-                    <p style={{ color: "#F5A623", fontSize: 10, fontWeight: 700, margin: "0 0 2px" }}>
-                      {displayName}
-                    </p>
-                  )}
-                  <p style={{ color: "var(--text)", fontSize: 12, margin: 0, lineHeight: 1.5 }}>
-                    {msg.message}
-                  </p>
+                  {isOwner ? "You" : senderLabel}
+                </span>
+                {/* Bubble */}
+                <div
+                  style={{
+                    background: isOwner ? "#F5A623" : "var(--surface-muted)",
+                    border: isOwner ? "none" : "1px solid var(--border)",
+                    borderRadius: isOwner ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                    padding: "8px 12px",
+                    maxWidth: "82%",
+                    color: isOwner ? "#111" : "var(--text)",
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {msg.message}
                 </div>
-                <span style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>
-                  {timeAgo(msg.created_at)}
+                {/* Timestamp */}
+                <span
+                  style={{
+                    color: "var(--text-muted)",
+                    fontSize: 10,
+                    opacity: 0.7,
+                    paddingLeft: isOwner ? 0 : 2,
+                    paddingRight: isOwner ? 2 : 0,
+                  }}
+                >
+                  {formatTimestamp(msg.created_at)}
                 </span>
               </div>
             );
           })
         )}
-        <div ref={bottomRef} />
       </div>
 
-      {/* Reply input */}
+      {/* Reply input — fixed at bottom, outside scroll */}
       <div
         style={{
+          flexShrink: 0,
+          borderTop: "1px solid var(--border)",
+          padding: "10px 12px",
+          background: "var(--surface)",
           display: "flex",
           gap: 8,
-          padding: "8px 12px",
-          borderTop: "1px solid var(--border)",
-          background: "var(--surface)",
         }}
       >
         <input
@@ -235,40 +320,52 @@ function ConversationThread({
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
           }}
-          placeholder="Reply…"
+          placeholder={`Reply to ${buyerName}…`}
+          disabled={sending}
           style={{
             flex: 1,
             background: "var(--surface-muted)",
             border: "1px solid var(--border)",
             borderRadius: 8,
-            padding: "7px 10px",
+            padding: "8px 11px",
             color: "var(--text)",
-            fontSize: 13,
+            fontSize: 14,
             outline: "none",
+            opacity: sending ? 0.6 : 1,
           }}
         />
         <button
           onClick={handleSend}
           disabled={sending || !reply.trim()}
           style={{
-            padding: "7px 14px",
+            padding: "8px 14px",
             background: "#F5A623",
             border: "none",
             borderRadius: 8,
             color: "#111",
             fontSize: 12,
             fontWeight: 700,
-            cursor: "pointer",
-            opacity: sending || !reply.trim() ? 0.5 : 1,
+            cursor: sending || !reply.trim() ? "default" : "pointer",
+            opacity: sending || !reply.trim() ? 0.45 : 1,
+            flexShrink: 0,
           }}
         >
           Send
         </button>
       </div>
 
-      {/* Actions — only shown for lead status */}
+      {/* Lead actions — only for lead status */}
       {isLead && (
-        <div style={{ display: "flex", gap: 8, padding: "10px 12px", borderTop: "1px solid var(--border)" }}>
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            gap: 8,
+            padding: "10px 12px",
+            borderTop: "1px solid var(--border)",
+            background: "var(--surface)",
+          }}
+        >
           <button
             onClick={onConvert}
             style={{
@@ -321,7 +418,8 @@ export default function LeadsPanel({
   profileName,
 }: LeadsPanelProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -330,7 +428,6 @@ export default function LeadsPanel({
     if (!open || !profileId) return;
 
     async function load() {
-      // Step 1: fetch all bookings owned by this profile
       const { data: bookings } = await supabase
         .from("bookings")
         .select("id, status, created_at, title, service")
@@ -344,7 +441,6 @@ export default function LeadsPanel({
 
       const bookingIds = (bookings as { id: string }[]).map((b) => b.id);
 
-      // Step 2: fetch messages + buyer participants in parallel
       const [{ data: messages }, { data: participants }] = await Promise.all([
         supabase
           .from("messages")
@@ -358,7 +454,6 @@ export default function LeadsPanel({
           .eq("role", "buyer"),
       ]);
 
-      // Build buyer label map (email + " via chat" for lead title display)
       const buyerLabelMap: Record<string, string> = {};
       for (const p of (participants ?? []) as { booking_id: string; email: string | null }[]) {
         if (p.booking_id && p.email) {
@@ -366,7 +461,6 @@ export default function LeadsPanel({
         }
       }
 
-      // Group messages by booking_id
       const msgsByBooking: Record<string, ConvMessage[]> = {};
       for (const msg of (messages ?? []) as ConvMessage[]) {
         const bid = msg.booking_id ?? "";
@@ -374,8 +468,9 @@ export default function LeadsPanel({
         msgsByBooking[bid].push(msg);
       }
 
-      // Merge and sort by latest activity
-      const convs: Conversation[] = (bookings as Array<{ id: string; status: string; created_at: string; title: string | null; service: string | null }>).map((b) => ({
+      const convs: Conversation[] = (
+        bookings as Array<{ id: string; status: string; created_at: string; title: string | null; service: string | null }>
+      ).map((b) => ({
         ...b,
         buyer_label: buyerLabelMap[b.id] ?? null,
         messages: msgsByBooking[b.id] ?? [],
@@ -392,36 +487,41 @@ export default function LeadsPanel({
     load();
   }, [open, profileId]);
 
-  // Close expanded thread when panel closes
+  // Reset selection when panel closes
   useEffect(() => {
-    if (!open) setExpandedId(null);
+    if (!open) setSelectedId(null);
   }, [open]);
 
   // Keyboard close
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (selectedId) setSelectedId(null);
+        else onClose();
+      }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onClose, selectedId]);
 
   async function handleConvert(id: string) {
     await supabase.from("bookings").update({ status: "requested" }).eq("id", id);
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: "requested" } : c))
     );
-    setExpandedId(null);
+    setSelectedId(null);
   }
 
   async function handleDecline(id: string) {
     await supabase.from("bookings").update({ status: "declined" }).eq("id", id);
     setConversations((prev) => prev.filter((c) => c.id !== id));
-    setExpandedId(null);
+    setSelectedId(null);
   }
 
   if (!mounted) return null;
+
+  const selectedConv = selectedId ? conversations.find((c) => c.id === selectedId) ?? null : null;
 
   const totalUnread = conversations.reduce((sum, c) => {
     const count = (c.messages ?? []).filter(
@@ -448,6 +548,7 @@ export default function LeadsPanel({
 
       {/* Panel */}
       <div
+        className="sqrz-msgs-panel"
         style={{
           position: "fixed",
           top: 0,
@@ -460,6 +561,7 @@ export default function LeadsPanel({
           zIndex: 9991,
           display: "flex",
           flexDirection: "column",
+          overflow: "hidden",
           transition: "right 0.25s cubic-bezier(0.25,0.8,0.25,1)",
           fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
         }}
@@ -467,195 +569,257 @@ export default function LeadsPanel({
         {/* Header */}
         <div
           style={{
-            padding: "16px 20px",
+            flexShrink: 0,
+            padding: "14px 16px",
             borderBottom: "1px solid var(--border)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "space-between",
-            flexShrink: 0,
+            gap: 10,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 700 }}>Messages</span>
-            {totalUnread > 0 && (
-              <span
+          {selectedConv ? (
+            // Thread header
+            <>
+              <button
+                onClick={() => setSelectedId(null)}
                 style={{
-                  background: "rgba(245,166,35,0.15)",
-                  color: "#F5A623",
-                  fontSize: 11,
-                  fontWeight: 700,
-                  borderRadius: 10,
-                  padding: "2px 8px",
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 18,
+                  cursor: "pointer",
+                  padding: "0 4px",
+                  lineHeight: 1,
+                  flexShrink: 0,
                 }}
+                aria-label="Back to conversations"
               >
-                {totalUnread} unread
-              </span>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 20,
-              cursor: "pointer",
-              padding: "2px 6px",
-              lineHeight: 1,
-            }}
-          >
-            ✕
-          </button>
-        </div>
-
-        {/* Conversation list */}
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {conversations.length === 0 ? (
-            <div style={{ padding: "48px 24px", textAlign: "center" }}>
-              <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No conversations yet</p>
-              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "6px 0 0", opacity: 0.6 }}>
-                Messages from your booking inquiries will appear here.
-              </p>
-            </div>
+                ←
+              </button>
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                <span
+                  style={{
+                    color: "var(--text)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    overflow: "hidden",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {getConvTitle(selectedConv)}
+                </span>
+                <StatusBadge status={selectedConv.status} />
+              </div>
+              <button
+                onClick={onClose}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 18,
+                  cursor: "pointer",
+                  padding: "2px 4px",
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                aria-label="Close panel"
+              >
+                ✕
+              </button>
+            </>
           ) : (
-            conversations.map((conv) => {
-              const isExpanded = expandedId === conv.id;
-              const msgs = conv.messages ?? [];
-              const lastMsg = msgs[msgs.length - 1];
-              const unreadCount = msgs.filter(
-                (m) => m.is_read === false && m.sender_id !== profileId
-              ).length;
-              const statusDot = STATUS_COLOR[conv.status] ?? "#888888";
-              const lastActivity = lastMsg?.created_at ?? conv.created_at;
-
-              return (
-                <div key={conv.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                  {/* Row header */}
-                  <button
-                    onClick={() => setExpandedId(isExpanded ? null : conv.id)}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 12,
-                      padding: "13px 20px",
-                      background: isExpanded ? "rgba(245,166,35,0.04)" : "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    {/* Status dot */}
-                    <div
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: "50%",
-                        background: statusDot,
-                        flexShrink: 0,
-                      }}
-                    />
-
-                    {/* Content */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                        <p
-                          style={{
-                            color: "var(--text)",
-                            fontSize: 13,
-                            fontWeight: unreadCount > 0 ? 700 : 500,
-                            margin: 0,
-                            overflow: "hidden",
-                            whiteSpace: "nowrap",
-                            textOverflow: "ellipsis",
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                        >
-                          {getConvTitle(conv)}
-                        </p>
-                        {unreadCount > 0 && (
-                          <span
-                            style={{
-                              background: "#F5A623",
-                              color: "#111",
-                              fontSize: 9,
-                              fontWeight: 800,
-                              borderRadius: "50%",
-                              width: 16,
-                              height: 16,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              flexShrink: 0,
-                            }}
-                          >
-                            {unreadCount > 9 ? "9+" : unreadCount}
-                          </span>
-                        )}
-                      </div>
-                      <p
-                        style={{
-                          color: "var(--text-muted)",
-                          fontSize: 11,
-                          margin: "0 0 3px",
-                          textTransform: "capitalize",
-                        }}
-                      >
-                        {conv.status}
-                      </p>
-                      {lastMsg && (
-                        <p
-                          style={{
-                            color: "var(--text-muted)",
-                            fontSize: 12,
-                            margin: 0,
-                            overflow: "hidden",
-                            whiteSpace: "nowrap",
-                            textOverflow: "ellipsis",
-                          }}
-                        >
-                          {truncate(lastMsg.message ?? "", 50)}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Time + chevron */}
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-end",
-                        gap: 4,
-                        flexShrink: 0,
-                      }}
-                    >
-                      <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
-                        {timeAgo(lastActivity)}
-                      </span>
-                      <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
-                        {isExpanded ? "▲" : "▼"}
-                      </span>
-                    </div>
-                  </button>
-
-                  {/* Expanded thread */}
-                  {isExpanded && (
-                    <div style={{ padding: "0 12px 14px" }}>
-                      <ConversationThread
-                        conv={conv}
-                        profileId={profileId}
-                        profileName={profileName}
-                        onConvert={() => handleConvert(conv.id)}
-                        onDecline={() => handleDecline(conv.id)}
-                      />
-                    </div>
-                  )}
-                </div>
-              );
-            })
+            // List header
+            <>
+              <span style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, flex: 1 }}>
+                Messages
+              </span>
+              {totalUnread > 0 && (
+                <span
+                  style={{
+                    background: "rgba(245,166,35,0.15)",
+                    color: "#F5A623",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    borderRadius: 10,
+                    padding: "2px 8px",
+                  }}
+                >
+                  {totalUnread} unread
+                </span>
+              )}
+              <button
+                onClick={onClose}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 20,
+                  cursor: "pointer",
+                  padding: "2px 4px",
+                  lineHeight: 1,
+                }}
+                aria-label="Close panel"
+              >
+                ✕
+              </button>
+            </>
           )}
         </div>
+
+        {/* Content */}
+        {selectedConv ? (
+          // Thread view — fills remaining panel height, no external scroll
+          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <ConversationThread
+              conv={selectedConv}
+              profileId={profileId}
+              profileName={profileName}
+              onConvert={() => handleConvert(selectedConv.id)}
+              onDecline={() => handleDecline(selectedConv.id)}
+            />
+          </div>
+        ) : (
+          // Conversation list
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {conversations.length === 0 ? (
+              <div style={{ padding: "48px 24px", textAlign: "center" }}>
+                <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>No conversations yet</p>
+                <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "6px 0 0", opacity: 0.6 }}>
+                  Messages from your booking inquiries will appear here.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Empty thread hint */}
+                <div
+                  style={{
+                    padding: "10px 16px 8px",
+                    borderBottom: "1px solid var(--border)",
+                  }}
+                >
+                  <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0, opacity: 0.7 }}>
+                    Select a conversation to start messaging
+                  </p>
+                </div>
+
+                {conversations.map((conv) => {
+                  const msgs = conv.messages ?? [];
+                  const lastMsg = msgs[msgs.length - 1];
+                  const unreadCount = msgs.filter(
+                    (m) => m.is_read === false && m.sender_id !== profileId
+                  ).length;
+                  const lastActivity = lastMsg?.created_at ?? conv.created_at;
+                  const isHovered = hoveredId === conv.id;
+
+                  return (
+                    <button
+                      key={conv.id}
+                      onClick={() => setSelectedId(conv.id)}
+                      onMouseEnter={() => setHoveredId(conv.id)}
+                      onMouseLeave={() => setHoveredId(null)}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "12px 16px",
+                        background: isHovered ? "var(--surface-muted)" : "transparent",
+                        borderLeft: `3px solid ${isHovered ? "#F5A623" : "transparent"}`,
+                        borderTop: "none",
+                        borderRight: "none",
+                        borderBottom: "1px solid var(--border)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "background 0.12s ease, border-color 0.12s ease",
+                      }}
+                    >
+                      {/* Avatar circle */}
+                      <div
+                        style={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: "50%",
+                          background: "rgba(245,166,35,0.18)",
+                          color: "#F5A623",
+                          fontSize: 15,
+                          fontWeight: 800,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                          border: "1px solid rgba(245,166,35,0.25)",
+                        }}
+                      >
+                        {avatarLetter(conv)}
+                      </div>
+
+                      {/* Content */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                          <p
+                            style={{
+                              color: "var(--text)",
+                              fontSize: 13,
+                              fontWeight: unreadCount > 0 ? 700 : 500,
+                              margin: 0,
+                              overflow: "hidden",
+                              whiteSpace: "nowrap",
+                              textOverflow: "ellipsis",
+                              flex: 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            {getConvTitle(conv)}
+                          </p>
+                          {unreadCount > 0 && (
+                            <span
+                              style={{
+                                background: "#F5A623",
+                                color: "#111",
+                                fontSize: 9,
+                                fontWeight: 800,
+                                borderRadius: "50%",
+                                width: 16,
+                                height: 16,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                flexShrink: 0,
+                              }}
+                            >
+                              {unreadCount > 9 ? "9+" : unreadCount}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                          <StatusBadge status={conv.status} />
+                          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                            {timeAgo(lastActivity)}
+                          </span>
+                        </div>
+                        {lastMsg && (
+                          <p
+                            style={{
+                              color: "var(--text-muted)",
+                              fontSize: 11,
+                              margin: 0,
+                              overflow: "hidden",
+                              whiteSpace: "nowrap",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {truncate(lastMsg.message ?? "", 48)}
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Mobile bottom sheet */}
