@@ -993,33 +993,7 @@ function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?
         </div>
       )}
 
-      {(() => {
-        const allProps = ((booking as { booking_proposals?: Array<NonNullable<Proposal>> }).booking_proposals ?? [])
-          .slice().sort((a: any, b2: any) => (b2.version ?? 0) - (a.version ?? 0));
-        const latestProp = allProps[0] ?? null;
-        if (!latestProp?.rate) return null;
-        const lineItems = latestProp.line_items ?? [];
-        const sym2 = currencySym(latestProp.currency);
-        return (
-          <div style={card}>
-            <p style={lbl}>Agreed Rate</p>
-            <p style={{ ...val, color: ACCENT, fontSize: 18, fontWeight: 700, marginTop: 4, marginBottom: lineItems.length ? 14 : 0 }}>
-              {formatRate(latestProp.rate, latestProp.currency)}
-            </p>
-            {lineItems.length > 0 && (
-              <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-                <p style={{ ...lbl, marginBottom: 8 }}>Breakdown</p>
-                {lineItems.map((item, idx) => (
-                  <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "5px 0", borderBottom: "1px solid var(--border)" }}>
-                    <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item.label}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{sym2}{(item.amount || 0).toLocaleString()}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {/* Rate is shown in full detail in the Proposal section — not duplicated here */}
 
       {(booking as { description?: string | null }).description && (
         <div style={card}>
@@ -1130,7 +1104,9 @@ function ProposalSection({
                 const feePct2 = proposalFeePct ?? 8;
                 const feeAmt2 = Math.round(net * feePct2 / 100 * 100) / 100;
                 const bookerPays2 = Math.round((net + tAmt + feeAmt2) * 100) / 100;
-                const youReceive2 = Math.round((net - feeAmt2) * 100) / 100;
+                // You receive gross = net + tax - SQRZ fee (tax collected from buyer, remitted to authority)
+                const youReceiveGross2 = Math.round((net + tAmt - feeAmt2) * 100) / 100;
+                const yourNetIncome2 = Math.round((net - feeAmt2) * 100) / 100;
                 const symP = currencySym(p.currency);
                 const lineItemsP = p.line_items ?? [];
                 return (
@@ -1155,10 +1131,22 @@ function ProposalSection({
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{symP}{bookerPays2.toLocaleString()}</span>
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>You receive (before Stripe fees)</span>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{youReceive2.toLocaleString()}</span>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: tAmt > 0 ? "1px solid var(--border)" : "none" }}>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>You receive gross (before Stripe fees)</span>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{youReceiveGross2.toLocaleString()}</span>
                       </div>
+                      {tAmt > 0 && (
+                        <>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>of which tax ({tPct}%) — remit to authority</span>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>−{symP}{tAmt.toLocaleString()}</span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Your net income</span>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{yourNetIncome2.toLocaleString()}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                     {lineItemsP.length > 0 && (
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
@@ -1437,7 +1425,9 @@ function ProposalSection({
                   // We'll show the breakdown with SQRZ fee only if we have a plan level >= 1
                   const feeAmt = canUseStripe ? Math.round(net * 8 / 100 * 100) / 100 : 0;
                   const bookerPays = Math.round((net + taxAmt + feeAmt) * 100) / 100;
-                  const youReceive = Math.round((net - feeAmt) * 100) / 100;
+                  // Gross received = net + tax - SQRZ fee (tax collected, not kept)
+                  const youReceiveGross = Math.round((net + taxAmt - feeAmt) * 100) / 100;
+                  const yourNetIncome = Math.round((net - feeAmt) * 100) / 100;
                   return (
                     <div style={{ marginBottom: 16, padding: "12px 14px", background: "var(--bg)", borderRadius: 8 }}>
                       <p style={{ ...lbl, marginBottom: 8 }}>Fee Preview</p>
@@ -1463,10 +1453,24 @@ function ProposalSection({
                           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{bookerPays.toLocaleString()}</span>
                         </div>
                         {canUseStripe && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>You receive (before Stripe fees)</span>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{youReceive.toLocaleString()}</span>
-                          </div>
+                          <>
+                            <div style={{ display: "flex", justifyContent: "space-between", borderTop: taxAmt > 0 ? "none" : undefined }}>
+                              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>You receive gross (before Stripe fees)</span>
+                              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{youReceiveGross.toLocaleString()}</span>
+                            </div>
+                            {taxAmt > 0 && (
+                              <>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>of which tax ({taxRate}%) — remit to authority</span>
+                                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>−{symLive}{taxAmt.toLocaleString()}</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Your net income</span>
+                                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{yourNetIncome.toLocaleString()}</span>
+                                </div>
+                              </>
+                            )}
+                          </>
                         )}
                       </div>
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.55 }}>

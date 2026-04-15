@@ -155,11 +155,14 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
   const feePct    = wallet.sqrz_fee_pct ?? 8;
   const taxPctVal = wallet.tax_pct ?? 0;
   // net = member's rate (before tax/fees); SQRZ fee on net only
-  const memberRate = wallet.secured_amount ?? 0;
-  const taxAmt     = wallet.tax_amount ?? (taxPctVal > 0 ? Math.round(memberRate * taxPctVal / 100 * 100) / 100 : 0);
-  const sqrzFee    = Math.round(memberRate * (feePct / 100) * 100) / 100;
-  const bookerPays = wallet.total_budget ?? Math.round((memberRate + taxAmt + sqrzFee) * 100) / 100;
-  const hasTax     = taxPctVal > 0 || taxAmt > 0;
+  const memberRate      = wallet.secured_amount ?? 0;
+  const taxAmt          = wallet.tax_amount ?? (taxPctVal > 0 ? Math.round(memberRate * taxPctVal / 100 * 100) / 100 : 0);
+  const sqrzFee         = Math.round(memberRate * (feePct / 100) * 100) / 100;
+  const bookerPays      = wallet.total_budget ?? Math.round((memberRate + taxAmt + sqrzFee) * 100) / 100;
+  const hasTax          = taxPctVal > 0 || taxAmt > 0;
+  // Gross received = net + tax - SQRZ fee (tax collected from buyer, remitted to authority)
+  const youReceiveGross = Math.round((memberRate + taxAmt - sqrzFee) * 100) / 100;
+  const yourNetIncome   = Math.round((memberRate - sqrzFee) * 100) / 100;
 
   const s = sym(wallet.currency);
   const isPaid = wallet.client_paid || (paidFetcher.state === "idle" && paidFetcher.data?.ok === true);
@@ -402,18 +405,30 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
           <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 800, margin: 0 }}>{s}{fmt(bookerPays)}</p>
         </div>
 
-        {/* Your net after tax + tax remittance note */}
-        {hasTax && (
-          <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid var(--border)", marginTop: 6 }}>
-              <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>Your net (after tax)</p>
-              <p style={{ color: ACCENT, fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(memberRate)}</p>
-            </div>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.55 }}>
-              Note: Tax of {s}{fmt(taxAmt)} must be remitted to your tax authority. You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
-            </p>
-          </>
-        )}
+        {/* You receive breakdown */}
+        <div style={{ borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 6, display: "flex", flexDirection: "column", gap: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: hasTax ? "1px solid var(--border)" : "none" }}>
+            <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>You receive gross</p>
+            <p style={{ color: ACCENT, fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(youReceiveGross)}</p>
+          </div>
+          {hasTax && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                <p style={{ color: "var(--text-muted)", fontSize: 12, fontStyle: "italic", margin: 0 }}>
+                  of which tax{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""} — remit to authority
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 12, fontStyle: "italic", margin: 0 }}>−{s}{fmt(taxAmt)}</p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0" }}>
+                <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>Your net income</p>
+                <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(yourNetIncome)}</p>
+              </div>
+              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", lineHeight: 1.55 }}>
+                Tax collected must be remitted to your local tax authority. You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
+              </p>
+            </>
+          )}
+        </div>
       </div>
 
       {/* ─── Internal allocation breakdown (optional) ───────────────────── */}
