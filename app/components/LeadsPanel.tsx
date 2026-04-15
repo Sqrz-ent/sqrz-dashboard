@@ -24,6 +24,7 @@ interface Conversation {
   title: string | null;
   service: string | null;
   buyer_label: string | null;
+  buyer_name: string | null;
   messages: ConvMessage[];
 }
 
@@ -329,7 +330,7 @@ function ConversationThread({
             borderRadius: 8,
             padding: "8px 11px",
             color: "var(--text)",
-            fontSize: 14,
+            fontSize: 16,
             outline: "none",
             opacity: sending ? 0.6 : 1,
           }}
@@ -449,15 +450,17 @@ export default function LeadsPanel({
           .order("created_at", { ascending: true }),
         supabase
           .from("booking_participants")
-          .select("booking_id, email")
+          .select("booking_id, email, name")
           .in("booking_id", bookingIds)
           .eq("role", "buyer"),
       ]);
 
       const buyerLabelMap: Record<string, string> = {};
-      for (const p of (participants ?? []) as { booking_id: string; email: string | null }[]) {
-        if (p.booking_id && p.email) {
-          buyerLabelMap[p.booking_id] = `${p.email} via chat`;
+      const buyerNameMap: Record<string, string> = {};
+      for (const p of (participants ?? []) as { booking_id: string; email: string | null; name: string | null }[]) {
+        if (p.booking_id) {
+          if (p.email) buyerLabelMap[p.booking_id] = `${p.email} via chat`;
+          buyerNameMap[p.booking_id] = p.name ?? p.email ?? "Guest";
         }
       }
 
@@ -473,6 +476,7 @@ export default function LeadsPanel({
       ).map((b) => ({
         ...b,
         buyer_label: buyerLabelMap[b.id] ?? null,
+        buyer_name: buyerNameMap[b.id] ?? null,
         messages: msgsByBooking[b.id] ?? [],
       }));
 
@@ -522,6 +526,25 @@ export default function LeadsPanel({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose, selectedId]);
+
+  function handleSelectConv(id: string) {
+    // Optimistic: mark all messages for this booking as read in local state
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === id
+          ? { ...c, messages: c.messages.map((m) => ({ ...m, is_read: true })) }
+          : c
+      )
+    );
+    setSelectedId(id);
+    // Background DB update
+    supabase
+      .from("messages")
+      .update({ is_read: true })
+      .eq("booking_id", id)
+      .eq("is_read", false)
+      .then(() => {});
+  }
 
   async function handleConvert(id: string) {
     await supabase.from("bookings").update({ status: "requested" }).eq("id", id);
@@ -734,7 +757,7 @@ export default function LeadsPanel({
                   return (
                     <button
                       key={conv.id}
-                      onClick={() => setSelectedId(conv.id)}
+                      onClick={() => handleSelectConv(conv.id)}
                       onMouseEnter={() => setHoveredId(conv.id)}
                       onMouseLeave={() => setHoveredId(null)}
                       style={{
@@ -811,6 +834,21 @@ export default function LeadsPanel({
                             </span>
                           )}
                         </div>
+                        {conv.buyer_name && (
+                          <div
+                            style={{
+                              color: "var(--text-muted)",
+                              fontSize: 12,
+                              marginTop: 2,
+                              marginBottom: 3,
+                              overflow: "hidden",
+                              whiteSpace: "nowrap",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {conv.buyer_name}
+                          </div>
+                        )}
                         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
                           <StatusBadge status={conv.status} />
                           <span style={{ color: "var(--text-muted)", fontSize: 10 }}>
