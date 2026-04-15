@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { useState, useEffect } from "react";
+import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.account";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -121,7 +121,15 @@ export default function AccountPage() {
     plan: { id: number; name: string } | null;
   };
 
+  const [searchParams] = useSearchParams();
   const signOutFetcher = useFetcher();
+
+  useEffect(() => {
+    if (searchParams.get("upgrade") === "true") {
+      const el = document.getElementById("subscription-card");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [searchParams]);
 
   const [newPassword, setNewPassword]       = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -262,7 +270,7 @@ export default function AccountPage() {
       </div>
 
       {/* Card 3: Subscription */}
-      <div style={card}>
+      <div id="subscription-card" style={card}>
         <span style={labelStyle}>Subscription</span>
         {subscription && planName ? (
           <div>

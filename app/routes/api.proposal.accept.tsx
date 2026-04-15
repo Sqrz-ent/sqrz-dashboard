@@ -43,7 +43,10 @@ export async function action({ request }: { request: Request }) {
     .eq("id", bk.owner_id)
     .single();
 
-  const feePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+  const planId: number | null = (ownerProfile?.plan_id as number | null) ?? null;
+  const planFeePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+  // Free users (plan_id=null) or manual payments get 0% fee
+  const feePct: number = (planId === null || proposal.requires_payment === false) ? 0 : planFeePct;
   const connectId: string | null = ownerProfile?.stripe_connect_id ?? null;
 
   // Amount calculations (in cents)

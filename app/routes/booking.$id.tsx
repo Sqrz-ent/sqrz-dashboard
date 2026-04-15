@@ -120,11 +120,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
       admin
         .from("profiles")
-        .select("plan_id, plans(booking_fee_pct)")
+        .select("plan_id, email, plans(booking_fee_pct)")
         .eq("id", booking.owner_id)
         .maybeSingle(),
     ]);
-    const proposalFeePct: number = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+    const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
+    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
 
     let wallet: WalletData | null = null;
     if (isOwner) {
@@ -187,6 +188,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposalFeePct,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
+        memberEmail: (ownerPlan?.email as string | null) ?? null,
       },
       { headers }
     );
@@ -219,11 +221,12 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
       admin
         .from("profiles")
-        .select("plan_id, plans(booking_fee_pct)")
+        .select("plan_id, email, plans(booking_fee_pct)")
         .eq("id", (booking as any).owner_id)
         .maybeSingle(),
     ]);
-    const proposalFeePct: number = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+    const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
+    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
 
     // Sender name: use participant name field; fall back to email prefix (no domain)
     const senderName = (tokenRow.name as string | null) ||
@@ -245,6 +248,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         planId: null,
         isBeta: false,
         senderName,
+        memberEmail: (ownerPlan?.email as string | null) ?? null,
       },
       { headers }
     );
@@ -1325,11 +1329,16 @@ function ProposalSection({
                   )}
                 </div>
               ) : !canUseStripe ? (
-                <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: "0 0 4px" }}>💳 Get paid directly through SQRZ</p>
-                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>Collect payment securely via Stripe — funds held in escrow until delivery.</p>
-                  <a href="/account" style={{ fontSize: 12, fontWeight: 600, color: ACCENT, textDecoration: "none" }}>Upgrade to Creator →</a>
-                </div>
+                <>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px", lineHeight: 1.55 }}>
+                    After your client accepts, share your email or payment details with them directly. SQRZ does not process payments on free plans.
+                  </p>
+                  <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
+                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: "0 0 4px" }}>💳 Get paid directly through SQRZ</p>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>Collect payment securely via Stripe — funds held in escrow until delivery.</p>
+                    <a href="https://dashboard.sqrz.com/account?upgrade=true" style={{ fontSize: 12, fontWeight: 600, color: ACCENT, textDecoration: "none" }}>Upgrade to Creator →</a>
+                  </div>
+                </>
               ) : null}
 
               {fetcher.data?.error && (
@@ -1683,12 +1692,14 @@ function GuestBuyerProposalCard({
   bookingToken,
   walletFeePct,
   proposalFeePct,
+  memberEmail,
 }: {
   proposal: Proposal;
   bookingId: string;
   bookingToken: string | null;
   walletFeePct?: number | null;
   proposalFeePct?: number | null;
+  memberEmail?: string | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
   const [counterOpen, setCounterOpen] = useState(false);
@@ -1798,11 +1809,29 @@ function GuestBuyerProposalCard({
 
   return (
     <>
-      {/* Confirmed banner — shown without hiding the details below (FIX 3) */}
-      {isAccepted && (
+      {/* Confirmed banner — shown without hiding the details below */}
+      {isAccepted && proposal.requires_payment && (
         <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", marginBottom: 8 }}>
           <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-            ✓ {proposal.requires_payment ? "Payment received — booking confirmed" : "Booking confirmed"}
+            ✓ Payment received — booking confirmed
+          </p>
+        </div>
+      )}
+      {isAccepted && !proposal.requires_payment && (
+        <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", marginBottom: 8 }}>
+          <p style={{ color: "#4ade80", fontSize: 14, margin: "0 0 14px", fontWeight: 600 }}>✓ Booking accepted</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>Payment information</p>
+          <p style={{ fontSize: 13, color: "var(--text)", margin: "0 0 10px", lineHeight: 1.55 }}>
+            This booking uses manual payment — not processed through SQRZ.<br />
+            Contact the seller directly to arrange payment:
+          </p>
+          {memberEmail && (
+            <a href={`mailto:${memberEmail}`} style={{ fontSize: 13, fontWeight: 600, color: ACCENT, textDecoration: "none", wordBreak: "break-all" }}>
+              {memberEmail}
+            </a>
+          )}
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "12px 0 0", lineHeight: 1.5 }}>
+            SQRZ is not responsible for payment disputes on manually managed bookings.
           </p>
         </div>
       )}
@@ -1833,26 +1862,18 @@ function GuestBuyerProposalCard({
           </div>
         )}
 
-        {/* Platform fee section */}
-        {proposal.rate != null && (
+        {/* Platform fee section — only for Stripe-enabled proposals with a real fee */}
+        {proposal.rate != null && proposal.requires_payment && feePct != null && feePct > 0 && sqrzFee != null && totalCharged != null && (
           <div style={{ marginTop: 12 }}>
             <p style={{ ...guestMetaLabel, marginBottom: 8 }}>Platform fee</p>
-            {feePct != null && sqrzFee != null && totalCharged != null ? (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
-                  <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 4px" }}>
-                  <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
-                  <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
-                </div>
-              </>
-            ) : (
-              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 8px" }}>
-                Platform fee applies on payment
-              </p>
-            )}
+            <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}%)</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 4px" }}>
+              <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
+              <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
+            </div>
           </div>
         )}
 
@@ -1913,12 +1934,14 @@ function GuestBuyerProposalCard({
             }}
           >
             {loading === "accept"
-              ? "Redirecting…"
+              ? "Processing…"
               : proposal.requires_payment
                 ? totalCharged != null
                   ? `Accept & Pay ${sym}${totalCharged.toLocaleString()}`
                   : "Accept & Pay"
-                : "Accept"}
+                : proposal.rate != null
+                  ? `Accept — ${sym}${(proposal.rate as number).toLocaleString()} ${proposal.currency ?? "EUR"}`
+                  : "Accept"}
           </button>
 
           {counterOpen ? (
@@ -2331,6 +2354,7 @@ export default function BookingAccessPage() {
     proposalFeePct,
     stripeConnectId,
     senderName,
+    memberEmail,
   } = data as {
     booking: Booking;
     userEmail: string;
@@ -2345,6 +2369,7 @@ export default function BookingAccessPage() {
     proposalFeePct?: number | null;
     stripeConnectId?: string | null;
     senderName: string | null;
+    memberEmail?: string | null;
   };
 
   const b = booking;
@@ -2426,6 +2451,7 @@ export default function BookingAccessPage() {
                   bookingToken={bookingToken}
                   walletFeePct={(wallet as { sqrz_fee_pct?: number } | null)?.sqrz_fee_pct ?? null}
                   proposalFeePct={proposalFeePct ?? null}
+                  memberEmail={memberEmail ?? null}
                 />
               </div>
             )}
