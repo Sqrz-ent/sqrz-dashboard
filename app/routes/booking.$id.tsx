@@ -125,7 +125,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     const [{ data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
       admin
         .from("booking_wallets")
-        .select("id, sqrz_fee_pct, client_paid, payout_status, total_budget, currency")
+        .select("id, sqrz_fee_pct, tax_pct, tax_amount, client_paid, payout_status, total_budget, currency")
         .eq("booking_id", params.id)
         .maybeSingle(),
       admin
@@ -235,7 +235,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
       admin
         .from("booking_wallets")
-        .select("id, sqrz_fee_pct, client_paid, payout_status, total_budget, currency")
+        .select("id, sqrz_fee_pct, tax_pct, tax_amount, client_paid, payout_status, total_budget, currency")
         .eq("booking_id", params.id)
         .maybeSingle(),
       admin

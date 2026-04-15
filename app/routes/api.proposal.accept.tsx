@@ -94,6 +94,7 @@ export async function action({ request }: { request: Request }) {
         rate: rate.toString(),
         fee_pct: feePct.toString(),
         tax_pct: taxPct.toString(),
+        tax_amount: (Math.round(rate * (taxPct / 100) * 100) / 100).toString(),
       },
       customer_email: participant.email,
     });

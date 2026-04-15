@@ -24,6 +24,8 @@ export type WalletData = {
   secured_amount: number | null;
   currency: string | null;
   sqrz_fee_pct: number;
+  tax_pct: number | null;
+  tax_amount: number | null;
   client_paid: boolean;
   payout_status: string | null;
   delivery_confirmed_at: string | null;
@@ -150,12 +152,14 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
 
   const hasTypedAllocations = allocations.some((a) => !!a.allocation_type);
 
-  const feePct = wallet.sqrz_fee_pct ?? 8;
-  // member's rate = what they receive exactly; booker pays member's rate + SQRZ fee on top
-  const memberRate  = wallet.secured_amount ?? wallet.total_budget ?? 0;
-  const sqrzFee     = Math.round(memberRate * (feePct / 100) * 100) / 100;
-  const bookerPays  = wallet.total_budget ?? Math.round((memberRate + sqrzFee) * 100) / 100;
-  const net         = memberRate; // member always receives exactly their rate
+  const feePct    = wallet.sqrz_fee_pct ?? 8;
+  const taxPctVal = wallet.tax_pct ?? 0;
+  // net = member's rate (before tax/fees); SQRZ fee on net only
+  const memberRate = wallet.secured_amount ?? 0;
+  const taxAmt     = wallet.tax_amount ?? (taxPctVal > 0 ? Math.round(memberRate * taxPctVal / 100 * 100) / 100 : 0);
+  const sqrzFee    = Math.round(memberRate * (feePct / 100) * 100) / 100;
+  const bookerPays = wallet.total_budget ?? Math.round((memberRate + taxAmt + sqrzFee) * 100) / 100;
+  const hasTax     = taxPctVal > 0 || taxAmt > 0;
 
   const s = sym(wallet.currency);
   const isPaid = wallet.client_paid || (paidFetcher.state === "idle" && paidFetcher.data?.ok === true);
@@ -342,7 +346,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
           borderRadius: 10,
           padding: "14px 16px",
         }}>
-          <p style={{ ...lbl, margin: "0 0 6px" }}>Your Rate</p>
+          <p style={{ ...lbl, margin: "0 0 6px" }}>Total Rate (net)</p>
           <p style={{ color: "var(--text)", fontSize: 22, fontWeight: 800, margin: 0, fontFamily: FONT_DISPLAY }}>
             {s}{fmt(memberRate)}
           </p>
@@ -354,37 +358,62 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
           borderRadius: 10,
           padding: "14px 16px",
         }}>
-          <p style={{ ...lbl, margin: "0 0 6px" }}>Your Net</p>
+          <p style={{ ...lbl, margin: "0 0 6px" }}>Booker Paid</p>
           <p style={{ color: ACCENT, fontSize: 22, fontWeight: 800, margin: 0, fontFamily: FONT_DISPLAY }}>
-            {s}{fmt(net)}
+            {s}{fmt(bookerPays)}
           </p>
         </div>
       </div>
 
       {/* ─── Fee breakdown card ─────────────────────────────────────────── */}
       <div style={card}>
-        {/* Your rate row */}
+        {/* Net rate row */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>Your rate</p>
+          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>Total rate (net)</p>
           <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(memberRate)}</p>
         </div>
 
-        {/* SQRZ fee — added on top, paid by booker */}
+        {/* VAT row — only when tax is set */}
+        {hasTax && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+              VAT{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""}
+            </p>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
+              +{s}{fmt(taxAmt)}
+            </p>
+          </div>
+        )}
+
+        {/* SQRZ fee — on net only */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
             SQRZ fee{" "}
-            <span style={{ fontSize: 11, opacity: 0.65 }}>({feePct}% · paid by booker)</span>
+            <span style={{ fontSize: 11, opacity: 0.65 }}>({feePct}% of net · paid by booker)</span>
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
             +{s}{fmt(sqrzFee)}
           </p>
         </div>
 
-        {/* Booker pays total */}
+        {/* Booker paid total */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0 2px" }}>
-          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>Booker pays</p>
+          <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>Booker paid</p>
           <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 800, margin: 0 }}>{s}{fmt(bookerPays)}</p>
         </div>
+
+        {/* Your net after tax + VAT remittance note */}
+        {hasTax && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid var(--border)", marginTop: 6 }}>
+              <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0 }}>Your net (after tax)</p>
+              <p style={{ color: ACCENT, fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(memberRate)}</p>
+            </div>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.55 }}>
+              Note: VAT of {s}{fmt(taxAmt)} must be remitted to your tax authority.
+            </p>
+          </>
+        )}
       </div>
 
       {/* ─── Internal allocation breakdown (optional) ───────────────────── */}

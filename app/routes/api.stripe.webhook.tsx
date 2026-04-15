@@ -217,9 +217,18 @@ export async function action({ request }: ActionFunctionArgs) {
         proposalRate = pData?.rate ?? null;
       }
 
+      const metaTaxPct    = session.metadata?.tax_pct    ? Number(session.metadata.tax_pct)    : 0;
+      const metaTaxAmount = session.metadata?.tax_amount ? Number(session.metadata.tax_amount) : 0;
+
       if (existingWallet) {
         // Update existing wallet: mark paid + set secured_amount if not already set
-        const updateData: Record<string, unknown> = { client_paid: true, payout_status: "pending", total_budget: totalCharged };
+        const updateData: Record<string, unknown> = {
+          client_paid: true,
+          payout_status: "pending",
+          total_budget: totalCharged,
+          tax_pct: metaTaxPct,
+          tax_amount: metaTaxAmount,
+        };
         if (proposalRate != null) updateData.secured_amount = proposalRate;
         await supabase
           .from("booking_wallets")
@@ -243,8 +252,8 @@ export async function action({ request }: ActionFunctionArgs) {
           feePct = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
         }
 
-        // secured_amount = member's rate; total_budget = what booker paid
-        const securedAmount = proposalRate ?? Math.round((totalCharged / (1 + feePct / 100)) * 100) / 100;
+        // secured_amount = member's rate (net); total_budget = what booker paid (net + tax + fee)
+        const securedAmount = proposalRate ?? Math.round(((totalCharged - metaTaxAmount) / (1 + feePct / 100)) * 100) / 100;
 
         const { data: newWallet } = await supabase.from("booking_wallets").insert({
           booking_id: bookingId,
@@ -254,6 +263,8 @@ export async function action({ request }: ActionFunctionArgs) {
           client_paid: true,
           payout_status: "pending",
           sqrz_fee_pct: feePct,
+          tax_pct: metaTaxPct,
+          tax_amount: metaTaxAmount,
         }).select("id").single();
 
         walletId = newWallet?.id ?? null;
