@@ -284,7 +284,6 @@ export default function PaymentsPage() {
     };
 
   const connectFetcher = useFetcher();
-  const payoutFetcher = useFetcher();
   const isConnecting = connectFetcher.state !== "idle";
 
   const isActive = connectStatus === "active";
@@ -321,12 +320,6 @@ export default function PaymentsPage() {
 
   // Default currency from most recent wallet with a value
   const defaultCurrency = walletRows.find(w => w.currency)?.currency ?? "EUR";
-
-  // ── Payout loading state ───────────────────────────────────────────────────
-  const payingOutBookingId: string | null =
-    payoutFetcher.state !== "idle" && payoutFetcher.formData
-      ? (payoutFetcher.formData.get("booking_id") as string)
-      : null;
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -394,8 +387,6 @@ export default function PaymentsPage() {
               <tbody>
                 {walletRows.map((w, i) => {
                   const cur = w.currency ?? defaultCurrency;
-                  const isPayingOut = payingOutBookingId === w.booking_id;
-                  const canRequestPayout = !!w.client_paid && (w.payout_status === "pending" || w.payout_status === "approved");
 
                   return (
                     <tr
@@ -445,31 +436,29 @@ export default function PaymentsPage() {
 
                       {/* Action */}
                       <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
-                        {canRequestPayout ? (
-                          <payoutFetcher.Form method="post" action="/api/payout" style={{ margin: 0 }}>
-                            <input type="hidden" name="booking_id" value={w.booking_id} />
-                            <button
-                              type="submit"
-                              disabled={isPayingOut}
-                              style={{
-                                padding: "6px 14px",
-                                background: ACCENT,
-                                border: "none",
-                                borderRadius: 8,
-                                color: "#111",
-                                fontSize: 12,
-                                fontWeight: 700,
-                                cursor: isPayingOut ? "default" : "pointer",
-                                fontFamily: FONT_BODY,
-                                opacity: isPayingOut ? 0.6 : 1,
-                              }}
-                            >
-                              {isPayingOut ? "…" : "Request Payout"}
-                            </button>
-                          </payoutFetcher.Form>
-                        ) : w.payout_status === "released" ? (
+                        {w.payout_status === "released" ? (
                           <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 600 }}>Released ✓</span>
-                        ) : null}
+                        ) : (
+                          <a
+                            href={`/booking/${w.booking_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              padding: "6px 14px",
+                              background: ACCENT,
+                              border: "none",
+                              borderRadius: 8,
+                              color: "#111",
+                              fontSize: 12,
+                              fontWeight: 700,
+                              fontFamily: FONT_BODY,
+                              textDecoration: "none",
+                              display: "inline-block",
+                            }}
+                          >
+                            View Booking →
+                          </a>
+                        )}
                       </td>
                     </tr>
                   );

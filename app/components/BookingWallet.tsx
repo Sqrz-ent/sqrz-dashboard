@@ -34,6 +34,7 @@ export type WalletData = {
 interface Props {
   wallet: WalletData;
   bookingStatus: string;
+  stripeConnectId?: string | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -112,10 +113,8 @@ function TypeBadge({ type }: { type: string }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function BookingWallet({ wallet, bookingStatus }: Props) {
+export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [payoutLoading, setPayoutLoading] = useState(false);
-  const [payoutReleased, setPayoutReleased] = useState(wallet.payout_status === "released");
   const [newType,   setNewType]   = useState<string>("expense");
   const [newLabel,  setNewLabel]  = useState("Transport");
   const [newAmount, setNewAmount] = useState("");
@@ -160,32 +159,15 @@ export default function BookingWallet({ wallet, bookingStatus }: Props) {
 
   const s = sym(wallet.currency);
   const isPaid = wallet.client_paid || (paidFetcher.state === "idle" && paidFetcher.data?.ok === true);
-  const isDelivered = wallet.payout_status === "approved" || wallet.payout_status === "released" || payoutReleased || !!wallet.delivery_confirmed_at ||
+  const isDelivered = wallet.payout_status === "approved" || wallet.payout_status === "released" || !!wallet.delivery_confirmed_at ||
     (deliveredFetcher.state === "idle" && deliveredFetcher.data?.ok === true);
-  const isPayoutActive = isPaid && (wallet.payout_status === "pending" || wallet.payout_status === "approved") && !payoutReleased;
+  const justDelivered = deliveredFetcher.state === "idle" && deliveredFetcher.data?.ok === true;
   const isConfirmedBooking = bookingStatus === "confirmed";
 
   function markAsPaid() {
     const fd = new FormData();
     fd.append("intent", "wallet_mark_paid");
     paidFetcher.submit(fd, { method: "post" });
-  }
-
-  async function requestPayout() {
-    setPayoutLoading(true);
-    try {
-      const res = await fetch("/api/payout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ booking_id: wallet.booking_id }),
-      });
-      const data = await res.json();
-      if (data.success) setPayoutReleased(true);
-    } catch (err) {
-      console.error("[payout]", err);
-    } finally {
-      setPayoutLoading(false);
-    }
   }
 
   function markAsDelivered() {
@@ -599,34 +581,56 @@ export default function BookingWallet({ wallet, bookingStatus }: Props) {
               borderRadius: 20,
               fontSize: 11,
               fontWeight: 700,
-              background: payoutReleased ? "rgba(74,222,128,0.12)" : "var(--surface-muted)",
-              color: payoutReleased ? "#4ade80" : "var(--text-muted)",
+              background: wallet.payout_status === "released" ? "rgba(74,222,128,0.12)" : "var(--surface-muted)",
+              color: wallet.payout_status === "released" ? "#4ade80" : "var(--text-muted)",
               textTransform: "capitalize",
             }}>
-              {payoutReleased ? "Released ✓" : (wallet.payout_status ?? "Not initiated")}
+              {wallet.payout_status === "released" ? "Released ✓" : (wallet.payout_status ?? "Not initiated")}
             </span>
           </div>
-          {!payoutReleased && (
-            <button
-              onClick={requestPayout}
-              disabled={!isPayoutActive || payoutLoading}
+          {isDelivered && stripeConnectId ? (
+            <a
+              href="https://express.stripe.com"
+              target="_blank"
+              rel="noopener noreferrer"
               style={{
                 padding: "9px 18px",
-                background: isPayoutActive ? ACCENT : "var(--surface-muted)",
-                color: isPayoutActive ? "#111" : "var(--text-muted)",
-                border: isPayoutActive ? "none" : "1px solid var(--border)",
+                background: ACCENT,
+                color: "#111",
+                border: "none",
                 borderRadius: 9,
                 fontSize: 12,
                 fontWeight: 700,
-                cursor: isPayoutActive && !payoutLoading ? "pointer" : "default",
-                opacity: payoutLoading ? 0.7 : 1,
                 fontFamily: FONT_BODY,
+                textDecoration: "none",
                 whiteSpace: "nowrap",
               }}
             >
-              {payoutLoading ? "Processing…" : "Request Payout"}
-            </button>
-          )}
+              Stripe dashboard →
+            </a>
+          ) : isDelivered && !stripeConnectId ? (
+            <a
+              href="/payments"
+              style={{
+                padding: "9px 18px",
+                background: "var(--surface-muted)",
+                color: "var(--text-muted)",
+                border: "1px solid var(--border)",
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 700,
+                fontFamily: FONT_BODY,
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              Connect bank →
+            </a>
+          ) : isPaid && !isDelivered ? (
+            <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
+              Mark as Delivered to release funds
+            </span>
+          ) : null}
         </div>
 
         {/* Mark as Delivered */}
@@ -657,9 +661,14 @@ export default function BookingWallet({ wallet, bookingStatus }: Props) {
             </button>
           </div>
         )}
-        {isDelivered && wallet.payout_status === "approved" && !payoutReleased && (
+        {justDelivered && (
           <p style={{ color: "#4ade80", fontSize: 12, margin: "12px 0 0", fontWeight: 600 }}>
-            ✓ Delivery confirmed — request payout above when ready
+            ✓ Booking marked as delivered. Funds are available in your Stripe Connect account.
+          </p>
+        )}
+        {isDelivered && !justDelivered && wallet.payout_status === "approved" && (
+          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "12px 0 0" }}>
+            ✓ Delivery confirmed — funds available in your Stripe Connect account.
           </p>
         )}
       </div>

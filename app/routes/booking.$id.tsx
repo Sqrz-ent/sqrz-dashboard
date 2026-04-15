@@ -185,6 +185,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         planId: (profile?.plan_id as number | null) ?? null,
         isBeta: (profile?.is_beta as boolean) ?? false,
         proposalFeePct,
+        stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
       },
       { headers }
@@ -326,6 +327,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         profileId: (profile?.id as string) ?? null,
         planId: (profile?.plan_id as number | null) ?? null,
         isBeta: (profile?.is_beta as boolean) ?? false,
+        stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
       },
       { headers }
@@ -640,7 +642,11 @@ export async function action({ request, params }: Route.ActionArgs) {
     const admin = createSupabaseAdminClient();
     await admin
       .from("booking_wallets")
-      .update({ payout_status: "approved", delivery_confirmed_at: new Date().toISOString() })
+      .update({
+        payout_status: "approved",
+        delivery_confirmed_at: new Date().toISOString(),
+        auto_release_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      })
       .eq("booking_id", params.id);
     return Response.json({ ok: true }, { headers });
   }
@@ -2150,12 +2156,14 @@ function MemberView({
   planLevel,
   userEmail,
   senderName,
+  stripeConnectId,
 }: {
   booking: Booking;
   wallet: WalletData | null;
   planLevel: number;
   userEmail: string;
   senderName: string | null;
+  stripeConnectId: string | null;
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
@@ -2257,7 +2265,7 @@ function MemberView({
         {showProposal && <ProposalSection booking={b} planLevel={planLevel} />}
 
         {showPayments && wallet && (
-          <BookingWallet wallet={wallet} bookingStatus={b.status as string} />
+          <BookingWallet wallet={wallet} bookingStatus={b.status as string} stripeConnectId={stripeConnectId} />
         )}
       </div>
 
@@ -2328,6 +2336,7 @@ export default function BookingAccessPage() {
     planId,
     isBeta,
     proposalFeePct,
+    stripeConnectId,
     senderName,
   } = data as {
     booking: Booking;
@@ -2341,6 +2350,7 @@ export default function BookingAccessPage() {
     planId: number | null;
     isBeta: boolean;
     proposalFeePct?: number | null;
+    stripeConnectId?: string | null;
     senderName: string | null;
   };
 
@@ -2358,6 +2368,7 @@ export default function BookingAccessPage() {
           planLevel={planLevel}
           userEmail={userEmail}
           senderName={senderName}
+          stripeConnectId={stripeConnectId ?? null}
         />
       </div>
     );
