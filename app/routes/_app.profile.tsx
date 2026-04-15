@@ -254,13 +254,6 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  if (intent === "toggle_publish") {
-    const { error } = await supabase.from("profiles").update({
-      is_published: !(profile.is_published as boolean),
-    }).eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   if (intent === "toggle_gig_history") {
     const { error } = await supabase.from("profiles").update({
       show_gig_history: !(profile.show_gig_history as boolean),
@@ -388,7 +381,6 @@ export default function ProfilePage() {
   const widgetsFetcher = useFetcher();
   const galleryFetcher = useFetcher();
   const businessFetcher = useFetcher();
-  const publishFetcher = useFetcher();
   const gigHistoryFetcher = useFetcher();
   const videoFetcher = useFetcher();
   const refFetcher = useFetcher();
@@ -1268,31 +1260,6 @@ export default function ProfilePage() {
           </div>
         </label>
 
-        <button
-          onClick={() => {
-            const fd = new FormData();
-            fd.append("intent", "toggle_publish");
-            publishFetcher.submit(fd, { method: "post" });
-          }}
-          disabled={publishFetcher.state !== "idle"}
-          style={{
-            padding: "13px 28px",
-            background: profile.is_published ? "var(--surface)" : ACCENT,
-            color: profile.is_published ? "var(--text)" : "#111",
-            border: profile.is_published ? "1px solid var(--border)" : "none",
-            borderRadius: 12,
-            fontSize: 15,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: FONT_BODY,
-          }}
-        >
-          {publishFetcher.state !== "idle"
-            ? "Updating…"
-            : profile.is_published
-            ? "✓ Profile is Live — Unpublish"
-            : "Publish Profile →"}
-        </button>
       </div>
 
       {/* Skills Modal */}
