@@ -973,9 +973,11 @@ function DetailsSection({ booking }: { booking: Booking }) {
 function ProposalSection({
   booking,
   planLevel,
+  stripeConnectId,
 }: {
   booking: Booking;
   planLevel: number;
+  stripeConnectId: string | null;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const declineFetcher = useFetcher<{ ok?: boolean }>();
@@ -1000,7 +1002,7 @@ function ProposalSection({
     require_travel: latestProposal?.require_travel ?? false,
     require_hotel: latestProposal?.require_hotel ?? false,
     require_food: latestProposal?.require_food ?? false,
-    requires_payment: latestProposal?.requires_payment ?? false,
+    requires_payment: latestProposal?.requires_payment ?? (planLevel >= 1 && !!stripeConnectId),
   });
 
   const [lineItems, setLineItems] = useState<LineItem[]>(() => {
@@ -1011,6 +1013,7 @@ function ProposalSection({
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
   const canUseStripe = planLevel >= 1;
+  const hasConnect = !!stripeConnectId;
   const sym = currencySym(latestProposal?.currency ?? "EUR");
 
   return (
@@ -1300,21 +1303,34 @@ function ProposalSection({
                 ))}
               </div>
 
-              {/* Stripe payment toggle — paid users only */}
-              {canUseStripe && (
-                <label style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 20, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    checked={form.requires_payment}
-                    onChange={(e) => setForm((f) => ({ ...f, requires_payment: e.target.checked }))}
-                    style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
-                  />
-                  <div>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Request payment via Stripe</p>
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Buyer receives a Stripe payment link</p>
-                  </div>
-                </label>
-              )}
+              {/* Payment toggle */}
+              {canUseStripe && hasConnect ? (
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={!form.requires_payment}
+                      onChange={(e) => setForm((f) => ({ ...f, requires_payment: !e.target.checked }))}
+                      style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
+                    />
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Handle payment manually instead</p>
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Buyer won't receive a Stripe payment link</p>
+                    </div>
+                  </label>
+                  {!form.requires_payment && (
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, marginLeft: 25, background: "var(--surface-muted)", borderRadius: 8, padding: "8px 10px" }}>
+                      ⚠️ Manual payments are not covered by SQRZ wallet protection. Funds won't be held in escrow.
+                    </p>
+                  )}
+                </div>
+              ) : !canUseStripe ? (
+                <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: "0 0 4px" }}>💳 Get paid directly through SQRZ</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>Collect payment securely via Stripe — funds held in escrow until delivery.</p>
+                  <a href="/account" style={{ fontSize: 12, fontWeight: 600, color: ACCENT, textDecoration: "none" }}>Upgrade to Creator →</a>
+                </div>
+              ) : null}
 
               {fetcher.data?.error && (
                 <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
@@ -2239,7 +2255,7 @@ function MemberView({
 
         <DetailsSection booking={b} />
 
-        {showProposal && <ProposalSection booking={b} planLevel={planLevel} />}
+        {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} />}
 
         {showPayments && wallet && (
           <BookingWallet wallet={wallet} bookingStatus={b.status as string} stripeConnectId={stripeConnectId} />
