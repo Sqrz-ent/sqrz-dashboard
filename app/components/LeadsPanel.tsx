@@ -381,7 +381,7 @@ function ConversationThread({
               cursor: "pointer",
             }}
           >
-            Convert to booking →
+            Send Proposal →
           </button>
           <button
             onClick={onDecline}
@@ -551,6 +551,7 @@ export default function LeadsPanel({
     setConversations((prev) =>
       prev.map((c) => (c.id === id ? { ...c, status: "requested" } : c))
     );
+    window.open(`/booking/${id}`, "_blank");
     setSelectedId(null);
   }
 
