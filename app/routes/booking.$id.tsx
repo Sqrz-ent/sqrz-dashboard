@@ -872,7 +872,6 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 // ─── Member view sections ─────────────────────────────────────────────────────
 
 function DetailsSection({ booking }: { booking: Booking }) {
-  const showLabelFetcher = useFetcher();
   const b = booking;
 
   return (
@@ -904,28 +903,6 @@ function DetailsSection({ booking }: { booking: Booking }) {
             </div>
           )}
         </div>
-      </div>
-
-      <div style={card}>
-        <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            defaultChecked={!!(b.show_label)}
-            onChange={(e) => {
-              const fd = new FormData();
-              fd.append("intent", "update_show_label");
-              fd.append("show_label", String(e.target.checked));
-              showLabelFetcher.submit(fd, { method: "post" });
-            }}
-            style={{ accentColor: ACCENT, cursor: "pointer", width: 16, height: 16 }}
-          />
-          <div>
-            <p style={{ ...lbl, margin: 0 }}>Show on public calendar</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
-              When on, the booking title is visible on your profile calendar
-            </p>
-          </div>
-        </label>
       </div>
 
       {(b.city || b.venue || b.address) && (

@@ -157,16 +157,20 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
-  const buyerBookings: BuyerBooking[] = buyerRows.map((r) => ({
-    id: r.booking.id,
-    title: r.booking.title,
-    service: r.booking.service,
-    status: r.booking.status,
-    date_start: r.booking.date_start,
-    created_at: r.booking.created_at,
-    owner_name: ownerNameMap[r.booking.owner_id] ?? "Unknown",
-    invite_token: r.invite_token,
-  }));
+  const buyerBookings: BuyerBooking[] = buyerRows
+    .map((r) => ({
+      id: r.booking.id,
+      title: r.booking.title,
+      service: r.booking.service,
+      status: r.booking.status,
+      date_start: r.booking.date_start,
+      created_at: r.booking.created_at,
+      owner_name: ownerNameMap[r.booking.owner_id] ?? "Unknown",
+      invite_token: r.invite_token,
+    }))
+    .sort((a, b) =>
+      new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
+    );
 
   return Response.json(
     { ownerBookings, buyerBookings, services: services ?? [] },
