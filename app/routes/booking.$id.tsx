@@ -1012,7 +1012,7 @@ function ProposalSection({
   const [lineItems, setLineItems] = useState<LineItem[]>(() => {
     const existing = latestProposal?.line_items;
     if (existing?.length) return existing;
-    return [{ label: "Artist Fee", amount: 0 }];
+    return [{ label: "", amount: 0 }];
   });
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
@@ -1190,7 +1190,7 @@ function ProposalSection({
                           next[idx] = { ...item, label: e.target.value };
                           setLineItems(next);
                         }}
-                        placeholder="e.g. Artist Fee, Crew, Transport…"
+                        placeholder="e.g. Artist fee, Transport, Crew, Tax…"
                         style={{ ...inputStyle, padding: "8px 10px" }}
                       />
                       <input
@@ -1273,6 +1273,11 @@ function ProposalSection({
                   </div>
                 )}
               </div>
+
+              {/* Tax & fee disclaimer */}
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 16px", fontStyle: "italic", lineHeight: 1.55 }}>
+                Enter your net rate excluding any applicable taxes. You are responsible for invoicing and local tax compliance (e.g. Umsatzsteuer in Germany). SQRZ fees apply to the total amount entered.
+              </p>
 
               {/* Message */}
               <div style={{ marginBottom: 16 }}>
