@@ -1057,10 +1057,12 @@ function ProposalSection({
   booking,
   planLevel,
   stripeConnectId,
+  proposalFeePct,
 }: {
   booking: Booking;
   planLevel: number;
   stripeConnectId: string | null;
+  proposalFeePct?: number | null;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const declineFetcher = useFetcher<{ ok?: boolean }>();
@@ -1119,41 +1121,77 @@ function ProposalSection({
           {/* Member sent proposal — waiting for buyer response */}
           {memberSentAndWaiting && !showForm && (
             <>
-              {/* Sent proposal summary (read-only) */}
-              <div style={card}>
-                <p style={{ ...lbl, marginBottom: 6 }}>Sent Proposal</p>
-                {latestProposal!.rate != null && (
-                  <p style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 10px" }}>
-                    {sym}{(latestProposal!.rate).toLocaleString()}
-                    <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
-                      {latestProposal!.currency ?? "EUR"}
-                    </span>
-                  </p>
-                )}
-                {[
-                  latestProposal!.require_hotel && "Hotel",
-                  latestProposal!.require_travel && "Travel",
-                  latestProposal!.require_food && "Catering",
-                ].filter(Boolean).length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    {[
-                      latestProposal!.require_hotel && "Hotel",
-                      latestProposal!.require_travel && "Travel",
-                      latestProposal!.require_food && "Catering",
-                    ].filter(Boolean).map((b2) => (
-                      <div key={b2 as string} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{b2}</span>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Required</span>
+              {/* Sent proposal — full breakdown (read-only) */}
+              {latestProposal!.rate != null && (() => {
+                const p = latestProposal!;
+                const net = p.rate ?? 0;
+                const tPct = p.tax_pct ?? 0;
+                const tAmt = tPct > 0 ? Math.round(net * tPct / 100 * 100) / 100 : 0;
+                const feePct2 = proposalFeePct ?? 8;
+                const feeAmt2 = Math.round(net * feePct2 / 100 * 100) / 100;
+                const bookerPays2 = Math.round((net + tAmt + feeAmt2) * 100) / 100;
+                const youReceive2 = Math.round((net - feeAmt2) * 100) / 100;
+                const symP = currencySym(p.currency);
+                const lineItemsP = p.line_items ?? [];
+                return (
+                  <div style={card}>
+                    <p style={{ ...lbl, marginBottom: 10 }}>Sent Proposal</p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>Rate (net)</span>
+                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 700 }}>{symP}{net.toLocaleString()} <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>{p.currency ?? "EUR"}</span></span>
                       </div>
-                    ))}
+                      {tAmt > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Tax ({tPct}%)</span>
+                          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>+{symP}{tAmt.toLocaleString()}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>SQRZ fee ({feePct2}% of net)</span>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>+{symP}{feeAmt2.toLocaleString()}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{symP}{bookerPays2.toLocaleString()}</span>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>You receive (before Stripe fees)</span>
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{youReceive2.toLocaleString()}</span>
+                      </div>
+                    </div>
+                    {lineItemsP.length > 0 && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                        <p style={{ ...lbl, marginBottom: 6 }}>Breakdown (for transparency)</p>
+                        {lineItemsP.map((item, idx) => (
+                          <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item.label}</span>
+                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{(item.amount || 0).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {p.message && (
+                      <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "12px 0 0", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+                        {p.message}
+                      </p>
+                    )}
+                    {[p.require_hotel && "Hotel", p.require_travel && "Travel", p.require_food && "Catering"].filter(Boolean).length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        {[p.require_hotel && "Hotel", p.require_travel && "Travel", p.require_food && "Catering"].filter(Boolean).map((r) => (
+                          <div key={r as string} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{r}</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Required</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "12px 0 0", lineHeight: 1.55 }}>
+                      You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
+                    </p>
                   </div>
-                )}
-                {latestProposal!.message && (
-                  <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
-                    {latestProposal!.message}
-                  </p>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Waiting banner */}
               <div style={{ ...card, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)" }}>
@@ -1279,7 +1317,7 @@ function ProposalSection({
                       style={{ ...inputStyle, width: 80, padding: "8px 10px", textAlign: "right" as const }}
                       value={taxPct}
                       onChange={(e) => setTaxPct(e.target.value)}
-                      placeholder="e.g. 19"
+                      placeholder="e.g. 19 (VAT/USt/IVA/GST)"
                     />
                     <span style={{ fontSize: 13, color: "var(--text-muted)" }}>%</span>
                   </div>
@@ -1410,7 +1448,7 @@ function ProposalSection({
                         </div>
                         {taxAmt > 0 && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>VAT ({taxRate}%)</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Tax ({taxRate}%)</span>
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{taxAmt.toLocaleString()}</span>
                           </div>
                         )}
@@ -1431,6 +1469,9 @@ function ProposalSection({
                           </div>
                         )}
                       </div>
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.55 }}>
+                        You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
+                      </p>
                     </div>
                   );
                 })()
@@ -2018,7 +2059,7 @@ function GuestBuyerProposalCard({
 
             {taxAmt > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>VAT ({taxRate}%)</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Tax ({taxRate}%)</span>
                 <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{taxAmt.toLocaleString()}</span>
               </div>
             )}
@@ -2044,6 +2085,9 @@ function GuestBuyerProposalCard({
             Stripe payment processing fees (typically 1.5–3%) are deducted from the payout and may vary by card type and country.
           </p>
         )}
+        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 4px", lineHeight: 1.55 }}>
+          The seller is responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on their behalf.
+        </p>
 
         {/* Optional breakdown (for transparency) */}
         {hasBreakdown && (
@@ -2355,6 +2399,7 @@ function MemberView({
   senderName,
   stripeConnectId,
   memberInfo,
+  proposalFeePct,
 }: {
   booking: Booking;
   wallet: WalletData | null;
@@ -2363,6 +2408,7 @@ function MemberView({
   senderName: string | null;
   stripeConnectId: string | null;
   memberInfo?: MemberInfo;
+  proposalFeePct?: number | null;
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
@@ -2461,7 +2507,7 @@ function MemberView({
 
         <DetailsSection booking={b} memberInfo={memberInfo} />
 
-        {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} />}
+        {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} proposalFeePct={proposalFeePct} />}
 
         {showPayments && wallet && (
           <BookingWallet wallet={wallet} bookingStatus={b.status as string} stripeConnectId={stripeConnectId} />
@@ -2573,6 +2619,7 @@ export default function BookingAccessPage() {
           senderName={senderName}
           stripeConnectId={stripeConnectId ?? null}
           memberInfo={memberInfo}
+          proposalFeePct={proposalFeePct}
         />
       </div>
     );

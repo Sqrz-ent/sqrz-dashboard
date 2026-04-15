@@ -373,11 +373,11 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
           <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(memberRate)}</p>
         </div>
 
-        {/* VAT row — only when tax is set */}
+        {/* Tax row — only when tax is set */}
         {hasTax && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
             <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-              VAT{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""}
+              Tax{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""}
             </p>
             <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
               +{s}{fmt(taxAmt)}
@@ -402,7 +402,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
           <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 800, margin: 0 }}>{s}{fmt(bookerPays)}</p>
         </div>
 
-        {/* Your net after tax + VAT remittance note */}
+        {/* Your net after tax + tax remittance note */}
         {hasTax && (
           <>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid var(--border)", marginTop: 6 }}>
@@ -410,7 +410,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
               <p style={{ color: ACCENT, fontSize: 13, fontWeight: 700, margin: 0 }}>{s}{fmt(memberRate)}</p>
             </div>
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.55 }}>
-              Note: VAT of {s}{fmt(taxAmt)} must be remitted to your tax authority.
+              Note: Tax of {s}{fmt(taxAmt)} must be remitted to your tax authority. You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
             </p>
           </>
         )}
