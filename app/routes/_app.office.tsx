@@ -47,11 +47,12 @@ const COLUMNS = [
 ] as const;
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  requested: { bg: "rgba(245,166,35,0.12)",  text: "#F5A623" },
-  pending:   { bg: "rgba(96,165,250,0.12)",  text: "#60a5fa" },
-  confirmed: { bg: "rgba(74,222,128,0.12)",  text: "#4ade80" },
-  completed: { bg: "var(--surface-muted)", text: "var(--text-muted)" },
-  archived:  { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  requested:       { bg: "rgba(245,166,35,0.12)",  text: "#F5A623" },
+  pending:         { bg: "rgba(96,165,250,0.12)",  text: "#60a5fa" },
+  confirmed:       { bg: "rgba(74,222,128,0.12)",  text: "#4ade80" },
+  completed:       { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  archived:        { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  pending_payment: { bg: "rgba(251,191,36,0.12)",  text: "#fbbf24" },
 };
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
@@ -102,6 +103,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .from("bookings")
       .select("id, title, service, status, date_start, date_end, city, venue")
       .eq("owner_id", profile.id as string)
+      .not("status", "in", "(pending_payment,cancelled)")
       .order("created_at", { ascending: false }),
     admin
       .from("booking_participants")
@@ -314,36 +316,62 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
     ? `/booking/${booking.id}?token=${booking.invite_token}`
     : `/booking/${booking.id}`;
 
+  const isPendingPayment = booking.status === "pending_payment";
+
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
+    <div
       style={{
         display: "flex",
         alignItems: "center",
         gap: 12,
         padding: "12px 16px",
         background: "var(--surface)",
-        border: "1px solid var(--border)",
+        border: isPendingPayment ? "1px solid rgba(251,191,36,0.3)" : "1px solid var(--border)",
         borderRadius: 10,
-        textDecoration: "none",
         marginBottom: 8,
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ flex: 1, minWidth: 0, textDecoration: "none" }}
+      >
         <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {booking.title ?? booking.service ?? "Untitled"}
         </p>
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "2px 0 0" }}>
           {booking.owner_name}
         </p>
-      </div>
-      <StatusBadge status={booking.status} />
+      </a>
       <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
         {formatDate(booking.date_start)}
       </span>
-    </a>
+      {isPendingPayment ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            flexShrink: 0,
+            padding: "5px 12px",
+            borderRadius: 20,
+            border: "none",
+            background: "#fbbf24",
+            color: "#000",
+            fontWeight: 600,
+            fontSize: 12,
+            cursor: "pointer",
+            textDecoration: "none",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Complete Payment
+        </a>
+      ) : (
+        <StatusBadge status={booking.status} />
+      )}
+    </div>
   );
 }
 

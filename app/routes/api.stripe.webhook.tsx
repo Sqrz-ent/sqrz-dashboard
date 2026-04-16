@@ -189,7 +189,11 @@ export async function action({ request }: ActionFunctionArgs) {
 
       await supabase
         .from("bookings")
-        .update({ status: "confirmed" })
+        .update({
+          status: "confirmed",
+          confirmed_at: new Date().toISOString(),
+          payment_expires_at: null,
+        })
         .eq("id", bookingId);
 
       // Create or update wallet with client_paid flag
@@ -475,6 +479,15 @@ export async function action({ request }: ActionFunctionArgs) {
       p_current_period_start: toISO(item.current_period_start),
       p_current_period_end: toISO(item.current_period_end),
     });
+  }
+
+  if (event.type === "payment_intent.payment_failed") {
+    const pi = event.data.object as Stripe.PaymentIntent;
+    console.log("[webhook] payment_intent.payment_failed — pi.id:", pi.id);
+    await supabase
+      .from("bookings")
+      .update({ status: "cancelled" })
+      .eq("stripe_payment_intent_id", pi.id);
   }
 
   if (event.type === "account.updated") {

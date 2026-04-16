@@ -974,11 +974,12 @@ const guestMetaLabel: React.CSSProperties = {
 };
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  requested: { bg: "rgba(245,166,35,0.12)", text: ACCENT },
-  pending:   { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
-  confirmed: { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
-  completed: { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
-  archived:  { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
+  requested:       { bg: "rgba(245,166,35,0.12)", text: ACCENT },
+  pending:         { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
+  confirmed:       { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
+  completed:       { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
+  archived:        { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
+  pending_payment: { bg: "rgba(251,191,36,0.12)", text: "#fbbf24" },
 };
 
 // ─── Shared components ────────────────────────────────────────────────────────
@@ -3566,6 +3567,14 @@ function MemberView({
 
         <DetailsSection booking={b} memberInfo={memberInfo} />
 
+        {(b.status as string) === "pending_payment" && (
+          <div style={{ ...card, border: "1px solid rgba(251,191,36,0.25)", background: "rgba(251,191,36,0.06)", marginBottom: 16 }}>
+            <p style={{ color: "#fbbf24", fontSize: 14, margin: 0 }}>
+              Awaiting payment from the buyer.
+            </p>
+          </div>
+        )}
+
         {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} proposalFeePct={proposalFeePct} />}
 
         {showPayments && wallet && (
@@ -3744,7 +3753,38 @@ export default function BookingAccessPage() {
               </div>
             </div>
 
-            {/* 2. Booking details card */}
+            {/* 2. Payment not completed banner (buyer, pending_payment) */}
+            {isBuyer && bStatus === "pending_payment" && (
+              <div style={{ ...card, border: "1px solid rgba(251,191,36,0.3)", background: "rgba(251,191,36,0.06)", marginBottom: 12 }}>
+                <p style={{ color: "#fbbf24", fontSize: 15, fontWeight: 700, margin: "0 0 4px" }}>
+                  Payment not completed
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 12px", lineHeight: 1.5 }}>
+                  Your booking is reserved but unpaid. Complete payment to confirm your booking.
+                </p>
+                <form method="POST" action="/api/instant-booking/resume">
+                  <input type="hidden" name="booking_id" value={b.id as string} />
+                  <input type="hidden" name="token" value={bookingToken ?? ""} />
+                  <button
+                    type="submit"
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 20,
+                      border: "none",
+                      background: "#fbbf24",
+                      color: "#000",
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Complete Payment →
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* 3. Booking details card */}
             <GuestDetailsCard b={b} />
 
             {/* Seller Information */}
@@ -3768,7 +3808,7 @@ export default function BookingAccessPage() {
               </div>
             )}
 
-            {/* 3. Fee details + actions (buyer) */}
+            {/* 4. Fee details + actions (buyer) */}
             {isBuyer && proposal && (
               <div style={{ marginTop: 8 }}>
                 <SectionHeading>Details</SectionHeading>
