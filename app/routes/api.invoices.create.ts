@@ -131,6 +131,20 @@ export async function action({ request }: { request: Request }) {
   }
 
   // Call Edge Function to generate PDF
+  console.log("[invoices/create] insertedInvoice:", JSON.stringify(insertedInvoice));
+  console.log("[invoices/create] invoice_id type:", typeof insertedInvoice.id, "value:", insertedInvoice.id);
+
+  // Re-fetch the row to ensure we have the trigger-updated id
+  const { data: confirmedInvoice } = await adminClient
+    .from("invoices")
+    .select("id, invoice_number")
+    .eq("id", insertedInvoice.id)
+    .single();
+
+  console.log("[invoices/create] confirmedInvoice:", JSON.stringify(confirmedInvoice));
+  const invoiceIdToUse = confirmedInvoice?.id ?? insertedInvoice.id;
+  console.log("[invoices/create] calling edge function with invoice_id:", invoiceIdToUse);
+
   let signed_url: string | null = null;
   try {
     const edgeRes = await fetch(
@@ -141,10 +155,12 @@ export async function action({ request }: { request: Request }) {
           Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ invoice_id: insertedInvoice.id }),
+        body: JSON.stringify({ invoice_id: invoiceIdToUse }),
       }
     );
-    const edgeJson = (await edgeRes.json()) as { ok?: boolean; signed_url?: string; pdf_url?: string };
+    const edgeText = await edgeRes.text();
+    console.log("[invoices/create] edge function response status:", edgeRes.status, "body:", edgeText);
+    const edgeJson = JSON.parse(edgeText) as { ok?: boolean; signed_url?: string; pdf_url?: string; error?: string };
     signed_url = edgeJson.signed_url ?? null;
   } catch (err) {
     console.error("[invoices/create] edge function error:", err);
