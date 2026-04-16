@@ -55,11 +55,11 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
   const hasWidget = WIDGET_FIELDS.some((f) => !!(p[f] as string | null));
 
   const items: CompletionItem[] = [
-    { key: "gallery",    label: "Gallery",      done: p.hasGallery },
     { key: "basics",     label: "Basics",      done: !!(p.bio && p.city) },
     { key: "skills",     label: "Skills",      done: p.hasSkills },
     { key: "socials",    label: "Socials",     done: hasSocial },
     { key: "widgets",    label: "Widgets",     done: hasWidget },
+    { key: "gallery",    label: "Gallery",     done: p.hasGallery },
     { key: "videos",     label: "Videos",      done: p.hasVideos },
     { key: "refs",       label: "References",  done: p.hasRefs },
     { key: "services",   label: "Services",    done: p.hasServices },

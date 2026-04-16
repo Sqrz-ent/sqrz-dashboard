@@ -471,7 +471,7 @@ export default function DashboardIndex() {
             </button>
           </div>
           <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-            {rc.use_count} signup{rc.use_count !== 1 ? "s" : ""} · {rc.commission_pct}% commission · {rc.discount_pct}% off for new users
+            {rc.use_count} signup{rc.use_count !== 1 ? "s" : ""} · {rc.discount_pct}% off for new users
           </p>
         </div>
       )}
