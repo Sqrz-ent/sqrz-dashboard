@@ -8,8 +8,7 @@ import Stripe from "stripe";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import UpgradeBanner from "~/components/UpgradeBanner";
 
-// Connect accounts were created in test mode — use test key for Express login links
-const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
+const stripeConnect = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -132,7 +131,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     // Stripe Express login link (test key — accounts created in test mode)
     connectId && connectStatus === "active"
-      ? stripeTest.accounts.createLoginLink(connectId).catch(() => null)
+      ? stripeConnect.accounts.createLoginLink(connectId).catch(() => null)
       : Promise.resolve(null),
 
     // Stripe billing portal URL

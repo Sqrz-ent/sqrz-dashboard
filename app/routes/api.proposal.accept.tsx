@@ -61,7 +61,7 @@ export async function action({ request }: { request: Request }) {
 
   if (proposal.requires_payment === true) {
     // Stripe destination charge — fee stays on platform, net goes directly to member's Connect account
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY_TEST!);
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [
