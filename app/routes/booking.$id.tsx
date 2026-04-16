@@ -191,7 +191,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
     // Load invoice + buyer participant for owner
     let tokenInvoice: Record<string, unknown> | null = null;
-    let tokenBuyerParticipant: { name: string | null; email: string | null } | null = null;
+    let tokenBuyerParticipant: BuyerParticipant = null;
     if (isOwner) {
       const profileId = profile!.id as string;
       const [{ data: inv }, { data: buyerP }] = await Promise.all([
@@ -203,13 +203,22 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           .maybeSingle(),
         admin
           .from("booking_participants")
-          .select("name, email")
+          .select("name, email, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
           .eq("booking_id", params.id)
           .eq("role", "buyer")
           .maybeSingle(),
       ]);
       tokenInvoice = (inv as Record<string, unknown> | null) ?? null;
-      tokenBuyerParticipant = buyerP ? { name: buyerP.name as string | null, email: buyerP.email as string | null } : null;
+      tokenBuyerParticipant = buyerP ? {
+        name: buyerP.name as string | null,
+        email: buyerP.email as string | null,
+        billing_company: (buyerP as Record<string, unknown>).billing_company as string | null ?? null,
+        billing_address: (buyerP as Record<string, unknown>).billing_address as string | null ?? null,
+        billing_city: (buyerP as Record<string, unknown>).billing_city as string | null ?? null,
+        billing_country: (buyerP as Record<string, unknown>).billing_country as string | null ?? null,
+        billing_vat_id: (buyerP as Record<string, unknown>).billing_vat_id as string | null ?? null,
+        billing_confirmed: (buyerP as Record<string, unknown>).billing_confirmed as boolean | null ?? null,
+      } : null;
     }
 
     return Response.json(
@@ -397,7 +406,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
     // Load invoice + buyer participant for owner
     let sessionInvoice: Record<string, unknown> | null = null;
-    let sessionBuyerParticipant: { name: string | null; email: string | null } | null = null;
+    let sessionBuyerParticipant: BuyerParticipant = null;
     if (isOwner && profile) {
       const profileId = profile.id as string;
       const [{ data: inv }, { data: buyerP }] = await Promise.all([
@@ -409,13 +418,22 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           .maybeSingle(),
         admin
           .from("booking_participants")
-          .select("name, email")
+          .select("name, email, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
           .eq("booking_id", params.id)
           .eq("role", "buyer")
           .maybeSingle(),
       ]);
       sessionInvoice = (inv as Record<string, unknown> | null) ?? null;
-      sessionBuyerParticipant = buyerP ? { name: buyerP.name as string | null, email: buyerP.email as string | null } : null;
+      sessionBuyerParticipant = buyerP ? {
+        name: buyerP.name as string | null,
+        email: buyerP.email as string | null,
+        billing_company: (buyerP as Record<string, unknown>).billing_company as string | null ?? null,
+        billing_address: (buyerP as Record<string, unknown>).billing_address as string | null ?? null,
+        billing_city: (buyerP as Record<string, unknown>).billing_city as string | null ?? null,
+        billing_country: (buyerP as Record<string, unknown>).billing_country as string | null ?? null,
+        billing_vat_id: (buyerP as Record<string, unknown>).billing_vat_id as string | null ?? null,
+        billing_confirmed: (buyerP as Record<string, unknown>).billing_confirmed as boolean | null ?? null,
+      } : null;
     }
 
     return Response.json(
@@ -995,7 +1013,7 @@ function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: b.service ? 14 : 0 }}>
           <StatusBadge status={(b.status as string) ?? "pending"} />
         </div>
-        {b.service && (
+        {!!b.service && (
           <div>
             <p style={lbl}>Service</p>
             <p style={val}>{b.service as string}</p>
@@ -1009,7 +1027,7 @@ function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?
             <p style={lbl}>Start date</p>
             <p style={val}>{formatDate(b.date_start as string | null)}</p>
           </div>
-          {b.date_end && b.date_end !== b.date_start && (
+          {!!(b.date_end && b.date_end !== b.date_start) && (
             <div>
               <p style={lbl}>End date</p>
               <p style={val}>{formatDate(b.date_end as string | null)}</p>
@@ -1018,23 +1036,23 @@ function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?
         </div>
       </div>
 
-      {(b.city || b.venue || b.address) && (
+      {!!(b.city || b.venue || b.address) && (
         <div style={card}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: b.address ? 14 : 0 }}>
-            {b.venue && (
+            {!!b.venue && (
               <div>
                 <p style={lbl}>Venue</p>
                 <p style={val}>{b.venue as string}</p>
               </div>
             )}
-            {b.city && (
+            {!!b.city && (
               <div>
                 <p style={lbl}>City</p>
                 <p style={val}>{b.city as string}</p>
               </div>
             )}
           </div>
-          {b.address && (
+          {!!b.address && (
             <div>
               <p style={lbl}>Address</p>
               <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{b.address as string}</p>
@@ -1944,6 +1962,135 @@ function GuestProposalCard({ proposal }: { proposal: Proposal }) {
   );
 }
 
+// ── BillingModal ──────────────────────────────────────────────────────────────
+
+function BillingModal({
+  open,
+  onClose,
+  onConfirm,
+  bookingId,
+  bookingToken,
+  prefill,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  bookingId: string;
+  bookingToken: string | null;
+  prefill: { name: string | null; email: string | null };
+}) {
+  const [form, setForm] = useState({
+    billing_company: prefill.name ?? "",
+    billing_address: "",
+    billing_city: "",
+    billing_country: "",
+    billing_vat_id: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.billing_company.trim()) {
+      setError("Company / Name is required.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await fetch("/api/billing/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          booking_id: bookingId,
+          invite_token: bookingToken,
+          ...form,
+        }),
+      });
+      onConfirm();
+    } catch {
+      setError("Could not save billing details. Please try again.");
+      setSaving(false);
+    }
+  }
+
+  if (!open) return null;
+
+  const overlay: React.CSSProperties = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
+    zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
+    padding: "20px",
+  };
+  const modal: React.CSSProperties = {
+    background: "var(--surface)", borderRadius: 18, padding: "28px 28px 24px",
+    width: "100%", maxWidth: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+    fontFamily: "'DM Sans', ui-sans-serif, sans-serif",
+  };
+  const lbl: React.CSSProperties = {
+    fontSize: 11, fontWeight: 700, color: "var(--text-muted)",
+    textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5,
+  };
+  const inp: React.CSSProperties = {
+    width: "100%", padding: "10px 13px", background: "var(--bg)",
+    border: "1px solid var(--border)", borderRadius: 10, fontSize: 14,
+    color: "var(--text)", outline: "none", boxSizing: "border-box",
+    fontFamily: "'DM Sans', ui-sans-serif, sans-serif",
+  };
+
+  return (
+    <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div style={modal}>
+        <h2 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: "#F5A623", textTransform: "uppercase", margin: "0 0 4px" }}>
+          Billing Details
+        </h2>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 20px" }}>
+          Your details will be used to generate your invoice.
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={lbl}>Company / Name *</label>
+            <input style={inp} value={form.billing_company} required
+              onChange={(e) => setForm(f => ({ ...f, billing_company: e.target.value }))} />
+          </div>
+          <div>
+            <label style={lbl}>Address</label>
+            <input style={inp} value={form.billing_address}
+              onChange={(e) => setForm(f => ({ ...f, billing_address: e.target.value }))} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={lbl}>City</label>
+              <input style={inp} value={form.billing_city}
+                onChange={(e) => setForm(f => ({ ...f, billing_city: e.target.value }))} />
+            </div>
+            <div>
+              <label style={lbl}>Country</label>
+              <input style={inp} value={form.billing_country}
+                onChange={(e) => setForm(f => ({ ...f, billing_country: e.target.value }))} />
+            </div>
+          </div>
+          <div>
+            <label style={lbl}>VAT ID</label>
+            <input style={inp} value={form.billing_vat_id} placeholder="Leave blank if not VAT registered"
+              onChange={(e) => setForm(f => ({ ...f, billing_vat_id: e.target.value }))} />
+          </div>
+          {error && <p style={{ fontSize: 13, color: "#ef4444", margin: 0 }}>{error}</p>}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+            <button type="button" onClick={onClose} style={{ padding: "10px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 14, color: "var(--text)", cursor: "pointer", fontFamily: "'DM Sans', ui-sans-serif, sans-serif" }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} style={{ padding: "10px 22px", background: "#F5A623", color: "#111", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: "'DM Sans', ui-sans-serif, sans-serif" }}>
+              {saving ? "Saving…" : "Continue →"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function GuestBuyerProposalCard({
   proposal,
   bookingId,
@@ -1951,6 +2098,8 @@ function GuestBuyerProposalCard({
   walletFeePct,
   proposalFeePct,
   memberEmail,
+  participantName,
+  participantEmail,
 }: {
   proposal: Proposal;
   bookingId: string;
@@ -1958,8 +2107,11 @@ function GuestBuyerProposalCard({
   walletFeePct?: number | null;
   proposalFeePct?: number | null;
   memberEmail?: string | null;
+  participantName?: string | null;
+  participantEmail?: string | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
+  const [billingOpen, setBillingOpen] = useState(false);
   const [counterOpen, setCounterOpen] = useState(false);
   const [counterRate, setCounterRate] = useState(String(proposal?.rate ?? ""));
   const [counterCurrency, setCounterCurrency] = useState(proposal?.currency ?? "EUR");
@@ -2008,7 +2160,7 @@ function GuestBuyerProposalCard({
     proposal.sent_by !== "buyer" &&
     (proposal.status === "sent" || proposal.status === "countered");
 
-  async function handleAccept() {
+  async function proceedWithAccept() {
     setLoading("accept");
     try {
       const res = await fetch("/api/proposal/accept", {
@@ -2028,6 +2180,10 @@ function GuestBuyerProposalCard({
       console.error("[accept]", err);
       setLoading(null);
     }
+  }
+
+  function handleAccept() {
+    setBillingOpen(true);
   }
 
   async function handleCounter() {
@@ -2329,6 +2485,15 @@ function GuestBuyerProposalCard({
           </button>
         </div>
       )}
+
+      <BillingModal
+        open={billingOpen}
+        onClose={() => setBillingOpen(false)}
+        onConfirm={() => { setBillingOpen(false); proceedWithAccept(); }}
+        bookingId={bookingId}
+        bookingToken={bookingToken}
+        prefill={{ name: participantName ?? null, email: participantEmail ?? null }}
+      />
     </>
   );
 }
@@ -2457,7 +2622,16 @@ type InvoiceRecord = {
   pdf_url: string | null;
 };
 
-type BuyerParticipant = { name: string | null; email: string | null } | null;
+type BuyerParticipant = {
+  name: string | null;
+  email: string | null;
+  billing_company: string | null;
+  billing_address: string | null;
+  billing_city: string | null;
+  billing_country: string | null;
+  billing_vat_id: string | null;
+  billing_confirmed: boolean | null;
+} | null;
 
 const INVOICE_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   draft:   { bg: "var(--surface-muted)", text: "var(--text-muted)" },
@@ -2552,12 +2726,12 @@ function GenerateInvoiceSlideOver({
     invoice_number: "",
     invoice_date: today,
     due_date: "",
-    recipient_name: buyerParticipant?.name ?? "",
+    recipient_name: buyerParticipant?.billing_company ?? buyerParticipant?.name ?? "",
     recipient_email: buyerParticipant?.email ?? "",
-    recipient_address: "",
-    recipient_city: "",
-    recipient_country: "",
-    recipient_vat_id: "",
+    recipient_address: buyerParticipant?.billing_address ?? "",
+    recipient_city: buyerParticipant?.billing_city ?? "",
+    recipient_country: buyerParticipant?.billing_country ?? "",
+    recipient_vat_id: buyerParticipant?.billing_vat_id ?? "",
     notes: "",
   });
 
@@ -2724,6 +2898,17 @@ function GenerateInvoiceSlideOver({
           >
             Upgrade to Creator to generate invoices for free →
           </a>
+        </div>
+      )}
+
+      {buyerParticipant && !buyerParticipant.billing_confirmed && (
+        <div style={{
+          background: "var(--surface-muted)", border: "1px solid var(--border)",
+          borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+        }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0, lineHeight: 1.6 }}>
+            Buyer hasn't confirmed billing details yet. You can still fill them in manually.
+          </p>
         </div>
       )}
 
@@ -3594,6 +3779,8 @@ export default function BookingAccessPage() {
                   walletFeePct={(wallet as { sqrz_fee_pct?: number } | null)?.sqrz_fee_pct ?? null}
                   proposalFeePct={proposalFeePct ?? null}
                   memberEmail={memberEmail ?? null}
+                  participantName={senderName ?? null}
+                  participantEmail={userEmail ?? null}
                 />
               </div>
             )}
