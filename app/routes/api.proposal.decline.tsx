@@ -34,10 +34,9 @@ export async function action({ request }: { request: Request }) {
       .eq("id", latest.id);
   }
 
-  // Archive booking
   await adminClient
     .from("bookings")
-    .update({ status: "archived" })
+    .update({ status: "cancelled" })
     .eq("id", booking_id);
 
   return Response.json({ success: true });

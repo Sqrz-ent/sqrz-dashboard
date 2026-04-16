@@ -980,6 +980,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   completed:       { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
   archived:        { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
   pending_payment: { bg: "rgba(251,191,36,0.12)", text: "#fbbf24" },
+  cancelled:       { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
 };
 
 // ─── Shared components ────────────────────────────────────────────────────────
@@ -2504,6 +2505,14 @@ function GuestActionsCard({ bookingToken, status }: { bookingId: string; booking
   const withdrawn = (fetcher.data as { ok?: boolean } | undefined)?.ok &&
     fetcher.formData?.get("intent") === "decline_booking";
 
+  if (status === "cancelled") {
+    return (
+      <div style={card}>
+        <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>This booking was declined.</p>
+      </div>
+    );
+  }
+
   if (withdrawn || status === "archived") {
     return (
       <div style={card}>
@@ -3565,6 +3574,12 @@ function MemberView({
         </div>
 
         <DetailsSection booking={b} memberInfo={memberInfo} />
+
+        {(b.status as string) === "cancelled" && (
+          <div style={{ ...card, marginBottom: 16 }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>This booking was declined.</p>
+          </div>
+        )}
 
         {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} proposalFeePct={proposalFeePct} />}
 
