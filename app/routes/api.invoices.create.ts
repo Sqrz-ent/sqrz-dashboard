@@ -16,12 +16,17 @@ export async function action({ request }: { request: Request }) {
 
   // Parse multipart form data
   const formData = await request.formData();
-  const booking_id = formData.get("booking_id") as string;
-  const proposal_id = formData.get("proposal_id") as string | null;
+  const booking_id = (formData.get("booking_id") as string) || null;
+  // UUID fields — must be valid UUID or null, never empty string
+  const proposal_id_raw = (formData.get("proposal_id") as string) || "";
+  const proposal_id = proposal_id_raw.match(/^[0-9a-f-]{36}$/i) ? proposal_id_raw : null;
   const invoice_number = (formData.get("invoice_number") as string) || null;
-  const invoice_date = formData.get("invoice_date") as string;
-  const due_date = (formData.get("due_date") as string) || null;
-  const recipient_name = formData.get("recipient_name") as string;
+  // Dates — coerce to YYYY-MM-DD
+  const rawInvoiceDate = (formData.get("invoice_date") as string) || "";
+  const invoice_date = rawInvoiceDate ? rawInvoiceDate.split("T")[0] : new Date().toISOString().split("T")[0];
+  const rawDueDate = (formData.get("due_date") as string) || "";
+  const due_date = rawDueDate ? rawDueDate.split("T")[0] : null;
+  const recipient_name = (formData.get("recipient_name") as string) || "";
   const recipient_email = (formData.get("recipient_email") as string) || null;
   const recipient_address = (formData.get("recipient_address") as string) || null;
   const recipient_city = (formData.get("recipient_city") as string) || null;
@@ -29,6 +34,11 @@ export async function action({ request }: { request: Request }) {
   const recipient_vat_id = (formData.get("recipient_vat_id") as string) || null;
   const notes = (formData.get("notes") as string) || null;
   const stripe_payment_intent = (formData.get("stripe_payment_intent") as string) || null;
+
+  console.log("[invoices/create] parsed fields:", JSON.stringify({
+    booking_id, proposal_id, invoice_number, invoice_date, due_date,
+    recipient_name, recipient_email, recipient_country,
+  }));
 
   const planId = (profile.plan_id as number | null) ?? null;
   const isPaidUser = planId === 1 || planId === 5;
@@ -107,7 +117,7 @@ export async function action({ request }: { request: Request }) {
       recipient_city: recipient_city || null,
       recipient_country: recipient_country || null,
       recipient_vat_id: recipient_vat_id || null,
-      currency: (proposal.currency as string | null) ?? "EUR",
+      currency: ((proposal.currency as string | null) ?? "EUR").toUpperCase(),
       net_amount: proposal.rate,
       tax_pct: (proposal.tax_pct as number | null) ?? 0,
       tax_amount: taxAmt,
@@ -126,8 +136,17 @@ export async function action({ request }: { request: Request }) {
     .single();
 
   if (insertError || !insertedInvoice) {
-    console.error("[invoices/create] insert error:", insertError);
-    return Response.json({ error: insertError?.message ?? "Failed to create invoice" }, { status: 500 });
+    console.error("[invoices/create] insert error FULL:", JSON.stringify(insertError));
+    console.error("[invoices/create] insert error code:", insertError?.code);
+    console.error("[invoices/create] insert error details:", insertError?.details);
+    console.error("[invoices/create] insert error hint:", insertError?.hint);
+    console.error("[invoices/create] insert error message:", insertError?.message);
+    return Response.json({
+      error: insertError?.message ?? "Failed to create invoice",
+      details: insertError?.details,
+      hint: insertError?.hint,
+      code: insertError?.code,
+    }, { status: 500 });
   }
 
   // Call Edge Function to generate PDF
