@@ -158,6 +158,7 @@ export async function action({ request }: Route.ActionArgs) {
       booking_type: bookingType,
       instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
       instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
+      instant_tax_rate: isInstant ? (parseFloat(formData.get("instant_tax_rate") as string) || 0) : null,
       is_active: true,
       sort_order: 0,
     });
@@ -179,6 +180,7 @@ export async function action({ request }: Route.ActionArgs) {
       booking_type: bookingType,
       instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
       instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
+      instant_tax_rate: isInstant ? (parseFloat(formData.get("instant_tax_rate") as string) || 0) : null,
     }).eq("id", id);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -205,6 +207,7 @@ type Service = {
   booking_type: "instant" | "quote";
   instant_price: number | null;
   instant_currency: string | null;
+  instant_tax_rate: number | null;
 };
 
 // ── Sortable service row ──────────────────────────────────────────────────────
@@ -354,6 +357,7 @@ function ServiceModal({
     currency: "EUR",
     instant_price: "",
     instant_currency: "EUR",
+    instant_tax_rate: "0",
   });
 
   useEffect(() => {
@@ -369,11 +373,12 @@ function ServiceModal({
         currency: editing.currency ?? "EUR",
         instant_price: String(editing.instant_price ?? ""),
         instant_currency: editing.instant_currency ?? "EUR",
+        instant_tax_rate: String(editing.instant_tax_rate ?? "0"),
       });
     } else {
       setIsInstant(false);
       setPriceOnRequest(false);
-      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR", instant_price: "", instant_currency: "EUR" });
+      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR", instant_price: "", instant_currency: "EUR", instant_tax_rate: "0" });
     }
   }, [editing, isOpen]);
 
@@ -389,6 +394,7 @@ function ServiceModal({
     if (isInstant) {
       fd.append("instant_price", form.instant_price);
       fd.append("instant_currency", form.instant_currency);
+      fd.append("instant_tax_rate", form.instant_tax_rate);
     } else if (!priceOnRequest) {
       fd.append("price_min", form.price_min);
       fd.append("price_max", form.price_max);
@@ -530,31 +536,46 @@ function ServiceModal({
         )}
 
         {isInstant && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Fixed Price</label>
+                <input
+                  type="number"
+                  style={inputStyle}
+                  value={form.instant_price}
+                  onChange={(e) => setForm((f) => ({ ...f, instant_price: e.target.value }))}
+                  placeholder="150"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Currency</label>
+                <select
+                  style={{ ...inputStyle }}
+                  value={form.instant_currency}
+                  onChange={(e) => setForm((f) => ({ ...f, instant_currency: e.target.value }))}
+                >
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </div>
+            </div>
             <div>
-              <label style={labelStyle}>Fixed Price</label>
+              <label style={labelStyle}>Tax Rate %</label>
               <input
                 type="number"
+                min={0}
+                max={100}
+                step={0.1}
                 style={inputStyle}
-                value={form.instant_price}
-                onChange={(e) => setForm((f) => ({ ...f, instant_price: e.target.value }))}
-                placeholder="150"
-                autoFocus
+                value={form.instant_tax_rate}
+                onChange={(e) => setForm((f) => ({ ...f, instant_tax_rate: e.target.value }))}
+                placeholder="e.g. 19 for German USt"
               />
             </div>
-            <div>
-              <label style={labelStyle}>Currency</label>
-              <select
-                style={{ ...inputStyle }}
-                value={form.instant_currency}
-                onChange={(e) => setForm((f) => ({ ...f, instant_currency: e.target.value }))}
-              >
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-                <option value="GBP">GBP</option>
-              </select>
-            </div>
-          </div>
+          </>
         )}
 
         <button
