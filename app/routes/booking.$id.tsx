@@ -1173,9 +1173,9 @@ function ProposalSection({
                 const feePct2 = proposalFeePct ?? 8;
                 const feeAmt2 = Math.round(net * feePct2 / 100 * 100) / 100;
                 const bookerPays2 = Math.round((net + tAmt + feeAmt2) * 100) / 100;
-                // You receive gross = net + tax - SQRZ fee (tax collected from buyer, remitted to authority)
-                const youReceiveGross2 = Math.round((net + tAmt - feeAmt2) * 100) / 100;
-                const yourNetIncome2 = Math.round((net - feeAmt2) * 100) / 100;
+                // Member receives net + tax; SQRZ fee is added on top for the booker
+                const youReceiveGross2 = Math.round((net + tAmt) * 100) / 100;
+                const yourNetIncome2 = net;
                 const symP = currencySym(p.currency);
                 const lineItemsP = p.line_items ?? [];
                 return (
@@ -1490,13 +1490,12 @@ function ProposalSection({
                   const taxRate = taxEnabled ? (parseFloat(taxPct) || 0) : 0;
                   const taxAmt = Math.round(net * taxRate / 100 * 100) / 100;
                   const symLive = currencySym(form.currency);
-                  // We don't know feePct here (server side), use a placeholder if not available
-                  // We'll show the breakdown with SQRZ fee only if we have a plan level >= 1
-                  const feeAmt = canUseStripe ? Math.round(net * 8 / 100 * 100) / 100 : 0;
+                  const feePct = proposalFeePct ?? 0;
+                  const feeAmt = canUseStripe ? Math.round(net * feePct / 100 * 100) / 100 : 0;
                   const bookerPays = Math.round((net + taxAmt + feeAmt) * 100) / 100;
-                  // Gross received = net + tax - SQRZ fee (tax collected, not kept)
-                  const youReceiveGross = Math.round((net + taxAmt - feeAmt) * 100) / 100;
-                  const yourNetIncome = Math.round((net - feeAmt) * 100) / 100;
+                  // Member receives net + tax; SQRZ fee is added on top for the booker
+                  const youReceiveGross = Math.round((net + taxAmt) * 100) / 100;
+                  const yourNetIncome = net;
                   return (
                     <div style={{ marginBottom: 16, padding: "12px 14px", background: "var(--bg)", borderRadius: 8 }}>
                       <p style={{ ...lbl, marginBottom: 8 }}>Fee Preview</p>
@@ -1513,7 +1512,7 @@ function ProposalSection({
                         )}
                         {canUseStripe && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>SQRZ fee (8% of net)</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>SQRZ fee ({proposalFeePct ?? 0}% of net)</span>
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{feeAmt.toLocaleString()}</span>
                           </div>
                         )}
