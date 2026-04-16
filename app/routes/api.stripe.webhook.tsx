@@ -182,10 +182,105 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ received: true });
     }
 
-    // ── Instant booking payment ──────────────────────────────────────────────
+    // ── New instant booking (booking created post-payment) ───────────────────
+    if (session.metadata?.type === "instant_booking") {
+      const meta = session.metadata;
+      console.log("[webhook] instant_booking payment received — creating booking for:", meta.to_slug);
+
+      const { data: rpcData, error: rpcError } = await supabase.rpc("create_booking_request", {
+        p_to_slug: meta.to_slug ?? "",
+        p_from_name: meta.from_name ?? "",
+        p_from_email: meta.from_email ?? "",
+        p_service: meta.service || null,
+        p_message: meta.message || null,
+        p_event_date: meta.event_date || null,
+        p_event_location: meta.event_location || null,
+        p_title: meta.title || null,
+      });
+
+      if (rpcError) {
+        console.error("[webhook] instant_booking RPC error:", rpcError);
+        return Response.json({ received: true });
+      }
+
+      const rpcResult = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      const bookingId = rpcResult?.booking_id as string | undefined;
+
+      if (!bookingId) {
+        console.error("[webhook] instant_booking: no booking_id from RPC");
+        return Response.json({ received: true });
+      }
+
+      const paymentIntentId = typeof session.payment_intent === "string" ? session.payment_intent : null;
+
+      await supabase
+        .from("bookings")
+        .update({
+          status: "confirmed",
+          confirmed_at: new Date().toISOString(),
+          ...(paymentIntentId ? { stripe_payment_intent_id: paymentIntentId } : {}),
+        })
+        .eq("id", bookingId);
+
+      console.log("[webhook] instant_booking confirmed:", bookingId);
+
+      // Create wallet
+      const totalCharged = (session.amount_total ?? 0) / 100;
+      const metaTaxPct    = meta.tax_pct    ? Number(meta.tax_pct)    : 0;
+      const metaTaxAmount = meta.tax_amount ? Number(meta.tax_amount) : 0;
+      const net = meta.rate ? Number(meta.rate) : null;
+      const feePct = meta.fee_pct ? Number(meta.fee_pct) : 0;
+
+      const { data: bk } = await supabase
+        .from("bookings")
+        .select("owner_id")
+        .eq("id", bookingId)
+        .maybeSingle();
+
+      await supabase.from("booking_wallets").insert({
+        booking_id: bookingId,
+        owner_profile_id: bk?.owner_id ?? null,
+        total_budget: totalCharged,
+        secured_amount: net ?? totalCharged,
+        client_paid: true,
+        payout_status: "pending",
+        sqrz_fee_pct: feePct,
+        tax_pct: metaTaxPct,
+        tax_amount: metaTaxAmount,
+      });
+
+      // Confirmation email to buyer
+      const { data: buyer } = await supabase
+        .from("booking_participants")
+        .select("email, invite_token, name")
+        .eq("booking_id", bookingId)
+        .eq("role", "buyer")
+        .maybeSingle();
+
+      if (buyer?.email) {
+        const accessUrl = `https://dashboard.sqrz.com/booking/${bookingId}?token=${buyer.invite_token ?? ""}`;
+        try {
+          const { Resend } = await import("resend");
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          await resend.emails.send({
+            from: "SQRZ <noreply@sqrz.com>",
+            to: buyer.email,
+            subject: "Your booking is confirmed",
+            html: `<p>Hi ${buyer.name ?? "there"},</p><p>Payment received — your booking is confirmed.</p><p><a href="${accessUrl}">View your booking</a></p><p>— The SQRZ Team</p>`,
+          });
+          console.log("[webhook] instant_booking confirmation email sent to:", buyer.email);
+        } catch (emailErr) {
+          console.error("[webhook] instant_booking confirmation email failed:", emailErr);
+        }
+      }
+
+      return Response.json({ received: true });
+    }
+
+    // ── Legacy instant booking payment ───────────────────────────────────────
     if ((session.metadata?.booking_type === "instant" || session.metadata?.booking_type === "quote_accepted") && session.metadata?.booking_id) {
       const bookingId = session.metadata.booking_id;
-      console.log("[webhook] instant booking payment received:", bookingId);
+      console.log("[webhook] legacy instant/quote booking payment received:", bookingId);
 
       await supabase
         .from("bookings")
@@ -479,15 +574,6 @@ export async function action({ request }: ActionFunctionArgs) {
       p_current_period_start: toISO(item.current_period_start),
       p_current_period_end: toISO(item.current_period_end),
     });
-  }
-
-  if (event.type === "payment_intent.payment_failed") {
-    const pi = event.data.object as Stripe.PaymentIntent;
-    console.log("[webhook] payment_intent.payment_failed — pi.id:", pi.id);
-    await supabase
-      .from("bookings")
-      .update({ status: "cancelled" })
-      .eq("stripe_payment_intent_id", pi.id);
   }
 
   if (event.type === "account.updated") {

@@ -103,7 +103,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .from("bookings")
       .select("id, title, service, status, date_start, date_end, city, venue")
       .eq("owner_id", profile.id as string)
-      .not("status", "in", "(pending_payment,cancelled)")
       .order("created_at", { ascending: false }),
     admin
       .from("booking_participants")
