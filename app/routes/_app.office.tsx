@@ -138,7 +138,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       booking: row.bookings as unknown as RawBooking | null,
     }))
     .filter((r): r is { invite_token: string | null; booking: RawBooking } =>
-      !!r.booking && !Array.isArray(r.booking) && !["archived"].includes(r.booking.status) && !ownerIdSet.has(r.booking.id)
+      !!r.booking && !Array.isArray(r.booking) && !["archived", "cancelled"].includes(r.booking.status) && !ownerIdSet.has(r.booking.id)
     );
 
   // Fetch owner profile names
