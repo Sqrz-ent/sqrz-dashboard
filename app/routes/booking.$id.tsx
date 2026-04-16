@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
@@ -189,6 +189,29 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       .sort((a: any, b: any) => ((b.version ?? 0) - (a.version ?? 0)));
     const proposal = sortedProposals[0] ?? null;
 
+    // Load invoice + buyer participant for owner
+    let tokenInvoice: Record<string, unknown> | null = null;
+    let tokenBuyerParticipant: { name: string | null; email: string | null } | null = null;
+    if (isOwner) {
+      const profileId = profile!.id as string;
+      const [{ data: inv }, { data: buyerP }] = await Promise.all([
+        admin
+          .from("invoices")
+          .select("id, invoice_number, invoice_date, recipient_name, gross_amount, currency, status, pdf_source, pdf_url")
+          .eq("booking_id", params.id)
+          .eq("issuer_profile_id", profileId)
+          .maybeSingle(),
+        admin
+          .from("booking_participants")
+          .select("name, email")
+          .eq("booking_id", params.id)
+          .eq("role", "buyer")
+          .maybeSingle(),
+      ]);
+      tokenInvoice = (inv as Record<string, unknown> | null) ?? null;
+      tokenBuyerParticipant = buyerP ? { name: buyerP.name as string | null, email: buyerP.email as string | null } : null;
+    }
+
     return Response.json(
       {
         accessType: "authenticated",
@@ -208,6 +231,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
         memberEmail: (ownerPlan?.email as string | null) ?? null,
+        invoice: tokenInvoice,
+        buyerParticipant: tokenBuyerParticipant,
       },
       { headers }
     );
@@ -370,6 +395,29 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       } : null;
     }
 
+    // Load invoice + buyer participant for owner
+    let sessionInvoice: Record<string, unknown> | null = null;
+    let sessionBuyerParticipant: { name: string | null; email: string | null } | null = null;
+    if (isOwner && profile) {
+      const profileId = profile.id as string;
+      const [{ data: inv }, { data: buyerP }] = await Promise.all([
+        admin
+          .from("invoices")
+          .select("id, invoice_number, invoice_date, recipient_name, gross_amount, currency, status, pdf_source, pdf_url")
+          .eq("booking_id", params.id)
+          .eq("issuer_profile_id", profileId)
+          .maybeSingle(),
+        admin
+          .from("booking_participants")
+          .select("name, email")
+          .eq("booking_id", params.id)
+          .eq("role", "buyer")
+          .maybeSingle(),
+      ]);
+      sessionInvoice = (inv as Record<string, unknown> | null) ?? null;
+      sessionBuyerParticipant = buyerP ? { name: buyerP.name as string | null, email: buyerP.email as string | null } : null;
+    }
+
     return Response.json(
       {
         accessType: "authenticated",
@@ -389,6 +437,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         memberEmail: sessionMemberEmail,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
+        invoice: sessionInvoice,
+        buyerParticipant: sessionBuyerParticipant,
       },
       { headers }
     );
@@ -2393,26 +2443,846 @@ function ReauthForm({ bookingId }: { bookingId: string }) {
   );
 }
 
+// ─── Invoice section ──────────────────────────────────────────────────────────
+
+type InvoiceRecord = {
+  id: string;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  recipient_name: string | null;
+  gross_amount: number | null;
+  currency: string | null;
+  status: string | null;
+  pdf_source: string | null;
+  pdf_url: string | null;
+};
+
+type BuyerParticipant = { name: string | null; email: string | null } | null;
+
+const INVOICE_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
+  draft:   { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  sent:    { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
+  paid:    { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
+  void:    { bg: "rgba(239,68,68,0.10)", text: "#f87171" },
+};
+
+function InvoiceStatusBadge({ status }: { status: string | null }) {
+  const s = status ?? "draft";
+  const c = INVOICE_STATUS_COLORS[s] ?? INVOICE_STATUS_COLORS.draft;
+  return (
+    <span style={{
+      display: "inline-block", padding: "2px 9px", borderRadius: 6,
+      fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const,
+      letterSpacing: "0.05em", background: c.bg, color: c.text,
+    }}>
+      {s}
+    </span>
+  );
+}
+
+// Slide-over overlay wrapper
+function SlideOver({ open, onClose, title, children }: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}) {
+  if (!open) return null;
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }}
+      />
+      {/* Panel */}
+      <div style={{
+        position: "relative",
+        width: "100%",
+        maxWidth: 440,
+        height: "100%",
+        background: "var(--surface)",
+        boxShadow: "-4px 0 32px rgba(0,0,0,0.3)",
+        overflowY: "auto" as const,
+        display: "flex",
+        flexDirection: "column" as const,
+        fontFamily: FONT_BODY,
+      }}>
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "18px 20px", borderBottom: "1px solid var(--border)",
+          position: "sticky", top: 0, background: "var(--surface)", zIndex: 10,
+        }}>
+          <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 20, fontWeight: 800, color: ACCENT, textTransform: "uppercase" as const, margin: 0, letterSpacing: "0.04em" }}>
+            {title}
+          </h3>
+          <button
+            onClick={onClose}
+            style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}
+          >
+            ✕
+          </button>
+        </div>
+        <div style={{ padding: "20px", flex: 1 }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GenerateInvoiceSlideOver({
+  open,
+  onClose,
+  bookingId,
+  planId,
+  buyerParticipant,
+}: {
+  open: boolean;
+  onClose: () => void;
+  bookingId: string;
+  planId: number | null;
+  buyerParticipant: BuyerParticipant;
+}) {
+  const isPaidUser = planId === 1 || planId === 5;
+  const today = new Date().toISOString().split("T")[0];
+
+  const [form, setForm] = useState({
+    invoice_number: "",
+    invoice_date: today,
+    due_date: "",
+    recipient_name: buyerParticipant?.name ?? "",
+    recipient_email: buyerParticipant?.email ?? "",
+    recipient_address: "",
+    recipient_city: "",
+    recipient_country: "",
+    recipient_vat_id: "",
+    notes: "",
+  });
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Stripe payment state for free users
+  const [paymentStep, setPaymentStep] = useState(false);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [stripeInstance, setStripeInstance] = useState<Record<string, unknown> | null>(null);
+  const [cardElement, setCardElement] = useState<Record<string, unknown> | null>(null);
+  const [cardMounted, setCardMounted] = useState(false);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Mount Stripe card element when entering payment step
+  useEffect(() => {
+    if (!paymentStep || !clientSecret || !cardRef.current || cardMounted) return;
+    const stripeKey = (
+      typeof window !== "undefined"
+        ? (window as unknown as Record<string, string>).__STRIPE_PK__ ?? ""
+        : ""
+    );
+    if (!stripeKey || typeof (window as unknown as Record<string, unknown>).Stripe !== "function") return;
+
+    const strp = (window as unknown as Record<string, unknown>).Stripe as (key: string) => Record<string, unknown>;
+    const instance = strp(stripeKey);
+    setStripeInstance(instance);
+
+    const elements = (instance.elements as (opts: Record<string, unknown>) => Record<string, unknown>)({ clientSecret });
+    const card = (elements.create as (type: string, opts: Record<string, unknown>) => Record<string, unknown>)("card", {
+      style: {
+        base: { fontSize: "15px", color: "var(--text)", fontFamily: "ui-sans-serif, system-ui, sans-serif" },
+      },
+    });
+    (card.mount as (el: HTMLDivElement) => void)(cardRef.current);
+    setCardElement(card);
+    setCardMounted(true);
+
+    return () => {
+      (card.unmount as () => void)();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentStep, clientSecret, cardMounted]);
+
+  async function handleFreeUserSubmit() {
+    if (!isPaidUser && !paymentStep) {
+      // Step 1: create payment intent
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch("/api/invoices/payment-intent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ booking_id: bookingId }),
+        });
+        const json = (await res.json()) as { client_secret?: string; error?: string };
+        if (!res.ok || !json.client_secret) throw new Error(json.error ?? "Payment setup failed");
+
+        // Extract PI id from client_secret: "pi_xxx_secret_yyy" → "pi_xxx"
+        const piId = json.client_secret.split("_secret_")[0];
+        setClientSecret(json.client_secret);
+        setPaymentIntentId(piId);
+        setPaymentStep(true);
+        setCardMounted(false);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (!isPaidUser && paymentStep) {
+      // Step 2: confirm card payment
+      if (!stripeInstance || !cardElement || !clientSecret) {
+        setError("Stripe not initialized");
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const result = await (stripeInstance.confirmCardPayment as (secret: string, opts: Record<string, unknown>) => Promise<{ error?: { message: string }; paymentIntent?: { status: string } }>)(clientSecret, {
+          payment_method: { card: cardElement },
+        });
+        if (result.error) throw new Error(result.error.message);
+        if (result.paymentIntent?.status !== "succeeded") throw new Error("Payment did not succeed");
+        // Payment succeeded — submit the form
+        await submitInvoiceForm(paymentIntentId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Payment failed");
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Paid user — submit directly
+    await submitInvoiceForm(null);
+  }
+
+  async function submitInvoiceForm(piId: string | null) {
+    setLoading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("booking_id", bookingId);
+      if (form.invoice_number) fd.append("invoice_number", form.invoice_number);
+      fd.append("invoice_date", form.invoice_date);
+      if (form.due_date) fd.append("due_date", form.due_date);
+      fd.append("recipient_name", form.recipient_name);
+      if (form.recipient_email) fd.append("recipient_email", form.recipient_email);
+      if (form.recipient_address) fd.append("recipient_address", form.recipient_address);
+      if (form.recipient_city) fd.append("recipient_city", form.recipient_city);
+      if (form.recipient_country) fd.append("recipient_country", form.recipient_country);
+      if (form.recipient_vat_id) fd.append("recipient_vat_id", form.recipient_vat_id);
+      if (form.notes) fd.append("notes", form.notes);
+      if (piId) fd.append("stripe_payment_intent", piId);
+
+      const res = await fetch("/api/invoices/create", { method: "POST", body: fd });
+      const json = (await res.json()) as { signed_url?: string; invoice_number?: string; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Failed to generate invoice");
+
+      if (json.signed_url) window.open(json.signed_url, "_blank");
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setLoading(false);
+    }
+  }
+
+  const inputSty: React.CSSProperties = {
+    width: "100%",
+    padding: "9px 11px",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--text)",
+    fontSize: 13,
+    outline: "none",
+    boxSizing: "border-box" as const,
+    fontFamily: FONT_BODY,
+    marginBottom: 10,
+  };
+
+  const fieldLbl: React.CSSProperties = { ...lbl, marginBottom: 4, display: "block" };
+
+  return (
+    <SlideOver open={open} onClose={onClose} title="Generate Invoice">
+      {!isPaidUser && (
+        <div style={{
+          background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)",
+          borderRadius: 10, padding: "12px 14px", marginBottom: 16,
+        }}>
+          <p style={{ color: ACCENT, fontSize: 13, fontWeight: 600, margin: "0 0 6px" }}>
+            Invoice generation costs $1.50
+          </p>
+          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 10px", lineHeight: 1.6 }}>
+            Your PDF will download immediately after payment.
+          </p>
+          <a
+            href="/account"
+            style={{ color: ACCENT, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}
+          >
+            Upgrade to Creator to generate invoices for free →
+          </a>
+        </div>
+      )}
+
+      {paymentStep && !isPaidUser && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ ...fieldLbl, marginBottom: 8 }}>Card details</p>
+          <div
+            ref={cardRef}
+            style={{
+              padding: "11px 13px",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--surface)",
+              minHeight: 42,
+            }}
+          />
+        </div>
+      )}
+
+      {(!paymentStep || isPaidUser) && (
+        <>
+          <p style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Recipient</p>
+          <label style={fieldLbl}>Name *</label>
+          <input
+            style={inputSty}
+            value={form.recipient_name}
+            onChange={(e) => setForm((f) => ({ ...f, recipient_name: e.target.value }))}
+            placeholder="Client or company name"
+          />
+          <label style={fieldLbl}>Email</label>
+          <input
+            type="email"
+            style={inputSty}
+            value={form.recipient_email}
+            onChange={(e) => setForm((f) => ({ ...f, recipient_email: e.target.value }))}
+            placeholder="client@email.com"
+          />
+          <label style={fieldLbl}>Address</label>
+          <input
+            style={inputSty}
+            value={form.recipient_address}
+            onChange={(e) => setForm((f) => ({ ...f, recipient_address: e.target.value }))}
+            placeholder="Street address"
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <label style={fieldLbl}>City</label>
+              <input
+                style={inputSty}
+                value={form.recipient_city}
+                onChange={(e) => setForm((f) => ({ ...f, recipient_city: e.target.value }))}
+                placeholder="City"
+              />
+            </div>
+            <div>
+              <label style={fieldLbl}>Country</label>
+              <input
+                style={inputSty}
+                value={form.recipient_country}
+                onChange={(e) => setForm((f) => ({ ...f, recipient_country: e.target.value }))}
+                placeholder="DE / US / FR"
+              />
+            </div>
+          </div>
+          <label style={fieldLbl}>VAT ID</label>
+          <input
+            style={inputSty}
+            value={form.recipient_vat_id}
+            onChange={(e) => setForm((f) => ({ ...f, recipient_vat_id: e.target.value }))}
+            placeholder="e.g. DE123456789"
+          />
+
+          <div style={{ borderTop: "1px solid var(--border)", margin: "12px 0" }} />
+          <p style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Invoice details</p>
+
+          <label style={fieldLbl}>Invoice number (auto if blank)</label>
+          <input
+            style={inputSty}
+            value={form.invoice_number}
+            onChange={(e) => setForm((f) => ({ ...f, invoice_number: e.target.value }))}
+            placeholder="INV-2026-001"
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <label style={fieldLbl}>Invoice date *</label>
+              <input
+                type="date"
+                style={inputSty}
+                value={form.invoice_date}
+                onChange={(e) => setForm((f) => ({ ...f, invoice_date: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label style={fieldLbl}>Due date</label>
+              <input
+                type="date"
+                style={inputSty}
+                value={form.due_date}
+                onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <label style={fieldLbl}>Notes</label>
+          <textarea
+            style={{ ...inputSty, minHeight: 72, resize: "vertical" as const }}
+            value={form.notes}
+            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+            placeholder="Any additional notes on the invoice…"
+          />
+        </>
+      )}
+
+      {error && (
+        <p style={{ color: "#f87171", fontSize: 13, margin: "8px 0" }}>{error}</p>
+      )}
+
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        <button
+          onClick={handleFreeUserSubmit}
+          disabled={loading || (!form.recipient_name && !paymentStep)}
+          style={{
+            flex: 1,
+            padding: "12px",
+            background: ACCENT,
+            color: "#111",
+            border: "none",
+            borderRadius: 10,
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: loading ? "not-allowed" : "pointer",
+            opacity: loading ? 0.7 : 1,
+            fontFamily: FONT_BODY,
+          }}
+        >
+          {loading
+            ? "Processing…"
+            : !isPaidUser && !paymentStep
+            ? "Next: Pay $1.50 →"
+            : !isPaidUser && paymentStep
+            ? "Pay & Generate PDF"
+            : "Generate & Download PDF"}
+        </button>
+        <button
+          onClick={onClose}
+          disabled={loading}
+          style={{
+            padding: "12px 16px",
+            background: "none",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            color: "var(--text-muted)",
+            fontSize: 14,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </SlideOver>
+  );
+}
+
+function UploadInvoiceSlideOver({
+  open,
+  onClose,
+  bookingId,
+  buyerParticipant,
+}: {
+  open: boolean;
+  onClose: () => void;
+  bookingId: string;
+  buyerParticipant: BuyerParticipant;
+}) {
+  const today = new Date().toISOString().split("T")[0];
+  const [form, setForm] = useState({
+    invoice_number: "",
+    invoice_date: today,
+    recipient_name: buyerParticipant?.name ?? "",
+  });
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleUpload() {
+    if (!file) { setError("Please select a PDF file."); return; }
+    setLoading(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("booking_id", bookingId);
+      fd.append("invoice_number", form.invoice_number);
+      fd.append("invoice_date", form.invoice_date);
+      fd.append("recipient_name", form.recipient_name);
+      fd.append("pdf", file);
+
+      const res = await fetch("/api/invoices/upload", { method: "POST", body: fd });
+      const json = (await res.json()) as { signed_url?: string; error?: string };
+      if (!res.ok) throw new Error(json.error ?? "Upload failed");
+
+      if (json.signed_url) window.open(json.signed_url, "_blank");
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      setLoading(false);
+    }
+  }
+
+  const inputSty: React.CSSProperties = {
+    width: "100%",
+    padding: "9px 11px",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--text)",
+    fontSize: 13,
+    outline: "none",
+    boxSizing: "border-box" as const,
+    fontFamily: FONT_BODY,
+    marginBottom: 10,
+  };
+  const fieldLbl: React.CSSProperties = { ...lbl, marginBottom: 4, display: "block" };
+
+  return (
+    <SlideOver open={open} onClose={onClose} title="Upload Invoice">
+      <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 16px", lineHeight: 1.6 }}>
+        Upload your own PDF invoice. It will be saved and linked to this booking.
+      </p>
+
+      <label style={fieldLbl}>Recipient name</label>
+      <input
+        style={inputSty}
+        value={form.recipient_name}
+        onChange={(e) => setForm((f) => ({ ...f, recipient_name: e.target.value }))}
+        placeholder="Client or company name"
+      />
+      <label style={fieldLbl}>Invoice number</label>
+      <input
+        style={inputSty}
+        value={form.invoice_number}
+        onChange={(e) => setForm((f) => ({ ...f, invoice_number: e.target.value }))}
+        placeholder="INV-2026-001"
+      />
+      <label style={fieldLbl}>Invoice date</label>
+      <input
+        type="date"
+        style={inputSty}
+        value={form.invoice_date}
+        onChange={(e) => setForm((f) => ({ ...f, invoice_date: e.target.value }))}
+      />
+
+      <label style={fieldLbl}>PDF file (max 5 MB)</label>
+      <input
+        type="file"
+        accept="application/pdf"
+        onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+        style={{ ...inputSty, padding: "7px 0", border: "none", background: "none", cursor: "pointer" }}
+      />
+      {file && (
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-4px 0 10px" }}>
+          {file.name} ({(file.size / 1024).toFixed(0)} KB)
+        </p>
+      )}
+
+      {error && <p style={{ color: "#f87171", fontSize: 13, margin: "4px 0 10px" }}>{error}</p>}
+
+      <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
+        <button
+          onClick={handleUpload}
+          disabled={loading || !file}
+          style={{
+            flex: 1,
+            padding: "12px",
+            background: ACCENT,
+            color: "#111",
+            border: "none",
+            borderRadius: 10,
+            fontSize: 14,
+            fontWeight: 700,
+            cursor: loading || !file ? "not-allowed" : "pointer",
+            opacity: loading || !file ? 0.7 : 1,
+            fontFamily: FONT_BODY,
+          }}
+        >
+          {loading ? "Uploading…" : "Upload Invoice"}
+        </button>
+        <button
+          onClick={onClose}
+          disabled={loading}
+          style={{
+            padding: "12px 16px",
+            background: "none",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            color: "var(--text-muted)",
+            fontSize: 14,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+    </SlideOver>
+  );
+}
+
+function InvoiceSection({
+  booking,
+  invoice,
+  buyerParticipant,
+  planId,
+}: {
+  booking: Booking;
+  invoice: InvoiceRecord | null;
+  buyerParticipant: BuyerParticipant;
+  planId: number | null;
+}) {
+  const bookingId = booking.id as string;
+  const bookingStatus = booking.status as string;
+
+  const [generateOpen, setGenerateOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [showVoidConfirm, setShowVoidConfirm] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [voidLoading, setVoidLoading] = useState(false);
+
+  async function handleDownload() {
+    if (!invoice) return;
+    setDownloading(true);
+    try {
+      const res = await fetch("/api/invoices/download", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoice_id: invoice.id }),
+      });
+      const json = (await res.json()) as { signed_url?: string; error?: string };
+      if (json.signed_url) window.open(json.signed_url, "_blank");
+    } catch (err) {
+      console.error("[invoice] download error:", err);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleVoid() {
+    if (!invoice) return;
+    setVoidLoading(true);
+    try {
+      await fetch("/api/invoices/void", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ invoice_id: invoice.id }),
+      });
+    } catch (err) {
+      console.error("[invoice] void error:", err);
+    } finally {
+      setVoidLoading(false);
+      setShowVoidConfirm(false);
+      window.location.reload();
+    }
+  }
+
+  const isBookable = ["confirmed", "completed"].includes(bookingStatus) || bookingStatus === "pending";
+
+  if (!isBookable) return null;
+
+  const sym = currencySym(invoice?.currency ?? null);
+
+  return (
+    <section id="invoice" style={{ paddingBottom: 40 }}>
+      <SectionHeading>Invoice</SectionHeading>
+
+      {invoice && invoice.status !== "void" ? (
+        <div style={{
+          background: "var(--surface)",
+          border: "1px solid rgba(245,166,35,0.28)",
+          borderRadius: 16,
+          padding: "20px 22px",
+        }}>
+          {/* Invoice meta row */}
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 14 }}>
+            <div>
+              <p style={{ ...lbl, marginBottom: 4 }}>Invoice</p>
+              <p style={{ color: "var(--text)", fontSize: 16, fontWeight: 700, margin: "0 0 4px" }}>
+                {invoice.invoice_number ?? "—"}
+              </p>
+              {invoice.invoice_date && (
+                <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
+                  {new Date(invoice.invoice_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                </p>
+              )}
+            </div>
+            <div style={{ textAlign: "right" as const }}>
+              <InvoiceStatusBadge status={invoice.status} />
+              {invoice.gross_amount != null && invoice.gross_amount > 0 && (
+                <p style={{ color: "var(--text)", fontSize: 18, fontWeight: 700, margin: "8px 0 0" }}>
+                  {sym}{Number(invoice.gross_amount).toLocaleString()} {(invoice.currency ?? "EUR").toUpperCase()}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {invoice.recipient_name && (
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 14px" }}>
+              Billed to: <span style={{ color: "var(--text)", fontWeight: 600 }}>{invoice.recipient_name}</span>
+            </p>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const, marginTop: 4 }}>
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              style={{
+                padding: "9px 18px",
+                background: ACCENT,
+                color: "#111",
+                border: "none",
+                borderRadius: 9,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: downloading ? "not-allowed" : "pointer",
+                opacity: downloading ? 0.7 : 1,
+                fontFamily: FONT_BODY,
+              }}
+            >
+              {downloading ? "Opening…" : "↓ Download PDF"}
+            </button>
+
+            {showVoidConfirm ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>Void this invoice?</span>
+                <button
+                  onClick={handleVoid}
+                  disabled={voidLoading}
+                  style={{ padding: "7px 14px", background: "#ef4444", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+                >
+                  {voidLoading ? "Voiding…" : "Confirm Void"}
+                </button>
+                <button
+                  onClick={() => setShowVoidConfirm(false)}
+                  style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY }}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowVoidConfirm(true)}
+                style={{ background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text-muted)", fontSize: 13, padding: "9px 14px", cursor: "pointer", fontFamily: FONT_BODY }}
+              >
+                Void
+              </button>
+            )}
+          </div>
+        </div>
+      ) : invoice?.status === "void" ? (
+        <div style={{
+          background: "var(--surface)",
+          border: "1px solid rgba(245,166,35,0.2)",
+          borderRadius: 16,
+          padding: "20px 22px",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <InvoiceStatusBadge status="void" />
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+              Invoice {invoice.invoice_number} was voided.
+            </p>
+          </div>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
+            You can create a new invoice below.
+          </p>
+          <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" as const }}>
+            <button
+              onClick={() => setGenerateOpen(true)}
+              style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+            >
+              Generate Invoice
+            </button>
+            <button
+              onClick={() => setUploadOpen(true)}
+              style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
+            >
+              Upload PDF
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          background: "var(--surface)",
+          border: "1px solid rgba(245,166,35,0.2)",
+          borderRadius: 16,
+          padding: "20px 22px",
+        }}>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 14px", lineHeight: 1.6 }}>
+            No invoice has been created for this booking yet. Generate one from your accepted proposal, or upload your own PDF.
+          </p>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+            <button
+              onClick={() => setGenerateOpen(true)}
+              style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+            >
+              Generate Invoice
+            </button>
+            <button
+              onClick={() => setUploadOpen(true)}
+              style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
+            >
+              Upload PDF
+            </button>
+          </div>
+        </div>
+      )}
+
+      <GenerateInvoiceSlideOver
+        open={generateOpen}
+        onClose={() => setGenerateOpen(false)}
+        bookingId={bookingId}
+        planId={planId}
+        buyerParticipant={buyerParticipant}
+      />
+      <UploadInvoiceSlideOver
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        bookingId={bookingId}
+        buyerParticipant={buyerParticipant}
+      />
+    </section>
+  );
+}
+
 // ─── Member view wrapper ──────────────────────────────────────────────────────
 
 function MemberView({
   booking,
   wallet,
   planLevel,
+  planId,
   userEmail,
   senderName,
   stripeConnectId,
   memberInfo,
   proposalFeePct,
+  invoice,
+  buyerParticipant,
 }: {
   booking: Booking;
   wallet: WalletData | null;
   planLevel: number;
+  planId: number | null;
   userEmail: string;
   senderName: string | null;
   stripeConnectId: string | null;
   memberInfo?: MemberInfo;
   proposalFeePct?: number | null;
+  invoice: InvoiceRecord | null;
+  buyerParticipant: BuyerParticipant;
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
@@ -2516,6 +3386,13 @@ function MemberView({
         {showPayments && wallet && (
           <BookingWallet wallet={wallet} bookingStatus={b.status as string} stripeConnectId={stripeConnectId} />
         )}
+
+        <InvoiceSection
+          booking={b}
+          invoice={invoice}
+          buyerParticipant={buyerParticipant}
+          planId={planId}
+        />
       </div>
 
       <BookingChat
@@ -2589,6 +3466,8 @@ export default function BookingAccessPage() {
     stripeConnectId,
     senderName,
     memberEmail,
+    invoice,
+    buyerParticipant,
   } = data as {
     booking: Booking;
     userEmail: string;
@@ -2605,6 +3484,8 @@ export default function BookingAccessPage() {
     stripeConnectId?: string | null;
     senderName: string | null;
     memberEmail?: string | null;
+    invoice?: InvoiceRecord | null;
+    buyerParticipant?: BuyerParticipant;
   };
 
   const b = booking;
@@ -2619,11 +3500,14 @@ export default function BookingAccessPage() {
           booking={b}
           wallet={wallet}
           planLevel={planLevel}
+          planId={planId}
           userEmail={userEmail}
           senderName={senderName}
           stripeConnectId={stripeConnectId ?? null}
           memberInfo={memberInfo}
           proposalFeePct={proposalFeePct}
+          invoice={invoice ?? null}
+          buyerParticipant={buyerParticipant ?? null}
         />
       </div>
     );
