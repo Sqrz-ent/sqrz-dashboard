@@ -402,11 +402,10 @@ export default function PartnersPage() {
             <tr style={{ background: "var(--surface-muted)", borderBottom: "1px solid var(--border)" }}>
               {(
                 [
-                  { label: "Referral", width: "20%" },
-                  { label: "Plan", width: "18%" },
-                  { label: "Last activity", width: "22%" },
-                  { label: "Your earnings", width: "18%" },
-                  { label: "Status", width: "22%" },
+                  { label: "Referral", width: "25%" },
+                  { label: "Plan", width: "25%" },
+                  { label: "Your earnings", width: "25%" },
+                  { label: "Status", width: "25%" },
                 ] as const
               ).map(({ label, width }) => (
                 <th key={label} style={{ ...lbl, display: "table-cell", padding: "10px 14px", textAlign: "left", margin: 0, width }}>{label}</th>
@@ -416,7 +415,7 @@ export default function PartnersPage() {
           <tbody>
             {filteredReferrals.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ padding: "28px 14px", color: "var(--text-muted)", textAlign: "center" }}>
+                <td colSpan={4} style={{ padding: "28px 14px", color: "var(--text-muted)", textAlign: "center" }}>
                   No referrals yet. Share your link to get started.
                 </td>
               </tr>
@@ -441,9 +440,6 @@ export default function PartnersPage() {
                         {r.planLabel}
                       </span>
                     )}
-                  </td>
-                  <td style={{ padding: "11px 14px", color: "var(--text-muted)" }}>
-                    {fmtDate(r.lastActivity)}
                   </td>
                   <td style={{ padding: "11px 14px" }}>
                     {r.status === "signed_up" ? (
