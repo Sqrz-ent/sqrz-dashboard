@@ -11,6 +11,8 @@ interface UpgradeModalProps {
   yearlyPriceId: string;
   referredByCode: string | null;
   earlyAccessCouponId: string;
+  isClaimed: boolean;
+  isPartner: boolean;
   // Boost plan
   boostMonthlyPriceId: string;
   // Grow plan
@@ -74,6 +76,8 @@ export default function UpgradeModal({
   yearlyPriceId,
   referredByCode,
   earlyAccessCouponId,
+  isClaimed,
+  isPartner,
   boostMonthlyPriceId,
   growCampaignPriceId,
 }: UpgradeModalProps) {
@@ -282,7 +286,7 @@ export default function UpgradeModal({
               )}
               <Form method="post" action="/api/stripe/checkout">
                 <input type="hidden" name="price_id" value={yearlyPriceId} />
-                {referredByCode && earlyAccessCouponId && (
+                {(isClaimed || isPartner) && earlyAccessCouponId && (
                   <input type="hidden" name="coupon_id" value={earlyAccessCouponId} />
                 )}
                 <button type="submit" style={submitBtn}>Select</button>

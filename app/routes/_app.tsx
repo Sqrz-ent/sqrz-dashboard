@@ -93,6 +93,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
       boostMonthlyPriceId,
       growCampaignPriceId,
+      isClaimed: !!(profile?.is_claimed as boolean | null),
+      isPartner: !!(profile?.is_partner as boolean | null),
     },
     { headers }
   );
@@ -119,7 +121,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId } =
+  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId, isClaimed, isPartner } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -555,6 +557,8 @@ export default function AppLayout() {
           referredByCode={p?.referred_by_code as string | null ?? null}
           boostMonthlyPriceId={boostMonthlyPriceId}
           growCampaignPriceId={growCampaignPriceId}
+          isClaimed={isClaimed}
+          isPartner={isPartner}
         />
       )}
 
