@@ -175,6 +175,7 @@ export default function AppLayout() {
 
   // Derive work mode title + breadcrumb from pathname
   function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
+    if (pathname === "/office/partners") return { title: "Partners", breadcrumb: "Office" };
     if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
     if (pathname === "/office") return { title: "Office", breadcrumb: null };
     if (pathname.startsWith("/crew/")) return { title: "Crew", breadcrumb: "Crew" };
@@ -634,6 +635,24 @@ export default function AppLayout() {
           <span style={{ fontSize: 18 }}>👥</span>
           <span>Crew</span>
         </NavLink>
+
+        {isPartner && (
+          <NavLink
+            to="/office/partners"
+            style={({ isActive }) => ({
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+              textDecoration: "none",
+              fontSize: 11,
+              color: isActive ? "#F5A623" : "var(--text-muted)",
+            })}
+          >
+            <span style={{ fontSize: 18 }}>🤝</span>
+            <span>Partners</span>
+          </NavLink>
+        )}
       </nav>
 
       <LeadsPanel
