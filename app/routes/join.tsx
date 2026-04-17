@@ -466,7 +466,7 @@ export default function Join() {
           color: "#92400E",
           lineHeight: 1.5,
         }}>
-          🚧 elcome to SQRZ Beta. If you have trouble or questions about SQRZ, reach out to Will directly on Instagram{" "}
+          🚧 Welcome to SQRZ Beta. If you have trouble or questions about SQRZ, reach out to Will directly on Instagram{" "}
           <a href="https://instagram.com/willvillamusic" target="_blank" rel="noopener noreferrer" style={{ color: "#92400E", fontWeight: 700 }}>@willvilla</a>{" "}
           or via{" "}
           <a href="https://linkedin.com/in/soywillvilla" target="_blank" rel="noopener noreferrer" style={{ color: "#92400E", fontWeight: 700 }}>LinkedIn</a>.
