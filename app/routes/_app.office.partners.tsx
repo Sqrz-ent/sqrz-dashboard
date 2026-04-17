@@ -409,7 +409,7 @@ export default function PartnersPage() {
                   { label: "Status", width: "22%" },
                 ] as const
               ).map(({ label, width }) => (
-                <th key={label} style={{ ...lbl, padding: "10px 14px", textAlign: "left", margin: 0, width }}>{label}</th>
+                <th key={label} style={{ ...lbl, display: "table-cell", padding: "10px 14px", textAlign: "left", margin: 0, width }}>{label}</th>
               ))}
             </tr>
           </thead>
