@@ -129,11 +129,11 @@ export default function Login() {
           color: "#92400E",
           lineHeight: 1.5,
         }}>
-          🚧 We're currently experiencing issues with magic link sign-in. Our team is working on a fix. If you have trouble signing in, reach out to Will directly on Instagram{" "}
+          🚧 Welcome to SQRZ Beta. If you have trouble or questions about SQRZ, reach out to Will Villa directly on Instagram{" "}
           <a href="https://instagram.com/willvillamusic" target="_blank" rel="noopener noreferrer" style={{ color: "#92400E", fontWeight: 700 }}>@willvilla</a>{" "}
           or via{" "}
           <a href="https://linkedin.com/in/soywillvilla" target="_blank" rel="noopener noreferrer" style={{ color: "#92400E", fontWeight: 700 }}>LinkedIn</a>.
-          {" "}Sorry for the inconvenience!
+          {" "}Great having you onboard!
         </div>
 
         {/* Logo */}
