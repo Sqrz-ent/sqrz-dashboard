@@ -32,12 +32,11 @@ const lbl: React.CSSProperties = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ReferralStatus = "signed_up" | "subscribed" | "active" | "expired";
+type ReferralStatus = "active" | "expired" | "pending";
 
 type Referral = {
   slug: string;
   planLabel: string;
-  lastActivity: string | null;
   earned: number;
   status: ReferralStatus;
 };
@@ -47,7 +46,7 @@ type LoaderData = {
   commissionPct: number;
   tier: "Starter" | "Pro" | "Elite";
   referrals: Referral[];
-  stats: { signedUp: number; subscribed: number; activeWindow: number; paidOut: number };
+  stats: { all: number; active: number; expired: number; pending: number };
   earnings: { lifetime: number; pending: number; paid: number };
   activeCount: number;
   nextTierCount: number | null;
@@ -71,11 +70,6 @@ function tierFromPct(pct: number): "Starter" | "Pro" | "Elite" {
   if (pct >= 50) return "Elite";
   if (pct >= 40) return "Pro";
   return "Starter";
-}
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function fmtMoney(n: number): string {
@@ -145,39 +139,35 @@ export async function loader({ request }: Route.LoaderArgs) {
   const lifetimeEarned = Object.values(earnedByProfile).reduce((s, v) => s + v, 0);
 
   // Build referral rows (merge uses + profiles in JS)
-  const now = Date.now();
   const referrals: Referral[] = (rawUses ?? []).map((u) => {
     const prof = (referredProfiles ?? []).find((p) => p.id === u.referred_profile_id);
     const slug = (prof?.slug as string | null) ?? "unknown";
     const plan = (prof?.plan_id as number | null) ?? null;
-    const lastActivity = (prof?.updated_at as string | null) ?? null;
     const earned = earnedByProfile[(u.referred_profile_id as string)] ?? 0;
     const commissionEndsAt = u.commission_ends_at as string | null;
     const converted = !!(u.converted);
 
-    let status: ReferralStatus;
-    if (!converted) {
-      status = "signed_up";
-    } else if (commissionEndsAt && new Date(commissionEndsAt).getTime() > now) {
-      status = "active";
-    } else if (earned > 0) {
-      status = "expired";
-    } else {
-      status = "subscribed";
-    }
+    // active: converted, commission window still open
+    // expired: converted, commission window closed (or null)
+    // pending: never converted
+    const status: ReferralStatus = !converted
+      ? "pending"
+      : commissionEndsAt && new Date(commissionEndsAt) > new Date()
+        ? "active"
+        : "expired";
 
-    return { slug, planLabel: planLabel(plan), lastActivity, earned, status };
+    return { slug, planLabel: planLabel(plan), earned, status };
   });
 
   // Stats
   const stats = {
-    signedUp: referrals.filter((r) => r.status === "signed_up").length,
-    subscribed: referrals.filter((r) => r.status === "subscribed").length,
-    activeWindow: referrals.filter((r) => r.status === "active").length,
-    paidOut: referrals.filter((r) => r.status === "expired" && r.earned > 0).length,
+    all: referrals.length,
+    active: referrals.filter((r) => r.status === "active").length,
+    expired: referrals.filter((r) => r.status === "expired").length,
+    pending: referrals.filter((r) => r.status === "pending").length,
   };
 
-  const activeCount = stats.activeWindow;
+  const activeCount = stats.active;
   const tier = tierFromPct(commissionPct);
   const nextTierCount = tier === "Elite" ? null : tier === "Pro" ? 15 : 5;
 
@@ -229,14 +219,9 @@ export default function PartnersPage() {
 
   const progress = nextTierCount ? Math.min(1, activeCount / nextTierCount) : 1;
 
-  const filteredReferrals = filter === "all" || filter === "signed_up"
+  const filteredReferrals = filter === "all"
     ? referrals
-    : referrals.filter((r) => {
-        if (filter === "active") return r.status === "active";
-        if (filter === "subscribed") return r.status === "subscribed";
-        if (filter === "expired") return r.status === "expired";
-        return true;
-      });
+    : referrals.filter((r) => r.status === filter);
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "28px 20px 100px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -322,7 +307,9 @@ export default function PartnersPage() {
           <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>
             {tier === "Elite"
               ? "Maximum tier reached"
-              : `${activeCount} of ${nextTierCount} active referrals to ${tier === "Starter" ? "Pro" : "Elite"} (${tier === "Starter" ? 40 : 50}%)`}
+              : tier === "Pro"
+                ? `Pro tier reached — ${(nextTierCount ?? 0) - activeCount} more active referrals to Elite (50%)`
+                : `${activeCount} of ${nextTierCount} active referrals to Pro (40%)`}
           </span>
           <div style={{ display: "flex", gap: 6 }}>
             {tierOrder.map((t) => {
@@ -336,7 +323,7 @@ export default function PartnersPage() {
                   fontWeight: 700,
                   background: isCurrent ? ACCENT_BG : "transparent",
                   color: isCurrent ? ACCENT : isNext ? ACCENT : "var(--text-muted)",
-                  border: isCurrent ? `1px solid ${ACCENT}` : isNext ? `1px solid rgba(168,85,247,0.4)` : "1px solid var(--border)",
+                  border: isCurrent ? `1px solid ${ACCENT}` : isNext ? `1px solid rgba(245,166,35,0.4)` : "1px solid var(--border)",
                 }}>
                   {t} {tierPcts[t]}%
                 </span>
@@ -354,7 +341,7 @@ export default function PartnersPage() {
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{activeCount} active now</span>
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
                 {(tierThresholds[tier] ?? 0) - activeCount > 0
-                  ? `${(tierThresholds[tier] ?? 0) - activeCount} to unlock ${tier === "Starter" ? "Pro" : "Elite"} · ${tierThresholds["Pro"]} for Elite`
+                  ? `${(tierThresholds[tier] ?? 0) - activeCount} more to ${tier === "Starter" ? "Pro" : "Elite"}`
                   : `Qualifying for ${tier === "Starter" ? "Pro" : "Elite"}`}
               </span>
             </div>
@@ -366,20 +353,20 @@ export default function PartnersPage() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
         {(
           [
-            { key: "signed_up" as const, label: "Signed up", count: stats.signedUp + stats.subscribed + stats.activeWindow + stats.paidOut },
-            { key: "subscribed" as const, label: "Subscribed", count: stats.subscribed + stats.activeWindow + stats.paidOut },
-            { key: "active" as const, label: "Active window", count: stats.activeWindow },
-            { key: "expired" as const, label: "Paid out", count: stats.paidOut },
+            { key: "all" as const,     label: "All",     count: stats.all     },
+            { key: "active" as const,  label: "Active",  count: stats.active  },
+            { key: "expired" as const, label: "Expired", count: stats.expired },
+            { key: "pending" as const, label: "Pending", count: stats.pending },
           ] as const
         ).map(({ key, label, count }) => {
-          const isActive = filter === key || (filter === "all" && key === "signed_up");
+          const isSelected = filter === key;
           return (
             <button
               key={key}
-              onClick={() => setFilter(filter === key ? "all" : key)}
+              onClick={() => setFilter(isSelected && key !== "all" ? "all" : key)}
               style={{
                 background: "var(--surface)",
-                border: isActive ? `1.5px solid ${ACCENT}` : "1px solid var(--border)",
+                border: isSelected ? `1.5px solid ${ACCENT}` : "1px solid var(--border)",
                 borderRadius: 10,
                 padding: "12px 14px",
                 cursor: "pointer",
@@ -388,7 +375,7 @@ export default function PartnersPage() {
                 fontFamily: FONT_BODY,
               }}
             >
-              <p style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", color: isActive ? ACCENT : "var(--text)" }}>{count}</p>
+              <p style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", color: isSelected ? ACCENT : "var(--text)" }}>{count}</p>
               <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
             </button>
           );
@@ -426,7 +413,7 @@ export default function PartnersPage() {
                     {r.slug}
                   </td>
                   <td style={{ padding: "11px 14px" }}>
-                    {r.status === "signed_up" ? (
+                    {r.status === "pending" ? (
                       <span style={{ color: "var(--text-muted)" }}>—</span>
                     ) : (
                       <span style={{
@@ -442,7 +429,7 @@ export default function PartnersPage() {
                     )}
                   </td>
                   <td style={{ padding: "11px 14px" }}>
-                    {r.status === "signed_up" ? (
+                    {r.status === "pending" ? (
                       <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>not subscribed</span>
                     ) : (
                       <span style={{ fontWeight: r.earned > 0 ? 700 : 400, color: r.earned > 0 ? "var(--text)" : "var(--text-muted)" }}>
@@ -465,10 +452,9 @@ export default function PartnersPage() {
 
 function StatusPill({ status }: { status: ReferralStatus }) {
   const map: Record<ReferralStatus, { label: string; bg: string; color: string }> = {
-    signed_up:  { label: "Signed up",     bg: "var(--surface-muted)",      color: "var(--text-muted)" },
-    subscribed: { label: "Subscribed",    bg: "rgba(96,165,250,0.12)",     color: "#60a5fa"           },
-    active:     { label: "Active",        bg: ACCENT_BG,                   color: ACCENT              },
-    expired:    { label: "Window expired",bg: "rgba(251,191,36,0.12)",     color: AMBER               },
+    active:  { label: "Active",  bg: "#E1F5EE", color: "#0F6E56" },
+    expired: { label: "Expired", bg: "var(--surface-muted)", color: "var(--text-muted)" },
+    pending: { label: "Pending", bg: "#FAEEDA", color: "#854F0B" },
   };
   const s = map[status];
   return (
