@@ -7,8 +7,8 @@ import { getCurrentProfile } from "~/lib/profile.server";
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
-const PURPLE = "#a855f7";
-const PURPLE_BG = "rgba(168,85,247,0.12)";
+const ACCENT = "#F5A623";
+const ACCENT_BG = "rgba(245,166,35,0.12)";
 const AMBER = "#fbbf24";
 const GREEN = "#4ade80";
 
@@ -245,15 +245,18 @@ export default function PartnersPage() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px", color: "var(--text)" }}>Partner program</h1>
-          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
-            Earn {commissionPct}% of every subscription you bring in, for 12 months
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 2px" }}>
+            You've been invited by Will Villa into the SQRZ Partner Program.
+          </p>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, opacity: 0.7 }}>
+            Earn {commissionPct}% of every subscription you bring in, for 12 months.
           </p>
         </div>
         <span style={{
           padding: "4px 12px",
           borderRadius: 20,
-          background: PURPLE_BG,
-          color: PURPLE,
+          background: ACCENT_BG,
+          color: ACCENT,
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: "0.04em",
@@ -267,7 +270,7 @@ export default function PartnersPage() {
       {refUrl && (
         <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <span style={{ fontSize: 16, flexShrink: 0 }}>🔗</span>
-          <span style={{ flex: 1, color: "var(--text)", fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>
+          <span style={{ flex: 1, color: ACCENT, fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>
             {refUrl}
           </span>
           <button
@@ -331,9 +334,9 @@ export default function PartnersPage() {
                   borderRadius: 20,
                   fontSize: 11,
                   fontWeight: 700,
-                  background: isCurrent ? PURPLE_BG : "transparent",
-                  color: isCurrent ? PURPLE : isNext ? PURPLE : "var(--text-muted)",
-                  border: isCurrent ? `1px solid ${PURPLE}` : isNext ? `1px solid rgba(168,85,247,0.4)` : "1px solid var(--border)",
+                  background: isCurrent ? ACCENT_BG : "transparent",
+                  color: isCurrent ? ACCENT : isNext ? ACCENT : "var(--text-muted)",
+                  border: isCurrent ? `1px solid ${ACCENT}` : isNext ? `1px solid rgba(168,85,247,0.4)` : "1px solid var(--border)",
                 }}>
                   {t} {tierPcts[t]}%
                 </span>
@@ -345,7 +348,7 @@ export default function PartnersPage() {
         {tier !== "Elite" && (
           <>
             <div style={{ height: 6, borderRadius: 6, background: "var(--surface-muted)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${progress * 100}%`, background: PURPLE, borderRadius: 6, transition: "width 0.4s ease" }} />
+              <div style={{ height: "100%", width: `${progress * 100}%`, background: ACCENT, borderRadius: 6, transition: "width 0.4s ease" }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{activeCount} active now</span>
@@ -376,7 +379,7 @@ export default function PartnersPage() {
               onClick={() => setFilter(filter === key ? "all" : key)}
               style={{
                 background: "var(--surface)",
-                border: isActive ? `1.5px solid ${PURPLE}` : "1px solid var(--border)",
+                border: isActive ? `1.5px solid ${ACCENT}` : "1px solid var(--border)",
                 borderRadius: 10,
                 padding: "12px 14px",
                 cursor: "pointer",
@@ -385,7 +388,7 @@ export default function PartnersPage() {
                 fontFamily: FONT_BODY,
               }}
             >
-              <p style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", color: isActive ? PURPLE : "var(--text)" }}>{count}</p>
+              <p style={{ fontSize: 18, fontWeight: 700, margin: "0 0 2px", color: isActive ? ACCENT : "var(--text)" }}>{count}</p>
               <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
             </button>
           );
@@ -394,11 +397,19 @@ export default function PartnersPage() {
 
       {/* ── Section 6: Referrals table ────────────────────────────────────── */}
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, tableLayout: "fixed" }}>
           <thead>
             <tr style={{ background: "var(--surface-muted)", borderBottom: "1px solid var(--border)" }}>
-              {["Referral", "Plan", "Last activity", "Your earnings", "Status"].map((h) => (
-                <th key={h} style={{ ...lbl, padding: "10px 14px", textAlign: "left", margin: 0 }}>{h}</th>
+              {(
+                [
+                  { label: "Referral", width: "20%" },
+                  { label: "Plan", width: "18%" },
+                  { label: "Last activity", width: "22%" },
+                  { label: "Your earnings", width: "18%" },
+                  { label: "Status", width: "22%" },
+                ] as const
+              ).map(({ label, width }) => (
+                <th key={label} style={{ ...lbl, padding: "10px 14px", textAlign: "left", margin: 0, width }}>{label}</th>
               ))}
             </tr>
           </thead>
@@ -460,7 +471,7 @@ function StatusPill({ status }: { status: ReferralStatus }) {
   const map: Record<ReferralStatus, { label: string; bg: string; color: string }> = {
     signed_up:  { label: "Signed up",     bg: "var(--surface-muted)",      color: "var(--text-muted)" },
     subscribed: { label: "Subscribed",    bg: "rgba(96,165,250,0.12)",     color: "#60a5fa"           },
-    active:     { label: "Active",        bg: PURPLE_BG,                   color: PURPLE              },
+    active:     { label: "Active",        bg: ACCENT_BG,                   color: ACCENT              },
     expired:    { label: "Window expired",bg: "rgba(251,191,36,0.12)",     color: AMBER               },
   };
   const s = map[status];

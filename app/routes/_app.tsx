@@ -620,23 +620,7 @@ export default function AppLayout() {
           <span>Messages</span>
         </button>
 
-        <NavLink
-          to="/crew"
-          style={({ isActive }) => ({
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 3,
-            textDecoration: "none",
-            fontSize: 11,
-            color: isActive ? "#F5A623" : "var(--text-muted)",
-          })}
-        >
-          <span style={{ fontSize: 18 }}>👥</span>
-          <span>Crew</span>
-        </NavLink>
-
-        {isPartner && (
+        {isPartner ? (
           <NavLink
             to="/office/partners"
             style={({ isActive }) => ({
@@ -652,6 +636,24 @@ export default function AppLayout() {
             <span style={{ fontSize: 18 }}>🤝</span>
             <span>Partners</span>
           </NavLink>
+        ) : (
+          <a
+            href={`https://sqrz.com/${p?.slug ?? ""}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+              textDecoration: "none",
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            <span style={{ fontSize: 18 }}>🌐</span>
+            <span>Profile</span>
+          </a>
         )}
       </nav>
 
