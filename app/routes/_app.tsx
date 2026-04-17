@@ -638,7 +638,7 @@ export default function AppLayout() {
           </NavLink>
         ) : (
           <a
-            href={`https://sqrz.com/${p?.slug ?? ""}`}
+            href={`https://${p?.slug ?? ""}.sqrz.com`}
             target="_blank"
             rel="noopener noreferrer"
             style={{
