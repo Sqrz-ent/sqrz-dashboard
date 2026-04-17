@@ -398,8 +398,8 @@ export default function AppLayout() {
             zIndex: 10,
           }}
         >
-          {/* Left — back / breadcrumb */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 80 }}>
+          {/* Left — back */}
+          <div style={{ display: "flex", alignItems: "center", minWidth: 80 }}>
             <button
               onClick={() => navigate(-1)}
               aria-label="Back"
@@ -407,24 +407,17 @@ export default function AppLayout() {
                 background: "none",
                 border: "none",
                 color: "var(--text-muted)",
-                fontSize: 18,
+                fontSize: 13,
                 cursor: "pointer",
                 padding: "4px 6px",
                 lineHeight: 1,
                 display: "flex",
                 alignItems: "center",
+                gap: 4,
               }}
             >
-              ←
+              ← Back
             </button>
-            {breadcrumb && (
-              <span
-                className="hidden sm:inline"
-                style={{ fontSize: 13, color: "var(--text-muted)" }}
-              >
-                {breadcrumb} ›
-              </span>
-            )}
           </div>
 
           {/* Center — page title */}
