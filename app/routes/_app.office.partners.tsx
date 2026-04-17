@@ -110,26 +110,26 @@ export async function loader({ request }: Route.LoaderArgs) {
   const commissionPct: number = (refCodeRow?.commission_pct as number | null) ?? 30;
   const refCode: string | null = (refCodeRow?.code as string | null) ?? null;
 
-  // 2. Referral uses joined to referred profile
+  // 2. Referral uses (separate query, no join)
   const { data: rawUses } = refCodeRow
     ? await supabase
         .from("referral_uses")
-        .select(`
-          id,
-          referred_profile_id,
-          first_paid_at,
-          commission_ends_at,
-          converted,
-          profiles!referred_profile_id ( slug, plan_id, updated_at )
-        `)
+        .select("id, referred_profile_id, converted, first_paid_at, commission_ends_at")
         .eq("referral_code_id", refCodeRow.id as string)
         .order("created_at", { ascending: false })
     : { data: [] };
 
-  // 3. Earnings
+  // 3. Referred profiles (separate query, merge in JS)
+  const referredIds = (rawUses ?? []).map((r) => r.referred_profile_id as string);
+  const { data: referredProfiles } = await supabase
+    .from("profiles")
+    .select("id, slug, plan_id, updated_at")
+    .in("id", referredIds.length ? referredIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  // 4. Earnings
   const { data: rawEarnings } = await supabase
     .from("partner_earnings")
-    .select("commission_amount, payout_status, created_at, referred_profile_id")
+    .select("commission_amount, payout_status, referred_profile_id")
     .eq("partner_id", profile.id as string);
 
   // Build per-referred-profile earned map
@@ -144,27 +144,26 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
   const lifetimeEarned = Object.values(earnedByProfile).reduce((s, v) => s + v, 0);
 
-  // Build referral rows
+  // Build referral rows (merge uses + profiles in JS)
   const now = Date.now();
   const referrals: Referral[] = (rawUses ?? []).map((u) => {
-    const prof = Array.isArray(u.profiles) ? u.profiles[0] : u.profiles;
+    const prof = (referredProfiles ?? []).find((p) => p.id === u.referred_profile_id);
     const slug = (prof?.slug as string | null) ?? "unknown";
     const plan = (prof?.plan_id as number | null) ?? null;
     const lastActivity = (prof?.updated_at as string | null) ?? null;
     const earned = earnedByProfile[(u.referred_profile_id as string)] ?? 0;
-    const firstPaidAt = u.first_paid_at as string | null;
     const commissionEndsAt = u.commission_ends_at as string | null;
     const converted = !!(u.converted);
 
     let status: ReferralStatus;
     if (!converted) {
       status = "signed_up";
-    } else if (!firstPaidAt) {
-      status = "subscribed";
     } else if (commissionEndsAt && new Date(commissionEndsAt).getTime() > now) {
       status = "active";
+    } else if (earned > 0) {
+      status = "expired";
     } else {
-      status = earned > 0 ? "expired" : "subscribed";
+      status = "subscribed";
     }
 
     return { slug, planLabel: planLabel(plan), lastActivity, earned, status };
@@ -230,7 +229,6 @@ export default function PartnersPage() {
 
   const progress = nextTierCount ? Math.min(1, activeCount / nextTierCount) : 1;
 
-  const now = Date.now();
   const filteredReferrals = filter === "all" || filter === "signed_up"
     ? referrals
     : referrals.filter((r) => {
