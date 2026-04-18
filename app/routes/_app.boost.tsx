@@ -383,7 +383,7 @@ export default function BoostPage() {
         rows={3}
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Anything specific you want us to know about this campaign?"
+        placeholder="Add a call to action, describe your style, mention specific dates, or anything else that helps us run a better campaign for you."
         style={textareaStyle}
       />
     </div>
@@ -407,7 +407,7 @@ export default function BoostPage() {
     <div style={{ marginBottom: 20 }}>
       <label style={labelStyle}>Campaign Duration</label>
       <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-        {["2 Weeks", "1 Month"].map((d) => (
+        {["1 Week", "2 Weeks", "1 Month"].map((d) => (
           <button key={d} type="button" onClick={() => setDuration(d)} style={pillStyle(duration === d)}>
             {d}
           </button>
