@@ -421,9 +421,9 @@ export default function BoostPage() {
       <label style={labelStyle}>What's your goal?</label>
       <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
         {[
-          { label: "Visibility", value: "visibility" },
-          { label: "Bookings", value: "bookings" },
-          { label: "Followers", value: "followers" },
+          { label: "Get Bookings", value: "bookings" },
+          { label: "Get Visibility", value: "visibility" },
+          { label: "Grow Audience", value: "audience" },
         ].map((g) => (
           <button key={g.value} type="button" onClick={() => setGoal(g.value)} style={pillStyle(goal === g.value)}>
             {g.label}
