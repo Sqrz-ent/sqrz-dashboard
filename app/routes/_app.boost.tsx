@@ -235,8 +235,8 @@ export async function action({ request }: Route.ActionArgs) {
   const days = duration ? (DURATION_DAYS[duration] ?? 30) : 30;
   const endsAt = addDays(today, days);
 
-  // Build base URL — for a private link, use the actual link path
-  let baseUrl = `https://sqrz.com/${profile.slug as string}`;
+  // Build base URL — always subdomain-based
+  let baseUrl = `https://${profile.slug as string}.sqrz.com`;
   if (promoteType === "link" && promoteLinkId) {
     const { data: linkRow } = await supabase
       .from("private_booking_links")
