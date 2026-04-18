@@ -69,10 +69,20 @@ type Campaign = {
   goal: string | null;
   channel: string | null;
   duration: string | null;
+  utm_url: string | null;
   budget_amount: number;
   budget_currency: string;
-  status: "draft" | "pending" | "preparing" | "live";
+  status: "draft" | "pending" | "preparing" | "live" | "completed";
   created_at: string;
+  stat_impressions: number | null;
+  stat_reach: number | null;
+  stat_link_clicks: number | null;
+  stat_profile_visits: number | null;
+  stat_return_visits: number | null;
+  stat_inquiries: number | null;
+  stat_cost_per_click: number | null;
+  stat_cpm: number | null;
+  stats_updated_at: string | null;
 };
 
 const BUDGET_OPTIONS = [
@@ -82,10 +92,11 @@ const BUDGET_OPTIONS = [
 ] as const;
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  draft: { label: "Draft", color: "#888", bg: "rgba(136,136,136,0.12)" },
-  pending: { label: "Pending Payment", color: "#888", bg: "rgba(136,136,136,0.12)" },
-  preparing: { label: "Preparing", color: ACCENT, bg: "rgba(245,166,35,0.12)" },
-  live: { label: "Live", color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
+  draft:     { label: "Draft",           color: "#888",    bg: "rgba(136,136,136,0.12)" },
+  pending:   { label: "Pending Payment", color: "#888",    bg: "rgba(136,136,136,0.12)" },
+  preparing: { label: "Preparing",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
+  live:      { label: "Live",            color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
+  completed: { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
 };
 
 const BOOST_PAYMENT_LINKS: Record<number, string> = {
@@ -96,6 +107,22 @@ const BOOST_PAYMENT_LINKS: Record<number, string> = {
 
 const GROW_MEETING_URL =
   "https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b";
+
+const DURATION_DAYS: Record<string, number> = {
+  "1 Week":  7,
+  "2 Weeks": 14,
+  "1 Month": 30,
+};
+
+function addDays(date: Date, days: number): Date {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function toDateString(date: Date): string {
+  return date.toISOString().split("T")[0];
+}
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -108,9 +135,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [{ data: campaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
     supabase
       .from("boost_campaigns")
-      .select("id, promote_type, promote_link_id, target_audience, goal, channel, duration, budget_amount, budget_currency, status, created_at")
+      .select([
+        "id", "promote_type", "promote_link_id", "target_audience", "goal",
+        "channel", "duration", "utm_url", "budget_amount", "budget_currency",
+        "status", "created_at",
+        "stat_impressions", "stat_reach", "stat_link_clicks", "stat_profile_visits",
+        "stat_return_visits", "stat_inquiries", "stat_cost_per_click", "stat_cpm",
+        "stats_updated_at",
+      ].join(", "))
       .eq("profile_id", profile.id as string)
-      .in("status", ["draft", "pending", "preparing", "live"])
+      .in("status", ["draft", "pending", "preparing", "live", "completed"])
       .order("created_at", { ascending: false }),
     supabase
       .from("private_booking_links")
@@ -133,6 +167,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       privateLinks: privateLinks ?? [],
       email: (profile.email as string) ?? "",
       profile_id: profile.id as string,
+      profile_slug: (profile.slug as string) ?? "",
     },
     { headers }
   );
@@ -149,6 +184,7 @@ export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const promoteType = formData.get("promote_type") as string;
   const promoteLinkId = formData.get("promote_link_id") as string | null;
+  const duration = (formData.get("duration") as string) || null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
   // ── Monthly cap check ($150/month for standard Boost) ──────────────────────
@@ -171,34 +207,84 @@ export async function action({ request }: Route.ActionArgs) {
     }, { headers });
   }
 
-  const { error } = await supabase.from("boost_campaigns").insert({
-    profile_id: profile.id as string,
-    promote_type: promoteType,
-    promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
-    channel: (formData.get("channel") as string) || null,
-    duration: (formData.get("duration") as string) || null,
-    goal: (formData.get("goal") as string) || null,
-    target_audience: (formData.get("target_audience") as string) || null,
-    budget_amount: newBudget,
-    budget_currency: "USD",
-    notes: (formData.get("notes") as string) || null,
-    status: "pending",
-  });
+  // ── Insert ─────────────────────────────────────────────────────────────────
+  const { data: inserted, error } = await supabase
+    .from("boost_campaigns")
+    .insert({
+      profile_id: profile.id as string,
+      promote_type: promoteType,
+      promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
+      channel: (formData.get("channel") as string) || null,
+      duration,
+      goal: (formData.get("goal") as string) || null,
+      target_audience: (formData.get("target_audience") as string) || null,
+      budget_amount: newBudget,
+      budget_currency: "USD",
+      notes: (formData.get("notes") as string) || null,
+      status: "pending",
+    })
+    .select("id, utm_source, utm_campaign, utm_content")
+    .single();
 
-  return Response.json({ ok: !error, error: error?.message }, { headers });
+  if (error || !inserted) {
+    return Response.json({ ok: false, error: error?.message }, { headers });
+  }
+
+  // ── Wire UTM URL + dates ───────────────────────────────────────────────────
+  const today = new Date();
+  const days = duration ? (DURATION_DAYS[duration] ?? 30) : 30;
+  const endsAt = addDays(today, days);
+
+  // Build base URL — for a private link, use the actual link path
+  let baseUrl = `https://sqrz.com/${profile.slug as string}`;
+  if (promoteType === "link" && promoteLinkId) {
+    const { data: linkRow } = await supabase
+      .from("private_booking_links")
+      .select("link_slug")
+      .eq("id", promoteLinkId)
+      .single();
+    if (linkRow?.link_slug) {
+      baseUrl = `https://${profile.slug as string}.sqrz.com/${linkRow.link_slug}`;
+    }
+  }
+
+  // Build UTM URL from trigger-populated fields
+  let utmUrl: string | null = null;
+  if (inserted.utm_source) {
+    const params = new URLSearchParams({
+      utm_source: inserted.utm_source,
+      utm_medium: "paid",
+      ...(inserted.utm_campaign ? { utm_campaign: inserted.utm_campaign } : {}),
+      ...(inserted.utm_content ? { utm_content: inserted.utm_content } : {}),
+    });
+    utmUrl = `${baseUrl}?${params.toString()}`;
+  }
+
+  await supabase
+    .from("boost_campaigns")
+    .update({
+      starts_at: toDateString(today),
+      ends_at: toDateString(endsAt),
+      ...(utmUrl ? { utm_url: utmUrl } : {}),
+    })
+    .eq("id", inserted.id);
+
+  return Response.json({ ok: true }, { headers });
 }
 
 export default function BoostPage() {
-  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email } = useLoaderData<typeof loader>() as {
-    campaigns: Campaign[];
-    privateLinks: PrivateLink[];
-    plan_id: number | null;
-    is_beta: boolean;
-    grow_qualified: boolean;
-    campaign_count: number;
-    email: string;
-    profile_id: string;
-  };
+  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email } =
+    useLoaderData<typeof loader>() as {
+      campaigns: Campaign[];
+      privateLinks: PrivateLink[];
+      plan_id: number | null;
+      is_beta: boolean;
+      grow_qualified: boolean;
+      campaign_count: number;
+      email: string;
+      profile_id: string;
+      profile_slug: string;
+    };
   const isFirstCampaign = campaign_count === 0;
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
@@ -216,6 +302,10 @@ export default function BoostPage() {
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [boostSuccess, setBoostSuccess] = useState(false);
+
+  // Stats expand state — keyed by campaign id
+  const [openStats, setOpenStats] = useState<Record<string, boolean>>({});
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Grow-only state
   const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 500;
@@ -300,6 +390,17 @@ export default function BoostPage() {
     fd.append("budget_amount", String(budget));
     fd.append("notes", notes);
     fetcher.submit(fd, { method: "post" });
+  }
+
+  function toggleStats(id: string) {
+    setOpenStats((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  function copyToClipboard(text: string, id: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
   }
 
   function pillStyle(selected: boolean): React.CSSProperties {
@@ -446,7 +547,6 @@ export default function BoostPage() {
       {grow_qualified ? (
         <>
           <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
-
             {growSuccess ? (
               <div style={{
                 background: "rgba(34,197,94,0.08)",
@@ -461,11 +561,9 @@ export default function BoostPage() {
               </div>
             ) : (
               <>
-                {/* 1. Form fields */}
                 {promoteField}
                 {audienceField}
 
-                {/* Budget input */}
                 <div style={{ marginBottom: 20 }}>
                   <label style={labelStyle}>Campaign budget (USD)</label>
                   <input
@@ -492,7 +590,6 @@ export default function BoostPage() {
                   </p>
                 </div>
 
-                {/* Fee breakdown */}
                 <div style={{
                   background: "var(--bg)",
                   border: "1px solid var(--border)",
@@ -517,7 +614,6 @@ export default function BoostPage() {
 
                 {notesField}
 
-                {/* 2. Explainer bullets */}
                 <ul style={{ listStyle: "none", padding: 0, margin: "0 0 20px", display: "flex", flexDirection: "column" as const, gap: 8 }}>
                   {[
                     `You set the budget — minimum $${growMinBudget.toLocaleString()} (your ad spend)`,
@@ -531,7 +627,6 @@ export default function BoostPage() {
                   ))}
                 </ul>
 
-                {/* 3. Context note + action buttons */}
                 <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6 }}>
                   {isFirstCampaign
                     ? "We recommend a quick call before your first campaign to make sure your budget works as hard as possible."
@@ -715,8 +810,34 @@ export default function BoostPage() {
               const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
               const isPending = c.status === "draft" || c.status === "pending";
               const isPaid = c.status === "live" || c.status === "preparing";
+              const hasStats = c.status === "live" || c.status === "completed";
               const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
-              const paymentUrl = baseUrl ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}` : null;
+              const paymentUrl = baseUrl
+                ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
+                : null;
+              const isStatsOpen = !!openStats[c.id];
+
+              const allStatsEmpty =
+                !c.stat_impressions &&
+                !c.stat_reach &&
+                !c.stat_link_clicks &&
+                !c.stat_profile_visits &&
+                !c.stat_return_visits &&
+                !c.stat_inquiries &&
+                !c.stat_cost_per_click &&
+                !c.stat_cpm;
+
+              const STATS_ROWS = [
+                { label: "Impressions",    value: c.stat_impressions,    format: "int"      },
+                { label: "Reach",          value: c.stat_reach,          format: "int"      },
+                { label: "Link Clicks",    value: c.stat_link_clicks,    format: "int"      },
+                { label: "Profile Visits", value: c.stat_profile_visits, format: "int"      },
+                { label: "Return Visits",  value: c.stat_return_visits,  format: "int"      },
+                { label: "Inquiries",      value: c.stat_inquiries,      format: "int"      },
+                { label: "Cost per Click", value: c.stat_cost_per_click, format: "currency" },
+                { label: "CPM",            value: c.stat_cpm,            format: "currency" },
+              ] as const;
+
               return (
                 <div
                   key={c.id}
@@ -726,9 +847,10 @@ export default function BoostPage() {
                     padding: "14px 16px",
                     display: "flex",
                     flexDirection: "column" as const,
-                    gap: 12,
+                    gap: 0,
                   }}
                 >
+                  {/* Campaign header row */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
@@ -772,8 +894,9 @@ export default function BoostPage() {
                     </div>
                   </div>
 
+                  {/* Payment section for pending campaigns */}
                   {isPending && !grow_qualified && (
-                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 14 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
                         Ad Budget
                       </div>
@@ -822,6 +945,137 @@ export default function BoostPage() {
                       </p>
                     </div>
                   )}
+
+                  {/* View Stats toggle */}
+                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleStats(c.id)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--text-muted)",
+                        fontFamily: FONT_BODY,
+                        padding: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                      }}
+                    >
+                      <span style={{ fontSize: 10, display: "inline-block", transform: isStatsOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▶</span>
+                      {isStatsOpen ? "Hide Stats" : "View Stats"}
+                    </button>
+
+                    {isStatsOpen && (
+                      <div style={{ marginTop: 14 }}>
+                        {!hasStats ? (
+                          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                            Your campaign stats will appear here once it goes live.
+                          </p>
+                        ) : allStatsEmpty ? (
+                          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                            Your campaign stats will appear here once it goes live.
+                          </p>
+                        ) : (
+                          <>
+                            {/* Stats grid — 2 columns */}
+                            <div style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 1fr",
+                              gap: 8,
+                              marginBottom: 14,
+                            }}>
+                              {STATS_ROWS.map(({ label, value, format }) => (
+                                <div
+                                  key={label}
+                                  style={{
+                                    background: "var(--surface)",
+                                    border: "1px solid var(--border)",
+                                    borderRadius: 10,
+                                    padding: "10px 12px",
+                                  }}
+                                >
+                                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4 }}>
+                                    {label}
+                                  </div>
+                                  <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", fontFamily: FONT_DISPLAY }}>
+                                    {value == null
+                                      ? "—"
+                                      : format === "currency"
+                                        ? `$${Number(value).toFixed(2)}`
+                                        : Number(value).toLocaleString()}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Stats updated at */}
+                            {c.stats_updated_at && (
+                              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.5 }}>
+                                Stats updated:{" "}
+                                {new Date(c.stats_updated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
+                              </p>
+                            )}
+                          </>
+                        )}
+
+                        {/* UTM link */}
+                        {c.utm_url && (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 6 }}>
+                              Your Campaign Link
+                            </div>
+                            <div style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              background: "var(--surface)",
+                              border: "1px solid var(--border)",
+                              borderRadius: 10,
+                              padding: "10px 12px",
+                            }}>
+                              <span style={{
+                                flex: 1,
+                                fontSize: 11,
+                                fontFamily: "monospace",
+                                color: "var(--text-muted)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap" as const,
+                              }}>
+                                {c.utm_url}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(c.utm_url!, c.id)}
+                                style={{
+                                  flexShrink: 0,
+                                  padding: "5px 12px",
+                                  background: copiedId === c.id ? "rgba(34,197,94,0.12)" : "var(--bg)",
+                                  border: "1px solid var(--border)",
+                                  borderRadius: 7,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: copiedId === c.id ? "#22c55e" : "var(--text-muted)",
+                                  cursor: "pointer",
+                                  fontFamily: FONT_BODY,
+                                  transition: "all 0.15s",
+                                }}
+                              >
+                                {copiedId === c.id ? "Copied!" : "Copy"}
+                              </button>
+                            </div>
+                            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
+                              Share this link with your ad platform.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
