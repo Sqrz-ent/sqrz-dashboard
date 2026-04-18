@@ -66,6 +66,9 @@ type Campaign = {
   promote_type: string;
   promote_link_id: string | null;
   target_audience: string | null;
+  goal: string | null;
+  channel: string | null;
+  duration: string | null;
   budget_amount: number;
   budget_currency: string;
   status: "draft" | "pending" | "preparing" | "live";
@@ -76,7 +79,6 @@ const BUDGET_OPTIONS = [
   { value: 50, label: "$50" },
   { value: 100, label: "$100" },
   { value: 150, label: "$150" },
-  { value: 300, label: "$300" },
 ] as const;
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
@@ -90,8 +92,10 @@ const BOOST_PAYMENT_LINKS: Record<number, string> = {
   50:  "https://buy.stripe.com/7sY7sKbc35tI1gyanq57W01",
   100: "https://buy.stripe.com/bJeaEWgwn2hwe3k0MQ57W02",
   150: "https://buy.stripe.com/7sY9AScg7f4i8J0cvy57W03",
-  300: "https://buy.stripe.com/eVq14m6VN3lA9N4dzC57W04",
 };
+
+const GROW_MEETING_URL =
+  "https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -104,7 +108,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [{ data: campaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
     supabase
       .from("boost_campaigns")
-      .select("id, promote_type, promote_link_id, target_audience, budget_amount, budget_currency, status, created_at")
+      .select("id, promote_type, promote_link_id, target_audience, goal, channel, duration, budget_amount, budget_currency, status, created_at")
       .eq("profile_id", profile.id as string)
       .in("status", ["draft", "pending", "preparing", "live"])
       .order("created_at", { ascending: false }),
@@ -147,7 +151,7 @@ export async function action({ request }: Route.ActionArgs) {
   const promoteLinkId = formData.get("promote_link_id") as string | null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
-  // ── Monthly cap check ($300/month for standard Boost) ──────────────────────
+  // ── Monthly cap check ($150/month for standard Boost) ──────────────────────
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
   const { data: monthlyBoosts } = await supabase
     .from("boost_campaigns")
@@ -159,11 +163,11 @@ export async function action({ request }: Route.ActionArgs) {
 
   const monthlyTotal = (monthlyBoosts ?? []).reduce((sum, c) => sum + (c.budget_amount ?? 0), 0);
 
-  if (monthlyTotal + newBudget > 300) {
+  if (monthlyTotal + newBudget > 150) {
     return Response.json({
       ok: false,
       limitError: true,
-      message: "You've reached your $300 monthly Boost limit. Want to run larger campaigns? Ask about SQRZ Grow.",
+      message: "You've reached your $150 monthly Boost limit.",
     }, { headers });
   }
 
@@ -171,11 +175,14 @@ export async function action({ request }: Route.ActionArgs) {
     profile_id: profile.id as string,
     promote_type: promoteType,
     promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
+    channel: (formData.get("channel") as string) || null,
+    duration: (formData.get("duration") as string) || null,
+    goal: (formData.get("goal") as string) || null,
     target_audience: (formData.get("target_audience") as string) || null,
     budget_amount: newBudget,
     budget_currency: "USD",
     notes: (formData.get("notes") as string) || null,
-    status: "draft",
+    status: "pending",
   });
 
   return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -197,13 +204,16 @@ export default function BoostPage() {
   const [searchParams] = useSearchParams();
   const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
 
-  // Shared form state (used by both Boost and Grow)
+  // Shared form state
   const [promoteType, setPromoteType] = useState<string | null>(null);
   const [promoteLinkId, setPromoteLinkId] = useState<string>("");
   const [targetAudience, setTargetAudience] = useState("");
   const [notes, setNotes] = useState("");
 
   // Boost-only state
+  const [channel, setChannel] = useState<string | null>(null);
+  const [duration, setDuration] = useState<string | null>(null);
+  const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [boostSuccess, setBoostSuccess] = useState(false);
 
@@ -250,12 +260,15 @@ export default function BoostPage() {
   }
 
   const isSubmitting = fetcher.state !== "idle";
-  const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string } | undefined;
+  const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string; error?: string } | undefined;
 
   if (actionData?.ok && !boostSuccess) {
     setBoostSuccess(true);
     setPromoteType(null);
     setPromoteLinkId("");
+    setChannel(null);
+    setDuration(null);
+    setGoal(null);
     setTargetAudience("");
     setBudget(null);
     setNotes("");
@@ -264,6 +277,9 @@ export default function BoostPage() {
   const boostCanSubmit =
     !!promoteType &&
     (promoteType !== "link" || !!promoteLinkId) &&
+    !!channel &&
+    !!duration &&
+    !!goal &&
     !!budget;
 
   const growCanSubmit =
@@ -277,6 +293,9 @@ export default function BoostPage() {
     const fd = new FormData();
     fd.append("promote_type", promoteType!);
     fd.append("promote_link_id", promoteLinkId);
+    fd.append("channel", channel!);
+    fd.append("duration", duration!);
+    fd.append("goal", goal!);
     fd.append("target_audience", targetAudience);
     fd.append("budget_amount", String(budget));
     fd.append("notes", notes);
@@ -367,6 +386,50 @@ export default function BoostPage() {
         placeholder="Anything specific you want us to know about this campaign?"
         style={textareaStyle}
       />
+    </div>
+  );
+
+  // ── Boost-only form fields ─────────────────────────────────────────────────
+  const channelField = (
+    <div style={{ marginBottom: 20 }}>
+      <label style={labelStyle}>Where do you want to be seen?</label>
+      <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+        {["Meta (Facebook + Instagram)", "Google", "LinkedIn", "TikTok"].map((ch) => (
+          <button key={ch} type="button" onClick={() => setChannel(ch)} style={pillStyle(channel === ch)}>
+            {ch}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const durationField = (
+    <div style={{ marginBottom: 20 }}>
+      <label style={labelStyle}>Campaign Duration</label>
+      <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+        {["2 Weeks", "1 Month"].map((d) => (
+          <button key={d} type="button" onClick={() => setDuration(d)} style={pillStyle(duration === d)}>
+            {d}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  const goalField = (
+    <div style={{ marginBottom: 20 }}>
+      <label style={labelStyle}>What's your goal?</label>
+      <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+        {[
+          { label: "Visibility", value: "visibility" },
+          { label: "Bookings", value: "bookings" },
+          { label: "Followers", value: "followers" },
+        ].map((g) => (
+          <button key={g.value} type="button" onClick={() => setGoal(g.value)} style={pillStyle(goal === g.value)}>
+            {g.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 
@@ -476,12 +539,12 @@ export default function BoostPage() {
                 </p>
 
                 {growError && (
-                  <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 12 }}>{growError}</p>
+                  <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>{growError}</p>
                 )}
 
                 <div style={{ display: "flex", gap: 10 }}>
                   <a
-                    href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b"
+                    href={GROW_MEETING_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{
@@ -532,9 +595,23 @@ export default function BoostPage() {
           {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
 
           <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
-            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 20px" }}>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
               New Boost Campaign
             </h2>
+
+            {/* How Boost works */}
+            <div style={{
+              background: "rgba(245,166,35,0.06)",
+              border: "1px solid rgba(245,166,35,0.18)",
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginBottom: 24,
+              fontSize: 13,
+              color: "var(--text-muted)",
+              lineHeight: 1.6,
+            }}>
+              Boost runs a single-channel paid ad campaign pointing to your SQRZ profile or link. You choose the channel and budget — we handle setup and execution. Ad spend is separate from your $39/mo subscription.
+            </div>
 
             {boostSuccess && (
               <div style={{
@@ -547,11 +624,14 @@ export default function BoostPage() {
                 color: "#22c55e",
                 lineHeight: 1.5,
               }}>
-                Your Boost is being prepared. We'll notify you when it goes live — usually within 24 hours.
+                Campaign created — complete payment below to activate it.
               </div>
             )}
 
             {promoteField}
+            {channelField}
+            {durationField}
+            {goalField}
             {audienceField}
 
             {/* Budget pills */}
@@ -568,22 +648,10 @@ export default function BoostPage() {
 
             {notesField}
 
-            {actionData?.limitError && (
-              <div style={{
-                background: "rgba(245,166,35,0.08)",
-                border: "1px solid rgba(245,166,35,0.3)",
-                borderRadius: 10,
-                padding: "14px 16px",
-                marginBottom: 16,
-                fontSize: 13,
-                color: "var(--text)",
-                lineHeight: 1.6,
-              }}>
-                {actionData.message}
-                {grow_qualified && (
-                  <> <a href="#grow-section" style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>Switch to Grow →</a></>
-                )}
-              </div>
+            {actionData?.ok === false && !actionData?.limitError && (
+              <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
+                {actionData.error ?? "Something went wrong. Please try again."}
+              </p>
             )}
 
             <button
@@ -607,6 +675,28 @@ export default function BoostPage() {
             >
               {isSubmitting ? "Activating…" : "Activate Boost →"}
             </button>
+
+            {/* Grow upsell */}
+            <div style={{
+              marginTop: 16,
+              padding: "13px 16px",
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 12,
+              fontSize: 13,
+              color: "var(--text-muted)",
+              lineHeight: 1.6,
+            }}>
+              Want a multichannel strategy with creative support? SQRZ Grow clients get a dedicated campaign plan and monthly strategy calls.{" "}
+              <a
+                href={GROW_MEETING_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}
+              >
+                Talk to Will →
+              </a>
+            </div>
           </div>
         </>
       )}
@@ -644,6 +734,11 @@ export default function BoostPage() {
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
                         {c.promote_type === "grow" ? "Grow Campaign" : c.promote_type === "link" ? "Private Link Boost" : "Profile Boost"}
                       </div>
+                      {c.channel && (
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                          {c.channel}{c.duration ? ` · ${c.duration}` : ""}
+                        </div>
+                      )}
                       {c.target_audience && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                           {c.target_audience}
@@ -685,30 +780,43 @@ export default function BoostPage() {
                       <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
                         ${c.budget_amount}
                       </div>
-                      <a
-                        href={paymentUrl ?? "#"}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => { if (!paymentUrl) e.preventDefault(); }}
-                        style={{
-                          display: "block",
-                          width: "100%",
+                      {paymentUrl ? (
+                        <a
+                          href={paymentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            padding: "12px",
+                            background: ACCENT,
+                            color: "#111",
+                            borderRadius: 10,
+                            fontSize: 14,
+                            fontWeight: 700,
+                            textAlign: "center" as const,
+                            textDecoration: "none",
+                            cursor: "pointer",
+                            fontFamily: FONT_BODY,
+                            boxSizing: "border-box" as const,
+                            marginBottom: 8,
+                          }}
+                        >
+                          Pay ${c.budget_amount} →
+                        </a>
+                      ) : (
+                        <div style={{
                           padding: "12px",
-                          background: paymentUrl ? ACCENT : "var(--surface-muted)",
-                          color: paymentUrl ? "#111" : "var(--text-muted)",
+                          background: "var(--surface-muted)",
                           borderRadius: 10,
-                          fontSize: 14,
-                          fontWeight: 700,
+                          fontSize: 13,
+                          color: "#ef4444",
                           textAlign: "center" as const,
-                          textDecoration: "none",
-                          cursor: paymentUrl ? "pointer" : "not-allowed",
-                          fontFamily: FONT_BODY,
-                          boxSizing: "border-box" as const,
                           marginBottom: 8,
-                        }}
-                      >
-                        Pay ${c.budget_amount} →
-                      </a>
+                        }}>
+                          Payment link unavailable — contact support
+                        </div>
+                      )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
                         Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
                       </p>

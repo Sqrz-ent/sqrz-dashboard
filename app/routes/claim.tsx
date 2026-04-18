@@ -35,7 +35,10 @@ export default function ClaimPage() {
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo },
+      options: {
+        emailRedirectTo,
+        data: { claim_token: token },
+      },
     });
 
     setLoading(false);
