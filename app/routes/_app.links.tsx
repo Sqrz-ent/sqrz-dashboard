@@ -171,6 +171,28 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "update") {
+    const id = fd.get("id") as string;
+    const pageType = (fd.get("page_type") as string) || "download";
+    const { error } = await admin.from("private_booking_links").update({
+      link_slug: fd.get("link_slug") as string,
+      page_type: pageType,
+      title: (fd.get("title") as string) || null,
+      description: (fd.get("description") as string) || null,
+      prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
+      external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
+      external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
+      event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
+      event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
+      event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
+      expires_at: (fd.get("expires_at") as string) || null,
+      max_uses: parseInt(fd.get("max_uses") as string) || null,
+    })
+    .eq("id", id)
+    .eq("profile_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   if (intent === "delete") {
     const id = fd.get("id") as string;
     const { error } = await admin
@@ -196,7 +218,23 @@ function toSlug(label: string) {
     .slice(0, 60);
 }
 
-// ─── Create Link Modal ────────────────────────────────────────────────────────
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return "";
+  }
+}
+
+function toDateInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return iso.split("T")[0];
+}
+
+// ─── Create / Edit Link Modal ─────────────────────────────────────────────────
 
 const PAGE_TYPES: { value: PageType; label: string; emoji: string }[] = [
   { value: "book", label: "Book", emoji: "📅" },
@@ -211,6 +249,7 @@ function CreateLinkModal({
   username,
   existingSlugs,
   services,
+  editingLink,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -218,7 +257,10 @@ function CreateLinkModal({
   username: string;
   existingSlugs: string[];
   services: ProfileService[];
+  editingLink: PrivateLink | null;
 }) {
+  const isEditing = !!editingLink;
+
   const [pageType, setPageType] = useState<PageType>("download");
   const [label, setLabel] = useState("");
   const [slug, setSlug] = useState("");
@@ -236,15 +278,37 @@ function CreateLinkModal({
   const [maxUses, setMaxUses] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
+  // Pre-fill when editing link changes
+  useEffect(() => {
+    if (editingLink) {
+      setPageType(editingLink.page_type);
+      setLabel(editingLink.title || editingLink.link_slug);
+      setSlug(editingLink.link_slug);
+      setSlugEdited(true);
+      setTitle(editingLink.title || "");
+      setDescription(editingLink.description || "");
+      setPrefillService(editingLink.prefill_service || "");
+      setExternalUrl(editingLink.external_url || "");
+      setExternalUrlLabel(editingLink.external_url_label || "");
+      setEventDate(toDatetimeLocal(editingLink.event_date));
+      setEventVenue(editingLink.event_venue || "");
+      setEventCity(editingLink.event_city || "");
+      setExpiresAt(toDateInput(editingLink.expires_at));
+      setMaxUses(editingLink.max_uses != null ? String(editingLink.max_uses) : "");
+      setSlugError(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingLink?.id]);
+
   useEffect(() => {
     if (!slugEdited && label) setSlug(toSlug(label));
   }, [label, slugEdited]);
 
   useEffect(() => {
     if (fetcher.state === "idle" && (fetcher.data as { ok?: boolean } | undefined)?.ok) {
-      setToast("Link created!");
+      setToast(isEditing ? "Link updated!" : "Link created!");
       setTimeout(() => setToast(null), 3000);
-      resetForm();
+      if (!isEditing) resetForm();
       onClose();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -263,7 +327,8 @@ function CreateLinkModal({
   function validateSlug() {
     if (!slug) { setSlugError("Slug is required."); return false; }
     if (!/^[a-z0-9-]+$/.test(slug)) { setSlugError("Only lowercase letters, numbers, and hyphens."); return false; }
-    if (existingSlugs.includes(slug)) { setSlugError("This slug is already in use."); return false; }
+    const otherSlugs = editingLink ? existingSlugs.filter(s => s !== editingLink.link_slug) : existingSlugs;
+    if (otherSlugs.includes(slug)) { setSlugError("This slug is already in use."); return false; }
     setSlugError(null);
     return true;
   }
@@ -271,7 +336,12 @@ function CreateLinkModal({
   function handleSubmit() {
     if (!validateSlug()) return;
     const fd = new FormData();
-    fd.append("intent", "create");
+    if (isEditing) {
+      fd.append("intent", "update");
+      fd.append("id", editingLink!.id);
+    } else {
+      fd.append("intent", "create");
+    }
     fd.append("page_type", pageType);
     fd.append("link_slug", slug);
     fd.append("title", title);
@@ -287,7 +357,7 @@ function CreateLinkModal({
   const previewUrl = `${username}.sqrz.com/${slug || "your-slug"}`;
 
   return (
-    <Modal isOpen={isOpen} onClose={() => { resetForm(); onClose(); }} title="Create Private Link">
+    <Modal isOpen={isOpen} onClose={() => { if (!isEditing) resetForm(); onClose(); }} title={isEditing ? "Edit Link" : "Create Private Link"}>
       {toast && (
         <div style={{ background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 8, padding: "10px 14px", marginBottom: 14, fontSize: 13, color: "#22c55e" }}>
           {toast}
@@ -451,7 +521,7 @@ function CreateLinkModal({
             fontFamily: FONT_BODY,
           }}
         >
-          {fetcher.state !== "idle" ? "Saving…" : "Create Link"}
+          {fetcher.state !== "idle" ? "Saving…" : isEditing ? "Save Changes" : "Create Link"}
         </button>
       </div>
     </Modal>
@@ -464,10 +534,12 @@ function LinkCard({
   link,
   username,
   fetcher,
+  onEdit,
 }: {
   link: PrivateLink;
   username: string;
   fetcher: ReturnType<typeof useFetcher>;
+  onEdit: (link: PrivateLink) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -658,8 +730,14 @@ function LinkCard({
               boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
             }}>
               <button
+                onClick={() => { setMenuOpen(false); onEdit(link); }}
+                style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}
+              >
+                Edit
+              </button>
+              <button
                 onClick={deleteLink}
-                style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 13, color: "#ef4444", cursor: "pointer", fontFamily: FONT_BODY }}
+                style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 13, color: "#ef4444", cursor: "pointer", fontFamily: FONT_BODY, borderTop: "1px solid var(--border)" }}
               >
                 Delete
               </button>
@@ -687,10 +765,21 @@ export default function LinksPage() {
   const cardFetcher = useFetcher();
   const locked = getPlanLevel(plan_id, is_beta, grow_qualified) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingLink, setEditingLink] = useState<PrivateLink | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const username = usernameRaw;
   const existingSlugs = links.map(l => l.link_slug);
+
+  function openEdit(link: PrivateLink) {
+    setEditingLink(link);
+    setModalOpen(true);
+  }
+
+  function closeModal() {
+    setModalOpen(false);
+    setEditingLink(null);
+  }
 
   // Toast on successful card actions
   useEffect(() => {
@@ -732,12 +821,12 @@ export default function LinksPage() {
           <p style={{ fontSize: 13, color: "var(--text-muted)" }}>No private links yet.</p>
         ) : (
           links.map(link => (
-            <LinkCard key={link.id} link={link} username={username} fetcher={cardFetcher} />
+            <LinkCard key={link.id} link={link} username={username} fetcher={cardFetcher} onEdit={openEdit} />
           ))
         )}
 
         <button
-          onClick={() => setModalOpen(true)}
+          onClick={() => { setEditingLink(null); setModalOpen(true); }}
           style={{
             marginTop: links.length > 0 ? 12 : 0,
             background: "none",
@@ -757,11 +846,12 @@ export default function LinksPage() {
 
       <CreateLinkModal
         isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={closeModal}
         fetcher={createFetcher}
         username={username}
         existingSlugs={existingSlugs}
         services={services}
+        editingLink={editingLink}
       />
     </div>
   );
