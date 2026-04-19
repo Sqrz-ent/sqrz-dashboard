@@ -535,12 +535,11 @@ export default function ProfilePage() {
 
   // Completion counts
   const basicFilled = [profile.brand_name, profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
-  const socialFilled = [socialValues.website_url, socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
+  const socialFilled = [socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
   const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud].filter(Boolean).length;
   const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
 
   const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
-    { key: "website_url", emoji: "🌐", label: "Website" },
     { key: "social_youtube", emoji: "▶️", label: "YouTube" },
     { key: "social_facebook", emoji: "📘", label: "Facebook" },
     { key: "social_instagram", emoji: "📸", label: "Instagram" },
