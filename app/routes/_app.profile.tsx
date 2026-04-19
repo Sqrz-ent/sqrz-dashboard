@@ -1,5 +1,9 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
+import { DndContext, PointerSensor, useSensor, useSensors, closestCenter } from "@dnd-kit/core";
+import type { DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import type { Route } from "./+types/_app.profile";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -102,6 +106,50 @@ function MenuDots({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => vo
           <button onClick={() => { onDelete(); setOpen(false); }} style={{ display: "block", width: "100%", padding: "9px 14px", background: "none", border: "none", textAlign: "left", fontSize: 13, color: "#ef4444", cursor: "pointer", fontFamily: FONT_BODY }}>Delete</button>
         </div>
       )}
+    </div>
+  );
+}
+
+function SortableVideoRow({
+  video,
+  onEdit,
+  onDelete,
+}: {
+  video: Record<string, unknown>;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: video.id as string });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        padding: "10px 0",
+        borderBottom: "1px solid var(--border)",
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+        background: "var(--surface)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
+        <button
+          {...attributes}
+          {...listeners}
+          style={{ background: "none", border: "none", cursor: "grab", color: "var(--text-muted)", fontSize: 16, padding: "0 4px", touchAction: "none", opacity: 0.4, lineHeight: 1, flexShrink: 0 }}
+          title="Drag to reorder"
+        >
+          ⠿
+        </button>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{video.title as string}</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{video.url as string}</div>
+        </div>
+      </div>
+      <MenuDots onEdit={onEdit} onDelete={onDelete} />
     </div>
   );
 }
@@ -290,6 +338,16 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "reorder_videos") {
+    const order = JSON.parse(formData.get("order") as string) as { id: string; sort_order: number }[];
+    await Promise.all(
+      order.map(({ id, sort_order }) =>
+        adminClient.from("profile_videos").update({ sort_order }).eq("id", id)
+      )
+    );
+    return Response.json({ ok: true }, { headers });
+  }
+
   if (intent === "add_reference") {
     const isCurrent = formData.get("is_current") === "true";
     const { error } = await adminClient.from("profile_references").insert({
@@ -383,9 +441,31 @@ export default function ProfilePage() {
   const businessFetcher = useFetcher();
   const gigHistoryFetcher = useFetcher();
   const videoFetcher = useFetcher();
+  const videoReorderFetcher = useFetcher();
   const refFetcher = useFetcher();
   const skillFetcher = useFetcher();
   const langFetcher = useFetcher();
+
+  // Videos local state for drag reorder
+  const [localVideos, setLocalVideos] = useState<Record<string, unknown>[]>(videos);
+  useEffect(() => { setLocalVideos(videos); }, [videos]);
+  const videoSensors = useSensors(useSensor(PointerSensor));
+
+  function handleVideoDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setLocalVideos((prev) => {
+      const oldIndex = prev.findIndex((v) => v.id === active.id);
+      const newIndex = prev.findIndex((v) => v.id === over.id);
+      const reordered = arrayMove(prev, oldIndex, newIndex);
+      const order = reordered.map((v, i) => ({ id: v.id as string, sort_order: i }));
+      const fd = new FormData();
+      fd.append("intent", "reorder_videos");
+      fd.append("order", JSON.stringify(order));
+      videoReorderFetcher.submit(fd, { method: "post" });
+      return reordered;
+    });
+  }
 
   // Skills + languages state
   const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(() => new Set(skillIds));
@@ -921,27 +1001,27 @@ export default function ProfilePage() {
       {/* Section 5: Videos */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Videos</h2>
-        {videos.length === 0 ? (
+        {localVideos.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No videos added yet.</p>
         ) : (
           <div style={{ marginBottom: 16 }}>
-            {videos.map((video) => (
-              <div key={video.id as string} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{video.title as string}</div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{video.url as string}</div>
-                </div>
-                <MenuDots
-                  onEdit={() => openVideoModal(video)}
-                  onDelete={() => {
-                    const fd = new FormData();
-                    fd.append("intent", "delete_video");
-                    fd.append("id", video.id as string);
-                    videoFetcher.submit(fd, { method: "post" });
-                  }}
-                />
-              </div>
-            ))}
+            <DndContext sensors={videoSensors} collisionDetection={closestCenter} onDragEnd={handleVideoDragEnd}>
+              <SortableContext items={localVideos.map((v) => v.id as string)} strategy={verticalListSortingStrategy}>
+                {localVideos.map((video) => (
+                  <SortableVideoRow
+                    key={video.id as string}
+                    video={video}
+                    onEdit={() => openVideoModal(video)}
+                    onDelete={() => {
+                      const fd = new FormData();
+                      fd.append("intent", "delete_video");
+                      fd.append("id", video.id as string);
+                      videoFetcher.submit(fd, { method: "post" });
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         )}
         <button
