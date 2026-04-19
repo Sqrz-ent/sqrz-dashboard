@@ -130,13 +130,16 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "create") {
     const pageType = (fd.get("page_type") as string) || "download";
+    const titleVal = (fd.get("title") as string) || null;
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
       is_active: true,
       page_type: pageType,
-      title: (fd.get("title") as string) || null,
+      title: titleVal,
+      label: titleVal,
       description: (fd.get("description") as string) || null,
+      cover_image_url: (fd.get("cover_image_url") as string) || null,
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
       external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
@@ -144,7 +147,6 @@ export async function action({ request }: Route.ActionArgs) {
       event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: (fd.get("expires_at") as string) || null,
-      max_uses: parseInt(fd.get("max_uses") as string) || null,
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -174,11 +176,14 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "update") {
     const id = fd.get("id") as string;
     const pageType = (fd.get("page_type") as string) || "download";
+    const titleVal = (fd.get("title") as string) || null;
     const { error } = await admin.from("private_booking_links").update({
       link_slug: fd.get("link_slug") as string,
       page_type: pageType,
-      title: (fd.get("title") as string) || null,
+      title: titleVal,
+      label: titleVal,
       description: (fd.get("description") as string) || null,
+      cover_image_url: (fd.get("cover_image_url") as string) || null,
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
       external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
@@ -186,7 +191,6 @@ export async function action({ request }: Route.ActionArgs) {
       event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: (fd.get("expires_at") as string) || null,
-      max_uses: parseInt(fd.get("max_uses") as string) || null,
     })
     .eq("id", id)
     .eq("profile_id", profile.id as string);
@@ -262,12 +266,12 @@ function CreateLinkModal({
   const isEditing = !!editingLink;
 
   const [pageType, setPageType] = useState<PageType>("download");
-  const [label, setLabel] = useState("");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [coverImageUrl, setCoverImageUrl] = useState("");
   const [prefillService, setPrefillService] = useState("");
   const [externalUrl, setExternalUrl] = useState("");
   const [externalUrlLabel, setExternalUrlLabel] = useState("");
@@ -275,18 +279,17 @@ function CreateLinkModal({
   const [eventVenue, setEventVenue] = useState("");
   const [eventCity, setEventCity] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
-  const [maxUses, setMaxUses] = useState("");
   const [toast, setToast] = useState<string | null>(null);
 
   // Pre-fill when editing link changes
   useEffect(() => {
     if (editingLink) {
       setPageType(editingLink.page_type);
-      setLabel(editingLink.title || editingLink.link_slug);
       setSlug(editingLink.link_slug);
       setSlugEdited(true);
       setTitle(editingLink.title || "");
       setDescription(editingLink.description || "");
+      setCoverImageUrl(editingLink.cover_image_url || "");
       setPrefillService(editingLink.prefill_service || "");
       setExternalUrl(editingLink.external_url || "");
       setExternalUrlLabel(editingLink.external_url_label || "");
@@ -294,15 +297,14 @@ function CreateLinkModal({
       setEventVenue(editingLink.event_venue || "");
       setEventCity(editingLink.event_city || "");
       setExpiresAt(toDateInput(editingLink.expires_at));
-      setMaxUses(editingLink.max_uses != null ? String(editingLink.max_uses) : "");
       setSlugError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingLink?.id]);
 
   useEffect(() => {
-    if (!slugEdited && label) setSlug(toSlug(label));
-  }, [label, slugEdited]);
+    if (!slugEdited && title) setSlug(toSlug(title));
+  }, [title, slugEdited]);
 
   useEffect(() => {
     if (fetcher.state === "idle" && (fetcher.data as { ok?: boolean } | undefined)?.ok) {
@@ -316,12 +318,12 @@ function CreateLinkModal({
 
   function resetForm() {
     setPageType("download");
-    setLabel(""); setSlug(""); setSlugEdited(false); setSlugError(null);
-    setTitle(""); setDescription("");
+    setSlug(""); setSlugEdited(false); setSlugError(null);
+    setTitle(""); setDescription(""); setCoverImageUrl("");
     setPrefillService("");
     setExternalUrl(""); setExternalUrlLabel("");
     setEventDate(""); setEventVenue(""); setEventCity("");
-    setExpiresAt(""); setMaxUses("");
+    setExpiresAt("");
   }
 
   function validateSlug() {
@@ -346,11 +348,11 @@ function CreateLinkModal({
     fd.append("link_slug", slug);
     fd.append("title", title);
     fd.append("description", description);
+    fd.append("cover_image_url", coverImageUrl);
     if (pageType === "book") fd.append("prefill_service", prefillService);
     if (pageType !== "book") { fd.append("external_url", externalUrl); fd.append("external_url_label", externalUrlLabel); }
     if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
     if (expiresAt) fd.append("expires_at", expiresAt);
-    if (maxUses) fd.append("max_uses", maxUses);
     fetcher.submit(fd, { method: "post" });
   }
 
@@ -393,11 +395,6 @@ function CreateLinkModal({
           </div>
         </div>
 
-        {/* Label → slug */}
-        <div>
-          <label style={labelStyle}>Internal Label</label>
-          <input style={inputStyle} value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Asia Tour 2026" autoFocus />
-        </div>
         <div>
           <label style={labelStyle}>Link Slug</label>
           <input
@@ -416,14 +413,18 @@ function CreateLinkModal({
           ) : null}
         </div>
 
-        {/* Common: title + description */}
+        {/* Common: title + description + cover image */}
         <div>
           <label style={labelStyle}>Title</label>
-          <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder={pageType === "book" ? "e.g. Book me for your event" : pageType === "event" ? "e.g. DJ Set @ Berghain" : "e.g. Press Kit 2026"} />
+          <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder={pageType === "book" ? "e.g. Book me for your event" : pageType === "event" ? "e.g. DJ Set @ Berghain" : "e.g. Press Kit 2026"} autoFocus />
         </div>
         <div>
           <label style={labelStyle}>Description</label>
           <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown on the page…" />
+        </div>
+        <div>
+          <label style={labelStyle}>Cover Image URL</label>
+          <input style={inputStyle} value={coverImageUrl} onChange={e => setCoverImageUrl(e.target.value)} placeholder="https://... paste an image link (flyer, album cover, photo)" />
         </div>
 
         {/* BOOK — service selector */}
@@ -466,7 +467,9 @@ function CreateLinkModal({
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
             <div>
               <label style={labelStyle}>Event Date &amp; Time</label>
-              <input type="datetime-local" style={inputStyle} value={eventDate} onChange={e => setEventDate(e.target.value)} />
+              <div style={{ width: "100%", boxSizing: "border-box" as const, overflow: "hidden" }}>
+                <input type="datetime-local" style={{ ...inputStyle, minWidth: 0, maxWidth: "100%" }} value={eventDate} onChange={e => setEventDate(e.target.value)} />
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <div>
@@ -489,16 +492,10 @@ function CreateLinkModal({
           </div>
         )}
 
-        {/* Limits */}
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <div>
-            <label style={labelStyle}>Expires (optional)</label>
-            <input type="date" style={inputStyle} value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
-          </div>
-          <div>
-            <label style={labelStyle}>Max Uses (optional)</label>
-            <input type="number" style={inputStyle} value={maxUses} onChange={e => setMaxUses(e.target.value)} placeholder="∞" min={1} />
-          </div>
+        {/* Expiry */}
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          <label style={labelStyle}>Expires (optional)</label>
+          <input type="date" style={inputStyle} value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
         </div>
 
         {(fetcher.data as { error?: string } | undefined)?.error && (
