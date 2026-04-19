@@ -827,7 +827,8 @@ export default function ProfilePage() {
                     {err && <p style={{ fontSize: 12, color: "#e05252", marginTop: 4 }}>{err}</p>}
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <button
-                        style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px" }}
+                        disabled={widgetsFetcher.state !== "idle"}
+                        style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px", opacity: widgetsFetcher.state !== "idle" ? 0.6 : 1 }}
                         onClick={() => {
                           const errMsg = validate ? validate(widgetValues[key]) : null;
                           if (errMsg) { setWidgetErrors(s => ({ ...s, [key]: errMsg })); return; }
@@ -838,7 +839,7 @@ export default function ProfilePage() {
                           widgetsFetcher.submit(fd, { method: "post" });
                         }}
                       >
-                        Save
+                        {widgetsFetcher.state !== "idle" ? "Saving…" : "Save"}
                       </button>
                       <button
                         style={{ padding: "8px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
@@ -900,7 +901,8 @@ export default function ProfilePage() {
         ))}
         {galleryUrls.length > 0 && (
           <button
-            style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px" }}
+            disabled={galleryFetcher.state !== "idle"}
+            style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px", opacity: galleryFetcher.state !== "idle" ? 0.6 : 1 }}
             onClick={() => {
               const validUrls = galleryUrls.filter(u => u.startsWith("http"));
               const fd = new FormData();
@@ -909,7 +911,7 @@ export default function ProfilePage() {
               galleryFetcher.submit(fd, { method: "post" });
             }}
           >
-            Save Gallery
+            {galleryFetcher.state !== "idle" ? "Saving…" : "Save Gallery"}
           </button>
         )}
         <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>

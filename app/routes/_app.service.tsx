@@ -608,11 +608,26 @@ export default function ServicePage() {
     open: false,
     editing: null,
   });
+  const [toggleError, setToggleError] = useState<string | null>(null);
 
   // Keep local state in sync when loader re-runs (after add/delete/edit)
   useEffect(() => {
     setServices(initialServices);
   }, [initialServices]);
+
+  // Revert optimistic toggle on error
+  useEffect(() => {
+    if (activeFetcher.state !== "idle") return;
+    const data = activeFetcher.data as { ok?: boolean; error?: string } | undefined;
+    if (!data) return;
+    if (!data.ok) {
+      setServices(initialServices); // revert
+      setToggleError(data.error ?? "Failed to update");
+      const t = setTimeout(() => setToggleError(null), 2500);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFetcher.state, activeFetcher.data]);
 
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
@@ -644,6 +659,20 @@ export default function ServicePage() {
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={sectionTitle}>Services</h1>
 
+      {toggleError && (
+        <div style={{
+          background: "rgba(239,68,68,0.1)",
+          border: "1px solid rgba(239,68,68,0.3)",
+          borderRadius: 10,
+          padding: "10px 16px",
+          marginBottom: 16,
+          fontSize: 13,
+          color: "#f87171",
+        }}>
+          {toggleError}
+        </div>
+      )}
+
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 18 }}>Your Services</h2>
 
@@ -665,6 +694,8 @@ export default function ServicePage() {
                       deleteFetcher.submit(fd, { method: "post" });
                     }}
                     onToggleActive={() => {
+                      // Optimistic update
+                      setServices(prev => prev.map(s => s.id === service.id ? { ...s, is_active: !service.is_active } : s));
                       const fd = new FormData();
                       fd.append("intent", "toggle_service_active");
                       fd.append("id", service.id);

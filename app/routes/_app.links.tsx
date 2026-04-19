@@ -533,18 +533,21 @@ function LinkCard({
   fetcher,
   onEdit,
   onToggleShowOnProfile,
+  onToggleActive,
 }: {
   link: PrivateLink;
   username: string;
   fetcher: ReturnType<typeof useFetcher>;
   onEdit: (link: PrivateLink) => void;
   onToggleShowOnProfile: (id: string, currentValue: boolean) => void;
+  onToggleActive: (id: string, currentValue: boolean) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const url = `${username}.sqrz.com/${link.link_slug}`;
 
   function toggle() {
+    onToggleActive(link.id, link.is_active);
     const fd = new FormData();
     fd.append("intent", "toggle_active");
     fd.append("id", link.id);
@@ -766,7 +769,7 @@ export default function LinksPage() {
   const locked = getPlanLevel(plan_id, is_beta, grow_qualified) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLink, setEditingLink] = useState<PrivateLink | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
   const [localLinks, setLocalLinks] = useState<PrivateLink[]>(links);
 
   // Sync local state when loader revalidates
@@ -779,11 +782,14 @@ export default function LinksPage() {
     setLocalLinks(prev =>
       prev.map(l => {
         if (l.id === id) return { ...l, show_on_profile: newValue };
-        // When toggling ON, clear all other cards immediately
         if (newValue) return { ...l, show_on_profile: false };
         return l;
       })
     );
+  }
+
+  function handleToggleActive(id: string, currentValue: boolean) {
+    setLocalLinks(prev => prev.map(l => l.id === id ? { ...l, is_active: !currentValue } : l));
   }
 
   const username = usernameRaw;
@@ -799,12 +805,20 @@ export default function LinksPage() {
     setEditingLink(null);
   }
 
-  // Toast on successful card actions
+  // Toast + revert on card actions
   useEffect(() => {
-    if (cardFetcher.state === "idle" && (cardFetcher.data as { ok?: boolean } | undefined)?.ok) {
-      setToast("Saved!");
-      setTimeout(() => setToast(null), 2000);
+    if (cardFetcher.state !== "idle") return;
+    const data = cardFetcher.data as { ok?: boolean; error?: string } | undefined;
+    if (!data) return;
+    if (data.ok) {
+      setToast({ msg: "Saved!", ok: true });
+    } else {
+      setLocalLinks(links); // revert optimistic changes
+      setToast({ msg: data.error ?? "Something went wrong", ok: false });
     }
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardFetcher.state, cardFetcher.data]);
 
   return (
@@ -817,15 +831,15 @@ export default function LinksPage() {
 
       {toast && (
         <div style={{
-          background: "rgba(34,197,94,0.12)",
-          border: "1px solid rgba(34,197,94,0.3)",
+          background: toast.ok ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.1)",
+          border: `1px solid ${toast.ok ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)"}`,
           borderRadius: 10,
           padding: "10px 16px",
           marginBottom: 16,
           fontSize: 13,
-          color: "#22c55e",
+          color: toast.ok ? "#22c55e" : "#f87171",
         }}>
-          {toast}
+          {toast.msg}
         </div>
       )}
 
@@ -839,7 +853,7 @@ export default function LinksPage() {
           <p style={{ fontSize: 13, color: "var(--text-muted)" }}>No private links yet.</p>
         ) : (
           localLinks.map(link => (
-            <LinkCard key={link.id} link={link} username={username} fetcher={cardFetcher} onEdit={openEdit} onToggleShowOnProfile={handleToggleShowOnProfile} />
+            <LinkCard key={link.id} link={link} username={username} fetcher={cardFetcher} onEdit={openEdit} onToggleShowOnProfile={handleToggleShowOnProfile} onToggleActive={handleToggleActive} />
           ))
         )}
 
