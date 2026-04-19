@@ -248,6 +248,7 @@ export async function action({ request }: Route.ActionArgs) {
       social_facebook: formData.get("social_facebook") as string,
       social_instagram: formData.get("social_instagram") as string,
       social_linkedin: formData.get("social_linkedin") as string,
+      social_tiktok: formData.get("social_tiktok") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -511,6 +512,7 @@ export default function ProfilePage() {
     social_facebook: (profile.social_facebook as string) ?? "",
     social_instagram: (profile.social_instagram as string) ?? "",
     social_linkedin: (profile.social_linkedin as string) ?? "",
+    social_tiktok: (profile.social_tiktok as string) ?? "",
   });
 
   // Widget edit states
@@ -615,15 +617,22 @@ export default function ProfilePage() {
 
   // Completion counts
   const basicFilled = [profile.brand_name, profile.first_name, profile.last_name, profile.bio, profile.city].filter(Boolean).length;
-  const socialFilled = [socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin].filter(Boolean).length;
+  const socialFilled = [socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin, socialValues.social_tiktok].filter(Boolean).length;
   const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud].filter(Boolean).length;
   const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
 
-  const socialFields: { key: keyof typeof socialValues; emoji: string; label: string }[] = [
+  const TikTokIcon = () => (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style={{ display: "inline-block", verticalAlign: "middle" }}>
+      <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.27 8.27 0 0 0 4.83 1.54V6.78a4.85 4.85 0 0 1-1.06-.09z"/>
+    </svg>
+  );
+
+  const socialFields: { key: keyof typeof socialValues; emoji: React.ReactNode; label: string; placeholder?: string }[] = [
     { key: "social_youtube", emoji: "▶️", label: "YouTube" },
     { key: "social_facebook", emoji: "📘", label: "Facebook" },
     { key: "social_instagram", emoji: "📸", label: "Instagram" },
     { key: "social_linkedin", emoji: "💼", label: "LinkedIn" },
+    { key: "social_tiktok", emoji: <TikTokIcon />, label: "TikTok", placeholder: "https://tiktok.com/@username" },
   ];
 
   const widgetFields: { key: keyof typeof widgetValues; emoji: string; label: string; placeholder?: string; validate?: (v: string) => string | null }[] = [
@@ -790,7 +799,7 @@ export default function ProfilePage() {
         <CompletionBadge filled={socialFilled} total={5} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Socials</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-          {socialFields.map(({ key, emoji, label }) => {
+          {socialFields.map(({ key, emoji, label, placeholder }) => {
             const val = socialValues[key];
             const editing = !!socialEdit[key];
             return (
@@ -825,7 +834,7 @@ export default function ProfilePage() {
                       style={inputStyle}
                       value={socialValues[key]}
                       onChange={e => setSocialValues(v => ({ ...v, [key]: e.target.value }))}
-                      placeholder={`Enter ${label} URL`}
+                      placeholder={placeholder ?? `Enter ${label} URL`}
                       autoFocus
                     />
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
