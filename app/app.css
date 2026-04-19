@@ -31,3 +31,12 @@ html.light {
   --text-muted: #6b6b6b;
   --border: rgba(245, 166, 35, 0.25);
 }
+
+/* Prevent iOS Safari viewport zoom on input focus */
+@media (max-width: 768px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
