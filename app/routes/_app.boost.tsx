@@ -273,7 +273,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email } =
+  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email, profile_slug } =
     useLoaderData<typeof loader>() as {
       campaigns: Campaign[];
       privateLinks: PrivateLink[];
@@ -1022,57 +1022,30 @@ export default function BoostPage() {
                           </>
                         )}
 
-                        {/* UTM link */}
-                        {c.utm_url && (
-                          <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 6 }}>
-                              Your Campaign Link
+                        {/* Campaign destination */}
+                        {(() => {
+                          let destination: string;
+                          if (c.promote_type === "link" && c.promote_link_id) {
+                            const pl = privateLinks.find((l) => l.id === c.promote_link_id);
+                            destination = pl
+                              ? `${profile_slug}.sqrz.com/${pl.link_slug}`
+                              : `${profile_slug}.sqrz.com`;
+                          } else if (c.utm_url) {
+                            destination = c.utm_url.split("?")[0].replace(/^https?:\/\//, "");
+                          } else {
+                            destination = `${profile_slug}.sqrz.com`;
+                          }
+                          return (
+                            <div>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>
+                                Campaign Destination
+                              </div>
+                              <div style={{ fontSize: 13, color: "var(--text)" }}>
+                                {destination}
+                              </div>
                             </div>
-                            <div style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              background: "var(--surface)",
-                              border: "1px solid var(--border)",
-                              borderRadius: 10,
-                              padding: "10px 12px",
-                            }}>
-                              <span style={{
-                                flex: 1,
-                                fontSize: 11,
-                                fontFamily: "monospace",
-                                color: "var(--text-muted)",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap" as const,
-                              }}>
-                                {c.utm_url}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => copyToClipboard(c.utm_url!, c.id)}
-                                style={{
-                                  flexShrink: 0,
-                                  padding: "5px 12px",
-                                  background: copiedId === c.id ? "rgba(34,197,94,0.12)" : "var(--bg)",
-                                  border: "1px solid var(--border)",
-                                  borderRadius: 7,
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  color: copiedId === c.id ? "#22c55e" : "var(--text-muted)",
-                                  cursor: "pointer",
-                                  fontFamily: FONT_BODY,
-                                  transition: "all 0.15s",
-                                }}
-                              >
-                                {copiedId === c.id ? "Copied!" : "Copy"}
-                              </button>
-                            </div>
-                            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
-                              Share this link with your ad platform.
-                            </p>
-                          </div>
-                        )}
+                          );
+                        })()}
                       </div>
                     )}
                   </div>

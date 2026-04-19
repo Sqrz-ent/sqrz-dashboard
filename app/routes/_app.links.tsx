@@ -535,11 +535,13 @@ function LinkCard({
   username,
   fetcher,
   onEdit,
+  onToggleShowOnProfile,
 }: {
   link: PrivateLink;
   username: string;
   fetcher: ReturnType<typeof useFetcher>;
   onEdit: (link: PrivateLink) => void;
+  onToggleShowOnProfile: (id: string, currentValue: boolean) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -554,6 +556,7 @@ function LinkCard({
   }
 
   function toggleShowOnProfile() {
+    onToggleShowOnProfile(link.id, link.show_on_profile);
     const fd = new FormData();
     fd.append("intent", "toggle_show_on_profile");
     fd.append("id", link.id);
@@ -767,9 +770,27 @@ export default function LinksPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLink, setEditingLink] = useState<PrivateLink | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [localLinks, setLocalLinks] = useState<PrivateLink[]>(links);
+
+  // Sync local state when loader revalidates
+  useEffect(() => {
+    setLocalLinks(links);
+  }, [links]);
+
+  function handleToggleShowOnProfile(id: string, currentValue: boolean) {
+    const newValue = !currentValue;
+    setLocalLinks(prev =>
+      prev.map(l => {
+        if (l.id === id) return { ...l, show_on_profile: newValue };
+        // When toggling ON, clear all other cards immediately
+        if (newValue) return { ...l, show_on_profile: false };
+        return l;
+      })
+    );
+  }
 
   const username = usernameRaw;
-  const existingSlugs = links.map(l => l.link_slug);
+  const existingSlugs = localLinks.map(l => l.link_slug);
 
   function openEdit(link: PrivateLink) {
     setEditingLink(link);
@@ -817,18 +838,18 @@ export default function LinksPage() {
           Your Links
         </h2>
 
-        {links.length === 0 ? (
+        {localLinks.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)" }}>No private links yet.</p>
         ) : (
-          links.map(link => (
-            <LinkCard key={link.id} link={link} username={username} fetcher={cardFetcher} onEdit={openEdit} />
+          localLinks.map(link => (
+            <LinkCard key={link.id} link={link} username={username} fetcher={cardFetcher} onEdit={openEdit} onToggleShowOnProfile={handleToggleShowOnProfile} />
           ))
         )}
 
         <button
           onClick={() => { setEditingLink(null); setModalOpen(true); }}
           style={{
-            marginTop: links.length > 0 ? 12 : 0,
+            marginTop: localLinks.length > 0 ? 12 : 0,
             background: "none",
             border: `1px solid rgba(245,166,35,0.4)`,
             color: ACCENT,
