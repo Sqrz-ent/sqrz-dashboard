@@ -273,6 +273,7 @@ function CreateLinkModal({
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [prefillService, setPrefillService] = useState("");
+  const [serviceError, setServiceError] = useState<string | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
   const [externalUrlLabel, setExternalUrlLabel] = useState("");
   const [eventDate, setEventDate] = useState("");
@@ -320,7 +321,7 @@ function CreateLinkModal({
     setPageType("download");
     setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription(""); setCoverImageUrl("");
-    setPrefillService("");
+    setPrefillService(""); setServiceError(null);
     setExternalUrl(""); setExternalUrlLabel("");
     setEventDate(""); setEventVenue(""); setEventCity("");
     setExpiresAt("");
@@ -337,6 +338,10 @@ function CreateLinkModal({
 
   function handleSubmit() {
     if (!validateSlug()) return;
+    if (pageType === "book" && !prefillService) {
+      setServiceError("Please select a service for this booking link.");
+      return;
+    }
     const fd = new FormData();
     if (isEditing) {
       fd.append("intent", "update");
@@ -375,7 +380,7 @@ function CreateLinkModal({
               <button
                 key={pt.value}
                 type="button"
-                onClick={() => setPageType(pt.value)}
+                onClick={() => { setPageType(pt.value); setServiceError(null); }}
                 style={{
                   flex: 1,
                   padding: "8px 10px",
@@ -427,21 +432,28 @@ function CreateLinkModal({
           <input style={inputStyle} value={coverImageUrl} onChange={e => setCoverImageUrl(e.target.value)} placeholder="https://... paste an image link (flyer, album cover, photo)" />
         </div>
 
-        {/* BOOK — service selector */}
+        {/* BOOK — service selector (required) */}
         {pageType === "book" && (
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-            <label style={labelStyle}>Pre-select Service (optional)</label>
+            <label style={labelStyle}>
+              Service <span style={{ color: "#ef4444" }}>*</span>
+            </label>
             {services.length > 0 ? (
-              <select
-                style={{ ...inputStyle, cursor: "pointer" }}
-                value={prefillService}
-                onChange={e => setPrefillService(e.target.value)}
-              >
-                <option value="">— Any service (visitor chooses) —</option>
-                {services.map(s => (
-                  <option key={s.id} value={s.title}>{s.title}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  style={{ ...inputStyle, cursor: "pointer", ...(serviceError ? { border: "1px solid #ef4444" } : {}) }}
+                  value={prefillService}
+                  onChange={e => { setPrefillService(e.target.value); setServiceError(null); }}
+                >
+                  <option value="">— Select a service —</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.title}>{s.title}</option>
+                  ))}
+                </select>
+                {serviceError && (
+                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{serviceError}</p>
+                )}
+              </>
             ) : (
               <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No services yet — add them in the Services tab first.</p>
             )}
