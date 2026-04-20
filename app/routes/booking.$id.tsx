@@ -917,6 +917,18 @@ function formatDate(iso: string | null): string {
   });
 }
 
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString("en-US", {
+    weekday: "short", month: "long", day: "numeric", year: "numeric",
+  });
+  const h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  if (h === 0 && m === 0) return datePart;
+  return `${datePart} · ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function formatRate(rate: number | null, currency: string | null): string {
   if (!rate) return "—";
   const sym = currency?.toUpperCase() === "EUR" ? "€" : currency?.toUpperCase() === "GBP" ? "£" : "$";
@@ -1039,14 +1051,14 @@ function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Bo
       <div style={card}>
         <div>
           <p style={lbl}>Start date</p>
-          <p style={val}>{formatDate(b.date_start as string | null)}</p>
+          <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
         </div>
       </div>
 
       {!!(b.date_end && b.date_end !== b.date_start) && (
         <div style={card}>
           <p style={lbl}>End date</p>
-          <p style={val}>{formatDate(b.date_end as string | null)}</p>
+          <p style={val}>{formatDateTime(b.date_end as string | null)}</p>
         </div>
       )}
 
@@ -1922,10 +1934,10 @@ function GuestDetailsCard({ b }: { b: Booking }) {
           <div><p style={guestMetaLabel}>Service</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.service as string}</p></div>
         )}
         {(b.date_start as string) && (
-          <div><p style={guestMetaLabel}>Start date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDate(b.date_start as string)}</p></div>
+          <div><p style={guestMetaLabel}>Start date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_start as string)}</p></div>
         )}
         {!!(b.date_end && b.date_end !== b.date_start) && (
-          <div><p style={guestMetaLabel}>End date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDate(b.date_end as string)}</p></div>
+          <div><p style={guestMetaLabel}>End date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_end as string)}</p></div>
         )}
         {(b.venue_city as string) && (
           <div><p style={guestMetaLabel}>Venue</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_city as string}</p></div>
