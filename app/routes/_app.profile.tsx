@@ -1003,7 +1003,7 @@ export default function ProfilePage() {
           </button>
         )}
         <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
-          Tip: Dropbox links work automatically. For other services, make sure the URL ends in .jpg, .png, or .webp
+          Make sure your images are publicly accessible and under 2MB. Right-click any image online and copy the image address, or use Google Photos, Dropbox, or any image host with a direct image URL.
         </p>
       </div>
 
