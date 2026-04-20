@@ -203,7 +203,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           .maybeSingle(),
         admin
           .from("booking_participants")
-          .select("name, email, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
+          .select("name, email, phone, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
           .eq("booking_id", params.id)
           .eq("role", "buyer")
           .maybeSingle(),
@@ -212,6 +212,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       tokenBuyerParticipant = buyerP ? {
         name: buyerP.name as string | null,
         email: buyerP.email as string | null,
+        phone: (buyerP as Record<string, unknown>).phone as string | null ?? null,
         billing_company: (buyerP as Record<string, unknown>).billing_company as string | null ?? null,
         billing_address: (buyerP as Record<string, unknown>).billing_address as string | null ?? null,
         billing_city: (buyerP as Record<string, unknown>).billing_city as string | null ?? null,
@@ -418,7 +419,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           .maybeSingle(),
         admin
           .from("booking_participants")
-          .select("name, email, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
+          .select("name, email, phone, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
           .eq("booking_id", params.id)
           .eq("role", "buyer")
           .maybeSingle(),
@@ -427,6 +428,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       sessionBuyerParticipant = buyerP ? {
         name: buyerP.name as string | null,
         email: buyerP.email as string | null,
+        phone: (buyerP as Record<string, unknown>).phone as string | null ?? null,
         billing_company: (buyerP as Record<string, unknown>).billing_company as string | null ?? null,
         billing_address: (buyerP as Record<string, unknown>).billing_address as string | null ?? null,
         billing_city: (buyerP as Record<string, unknown>).billing_city as string | null ?? null,
@@ -1004,12 +1006,23 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 // ─── Member view sections ─────────────────────────────────────────────────────
 
-function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?: MemberInfo }) {
+function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Booking; memberInfo?: MemberInfo; buyerParticipant?: BuyerParticipant }) {
   const b = booking;
 
   return (
     <section id="details" style={{ paddingBottom: 40 }}>
       <SectionHeading>Details</SectionHeading>
+
+      {!!buyerParticipant && (
+        <div style={card}>
+          <p style={lbl}>Buyer</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
+            {buyerParticipant.name && <p style={{ ...val, fontWeight: 600 }}>{buyerParticipant.name}</p>}
+            {buyerParticipant.email && <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{buyerParticipant.email}</p>}
+            {buyerParticipant.phone && <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{buyerParticipant.phone}</p>}
+          </div>
+        </div>
+      )}
 
       <div style={card}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: b.service ? 14 : 0 }}>
@@ -1024,26 +1037,25 @@ function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?
       </div>
 
       <div style={card}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-          <div>
-            <p style={lbl}>Start date</p>
-            <p style={val}>{formatDate(b.date_start as string | null)}</p>
-          </div>
-          {!!(b.date_end && b.date_end !== b.date_start) && (
-            <div>
-              <p style={lbl}>End date</p>
-              <p style={val}>{formatDate(b.date_end as string | null)}</p>
-            </div>
-          )}
+        <div>
+          <p style={lbl}>Start date</p>
+          <p style={val}>{formatDate(b.date_start as string | null)}</p>
         </div>
       </div>
+
+      {!!(b.date_end && b.date_end !== b.date_start) && (
+        <div style={card}>
+          <p style={lbl}>End date</p>
+          <p style={val}>{formatDate(b.date_end as string | null)}</p>
+        </div>
+      )}
 
       {!!(b.venue_address || b.venue_city || b.venue_zip || b.venue_country) && (
         <div style={card}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: (b.venue_address || b.venue_zip) ? 14 : 0 }}>
             {!!b.venue_city && (
               <div>
-                <p style={lbl}>City</p>
+                <p style={lbl}>Venue</p>
                 <p style={val}>{b.venue_city as string}</p>
               </div>
             )}
@@ -1909,8 +1921,14 @@ function GuestDetailsCard({ b }: { b: Booking }) {
         {(b.service as string) && (
           <div><p style={guestMetaLabel}>Service</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.service as string}</p></div>
         )}
+        {(b.date_start as string) && (
+          <div><p style={guestMetaLabel}>Start date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDate(b.date_start as string)}</p></div>
+        )}
+        {!!(b.date_end && b.date_end !== b.date_start) && (
+          <div><p style={guestMetaLabel}>End date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDate(b.date_end as string)}</p></div>
+        )}
         {(b.venue_city as string) && (
-          <div><p style={guestMetaLabel}>City</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_city as string}</p></div>
+          <div><p style={guestMetaLabel}>Venue</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_city as string}</p></div>
         )}
         {(b.venue_country as string) && (
           <div><p style={guestMetaLabel}>Country</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_country as string}</p></div>
@@ -2643,6 +2661,7 @@ type InvoiceRecord = {
 type BuyerParticipant = {
   name: string | null;
   email: string | null;
+  phone: string | null;
   billing_company: string | null;
   billing_address: string | null;
   billing_city: string | null;
@@ -3582,7 +3601,7 @@ function MemberView({
           </div>
         </div>
 
-        <DetailsSection booking={b} memberInfo={memberInfo} />
+        <DetailsSection booking={b} memberInfo={memberInfo} buyerParticipant={buyerParticipant} />
 
         {(b.status as string) === "cancelled" && (
           <div style={{ ...card, marginBottom: 16 }}>
