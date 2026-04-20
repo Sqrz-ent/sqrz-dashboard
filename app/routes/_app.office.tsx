@@ -14,8 +14,11 @@ type Booking = {
   status: string;
   date_start: string | null;
   date_end: string | null;
-  city: string | null;
-  venue: string | null;
+  venue_address: string | null;
+  venue_city: string | null;
+  venue_zip: string | null;
+  venue_country: string | null;
+  buyer_name: string | null;
 };
 
 type BuyerBooking = {
@@ -101,7 +104,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   ] = await Promise.all([
     supabase
       .from("bookings")
-      .select("id, title, service, status, date_start, date_end, city, venue")
+      .select("id, title, service, status, date_start, date_end, venue_address, venue_city, venue_zip, venue_country, booking_participants(name, role)")
       .eq("owner_id", profile.id as string)
       .order("created_at", { ascending: false }),
     admin
@@ -117,7 +120,22 @@ export async function loader({ request }: Route.LoaderArgs) {
       .order("sort_order"),
   ]);
 
-  const ownerBookings: Booking[] = ownerBookingsRaw ?? [];
+  const ownerBookings: Booking[] = (ownerBookingsRaw ?? []).map((b: any) => {
+    const buyer = (b.booking_participants ?? []).find((p: any) => p.role === "buyer");
+    return {
+      id: b.id,
+      title: b.title,
+      service: b.service,
+      status: b.status,
+      date_start: b.date_start,
+      date_end: b.date_end,
+      venue_address: b.venue_address ?? null,
+      venue_city: b.venue_city ?? null,
+      venue_zip: b.venue_zip ?? null,
+      venue_country: b.venue_country ?? null,
+      buyer_name: buyer?.name ?? null,
+    };
+  });
 
   type RawBooking = {
     id: string;
@@ -245,6 +263,18 @@ function formatDate(iso: string | null): string {
   });
 }
 
+function formatDateRange(start: string | null, end: string | null): string {
+  if (!start) return "—";
+  const s = new Date(start);
+  if (!end || end === start) {
+    return s.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  const e = new Date(end);
+  const startStr = s.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const endStr = e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return `${startStr} – ${endStr}`;
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -270,6 +300,7 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Booking card (My Bookings kanban) ────────────────────────────────────────
 
 function BookingCard({ booking }: { booking: Booking }) {
+  const venueParts = [booking.venue_city, booking.venue_address, booking.venue_zip, booking.venue_country].filter(Boolean);
   return (
     <a
       href={`/booking/${booking.id}`}
@@ -291,17 +322,22 @@ function BookingCard({ booking }: { booking: Booking }) {
         {booking.title ?? booking.service ?? "Untitled"}
       </p>
       {booking.title && booking.service && (
-        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 5px" }}>
+        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 2px" }}>
           {booking.service}
         </p>
       )}
-      {booking.city && (
+      {booking.buyer_name && (
+        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 5px" }}>
+          {booking.buyer_name}
+        </p>
+      )}
+      {venueParts.length > 0 && (
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 5px" }}>
-          📍 {booking.city}{booking.venue ? ` · ${booking.venue}` : ""}
+          📍 {venueParts.join(" · ")}
         </p>
       )}
       <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 10px" }}>
-        {formatDate(booking.date_start)}
+        {formatDateRange(booking.date_start, booking.date_end)}
       </p>
       <StatusBadge status={booking.status} />
     </a>
