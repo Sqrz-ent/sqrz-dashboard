@@ -1038,26 +1038,32 @@ function DetailsSection({ booking, memberInfo }: { booking: Booking; memberInfo?
         </div>
       </div>
 
-      {!!(b.city || b.venue || b.address) && (
+      {!!(b.venue_address || b.venue_city || b.venue_zip || b.venue_country) && (
         <div style={card}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: b.address ? 14 : 0 }}>
-            {!!b.venue && (
-              <div>
-                <p style={lbl}>Venue</p>
-                <p style={val}>{b.venue as string}</p>
-              </div>
-            )}
-            {!!b.city && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: (b.venue_address || b.venue_zip) ? 14 : 0 }}>
+            {!!b.venue_city && (
               <div>
                 <p style={lbl}>City</p>
-                <p style={val}>{b.city as string}</p>
+                <p style={val}>{b.venue_city as string}</p>
+              </div>
+            )}
+            {!!b.venue_country && (
+              <div>
+                <p style={lbl}>Country</p>
+                <p style={val}>{b.venue_country as string}</p>
               </div>
             )}
           </div>
-          {!!b.address && (
+          {!!b.venue_address && (
+            <div style={{ marginBottom: b.venue_zip ? 10 : 0 }}>
+              <p style={lbl}>Street</p>
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{b.venue_address as string}</p>
+            </div>
+          )}
+          {!!b.venue_zip && (
             <div>
-              <p style={lbl}>Address</p>
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{b.address as string}</p>
+              <p style={lbl}>ZIP</p>
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{b.venue_zip as string}</p>
             </div>
           )}
         </div>
@@ -1903,14 +1909,17 @@ function GuestDetailsCard({ b }: { b: Booking }) {
         {(b.service as string) && (
           <div><p style={guestMetaLabel}>Service</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.service as string}</p></div>
         )}
-        {(b.venue as string) && (
-          <div><p style={guestMetaLabel}>Venue</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue as string}</p></div>
+        {(b.venue_city as string) && (
+          <div><p style={guestMetaLabel}>City</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_city as string}</p></div>
         )}
-        {(b.city as string) && (
-          <div><p style={guestMetaLabel}>City</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.city as string}</p></div>
+        {(b.venue_country as string) && (
+          <div><p style={guestMetaLabel}>Country</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_country as string}</p></div>
         )}
-        {(b.address as string) && (
-          <div><p style={guestMetaLabel}>Address</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.address as string}</p></div>
+        {(b.venue_address as string) && (
+          <div><p style={guestMetaLabel}>Street</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_address as string}</p></div>
+        )}
+        {(b.venue_zip as string) && (
+          <div><p style={guestMetaLabel}>ZIP</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_zip as string}</p></div>
         )}
       </div>
       {(b.description as string | null) && (
