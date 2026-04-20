@@ -1049,18 +1049,24 @@ function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Bo
       </div>
 
       <div style={card}>
-        <div>
-          <p style={lbl}>Start date</p>
-          <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
-        </div>
+        {!!(b.date_end && b.date_end !== b.date_start) ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div>
+              <p style={lbl}>Start</p>
+              <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p style={{ ...lbl, textAlign: "right" }}>End</p>
+              <p style={{ ...val, textAlign: "right" }}>{formatDateTime(b.date_end as string | null)}</p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p style={lbl}>Date</p>
+            <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
+          </div>
+        )}
       </div>
-
-      {!!(b.date_end && b.date_end !== b.date_start) && (
-        <div style={card}>
-          <p style={lbl}>End date</p>
-          <p style={val}>{formatDateTime(b.date_end as string | null)}</p>
-        </div>
-      )}
 
       {!!(b.venue_address || b.venue_city || b.venue_zip || b.venue_country) && (
         <div style={card}>
@@ -1104,25 +1110,6 @@ function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Bo
         </div>
       )}
 
-      {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
-        <div style={card}>
-          <p style={lbl}>Seller Information</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
-            {(memberInfo.company_name || memberInfo.name) && (
-              <p style={{ ...val, fontWeight: 600 }}>{memberInfo.company_name ?? memberInfo.name}</p>
-            )}
-            {memberInfo.legal_form && (
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.legal_form}</p>
-            )}
-            {memberInfo.company_address && (
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.company_address}</p>
-            )}
-            {memberInfo.vat_id && (
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>VAT: {memberInfo.vat_id}</p>
-            )}
-          </div>
-        </div>
-      )}
     </section>
   );
 }
@@ -1933,12 +1920,14 @@ function GuestDetailsCard({ b }: { b: Booking }) {
         {(b.service as string) && (
           <div><p style={guestMetaLabel}>Service</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.service as string}</p></div>
         )}
-        {(b.date_start as string) && (
-          <div><p style={guestMetaLabel}>Start date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_start as string)}</p></div>
-        )}
-        {!!(b.date_end && b.date_end !== b.date_start) && (
-          <div><p style={guestMetaLabel}>End date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_end as string)}</p></div>
-        )}
+        {(b.date_start as string) && !!(b.date_end && b.date_end !== b.date_start) ? (
+          <>
+            <div><p style={guestMetaLabel}>Start</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_start as string)}</p></div>
+            <div><p style={guestMetaLabel}>End</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_end as string)}</p></div>
+          </>
+        ) : (b.date_start as string) ? (
+          <div><p style={guestMetaLabel}>Date</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{formatDateTime(b.date_start as string)}</p></div>
+        ) : null}
         {(b.venue_city as string) && (
           <div><p style={guestMetaLabel}>Venue</p><p style={{ color: "var(--text)", fontSize: 14, margin: 0 }}>{b.venue_city as string}</p></div>
         )}
@@ -3633,6 +3622,26 @@ function MemberView({
           buyerParticipant={buyerParticipant}
           planId={planId}
         />
+
+        {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
+          <div style={card}>
+            <p style={lbl}>Seller Information</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+              {(memberInfo.company_name || memberInfo.name) && (
+                <p style={{ ...val, fontWeight: 600 }}>{memberInfo.company_name ?? memberInfo.name}</p>
+              )}
+              {memberInfo.legal_form && (
+                <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.legal_form}</p>
+              )}
+              {memberInfo.company_address && (
+                <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.company_address}</p>
+              )}
+              {memberInfo.vat_id && (
+                <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>VAT: {memberInfo.vat_id}</p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <BookingChat
@@ -3802,27 +3811,6 @@ export default function BookingAccessPage() {
             {/* 2. Booking details card */}
             <GuestDetailsCard b={b} />
 
-            {/* Seller Information */}
-            {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
-              <div style={{ ...card, marginTop: 8 }}>
-                <p style={guestMetaLabel}>Seller Information</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
-                  {(memberInfo.company_name || memberInfo.name) && (
-                    <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>{memberInfo.company_name ?? memberInfo.name}</p>
-                  )}
-                  {memberInfo.legal_form && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.legal_form}</p>
-                  )}
-                  {memberInfo.company_address && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.company_address}</p>
-                  )}
-                  {memberInfo.vat_id && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>VAT: {memberInfo.vat_id}</p>
-                  )}
-                </div>
-              </div>
-            )}
-
             {/* 3. Fee details + actions (buyer) */}
             {isBuyer && proposal && (
               <div style={{ marginTop: 8 }}>
@@ -3850,6 +3838,27 @@ export default function BookingAccessPage() {
                   ✓ Your booking is confirmed
                   {(b.date_start as string) ? ` · ${formatDate(b.date_start as string)}` : ""}
                 </p>
+              </div>
+            )}
+
+            {/* Seller Information — at the bottom */}
+            {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
+              <div style={{ ...card, marginTop: 8 }}>
+                <p style={guestMetaLabel}>Seller Information</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
+                  {(memberInfo.company_name || memberInfo.name) && (
+                    <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>{memberInfo.company_name ?? memberInfo.name}</p>
+                  )}
+                  {memberInfo.legal_form && (
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.legal_form}</p>
+                  )}
+                  {memberInfo.company_address && (
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.company_address}</p>
+                  )}
+                  {memberInfo.vat_id && (
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>VAT: {memberInfo.vat_id}</p>
+                  )}
+                </div>
               </div>
             )}
           </>
