@@ -7,6 +7,9 @@ export type Notification = {
   id: string;
   created_at: string;
   read: boolean;
+  title: string | null;
+  service: string | null;
+  buyer_name: string | null;
 };
 
 export type Toast = Notification & { toastId: string };
@@ -76,7 +79,7 @@ export function useNotifications() {
       // Initial fetch: only new booking requests
       const { data: bookingData } = await supabase
         .from("bookings")
-        .select("id, created_at")
+        .select("id, created_at, title, service, booking_participants(name, role)")
         .eq("owner_id", profile.id)
         .eq("status", "requested")
         .order("created_at", { ascending: false })
@@ -84,11 +87,18 @@ export function useNotifications() {
 
       if (bookingData) {
         setNotifications(
-          bookingData.map((b: Record<string, unknown>) => ({
-            id: b.id as string,
-            created_at: b.created_at as string,
-            read: readIds.has(b.id as string),
-          }))
+          bookingData.map((b: Record<string, unknown>) => {
+            const participants = (b.booking_participants as Array<{ name: string | null; role: string }>) ?? [];
+            const buyer = participants.find((p) => p.role === "buyer");
+            return {
+              id: b.id as string,
+              created_at: b.created_at as string,
+              read: readIds.has(b.id as string),
+              title: (b.title as string) ?? null,
+              service: (b.service as string) ?? null,
+              buyer_name: buyer?.name ?? null,
+            };
+          })
         );
       }
 
@@ -157,10 +167,27 @@ export function useNotifications() {
                   id: b.id as string,
                   created_at: b.created_at as string,
                   read: false,
+                  title: (b.title as string) ?? null,
+                  service: (b.service as string) ?? null,
+                  buyer_name: null,
                 };
                 setNotifications((prev) => [notif, ...prev]);
                 const toastId = `toast-${b.id}-${Date.now()}`;
                 setToasts((prev) => [...prev, { ...notif, toastId }]);
+                // Buyer participant is inserted after booking — fetch async
+                setTimeout(async () => {
+                  const { data: bp } = await supabase
+                    .from("booking_participants")
+                    .select("name")
+                    .eq("booking_id", b.id as string)
+                    .eq("role", "buyer")
+                    .maybeSingle();
+                  if (bp?.name) {
+                    const buyerName = bp.name as string;
+                    setNotifications((prev) => prev.map((n) => n.id === b.id ? { ...n, buyer_name: buyerName } : n));
+                    setToasts((prev) => prev.map((t) => t.id === b.id ? { ...t, buyer_name: buyerName } : t));
+                  }
+                }, 1500);
               }
             }
           )

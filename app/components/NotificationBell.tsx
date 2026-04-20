@@ -48,10 +48,10 @@ function ToastItem({
       <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>🔔</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 3px" }}>
-          New booking request
+          {toast.title ?? "New booking request"}
         </p>
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
-          New booking request
+          {[toast.buyer_name, toast.service].filter(Boolean).join(" · ") || "New booking request"}
         </p>
       </div>
       <button
@@ -344,10 +344,10 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
                             textOverflow: "ellipsis",
                           }}
                         >
-                          New booking request
+                          {n.title ?? "New booking request"}
                         </p>
                         <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0 }}>
-                          New booking request · {timeAgo(n.created_at)}
+                          {[n.buyer_name, n.service].filter(Boolean).join(" · ") || "New booking request"} · {timeAgo(n.created_at)}
                         </p>
                       </div>
                     </div>
