@@ -400,6 +400,34 @@ function CreateLinkModal({
           </div>
         </div>
 
+        {/* BOOK — service selector (required), shown immediately after page type */}
+        {pageType === "book" && (
+          <div>
+            <label style={labelStyle}>
+              Service <span style={{ color: "#ef4444" }}>*</span>
+            </label>
+            {services.length > 0 ? (
+              <>
+                <select
+                  style={{ ...inputStyle, cursor: "pointer", ...(serviceError ? { border: "1px solid #ef4444" } : {}) }}
+                  value={prefillService}
+                  onChange={e => { setPrefillService(e.target.value); setServiceError(null); }}
+                >
+                  <option value="">— Select a service —</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.title}>{s.title}</option>
+                  ))}
+                </select>
+                {serviceError && (
+                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{serviceError}</p>
+                )}
+              </>
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No services yet — add them in the Services tab first.</p>
+            )}
+          </div>
+        )}
+
         <div>
           <label style={labelStyle}>Link Slug</label>
           <input
@@ -431,34 +459,6 @@ function CreateLinkModal({
           <label style={labelStyle}>Cover Image URL</label>
           <input style={inputStyle} value={coverImageUrl} onChange={e => setCoverImageUrl(e.target.value)} placeholder="https://... paste an image link (flyer, album cover, photo)" />
         </div>
-
-        {/* BOOK — service selector (required) */}
-        {pageType === "book" && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-            <label style={labelStyle}>
-              Service <span style={{ color: "#ef4444" }}>*</span>
-            </label>
-            {services.length > 0 ? (
-              <>
-                <select
-                  style={{ ...inputStyle, cursor: "pointer", ...(serviceError ? { border: "1px solid #ef4444" } : {}) }}
-                  value={prefillService}
-                  onChange={e => { setPrefillService(e.target.value); setServiceError(null); }}
-                >
-                  <option value="">— Select a service —</option>
-                  {services.map(s => (
-                    <option key={s.id} value={s.title}>{s.title}</option>
-                  ))}
-                </select>
-                {serviceError && (
-                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{serviceError}</p>
-                )}
-              </>
-            ) : (
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No services yet — add them in the Services tab first.</p>
-            )}
-          </div>
-        )}
 
         {/* DOWNLOAD — external URL + label */}
         {pageType === "download" && (
