@@ -116,6 +116,14 @@ export default function BookingChat({
     setText("");
     setSending(false);
     onAfterSend?.(content);
+    // Notify buyer on first seller reply — fire and forget
+    if (isOwner) {
+      fetch("/api/notify-first-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId }),
+      }).catch(() => { /* non-fatal */ });
+    }
   }
 
   // ── Styles ───────────────────────────────────────────────────────────────────

@@ -214,6 +214,12 @@ function ConversationThread({
         is_read: false,
       });
       setReply("");
+      // Notify buyer on first seller reply — fire and forget
+      fetch("/api/notify-first-reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingId: conv.id }),
+      }).catch(() => { /* non-fatal */ });
     } catch (e) {
       console.error("Send failed:", e);
     } finally {
