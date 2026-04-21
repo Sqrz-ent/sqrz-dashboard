@@ -3669,6 +3669,7 @@ function MemberView({
         currentUserEmail={userEmail}
         isOwner={true}
         senderName={senderName ?? undefined}
+        participantName={buyerParticipant?.name ?? buyerParticipant?.email?.split("@")[0] ?? undefined}
       />
     </>
   );
@@ -3891,6 +3892,7 @@ export default function BookingAccessPage() {
         currentUserEmail={userEmail}
         isOwner={false}
         senderName={senderName ?? undefined}
+        participantName={memberInfo?.company_name ?? memberInfo?.name ?? undefined}
         onAfterSend={handleBuyerChatSend}
       />
     </div>

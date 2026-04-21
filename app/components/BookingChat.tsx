@@ -20,6 +20,8 @@ interface BookingChatProps {
   isOwner: boolean;
   /** Display name to use as sender_name — no email addresses ever exposed */
   senderName?: string;
+  /** Name of the other participant — used as fallback when a message has no sender_name */
+  participantName?: string;
   onAfterSend?: (message: string) => void;
 }
 
@@ -28,6 +30,7 @@ export default function BookingChat({
   currentUserEmail,
   isOwner,
   senderName,
+  participantName,
   onAfterSend,
 }: BookingChatProps) {
   console.log("[BookingChat] render props:", { bookingId, currentUserEmail });
@@ -221,7 +224,7 @@ export default function BookingChat({
                 const isMine =
                   authUser &&
                   msg.sender_id === authUser.id;
-                const rawLabel = msg.sender_name ?? msg.sender_id ?? "Unknown";
+                const rawLabel = msg.sender_name ?? (participantName ?? "Guest");
                 const senderLabel =
                   rawLabel.length > 22
                     ? rawLabel.slice(0, 20) + "…"

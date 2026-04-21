@@ -247,7 +247,7 @@ function ConversationThread({
         ) : (
           messages.map((msg) => {
             const isOwner = msg.sender_id === authUserId;
-            const senderLabel = msg.sender_name ?? (isOwner ? "You" : "Guest");
+            const senderLabel = msg.sender_name ?? (isOwner ? "You" : (conv.buyer_name ?? "Guest"));
             return (
               <div
                 key={msg.id}
