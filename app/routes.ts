@@ -17,6 +17,7 @@ export default [
     index("routes/_app._index.tsx"),
     route("office", "routes/_app.office.tsx"),
     route("office/partners", "routes/_app.office.partners.tsx"),
+    route("office/admin/payouts", "routes/_app.office.admin.payouts.tsx"),
     route("crew", "routes/_app.crew.tsx"),
     route("profile", "routes/_app.profile.tsx"),
     route("service", "routes/_app.service.tsx"),

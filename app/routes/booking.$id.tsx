@@ -7,6 +7,7 @@ import {
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel } from "~/lib/plans";
+import { handleBookingReferral } from "~/lib/booking-referral.server";
 import { supabase as browserClient } from "~/lib/supabase.client";
 import BookingWallet, { type WalletData } from "~/components/BookingWallet";
 import BookingChat from "~/components/BookingChat";
@@ -763,6 +764,23 @@ export async function action({ request, params }: Route.ActionArgs) {
       .update({ status: "completed" })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
+    try {
+      const adminForReferral = createSupabaseAdminClient();
+      const { data: wallet } = await adminForReferral
+        .from("booking_wallets")
+        .select("total_budget")
+        .eq("booking_id", params.id)
+        .maybeSingle();
+      if (wallet?.total_budget) {
+        await handleBookingReferral({
+          supabase: adminForReferral,
+          bookingId: params.id!,
+          bookingValue: Number(wallet.total_budget),
+        });
+      }
+    } catch (err) {
+      console.error("[mark_as_paid] referral commission failed:", err);
+    }
     return Response.json({ ok: true }, { headers });
   }
 
@@ -781,6 +799,22 @@ export async function action({ request, params }: Route.ActionArgs) {
         auto_release_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
       })
       .eq("booking_id", params.id);
+    try {
+      const { data: wallet } = await admin
+        .from("booking_wallets")
+        .select("total_budget")
+        .eq("booking_id", params.id)
+        .maybeSingle();
+      if (wallet?.total_budget) {
+        await handleBookingReferral({
+          supabase: admin,
+          bookingId: params.id!,
+          bookingValue: Number(wallet.total_budget),
+        });
+      }
+    } catch (err) {
+      console.error("[mark_as_delivered] referral commission failed:", err);
+    }
     return Response.json({ ok: true }, { headers });
   }
 

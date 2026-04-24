@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import type { ActionFunctionArgs } from "react-router";
+import { handleBookingReferral } from "~/lib/booking-referral.server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -196,6 +197,7 @@ export async function action({ request }: ActionFunctionArgs) {
         p_event_date: meta.event_date || null,
         p_event_location: meta.event_location || null,
         p_title: meta.title || null,
+        p_booking_ref_code: meta.booking_ref_code || null,
       });
 
       if (rpcError) {
@@ -223,6 +225,14 @@ export async function action({ request }: ActionFunctionArgs) {
         .eq("id", bookingId);
 
       console.log("[webhook] instant_booking confirmed:", bookingId);
+
+      // Booking referral commission
+      try {
+        const totalCharged = (session.amount_total ?? 0) / 100;
+        await handleBookingReferral({ supabase, bookingId, bookingValue: totalCharged });
+      } catch (refErr) {
+        console.error("[webhook] instant_booking referral commission failed:", refErr);
+      }
 
       // Create wallet
       const totalCharged = (session.amount_total ?? 0) / 100;
@@ -290,6 +300,14 @@ export async function action({ request }: ActionFunctionArgs) {
           payment_expires_at: null,
         })
         .eq("id", bookingId);
+
+      // Booking referral commission
+      try {
+        const totalCharged = (session.amount_total ?? 0) / 100;
+        await handleBookingReferral({ supabase, bookingId, bookingValue: totalCharged });
+      } catch (refErr) {
+        console.error("[webhook] legacy booking referral commission failed:", refErr);
+      }
 
       // Create or update wallet with client_paid flag
       const { data: existingWallet } = await supabase
