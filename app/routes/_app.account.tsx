@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.account";
+import Stripe from "stripe";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase } from "~/lib/supabase.client";
@@ -29,6 +30,8 @@ const labelStyle: React.CSSProperties = {
   fontFamily: FONT_BODY,
 };
 
+const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
@@ -42,7 +45,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .from("subscriptions")
       .select("*")
       .eq("profile_id", profile.id as string)
-      .order("current_period_end", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
     profile.plan_id
@@ -54,11 +57,44 @@ export async function loader({ request }: Route.LoaderArgs) {
       : Promise.resolve({ data: null }),
   ]);
 
+  const sub = subRes.data;
+  const customerId = profile.stripe_customer_id as string | null;
+
+  // Fetch Stripe price info + billing portal in parallel
+  let stripePrice: { amount: number | null; interval: string | null; currency: string | null } = {
+    amount: null, interval: null, currency: null,
+  };
+  let billingPortalUrl: string | null = null;
+
+  await Promise.all([
+    sub?.stripe_price_id
+      ? stripeClient.prices.retrieve(sub.stripe_price_id as string)
+          .then((p) => {
+            stripePrice = {
+              amount: p.unit_amount ?? null,
+              interval: (p as any).recurring?.interval ?? null,
+              currency: p.currency ?? null,
+            };
+          })
+          .catch(() => {})
+      : Promise.resolve(),
+    customerId
+      ? stripeClient.billingPortal.sessions.create({
+          customer: customerId,
+          return_url: `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/account`,
+        })
+          .then((s) => { billingPortalUrl = s.url; })
+          .catch(() => {})
+      : Promise.resolve(),
+  ]);
+
   return Response.json(
     {
       profile,
-      subscription: subRes.data ?? null,
+      subscription: sub ?? null,
       plan: planRes.data ?? null,
+      stripePrice,
+      billingPortalUrl,
     },
     { headers }
   );
@@ -113,11 +149,25 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function fmtPrice(amount: number | null, currency: string | null, interval: string | null) {
+  if (!amount || !currency) return null;
+  const formatted = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount / 100);
+  const suffix = interval === "year" ? "/yr" : "/mo";
+  return `${formatted}${suffix}`;
+}
+
 export default function AccountPage() {
-  const { profile, subscription, plan } = useLoaderData<typeof loader>() as {
+  const { profile, subscription, plan, stripePrice, billingPortalUrl } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     subscription: Record<string, unknown> | null;
     plan: { id: number; name: string } | null;
+    stripePrice: { amount: number | null; interval: string | null; currency: string | null };
+    billingPortalUrl: string | null;
   };
 
   const [searchParams] = useSearchParams();
@@ -185,6 +235,9 @@ export default function AccountPage() {
   const slug = (profile.slug as string) ?? "";
   const planName = plan?.name ?? (profile.plan_id ? `Plan ${profile.plan_id}` : null);
   const planId = (profile.plan_id as number | null) ?? null;
+  const isFreeOrCreator = !planId || planId === 1;
+  const priceLabel = fmtPrice(stripePrice.amount, stripePrice.currency, stripePrice.interval);
+  const planLabel = planName && priceLabel ? `${planName} · ${priceLabel}` : planName;
 
   const renewDate = subscription?.current_period_end
     ? new Date(subscription.current_period_end as string).toLocaleDateString("en-GB", {
@@ -304,84 +357,108 @@ export default function AccountPage() {
       {/* Card 3: Subscription */}
       <div id="subscription-card" style={card}>
         <span style={labelStyle}>Subscription</span>
-        {subscription && planName ? (
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              <span style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY }}>
-                {planName}
-              </span>
-              <StatusBadge status={subscription.status as string} />
-            </div>
-            {renewDate && !isCancelPending && !isCancelled && (
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>
-                Renews on {renewDate}
-              </p>
-            )}
 
-            {/* Cancellation status block */}
-            {isCancelPending && renewDate && (
-              <div style={{ marginTop: 10, padding: "10px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 8 }}>
-                <p style={{ fontSize: 13, color: ACCENT, margin: 0, fontFamily: FONT_BODY }}>
-                  Your {planName} plan is active until {renewDate}. It will not renew.
-                </p>
-              </div>
-            )}
-            {isCancelled && (
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "8px 0 0", fontFamily: FONT_BODY }}>
-                Your plan has been downgraded to Creator.
-              </p>
-            )}
-
-            {/* Switch to Creator button */}
-            {showSwitchButton && (
-              <button
-                onClick={() => setShowConfirm(true)}
-                style={{
-                  marginTop: 16,
-                  padding: "8px 18px",
-                  background: "none",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                Switch to Creator
-              </button>
-            )}
-          </div>
-        ) : planName ? (
+        {isFreeOrCreator ? (
+          /* ── Free / Creator baseline ── */
           <div>
-            <span style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY, display: "block", marginBottom: 4 }}>
-              {planName}
+            <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY, display: "block", marginBottom: 12 }}>
+              SQRZ Creator — Free
             </span>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>
-              Active plan (no subscription record found)
-            </p>
-          </div>
-        ) : (
-          <div>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", fontFamily: FONT_BODY }}>
-              No active plan
-            </p>
             <a
-              href="?upgrade=creator"
+              href="?upgrade=boost"
               style={{
                 display: "inline-block",
-                padding: "10px 22px",
+                padding: "9px 20px",
                 background: ACCENT,
                 color: "#111",
                 borderRadius: 10,
-                fontSize: 14,
+                fontSize: 13,
                 fontWeight: 700,
                 textDecoration: "none",
                 fontFamily: FONT_BODY,
               }}
             >
-              Upgrade →
+              Upgrade to Boost →
             </a>
+          </div>
+        ) : (
+          /* ── Paid plan ── */
+          <div>
+            <span style={{ fontSize: 17, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY, display: "block", marginBottom: 8 }}>
+              {planLabel ?? planName}
+            </span>
+
+            {/* Cancel-pending amber warning */}
+            {isCancelPending && renewDate ? (
+              <div style={{ marginBottom: 12, padding: "10px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 8 }}>
+                <p style={{ fontSize: 13, color: ACCENT, margin: 0, fontFamily: FONT_BODY }}>
+                  ⚠ Active until {renewDate} — will not renew
+                </p>
+              </div>
+            ) : isCancelled ? (
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", fontFamily: FONT_BODY }}>
+                Your plan has been downgraded to Creator.
+              </p>
+            ) : renewDate ? (
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", fontFamily: FONT_BODY }}>
+                Next billing: {renewDate}
+              </p>
+            ) : null}
+
+            {/* Action buttons row */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginTop: 4 }}>
+              {showSwitchButton && (
+                <button
+                  onClick={() => setShowConfirm(true)}
+                  style={{
+                    padding: "8px 16px",
+                    background: "none",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    fontFamily: FONT_BODY,
+                  }}
+                >
+                  Switch to Creator
+                </button>
+              )}
+              {billingPortalUrl ? (
+                <a
+                  href={billingPortalUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: "8px 16px",
+                    background: "none",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--text)",
+                    textDecoration: "none",
+                    fontFamily: FONT_BODY,
+                    display: "inline-block",
+                  }}
+                >
+                  Manage Billing →
+                </a>
+              ) : (
+                <span
+                  title="Billing portal unavailable — contact support"
+                  style={{
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    color: "var(--text-muted)",
+                    fontFamily: FONT_BODY,
+                    opacity: 0.4,
+                  }}
+                >
+                  Manage Billing →
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

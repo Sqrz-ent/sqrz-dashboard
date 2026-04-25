@@ -68,14 +68,6 @@ const accentBtn: React.CSSProperties = {
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SubInfo = {
-  planName: string | null;
-  interval: "month" | "year" | null;
-  amount: number | null;
-  currency: string | null;
-  nextBilling: number | null; // unix timestamp
-};
-
 type WalletRow = {
   id: string;
   booking_id: string;
@@ -119,9 +111,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [
     walletsResult,
     stripeExpressResult,
-    billingPortalResult,
-    planResult,
-    stripeSubResult,
   ] = await Promise.allSettled([
     admin
       .from("booking_wallets")
@@ -133,29 +122,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     connectId && connectStatus === "active"
       ? stripeConnect.accounts.createLoginLink(connectId).catch(() => null)
       : Promise.resolve(null),
-
-    // Stripe billing portal URL
-    customerId
-      ? stripe.billingPortal.sessions.create({
-          customer: customerId,
-          return_url: `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/payments`,
-        }).catch(() => null)
-      : Promise.resolve(null),
-
-    // Plan name
-    planId
-      ? supabase.from("plans").select("name").eq("id", planId).maybeSingle()
-      : Promise.resolve({ data: null }),
-
-    // Stripe subscription info
-    customerId
-      ? stripe.subscriptions.list({
-          customer: customerId,
-          status: "active",
-          limit: 1,
-          expand: ["data.items.data.price"],
-        }).catch(() => null)
-      : Promise.resolve(null),
   ]);
 
   const walletsRaw =
@@ -165,19 +131,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     stripeExpressResult.status === "fulfilled" && stripeExpressResult.value
       ? (stripeExpressResult.value as { url: string }).url
       : null;
-
-  const billingPortalUrl: string | null =
-    billingPortalResult.status === "fulfilled" && billingPortalResult.value
-      ? (billingPortalResult.value as { url: string }).url
-      : null;
-
-  const planData =
-    planResult.status === "fulfilled" && planResult.value
-      ? (planResult.value as { data: { name?: string } | null }).data
-      : null;
-
-  const stripeSubs =
-    stripeSubResult.status === "fulfilled" ? stripeSubResult.value : null;
 
   // ── Enrich wallets with booking title + client name ───────────────────────
   let walletRows: WalletRow[] = [];
@@ -209,48 +162,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     }));
   }
 
-  // ── Subscription info ────────────────────────────────────────────────────
-  let subInfo: SubInfo = {
-    planName: (planData?.name as string) ?? null,
-    interval: null,
-    amount: null,
-    currency: null,
-    nextBilling: null,
-  };
-
-  if (stripeSubs) {
-    const sub = (stripeSubs as any).data?.[0];
-    if (sub) {
-      const price = sub.items.data[0]?.price;
-      subInfo.interval = (price?.recurring?.interval as "month" | "year") ?? null;
-      subInfo.amount = price?.unit_amount ?? null;
-      subInfo.currency = price?.currency ?? null;
-      subInfo.nextBilling = sub.current_period_end ?? sub.items.data[0]?.current_period_end ?? null;
-    }
-  }
-
   return Response.json(
-    { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl, walletRows },
+    { connectStatus, planId, stripeExpressUrl, walletRows },
     { headers }
   );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(ts: number) {
-  return new Date(ts * 1000).toLocaleDateString("en-US", {
-    year: "numeric", month: "long", day: "numeric",
-  });
-}
-
-function formatAmount(amount: number, currency: string) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: currency.toUpperCase(),
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(amount / 100);
-}
 
 function fmt(amount: number | null | undefined, currency?: string | null) {
   if (amount == null) return "—";
@@ -272,13 +190,11 @@ function fmtDate(iso: string) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function PaymentsPage() {
-  const { connectStatus, subInfo, planId, stripeExpressUrl, billingPortalUrl, walletRows } =
+  const { connectStatus, planId, stripeExpressUrl, walletRows } =
     useLoaderData<typeof loader>() as {
       connectStatus: string;
-      subInfo: SubInfo;
       planId: number | null;
       stripeExpressUrl: string | null;
-      billingPortalUrl: string | null;
       walletRows: WalletRow[];
     };
 
@@ -287,18 +203,7 @@ export default function PaymentsPage() {
 
   const isActive = connectStatus === "active";
   const isPending = connectStatus === "pending";
-  const hasPlan = !!planId && planId > 0;
   const locked = getPlanLevel(planId, false) < FEATURE_GATES.domain;
-  
-
-  const planLabel = subInfo.planName
-    ? [
-        subInfo.planName,
-        subInfo.amount && subInfo.currency
-          ? `${formatAmount(subInfo.amount, subInfo.currency)}/${subInfo.interval === "year" ? "yr" : "mo"}`
-          : null,
-      ].filter(Boolean).join(" · ")
-    : null;
 
   // ── Summary metrics ────────────────────────────────────────────────────────
   const totalEarned = walletRows
@@ -562,61 +467,6 @@ export default function PaymentsPage() {
         )}
       </div>
 
-      {/* ── Section: SQRZ Subscription ── */}
-      <div style={card}>
-        <div style={cardHeader}>
-          <p style={cardTitle}>Your SQRZ Plan</p>
-
-          {hasPlan && (
-            billingPortalUrl ? (
-              <a
-                href={billingPortalUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={ghostBtn}
-              >
-                Manage Billing →
-              </a>
-            ) : (
-              <span
-                title="Billing portal unavailable — contact support"
-                style={{ ...ghostBtn, opacity: 0.4, cursor: "default" }}
-              >
-                Manage Billing →
-              </span>
-            )
-          )}
-        </div>
-
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-          {!hasPlan ? (
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-              You're on the free plan.{" "}
-              <a href="/?upgrade=1" style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}>
-                Upgrade to Creator →
-              </a>
-            </p>
-          ) : (
-            <>
-              {planLabel && (
-                <p style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", margin: "0 0 6px" }}>
-                  {planLabel}
-                </p>
-              )}
-              {subInfo.nextBilling && (
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-                  Next billing: {formatDate(subInfo.nextBilling)}
-                </p>
-              )}
-              {!subInfo.nextBilling && subInfo.planName && (
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-                  {subInfo.planName}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      </div>
      </div>
 
     </div>
