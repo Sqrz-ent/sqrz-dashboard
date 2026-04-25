@@ -64,6 +64,7 @@ type PrivateLink = {
   page_type: PageType;
   title: string | null;
   use_count: number;
+  unique_visitors: number;
   expires_at: string | null;
   max_uses: number | null;
   description: string | null;
@@ -101,13 +102,49 @@ export async function loader({ request }: Route.LoaderArgs) {
       .order("sort_order", { ascending: true }),
   ]);
 
+  const rawLinks = linksRes.data ?? [];
+
+  // Fetch unique visitor counts per link from profile_views
+  const admin = createSupabaseAdminClient();
+  const linkIds = rawLinks.map((l) => l.id as string);
+  const uniqueVisitorMap: Record<string, number> = {};
+  if (linkIds.length > 0) {
+    const { data: viewRows } = await admin
+      .from("profile_views")
+      .select("link_id, visitor_fingerprint")
+      .in("link_id", linkIds)
+      .not("visitor_fingerprint", "is", null);
+
+    for (const row of viewRows ?? []) {
+      const lid = row.link_id as string;
+      if (!uniqueVisitorMap[lid]) uniqueVisitorMap[lid] = 0;
+      uniqueVisitorMap[lid]++;
+    }
+    // Deduplicate by visitor_fingerprint per link
+    const seen: Record<string, Set<string>> = {};
+    for (const row of viewRows ?? []) {
+      const lid = row.link_id as string;
+      const fp = row.visitor_fingerprint as string;
+      if (!seen[lid]) seen[lid] = new Set();
+      seen[lid].add(fp);
+    }
+    for (const lid of Object.keys(seen)) {
+      uniqueVisitorMap[lid] = seen[lid].size;
+    }
+  }
+
+  const links = rawLinks.map((l) => ({
+    ...l,
+    unique_visitors: uniqueVisitorMap[l.id as string] ?? 0,
+  }));
+
   return Response.json(
     {
       plan_id: (profile.plan_id as number | null) ?? null,
       is_beta: (profile.is_beta as boolean) ?? false,
       grow_qualified: (profile.grow_qualified as boolean) ?? false,
       username: profile.slug as string,
-      links: linksRes.data ?? [],
+      links,
       services: servicesRes.data ?? [],
     },
     { headers }
@@ -628,6 +665,7 @@ function LinkCard({
         </a>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
           {link.use_count} view{link.use_count !== 1 ? "s" : ""}
+          {link.unique_visitors > 0 ? ` · ${link.unique_visitors} unique visitor${link.unique_visitors !== 1 ? "s" : ""}` : ""}
           {link.max_uses ? ` · max ${link.max_uses}` : ""}
           {link.expires_at ? ` · expires ${new Date(link.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
         </div>
