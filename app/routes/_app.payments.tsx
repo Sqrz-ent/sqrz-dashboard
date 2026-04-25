@@ -2,13 +2,9 @@ import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.payments";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { stripe } from "~/lib/stripe.server";
 import { createClient } from "@supabase/supabase-js";
-import Stripe from "stripe";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import UpgradeBanner from "~/components/UpgradeBanner";
-
-const stripeConnect = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -106,6 +102,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+
+  const { default: Stripe } = await import("stripe");
+  const stripeConnect = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
   // ── Booking wallets ───────────────────────────────────────────────────────
   const [

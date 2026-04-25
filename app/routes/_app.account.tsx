@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.account";
-import Stripe from "stripe";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase } from "~/lib/supabase.client";
@@ -29,8 +28,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4,
   fontFamily: FONT_BODY,
 };
-
-const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -61,6 +58,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const customerId = profile.stripe_customer_id as string | null;
 
   // Fetch Stripe price info + billing portal in parallel
+  const { default: Stripe } = await import("stripe");
+  const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
   let stripePrice: { amount: number | null; interval: string | null; currency: string | null } = {
     amount: null, interval: null, currency: null,
   };
