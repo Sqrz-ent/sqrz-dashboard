@@ -314,6 +314,9 @@ export default function PartnersPage() {
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, opacity: 0.7 }}>
             Earn {commissionPct}% of every subscription you bring in, for 12 months.
           </p>
+          <p style={{ fontSize: 13, color: "var(--color-text-tertiary)", marginTop: 3 }}>
+            To earn booking commissions, your referrals need to activate Stripe Connect on their profile.
+          </p>
         </div>
         <span style={{
           padding: "4px 12px",
@@ -569,9 +572,7 @@ export default function PartnersPage() {
                             >
                               {copiedSlug === r.slug ? "copied!" : "copy link"}
                             </button>
-                          ) : (
-                            <span style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>no stripe</span>
-                          )}
+                          ) : null}
                         </div>
                       ) : r.slug}
                     </td>
