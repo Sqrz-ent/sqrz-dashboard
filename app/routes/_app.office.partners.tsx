@@ -373,8 +373,9 @@ export default function PartnersPage() {
           )}
         </div>
         <div style={{ ...card, borderColor: earnings.paid > 0 ? "rgba(74,222,128,0.3)" : "var(--border)" }}>
-          <span style={lbl}>Total paid out</span>
-          <p style={{ fontSize: 22, fontWeight: 700, margin: 0, color: earnings.paid > 0 ? GREEN : "var(--text)" }}>{fmtMoney(earnings.paid)}</p>
+          <span style={lbl}>Subscriptions paid</span>
+          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: earnings.paid > 0 ? GREEN : "var(--text)" }}>{fmtMoney(earnings.paid)}</p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>from subscription commissions</p>
         </div>
         <div style={{ ...card, borderColor: bookingTotal > 0 ? "rgba(24,95,165,0.3)" : "var(--border)" }}>
           <span style={lbl}>Lifetime bookings</span>
