@@ -41,6 +41,7 @@ type Referral = {
   planLabel: string;
   earned: number;
   status: ReferralStatus;
+  hasStripeConnect: boolean;
 };
 
 type BookingRow = {
@@ -127,7 +128,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const referredIds = (rawUses ?? []).map((r) => r.referred_profile_id as string);
   const { data: referredProfiles } = await supabase
     .from("profiles")
-    .select("id, slug, plan_id, updated_at")
+    .select("id, slug, plan_id, updated_at, stripe_connect_id, stripe_connect_status")
     .in("id", referredIds.length ? referredIds : ["00000000-0000-0000-0000-000000000000"]);
 
   // 4. Earnings
@@ -167,7 +168,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         ? "active"
         : "expired";
 
-    return { slug, planLabel: planLabel(plan), earned, status };
+    const hasStripeConnect = !!(prof?.stripe_connect_id && prof?.stripe_connect_status === "active");
+    return { slug, planLabel: planLabel(plan), earned, status, hasStripeConnect };
   });
 
   // Stats
@@ -549,23 +551,27 @@ export default function PartnersPage() {
                       {r.status === "active" ? (
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span>{r.slug}</span>
-                          <button
-                            onClick={() => copyReferralLink(r.slug)}
-                            title={`Copy referral link for ${r.slug}`}
-                            style={{
-                              background: "none",
-                              border: "0.5px solid var(--border)",
-                              borderRadius: 6,
-                              padding: "2px 7px",
-                              fontSize: 11,
-                              color: "var(--text-muted)",
-                              cursor: "pointer",
-                              whiteSpace: "nowrap",
-                              fontFamily: FONT_BODY,
-                            }}
-                          >
-                            {copiedSlug === r.slug ? "copied!" : "copy link"}
-                          </button>
+                          {r.hasStripeConnect ? (
+                            <button
+                              onClick={() => copyReferralLink(r.slug)}
+                              title={`Copy referral link for ${r.slug}`}
+                              style={{
+                                background: "none",
+                                border: "0.5px solid var(--border)",
+                                borderRadius: 6,
+                                padding: "2px 7px",
+                                fontSize: 11,
+                                color: "var(--text-muted)",
+                                cursor: "pointer",
+                                whiteSpace: "nowrap",
+                                fontFamily: FONT_BODY,
+                              }}
+                            >
+                              {copiedSlug === r.slug ? "copied!" : "copy link"}
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>no stripe</span>
+                          )}
                         </div>
                       ) : r.slug}
                     </td>
