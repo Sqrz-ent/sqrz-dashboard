@@ -58,6 +58,7 @@ type LoaderData = {
   activeCount: number;
   nextTierCount: number | null;
   bookingTotal: number;
+  bookingCount: number;
   bookingRows: BookingRow[];
 };
 
@@ -191,6 +192,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     (s, r) => s + Number(r.commission_amount ?? 0),
     0
   );
+  const bookingCount = (rawBookingEarnings ?? []).length;
   const pendingBookingTotal = (rawBookingEarnings ?? [])
     .filter((r) => r.payout_status === "pending")
     .reduce((s, r) => s + Number(r.commission_amount ?? 0), 0);
@@ -227,6 +229,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       activeCount,
       nextTierCount,
       bookingTotal,
+      bookingCount,
       bookingRows,
     } satisfies LoaderData,
     { headers }
@@ -246,6 +249,7 @@ export default function PartnersPage() {
     activeCount,
     nextTierCount,
     bookingTotal,
+    bookingCount,
     bookingRows,
   } = useLoaderData<typeof loader>() as LoaderData;
 
@@ -373,11 +377,13 @@ export default function PartnersPage() {
           <p style={{ fontSize: 22, fontWeight: 700, margin: 0, color: earnings.paid > 0 ? GREEN : "var(--text)" }}>{fmtMoney(earnings.paid)}</p>
         </div>
         <div style={{ ...card, borderColor: bookingTotal > 0 ? "rgba(24,95,165,0.3)" : "var(--border)" }}>
-          <span style={lbl}>Booking commissions</span>
+          <span style={lbl}>Lifetime bookings</span>
           <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: bookingTotal > 0 ? BLUE : "var(--text)" }}>
             {fmtMoney(bookingTotal)}
           </p>
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>2.5% per completed booking</p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
+            from {bookingCount} completed booking{bookingCount === 1 ? "" : "s"}
+          </p>
         </div>
       </div>
 
