@@ -42,7 +42,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .from("subscriptions")
       .select("*")
       .eq("profile_id", profile.id as string)
-      .eq("status", "active")
       .order("current_period_end", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -131,6 +130,33 @@ export default function AccountPage() {
     }
   }, [searchParams]);
 
+  // Cancellation state (optimistic update on cancel)
+  const [cancelledAt, setCancelledAt] = useState<string | null>(
+    (subscription?.cancelled_at as string | null) ?? null
+  );
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+
+  async function handleCancelSubscription() {
+    setCancelling(true);
+    setCancelError("");
+    try {
+      const res = await fetch("/api/stripe/cancel-subscription", { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        setCancelledAt(new Date().toISOString());
+        setShowConfirm(false);
+      } else {
+        setCancelError(data.error ?? "Something went wrong");
+      }
+    } catch {
+      setCancelError("Network error — please try again");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   const [newPassword, setNewPassword]       = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordLoading, setPasswordLoading] = useState(false);
@@ -158,6 +184,7 @@ export default function AccountPage() {
 
   const slug = (profile.slug as string) ?? "";
   const planName = plan?.name ?? (profile.plan_id ? `Plan ${profile.plan_id}` : null);
+  const planId = (profile.plan_id as number | null) ?? null;
 
   const renewDate = subscription?.current_period_end
     ? new Date(subscription.current_period_end as string).toLocaleDateString("en-GB", {
@@ -166,6 +193,11 @@ export default function AccountPage() {
         year: "numeric",
       })
     : null;
+
+  const subStatus = subscription?.status as string | undefined;
+  const isCancelPending = subStatus === "active" && !!cancelledAt;
+  const isCancelled = subStatus === "canceled" || subStatus === "cancelled";
+  const showSwitchButton = (planId ?? 0) > 1 && subStatus === "active" && !cancelledAt;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -280,10 +312,44 @@ export default function AccountPage() {
               </span>
               <StatusBadge status={subscription.status as string} />
             </div>
-            {renewDate && (
+            {renewDate && !isCancelPending && !isCancelled && (
               <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>
                 Renews on {renewDate}
               </p>
+            )}
+
+            {/* Cancellation status block */}
+            {isCancelPending && renewDate && (
+              <div style={{ marginTop: 10, padding: "10px 14px", background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 8 }}>
+                <p style={{ fontSize: 13, color: ACCENT, margin: 0, fontFamily: FONT_BODY }}>
+                  Your {planName} plan is active until {renewDate}. It will not renew.
+                </p>
+              </div>
+            )}
+            {isCancelled && (
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "8px 0 0", fontFamily: FONT_BODY }}>
+                Your plan has been downgraded to Creator.
+              </p>
+            )}
+
+            {/* Switch to Creator button */}
+            {showSwitchButton && (
+              <button
+                onClick={() => setShowConfirm(true)}
+                style={{
+                  marginTop: 16,
+                  padding: "8px 18px",
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                Switch to Creator
+              </button>
             )}
           </div>
         ) : planName ? (
@@ -319,6 +385,74 @@ export default function AccountPage() {
           </div>
         )}
       </div>
+
+      {/* Confirm cancel dialog */}
+      {showConfirm && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1000,
+          background: "rgba(0,0,0,0.6)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "0 20px",
+        }}>
+          <div style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 16,
+            padding: "28px 24px",
+            maxWidth: 420,
+            width: "100%",
+            fontFamily: FONT_BODY,
+          }}>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: "var(--text)", margin: "0 0 10px" }}>
+              Switch to Creator?
+            </h3>
+            <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 20px", lineHeight: 1.6 }}>
+              You'll keep {planName} until {renewDate ?? "the end of your billing period"}, then move to Creator. Your profile and data stay intact.
+            </p>
+            {cancelError && (
+              <p style={{ fontSize: 13, color: "#ef4444", margin: "0 0 12px" }}>{cancelError}</p>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={handleCancelSubscription}
+                disabled={cancelling}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  background: ACCENT,
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: cancelling ? "default" : "pointer",
+                  opacity: cancelling ? 0.6 : 1,
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                {cancelling ? "Processing…" : "Confirm"}
+              </button>
+              <button
+                onClick={() => { setShowConfirm(false); setCancelError(""); }}
+                disabled={cancelling}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  fontSize: 14,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                }}
+              >
+                Keep plan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Card 4: Sign Out */}
       <div style={card}>

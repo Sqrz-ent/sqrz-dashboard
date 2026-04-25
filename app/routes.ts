@@ -45,6 +45,7 @@ export default [
   route("api/stripe/connect", "routes/api.stripe.connect.tsx"),
   route("api/stripe/connect/login", "routes/api.stripe.connect.login.tsx"),
   route("api/stripe/billing-portal", "routes/api.stripe.billing-portal.tsx"),
+  route("api/stripe/cancel-subscription", "routes/api.stripe.cancel-subscription.tsx"),
   route("api/stripe/webhook", "routes/api.stripe.webhook.tsx"),
 
   // Starter template files (kept for reference, not linked in UI)

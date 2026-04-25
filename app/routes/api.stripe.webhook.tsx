@@ -558,40 +558,44 @@ export async function action({ request }: ActionFunctionArgs) {
     }
   }
 
-  if (event.type === "customer.subscription.deleted") {
-    const subscription = event.data.object as Stripe.Subscription;
-    const item = subscription.items.data[0];
-
-    await supabase.rpc("upsert_subscription", {
-      p_stripe_subscription_id: subscription.id,
-      p_stripe_customer_id: subscription.customer as string,
-      p_stripe_price_id: item.price.id,
-      p_status: "cancelled",
-      p_profile_id: null,
-      p_current_period_start: toISO(item.current_period_start),
-      p_current_period_end: toISO(item.current_period_end),
-    });
-
-    // Reset plan to Creator
+  if (event.type === "customer.subscription.updated") {
+    const sub = event.data.object as Stripe.Subscription;
+    const subAny = sub as any;
     await supabase
-      .from("profiles")
-      .update({ plan_id: 1 })
-      .eq("stripe_customer_id", subscription.customer as string);
+      .from("subscriptions")
+      .update({
+        status: sub.status,
+        current_period_end: toISO(subAny.current_period_end),
+        cancelled_at: toISO(subAny.canceled_at),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("stripe_subscription_id", sub.id);
+    console.log("[webhook] subscription updated:", sub.id, "status:", sub.status, "canceled_at:", subAny.canceled_at);
   }
 
-  if (event.type === "customer.subscription.updated") {
-    const subscription = event.data.object as Stripe.Subscription;
-    const item = subscription.items.data[0];
+  if (event.type === "customer.subscription.deleted") {
+    const sub = event.data.object as Stripe.Subscription;
+    const subAny = sub as any;
+    const { data: subRow } = await supabase
+      .from("subscriptions")
+      .update({
+        status: sub.status,
+        current_period_end: toISO(subAny.current_period_end),
+        cancelled_at: toISO(subAny.canceled_at),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("stripe_subscription_id", sub.id)
+      .select("profile_id")
+      .maybeSingle();
 
-    await supabase.rpc("upsert_subscription", {
-      p_stripe_subscription_id: subscription.id,
-      p_stripe_customer_id: subscription.customer as string,
-      p_stripe_price_id: item.price.id,
-      p_status: subscription.status,
-      p_profile_id: null,
-      p_current_period_start: toISO(item.current_period_start),
-      p_current_period_end: toISO(item.current_period_end),
-    });
+    if (subRow?.profile_id) {
+      await supabase
+        .from("profiles")
+        .update({ plan_id: 1 })
+        .eq("id", subRow.profile_id as string);
+      console.log("[webhook] plan reset to Creator for profile:", subRow.profile_id);
+    }
+    console.log("[webhook] subscription deleted:", sub.id);
   }
 
   if (event.type === "account.updated") {
