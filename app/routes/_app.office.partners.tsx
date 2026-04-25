@@ -258,7 +258,7 @@ export default function PartnersPage() {
   const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
 
   function copyReferralLink(slug: string) {
-    const url = `https://sqrz.com/${slug}?ref=${refCode}`;
+    const url = `https://${slug}.sqrz.com?ref=${refCode}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopiedSlug(slug);
       setTimeout(() => setCopiedSlug(null), 1500);
