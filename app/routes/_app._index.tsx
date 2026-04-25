@@ -45,11 +45,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     adminClient
       .from("profile_views")
       .select("*", { count: "exact", head: true })
-      .eq("profile_id", profile.id as string),
+      .eq("profile_id", profile.id as string)
+      .is("link_id", null),
     adminClient
       .from("profile_views")
       .select("created_at, visitor_fingerprint")
       .eq("profile_id", profile.id as string)
+      .is("link_id", null)
       .gte("created_at", sevenDaysAgo),
   ]);
 
