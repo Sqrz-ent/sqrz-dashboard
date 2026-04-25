@@ -54,7 +54,7 @@ type LoaderData = {
   tier: "Starter" | "Pro" | "Elite";
   referrals: Referral[];
   stats: { all: number; active: number; expired: number; pending: number };
-  earnings: { lifetime: number; pending: number; paid: number };
+  earnings: { lifetime: number; pending: number; paid: number; pendingSubTotal: number; pendingBookingTotal: number };
   activeCount: number;
   nextTierCount: number | null;
   bookingTotal: number;
@@ -146,6 +146,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     else paidTotal.pending += amt;
   }
   const lifetimeEarned = Object.values(earnedByProfile).reduce((s, v) => s + v, 0);
+  const pendingSubTotal = paidTotal.pending;
 
   // Build referral rows (merge uses + profiles in JS)
   const referrals: Referral[] = (rawUses ?? []).map((u) => {
@@ -190,6 +191,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     (s, r) => s + Number(r.commission_amount ?? 0),
     0
   );
+  const pendingBookingTotal = (rawBookingEarnings ?? [])
+    .filter((r) => r.payout_status === "pending")
+    .reduce((s, r) => s + Number(r.commission_amount ?? 0), 0);
 
   // Fetch referred profile slugs for booking rows
   const bookingReferredIds = [...new Set(
@@ -219,7 +223,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       tier,
       referrals,
       stats,
-      earnings: { lifetime: lifetimeEarned, pending: paidTotal.pending, paid: paidTotal.paid },
+      earnings: { lifetime: lifetimeEarned, pending: pendingSubTotal + pendingBookingTotal, paid: paidTotal.paid, pendingSubTotal, pendingBookingTotal },
       activeCount,
       nextTierCount,
       bookingTotal,
@@ -348,6 +352,16 @@ export default function PartnersPage() {
           <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: earnings.pending > 0 ? AMBER : "var(--text)" }}>
             {fmtMoney(earnings.pending)}
           </p>
+          <div style={{ marginTop: 6, marginBottom: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
+              <span>Subscriptions</span>
+              <span>{fmtMoney(earnings.pendingSubTotal)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
+              <span>Bookings</span>
+              <span>{fmtMoney(earnings.pendingBookingTotal)}</span>
+            </div>
+          </div>
           {earnings.pending >= 25 ? (
             <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>Next batch {nextMonth()}</p>
           ) : (
