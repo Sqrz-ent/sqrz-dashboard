@@ -255,6 +255,15 @@ export default function PartnersPage() {
 
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<TabKey>("active");
+  const [copiedSlug, setCopiedSlug] = useState<string | null>(null);
+
+  function copyReferralLink(slug: string) {
+    const url = `https://sqrz.com/${slug}?ref=${refCode}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedSlug(slug);
+      setTimeout(() => setCopiedSlug(null), 1500);
+    });
+  }
 
   const refUrl = refCode ? `https://sqrz.com?ref=${refCode}` : null;
 
@@ -537,7 +546,28 @@ export default function PartnersPage() {
                 filteredReferrals.map((r, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "11px 14px", fontFamily: "monospace", color: "var(--text)", fontWeight: 600 }}>
-                      {r.slug}
+                      {r.status === "active" ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span>{r.slug}</span>
+                          <button
+                            onClick={() => copyReferralLink(r.slug)}
+                            title={`Copy referral link for ${r.slug}`}
+                            style={{
+                              background: "none",
+                              border: "0.5px solid var(--border)",
+                              borderRadius: 6,
+                              padding: "2px 7px",
+                              fontSize: 11,
+                              color: "var(--text-muted)",
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                              fontFamily: FONT_BODY,
+                            }}
+                          >
+                            {copiedSlug === r.slug ? "copied!" : "copy link"}
+                          </button>
+                        </div>
+                      ) : r.slug}
                     </td>
                     <td style={{ padding: "11px 14px" }}>
                       {r.status === "pending" ? (
