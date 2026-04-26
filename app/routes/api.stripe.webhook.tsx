@@ -183,33 +183,39 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ received: true });
     }
 
-    // ── New instant booking (booking created post-payment) ───────────────────
+    // ── Instant booking payment ──────────────────────────────────────────────
     if (session.metadata?.type === "instant_booking") {
       const meta = session.metadata;
-      console.log("[webhook] instant_booking payment received — creating booking for:", meta.to_slug);
 
-      const { data: rpcData, error: rpcError } = await supabase.rpc("create_booking_request", {
-        p_to_slug: meta.to_slug ?? "",
-        p_from_name: meta.from_name ?? "",
-        p_from_email: meta.from_email ?? "",
-        p_service: meta.service || null,
-        p_message: meta.message || null,
-        p_event_date: meta.event_date || null,
-        p_event_location: meta.event_location || null,
-        p_title: meta.title || null,
-        p_booking_ref_code: meta.booking_ref_code || null,
-      });
-
-      if (rpcError) {
-        console.error("[webhook] instant_booking RPC error:", rpcError);
-        return Response.json({ received: true });
-      }
-
-      const rpcResult = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-      const bookingId = rpcResult?.booking_id as string | undefined;
+      // Booking is created before the Stripe session (booking_id in metadata).
+      // Legacy fallback: if no booking_id in metadata, create it now.
+      let bookingId: string | undefined = meta.booking_id || undefined;
 
       if (!bookingId) {
-        console.error("[webhook] instant_booking: no booking_id from RPC");
+        console.log("[webhook] instant_booking — no booking_id in metadata, creating booking (legacy path) for:", meta.to_slug);
+        const { data: rpcData, error: rpcError } = await supabase.rpc("create_booking_request", {
+          p_to_slug: meta.to_slug ?? "",
+          p_from_name: meta.from_name ?? "",
+          p_from_email: meta.from_email ?? "",
+          p_service: meta.service || null,
+          p_message: meta.message || null,
+          p_event_date: meta.event_date || null,
+          p_event_location: meta.event_location || null,
+          p_title: meta.title || null,
+          p_booking_ref_code: meta.booking_ref_code || null,
+        });
+        if (rpcError) {
+          console.error("[webhook] instant_booking RPC error:", rpcError);
+          return Response.json({ received: true });
+        }
+        const rpcResult = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        bookingId = rpcResult?.booking_id as string | undefined;
+      } else {
+        console.log("[webhook] instant_booking — using booking_id from metadata:", bookingId);
+      }
+
+      if (!bookingId) {
+        console.error("[webhook] instant_booking: no booking_id available");
         return Response.json({ received: true });
       }
 
