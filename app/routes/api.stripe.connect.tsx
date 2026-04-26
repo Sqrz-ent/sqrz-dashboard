@@ -18,6 +18,9 @@ export async function action({ request }: Route.ActionArgs) {
   if (!profile) return redirect("/login", { headers });
 
   const publicUrl = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
+  const url = new URL(request.url);
+  const returnTo = url.searchParams.get("returnTo") ?? "payments";
+  const returnPath = returnTo === "partners" ? "/office/partners" : "/payments";
 
   let connectId = profile.stripe_connect_id as string | undefined;
 
@@ -51,8 +54,8 @@ export async function action({ request }: Route.ActionArgs) {
   // Create onboarding link
   const accountLink = await stripeConnect.accountLinks.create({
     account: connectId,
-    refresh_url: `${publicUrl}/payments?connect=refresh`,
-    return_url: `${publicUrl}/payments?connect=success`,
+    refresh_url: `${publicUrl}${returnPath}?connect=refresh`,
+    return_url: `${publicUrl}${returnPath}?connect=success`,
     type: "account_onboarding",
   });
 

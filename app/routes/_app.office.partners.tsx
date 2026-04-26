@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.office.partners";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -61,6 +61,8 @@ type LoaderData = {
   bookingTotal: number;
   bookingCount: number;
   bookingRows: BookingRow[];
+  connectStatus: string;
+  stripeExpressUrl: string | null;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -103,6 +105,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
   if (!profile.is_partner) return redirect("/office", { headers });
+
+  // Connect status
+  const connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
+  const connectId = (profile.stripe_connect_id as string | null) ?? null;
+
+  let stripeExpressUrl: string | null = null;
+  if (connectId && connectStatus === "active") {
+    const { default: Stripe } = await import("stripe");
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    stripeExpressUrl = await stripe.accounts.createLoginLink(connectId).then((l) => l.url).catch(() => null);
+  }
 
   // 1. Referral code
   const { data: refCodeRow } = await supabase
@@ -233,6 +246,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       bookingTotal,
       bookingCount,
       bookingRows,
+      connectStatus,
+      stripeExpressUrl,
     } satisfies LoaderData,
     { headers }
   );
@@ -253,7 +268,14 @@ export default function PartnersPage() {
     bookingTotal,
     bookingCount,
     bookingRows,
+    connectStatus,
+    stripeExpressUrl,
   } = useLoaderData<typeof loader>() as LoaderData;
+
+  const connectFetcher = useFetcher();
+  const isConnecting = connectFetcher.state !== "idle";
+  const isPending = connectStatus === "pending";
+  const isActive = connectStatus === "active";
 
   const [copied, setCopied] = useState(false);
   const [tab, setTab] = useState<TabKey>("active");
@@ -358,6 +380,148 @@ export default function PartnersPage() {
           </button>
         </div>
       )}
+
+      {/* ── Section: Client Payments (Connect) ─────────────────────────────── */}
+      <div style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        padding: "16px 18px",
+        marginBottom: 20,
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: isActive || isPending ? 16 : 0 }}>
+          <p style={{ ...lbl, margin: 0 }}>Client Payments</p>
+
+          {isActive ? (
+            stripeExpressUrl ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                <div style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: "rgba(243,177,48,0.1)",
+                  border: "1px solid rgba(243,177,48,0.3)",
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  color: "#F3B130",
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase" as const,
+                }}>
+                  ⚠ Test mode — real payouts not yet active
+                </div>
+                <a
+                  href={stripeExpressUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    padding: "7px 14px",
+                    background: "none",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    color: "var(--text)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    fontFamily: FONT_BODY,
+                    textDecoration: "none",
+                    display: "inline-flex",
+                    alignItems: "center",
+                  }}
+                >
+                  Manage Payouts →
+                </a>
+              </div>
+            ) : (
+              <span style={{
+                padding: "7px 14px",
+                background: "none",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                color: "var(--text)",
+                fontSize: 12,
+                fontWeight: 600,
+                fontFamily: FONT_BODY,
+                opacity: 0.4,
+              }}>
+                Manage Payouts →
+              </span>
+            )
+          ) : isPending ? (
+            <connectFetcher.Form method="post" action="/api/stripe/connect?returnTo=partners">
+              <button
+                type="submit"
+                disabled={isConnecting}
+                style={{
+                  padding: "7px 14px",
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  color: "var(--text)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: isConnecting ? "default" : "pointer",
+                  fontFamily: FONT_BODY,
+                  opacity: isConnecting ? 0.6 : 1,
+                }}
+              >
+                {isConnecting ? "Redirecting…" : "Continue Setup →"}
+              </button>
+            </connectFetcher.Form>
+          ) : null}
+        </div>
+
+        {!isActive && !isPending && (
+          <div style={{ paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
+              Connect your bank account to receive booking payments.
+            </p>
+            <connectFetcher.Form method="post" action="/api/stripe/connect?returnTo=partners">
+              <button
+                type="submit"
+                disabled={isConnecting}
+                style={{
+                  padding: "10px 20px",
+                  background: ACCENT,
+                  border: "none",
+                  borderRadius: 10,
+                  color: "#111111",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: isConnecting ? "default" : "pointer",
+                  fontFamily: FONT_BODY,
+                  opacity: isConnecting ? 0.6 : 1,
+                }}
+              >
+                {isConnecting ? "Redirecting…" : "Connect Bank Account →"}
+              </button>
+            </connectFetcher.Form>
+          </div>
+        )}
+
+        {isPending && (
+          <div style={{ paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+              Onboarding in progress — finish setting up your Stripe account to receive payouts.
+            </p>
+          </div>
+        )}
+
+        {isActive && (
+          <div style={{ paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
+              Your payout history is available in the{" "}
+              {stripeExpressUrl ? (
+                <a href={stripeExpressUrl} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}>
+                  Stripe Express dashboard →
+                </a>
+              ) : (
+                <span style={{ color: "var(--text-muted)" }}>Stripe Express dashboard</span>
+              )}
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* ── Section 3: Earnings cards ─────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
