@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.account";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase } from "~/lib/supabase.client";
 
@@ -37,8 +37,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
+  const admin = createSupabaseAdminClient();
+
   const [subRes, planRes] = await Promise.all([
-    supabase
+    admin
       .from("subscriptions")
       .select("*")
       .eq("profile_id", profile.id as string)
