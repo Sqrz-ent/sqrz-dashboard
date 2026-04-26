@@ -248,12 +248,8 @@ export default function DashboardIndex() {
   );
 
   // Availability
-  const availFetcher = useFetcher();
   const blockFetcher = useFetcher();
   const deleteFetcher = useFetcher();
-  const [availStatus, setAvailStatus] = useState<string>(
-    (p.availability_status as string) || "available"
-  );
   const blocks = availabilityBlocks as AvailabilityBlock[];
   const [showBlockForm, setShowBlockForm] = useState(false);
   const blockLabelRef = useRef<HTMLInputElement>(null);
@@ -612,43 +608,6 @@ export default function DashboardIndex() {
       <div style={{ ...card, marginBottom: 16 }}>
         <p style={{ ...metaLabel, margin: "0 0 14px" }}>Availability</p>
 
-        {/* Status pills */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-          {([
-            { key: "available", label: "🟢 Available" },
-            { key: "limited",   label: "🟡 Limited" },
-            { key: "unavailable", label: "🔴 Unavailable" },
-          ] as const).map(({ key, label }) => {
-            const active = availStatus === key;
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  setAvailStatus(key);
-                  const fd = new FormData();
-                  fd.append("intent", "update_availability_status");
-                  fd.append("status", key);
-                  availFetcher.submit(fd, { method: "post" });
-                }}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 20,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  border: active ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                  background: active ? ACCENT : "transparent",
-                  color: active ? "#111111" : "var(--text-muted)",
-                  fontFamily: FONT,
-                  transition: "all 0.15s",
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
         {/* Blocked periods list */}
         {blocks.length === 0 && !showBlockForm ? (
           <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
@@ -765,6 +724,12 @@ export default function DashboardIndex() {
               <input
                 ref={blockEndRef}
                 type="date"
+                onChange={(e) => {
+                  const start = blockStartRef.current?.value;
+                  if (start && e.target.value && e.target.value < start) {
+                    e.target.value = start;
+                  }
+                }}
                 style={{
                   flex: 1,
                   background: "var(--bg)",
@@ -784,6 +749,7 @@ export default function DashboardIndex() {
                   const start = blockStartRef.current?.value;
                   const end = blockEndRef.current?.value;
                   if (!start || !end) return;
+                  if (end < start) return;
                   const fd = new FormData();
                   fd.append("intent", "add_availability_block");
                   fd.append("label", blockLabelRef.current?.value || "Unavailable");
