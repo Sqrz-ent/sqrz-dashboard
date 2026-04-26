@@ -155,6 +155,7 @@ export async function action({ request }: Route.ActionArgs) {
       price_max: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_max") as string) || null),
       price_label: priceOnRequest && !isInstant ? "Price on request" : ((formData.get("price_label") as string) || null),
       currency: (isInstant || priceOnRequest) ? null : ((formData.get("currency") as string) || "EUR"),
+      price_unit: (isInstant || priceOnRequest) ? null : ((formData.get("price_unit") as string) || "flat"),
       booking_type: bookingType,
       instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
       instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
@@ -177,6 +178,7 @@ export async function action({ request }: Route.ActionArgs) {
       price_max: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_max") as string) || null),
       price_label: priceOnRequest && !isInstant ? "Price on request" : ((formData.get("price_label") as string) || null),
       currency: (isInstant || priceOnRequest) ? null : ((formData.get("currency") as string) || "EUR"),
+      price_unit: (isInstant || priceOnRequest) ? null : ((formData.get("price_unit") as string) || "flat"),
       booking_type: bookingType,
       instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
       instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
@@ -201,6 +203,7 @@ type Service = {
   price_min: number | null;
   price_max: number | null;
   price_label: string | null;
+  price_unit: string | null;
   currency: string | null;
   is_active: boolean;
   sort_order: number;
@@ -355,6 +358,7 @@ function ServiceModal({
     price_min: "",
     price_max: "",
     currency: "EUR",
+    price_unit: "flat",
     instant_price: "",
     instant_currency: "EUR",
     instant_tax_rate: "0",
@@ -371,6 +375,7 @@ function ServiceModal({
         price_min: String(editing.price_min ?? ""),
         price_max: String(editing.price_max ?? ""),
         currency: editing.currency ?? "EUR",
+        price_unit: editing.price_unit ?? "flat",
         instant_price: String(editing.instant_price ?? ""),
         instant_currency: editing.instant_currency ?? "EUR",
         instant_tax_rate: String(editing.instant_tax_rate ?? "0"),
@@ -378,7 +383,7 @@ function ServiceModal({
     } else {
       setIsInstant(false);
       setPriceOnRequest(false);
-      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR", instant_price: "", instant_currency: "EUR", instant_tax_rate: "0" });
+      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR", price_unit: "flat", instant_price: "", instant_currency: "EUR", instant_tax_rate: "0" });
     }
   }, [editing, isOpen]);
 
@@ -399,6 +404,7 @@ function ServiceModal({
       fd.append("price_min", form.price_min);
       fd.append("price_max", form.price_max);
       fd.append("currency", form.currency);
+      fd.append("price_unit", form.price_unit || "flat");
     }
     fetcher.submit(fd, { method: "post" });
     onClose();
@@ -440,40 +446,67 @@ function ServiceModal({
         )}
 
         {!priceOnRequest && !isInstant && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 10 }}>
-            <div>
-              <label style={labelStyle}>Min Price</label>
-              <input
-                type="number"
-                style={inputStyle}
-                value={form.price_min}
-                onChange={(e) => setForm((f) => ({ ...f, price_min: e.target.value }))}
-                placeholder="500"
-              />
+          <>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 10 }}>
+              <div>
+                <label style={labelStyle}>Min Price</label>
+                <input
+                  type="number"
+                  style={inputStyle}
+                  value={form.price_min}
+                  onChange={(e) => setForm((f) => ({ ...f, price_min: e.target.value }))}
+                  placeholder="500"
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Max Price</label>
+                <input
+                  type="number"
+                  style={inputStyle}
+                  value={form.price_max}
+                  onChange={(e) => setForm((f) => ({ ...f, price_max: e.target.value }))}
+                  placeholder="2000"
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Currency</label>
+                <select
+                  style={{ ...inputStyle }}
+                  value={form.currency}
+                  onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                >
+                  <option value="EUR">EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </div>
             </div>
             <div>
-              <label style={labelStyle}>Max Price</label>
-              <input
-                type="number"
-                style={inputStyle}
-                value={form.price_max}
-                onChange={(e) => setForm((f) => ({ ...f, price_max: e.target.value }))}
-                placeholder="2000"
-              />
+              <label style={labelStyle}>Price Unit</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {([ { value: "flat", label: "Flat" }, { value: "hour", label: "Per Hour" }, { value: "day", label: "Per Day" }, { value: "unit", label: "Per Unit" } ] as const).map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, price_unit: value }))}
+                    style={{
+                      padding: "5px 14px",
+                      borderRadius: 20,
+                      border: form.price_unit === value ? `1.5px solid ${ACCENT}` : "1px solid var(--border)",
+                      background: form.price_unit === value ? "rgba(245,166,35,0.1)" : "transparent",
+                      color: form.price_unit === value ? ACCENT : "var(--text-muted)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      fontFamily: FONT_BODY,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div>
-              <label style={labelStyle}>Currency</label>
-              <select
-                style={{ ...inputStyle }}
-                value={form.currency}
-                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-              >
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-                <option value="GBP">GBP</option>
-              </select>
-            </div>
-          </div>
+          </>
         )}
 
         <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
