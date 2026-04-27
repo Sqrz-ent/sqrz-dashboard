@@ -153,12 +153,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         "id", "promote_type", "promote_link_id", "target_audience", "goal",
         "channel", "duration", "utm_url", "budget_amount", "budget_currency",
         "status", "created_at", "starts_at", "ends_at",
-        "stat_impressions", "stat_reach", "stat_link_clicks", "stat_profile_visits",
-        "stat_return_visits", "stat_inquiries", "stat_cost_per_click", "stat_cpm",
-        "stats_updated_at",
-        "data_source", "live_profile_visits", "live_unique_visitors",
-        "live_return_visits", "live_visits_last_7_days", "live_jitsu_pageviews",
-        "live_visits_sqrz_domain", "live_visits_custom_domain",
+        "live_profile_visits", "live_unique_visitors",
+        "live_visits_last_7_days", "live_visits_sqrz_domain", "live_visits_custom_domain",
         "campaign_days_elapsed", "campaign_duration_days", "campaign_days_remaining",
       ].join(", "))
       .eq("profile_id", profile.id as string)
@@ -834,44 +830,14 @@ export default function BoostPage() {
                 : null;
               const isStatsOpen = !!openStats[c.id];
 
-              const isLive = c.data_source === "live";
-              const profileVisitsValue = isLive ? c.live_profile_visits : c.stat_profile_visits;
-              const returnVisitsValue  = isLive ? c.live_return_visits  : c.stat_return_visits;
-              const manualSublabel     = !isLive && c.data_source === "manual" ? "Platform reported" : null;
-              const domainSplit =
-                isLive && ((c.live_visits_sqrz_domain ?? 0) > 0 || (c.live_visits_custom_domain ?? 0) > 0)
-                  ? `${c.live_visits_sqrz_domain ?? 0} via SQRZ · ${c.live_visits_custom_domain ?? 0} via custom domain`
-                  : null;
-              const profileVisitsSublabel = isLive ? domainSplit : manualSublabel;
-              const returnVisitsSublabel  = manualSublabel;
-
-              const showUniqueVisitors = isLive && (c.live_unique_visitors ?? 0) > 0;
-              const showLast7Days      = (c.campaign_days_remaining ?? 0) > 0;
-
-              const allStatsEmpty =
-                !c.stat_impressions &&
-                !c.stat_reach &&
-                !c.stat_link_clicks &&
-                !profileVisitsValue &&
-                !returnVisitsValue &&
-                !c.stat_inquiries &&
-                !c.stat_cost_per_click &&
-                !c.stat_cpm &&
-                !showUniqueVisitors &&
-                !showLast7Days;
-
               const STATS_ROWS = [
-                { label: "Impressions",    value: c.stat_impressions,    format: "int",      sublabel: null                  },
-                { label: "Reach",          value: c.stat_reach,          format: "int",      sublabel: null                  },
-                { label: "Link Clicks",    value: c.stat_link_clicks,    format: "int",      sublabel: null                  },
-                { label: "Profile Visits", value: profileVisitsValue,    format: "int",      sublabel: profileVisitsSublabel },
-                { label: "Return Visits",  value: returnVisitsValue,     format: "int",      sublabel: returnVisitsSublabel  },
-                { label: "Inquiries",      value: c.stat_inquiries,      format: "int",      sublabel: null                  },
-                { label: "Cost per Click", value: c.stat_cost_per_click, format: "currency", sublabel: null                  },
-                { label: "CPM",            value: c.stat_cpm,            format: "currency", sublabel: null                  },
-                ...(showUniqueVisitors ? [{ label: "Unique Visitors",  value: c.live_unique_visitors,    format: "int", sublabel: null }] : []),
-                ...(showLast7Days      ? [{ label: "Last 7 Days",      value: c.live_visits_last_7_days, format: "int", sublabel: null }] : []),
+                { label: "Profile Visits",  value: c.live_profile_visits,        format: "int" },
+                { label: "Unique Visitors", value: c.live_unique_visitors,        format: "int" },
+                { label: "Last 7 Days",     value: c.live_visits_last_7_days,     format: "int" },
+                { label: "SQRZ Domain",     value: c.live_visits_sqrz_domain,     format: "int" },
+                { label: "Custom Domain",   value: c.live_visits_custom_domain,   format: "int" },
               ];
+              const allStatsEmpty = STATS_ROWS.every((r) => !r.value);
 
               return (
                 <div
@@ -1023,7 +989,7 @@ export default function BoostPage() {
                               gap: 8,
                               marginBottom: 14,
                             }}>
-                              {STATS_ROWS.map(({ label, value, format, sublabel }) => (
+                              {STATS_ROWS.map(({ label, value, format }) => (
                                 <div
                                   key={label}
                                   style={{
@@ -1043,11 +1009,6 @@ export default function BoostPage() {
                                         ? `$${Number(value).toFixed(2)}`
                                         : Number(value).toLocaleString()}
                                   </div>
-                                  {sublabel && (
-                                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>
-                                      {sublabel}
-                                    </div>
-                                  )}
                                 </div>
                               ))}
                             </div>
@@ -1061,13 +1022,7 @@ export default function BoostPage() {
                               </p>
                             )}
 
-                            {/* Stats updated at */}
-                            {c.stats_updated_at && (
-                              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.5 }}>
-                                Stats updated:{" "}
-                                {new Date(c.stats_updated_at).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}
-                              </p>
-                            )}
+
                           </>
                         )}
 
