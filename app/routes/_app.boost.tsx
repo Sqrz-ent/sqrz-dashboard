@@ -161,7 +161,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         "campaign_days_elapsed", "campaign_days_remaining", "campaign_duration_days",
       ].join(", "))
       .eq("profile_id", profile.id as string)
-      .in("status", ["draft", "pending", "preparing", "live", "completed"])
       .order("created_at", { ascending: false }),
     supabase
       .from("private_booking_links")
