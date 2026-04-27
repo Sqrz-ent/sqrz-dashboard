@@ -86,10 +86,15 @@ type Campaign = {
   data_source: "live" | "manual" | null;
   live_profile_visits: number | null;
   live_return_visits: number | null;
+  live_unique_visitors: number | null;
+  live_visits_last_7_days: number | null;
   live_jitsu_pageviews: number | null;
   live_countries: string[] | null;
   live_visits_sqrz_domain: number | null;
   live_visits_custom_domain: number | null;
+  campaign_days_elapsed: number | null;
+  campaign_days_remaining: number | null;
+  campaign_duration_days: number | null;
 };
 
 const BUDGET_OPTIONS = [
@@ -150,8 +155,10 @@ export async function loader({ request }: Route.LoaderArgs) {
         "stat_return_visits", "stat_inquiries", "stat_cost_per_click", "stat_cpm",
         "stats_updated_at",
         "data_source", "live_profile_visits", "live_return_visits",
+        "live_unique_visitors", "live_visits_last_7_days",
         "live_jitsu_pageviews", "live_countries",
         "live_visits_sqrz_domain", "live_visits_custom_domain",
+        "campaign_days_elapsed", "campaign_days_remaining", "campaign_duration_days",
       ].join(", "))
       .eq("profile_id", profile.id as string)
       .in("status", ["draft", "pending", "preparing", "live", "completed"])
@@ -830,7 +837,16 @@ export default function BoostPage() {
               const isLive = c.data_source === "live";
               const profileVisitsValue = isLive ? c.live_profile_visits : c.stat_profile_visits;
               const returnVisitsValue  = isLive ? c.live_return_visits  : c.stat_return_visits;
-              const visitsSublabel     = !isLive && c.data_source === "manual" ? "Platform data" : null;
+              const manualSublabel     = !isLive && c.data_source === "manual" ? "Platform reported" : null;
+              const domainSplit =
+                isLive && ((c.live_visits_sqrz_domain ?? 0) > 0 || (c.live_visits_custom_domain ?? 0) > 0)
+                  ? `${c.live_visits_sqrz_domain ?? 0} via SQRZ · ${c.live_visits_custom_domain ?? 0} via custom domain`
+                  : null;
+              const profileVisitsSublabel = isLive ? domainSplit : manualSublabel;
+              const returnVisitsSublabel  = manualSublabel;
+
+              const showUniqueVisitors = isLive && (c.live_unique_visitors ?? 0) > 0;
+              const showLast7Days      = (c.campaign_days_remaining ?? 0) > 0;
 
               const allStatsEmpty =
                 !c.stat_impressions &&
@@ -840,17 +856,21 @@ export default function BoostPage() {
                 !returnVisitsValue &&
                 !c.stat_inquiries &&
                 !c.stat_cost_per_click &&
-                !c.stat_cpm;
+                !c.stat_cpm &&
+                !showUniqueVisitors &&
+                !showLast7Days;
 
               const STATS_ROWS = [
-                { label: "Impressions",    value: c.stat_impressions,    format: "int",      sublabel: null          },
-                { label: "Reach",          value: c.stat_reach,          format: "int",      sublabel: null          },
-                { label: "Link Clicks",    value: c.stat_link_clicks,    format: "int",      sublabel: null          },
-                { label: "Profile Visits", value: profileVisitsValue,    format: "int",      sublabel: visitsSublabel },
-                { label: "Return Visits",  value: returnVisitsValue,     format: "int",      sublabel: visitsSublabel },
-                { label: "Inquiries",      value: c.stat_inquiries,      format: "int",      sublabel: null          },
-                { label: "Cost per Click", value: c.stat_cost_per_click, format: "currency", sublabel: null          },
-                { label: "CPM",            value: c.stat_cpm,            format: "currency", sublabel: null          },
+                { label: "Impressions",    value: c.stat_impressions,    format: "int",      sublabel: null                  },
+                { label: "Reach",          value: c.stat_reach,          format: "int",      sublabel: null                  },
+                { label: "Link Clicks",    value: c.stat_link_clicks,    format: "int",      sublabel: null                  },
+                { label: "Profile Visits", value: profileVisitsValue,    format: "int",      sublabel: profileVisitsSublabel },
+                { label: "Return Visits",  value: returnVisitsValue,     format: "int",      sublabel: returnVisitsSublabel  },
+                { label: "Inquiries",      value: c.stat_inquiries,      format: "int",      sublabel: null                  },
+                { label: "Cost per Click", value: c.stat_cost_per_click, format: "currency", sublabel: null                  },
+                { label: "CPM",            value: c.stat_cpm,            format: "currency", sublabel: null                  },
+                ...(showUniqueVisitors ? [{ label: "Unique Visitors",  value: c.live_unique_visitors,    format: "int", sublabel: null }] : []),
+                ...(showLast7Days      ? [{ label: "Last 7 Days",      value: c.live_visits_last_7_days, format: "int", sublabel: null }] : []),
               ];
 
               return (
@@ -1031,6 +1051,15 @@ export default function BoostPage() {
                                 </div>
                               ))}
                             </div>
+
+                            {/* Campaign progress */}
+                            {c.campaign_days_elapsed != null && c.campaign_duration_days != null && (
+                              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px", lineHeight: 1.5 }}>
+                                {(c.campaign_days_remaining ?? 0) === 0
+                                  ? "Campaign ended"
+                                  : `Day ${c.campaign_days_elapsed} of ${c.campaign_duration_days}`}
+                              </p>
+                            )}
 
                             {/* Stats updated at */}
                             {c.stats_updated_at && (
