@@ -74,6 +74,8 @@ type Campaign = {
   budget_currency: string;
   status: "draft" | "pending" | "preparing" | "live" | "completed";
   created_at: string;
+  starts_at: string | null;
+  ends_at: string | null;
   stat_impressions: number | null;
   stat_reach: number | null;
   stat_link_clicks: number | null;
@@ -144,21 +146,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const [{ data: campaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
+  const [{ data: rawCampaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
     supabase
-      .from("boost_campaign_stats")
+      .from("boost_campaigns")
       .select([
         "id", "promote_type", "promote_link_id", "target_audience", "goal",
         "channel", "duration", "utm_url", "budget_amount", "budget_currency",
-        "status", "created_at",
+        "status", "created_at", "starts_at", "ends_at",
         "stat_impressions", "stat_reach", "stat_link_clicks", "stat_profile_visits",
         "stat_return_visits", "stat_inquiries", "stat_cost_per_click", "stat_cpm",
         "stats_updated_at",
-        "data_source", "live_profile_visits", "live_return_visits",
-        "live_unique_visitors", "live_visits_last_7_days",
-        "live_jitsu_pageviews", "live_countries",
-        "live_visits_sqrz_domain", "live_visits_custom_domain",
-        "campaign_days_elapsed", "campaign_days_remaining", "campaign_duration_days",
       ].join(", "))
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
@@ -173,13 +170,34 @@ export async function loader({ request }: Route.LoaderArgs) {
       .eq("profile_id", profile.id as string),
   ]);
 
+  const campaigns = (rawCampaigns ?? []).map((c: Record<string, unknown>) => ({
+    ...c,
+    data_source: "manual",
+    live_profile_visits: 0,
+    live_unique_visitors: 0,
+    live_return_visits: 0,
+    live_visits_last_7_days: 0,
+    live_jitsu_pageviews: 0,
+    live_visits_sqrz_domain: 0,
+    live_visits_custom_domain: 0,
+    campaign_days_elapsed: c.starts_at
+      ? Math.floor((Date.now() - new Date(c.starts_at as string).getTime()) / 86400000)
+      : null,
+    campaign_duration_days: c.starts_at && c.ends_at
+      ? Math.floor((new Date(c.ends_at as string).getTime() - new Date(c.starts_at as string).getTime()) / 86400000)
+      : null,
+    campaign_days_remaining: c.ends_at
+      ? Math.max(0, Math.floor((new Date(c.ends_at as string).getTime() - Date.now()) / 86400000))
+      : 0,
+  }));
+
   return Response.json(
     {
       plan_id: (profile.plan_id as number | null) ?? null,
       is_beta: (profile.is_beta as boolean) ?? false,
       grow_qualified: (profile.grow_qualified as boolean) ?? false,
       campaign_count: campaignCount ?? 0,
-      campaigns: campaigns ?? [],
+      campaigns,
       privateLinks: privateLinks ?? [],
       email: (profile.email as string) ?? "",
       profile_id: profile.id as string,
