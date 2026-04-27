@@ -49,25 +49,32 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (profile) {
     const planId = profile.plan_id as number | null | undefined;
 
-    const [subResult, planResult] = await Promise.all([
-      supabase
-        .from("subscriptions")
-        .select("status, current_period_end")
-        .eq("profile_id", profile.id as string)
-        .eq("status", "active")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      planId
-        ? supabase.from("plans").select("id, name, description").eq("id", planId).maybeSingle()
-        : Promise.resolve({ data: null }),
-    ]);
+    const subResult = await supabase
+      .from("subscriptions")
+      .select("status, current_period_end, stripe_price_id")
+      .eq("profile_id", profile.id as string)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const sub = subResult.data as Record<string, unknown> | null;
+    const priceId = sub?.stripe_price_id as string | null;
+
+    const planResult = priceId
+      ? await supabase
+          .from("plans")
+          .select("name, description")
+          .or(`stripe_price_monthly.eq.${priceId},stripe_price_yearly.eq.${priceId}`)
+          .maybeSingle()
+      : planId
+        ? await supabase.from("plans").select("name, description").eq("id", planId).maybeSingle()
+        : { data: null };
 
     subscriptionData = {
       planName: (planResult.data as Record<string, unknown> | null)?.name as string ?? "No plan",
       planDescription: (planResult.data as Record<string, unknown> | null)?.description as string ?? null,
-      status: (subResult.data as Record<string, unknown> | null)?.status as string ?? null,
-      currentPeriodEnd: (subResult.data as Record<string, unknown> | null)?.current_period_end as string ?? null,
+      status: sub?.status as string ?? null,
+      currentPeriodEnd: sub?.current_period_end as string ?? null,
     };
   }
 
