@@ -83,6 +83,13 @@ type Campaign = {
   stat_cost_per_click: number | null;
   stat_cpm: number | null;
   stats_updated_at: string | null;
+  data_source: "live" | "manual" | null;
+  live_profile_visits: number | null;
+  live_return_visits: number | null;
+  live_jitsu_pageviews: number | null;
+  live_countries: string[] | null;
+  live_visits_sqrz_domain: number | null;
+  live_visits_custom_domain: number | null;
 };
 
 const BUDGET_OPTIONS = [
@@ -134,7 +141,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const [{ data: campaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
     supabase
-      .from("boost_campaigns")
+      .from("boost_campaign_stats")
       .select([
         "id", "promote_type", "promote_link_id", "target_audience", "goal",
         "channel", "duration", "utm_url", "budget_amount", "budget_currency",
@@ -142,6 +149,9 @@ export async function loader({ request }: Route.LoaderArgs) {
         "stat_impressions", "stat_reach", "stat_link_clicks", "stat_profile_visits",
         "stat_return_visits", "stat_inquiries", "stat_cost_per_click", "stat_cpm",
         "stats_updated_at",
+        "data_source", "live_profile_visits", "live_return_visits",
+        "live_jitsu_pageviews", "live_countries",
+        "live_visits_sqrz_domain", "live_visits_custom_domain",
       ].join(", "))
       .eq("profile_id", profile.id as string)
       .in("status", ["draft", "pending", "preparing", "live", "completed"])
@@ -817,26 +827,31 @@ export default function BoostPage() {
                 : null;
               const isStatsOpen = !!openStats[c.id];
 
+              const isLive = c.data_source === "live";
+              const profileVisitsValue = isLive ? c.live_profile_visits : c.stat_profile_visits;
+              const returnVisitsValue  = isLive ? c.live_return_visits  : c.stat_return_visits;
+              const visitsSublabel     = !isLive && c.data_source === "manual" ? "Platform data" : null;
+
               const allStatsEmpty =
                 !c.stat_impressions &&
                 !c.stat_reach &&
                 !c.stat_link_clicks &&
-                !c.stat_profile_visits &&
-                !c.stat_return_visits &&
+                !profileVisitsValue &&
+                !returnVisitsValue &&
                 !c.stat_inquiries &&
                 !c.stat_cost_per_click &&
                 !c.stat_cpm;
 
               const STATS_ROWS = [
-                { label: "Impressions",    value: c.stat_impressions,    format: "int"      },
-                { label: "Reach",          value: c.stat_reach,          format: "int"      },
-                { label: "Link Clicks",    value: c.stat_link_clicks,    format: "int"      },
-                { label: "Profile Visits", value: c.stat_profile_visits, format: "int"      },
-                { label: "Return Visits",  value: c.stat_return_visits,  format: "int"      },
-                { label: "Inquiries",      value: c.stat_inquiries,      format: "int"      },
-                { label: "Cost per Click", value: c.stat_cost_per_click, format: "currency" },
-                { label: "CPM",            value: c.stat_cpm,            format: "currency" },
-              ] as const;
+                { label: "Impressions",    value: c.stat_impressions,    format: "int",      sublabel: null          },
+                { label: "Reach",          value: c.stat_reach,          format: "int",      sublabel: null          },
+                { label: "Link Clicks",    value: c.stat_link_clicks,    format: "int",      sublabel: null          },
+                { label: "Profile Visits", value: profileVisitsValue,    format: "int",      sublabel: visitsSublabel },
+                { label: "Return Visits",  value: returnVisitsValue,     format: "int",      sublabel: visitsSublabel },
+                { label: "Inquiries",      value: c.stat_inquiries,      format: "int",      sublabel: null          },
+                { label: "Cost per Click", value: c.stat_cost_per_click, format: "currency", sublabel: null          },
+                { label: "CPM",            value: c.stat_cpm,            format: "currency", sublabel: null          },
+              ];
 
               return (
                 <div
@@ -988,7 +1003,7 @@ export default function BoostPage() {
                               gap: 8,
                               marginBottom: 14,
                             }}>
-                              {STATS_ROWS.map(({ label, value, format }) => (
+                              {STATS_ROWS.map(({ label, value, format, sublabel }) => (
                                 <div
                                   key={label}
                                   style={{
@@ -1008,6 +1023,11 @@ export default function BoostPage() {
                                         ? `$${Number(value).toFixed(2)}`
                                         : Number(value).toLocaleString()}
                                   </div>
+                                  {sublabel && (
+                                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>
+                                      {sublabel}
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
