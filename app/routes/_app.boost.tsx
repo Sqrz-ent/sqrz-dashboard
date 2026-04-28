@@ -97,8 +97,7 @@ type Campaign = {
   live_service_clicks: number | null;
   live_booking_modal_opens: number | null;
   live_booking_requests: number | null;
-  live_conversion_rate: number | null;
-  live_top_service: string | null;
+  live_chat_opens: number | null;
   campaign_days_elapsed: number | null;
   campaign_days_remaining: number | null;
   campaign_duration_days: number | null;
@@ -160,8 +159,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         "status", "created_at", "starts_at", "ends_at",
         "live_profile_visits", "live_unique_visitors",
         "live_visits_last_7_days", "live_visits_sqrz_domain", "live_visits_custom_domain",
-        "live_service_clicks", "live_booking_modal_opens", "live_booking_requests",
-        "live_conversion_rate", "live_top_service",
+        "live_service_clicks", "live_booking_modal_opens", "live_booking_requests", "live_chat_opens",
         "campaign_days_elapsed", "campaign_duration_days", "campaign_days_remaining",
       ].join(", "))
       .eq("profile_id", profile.id as string)
@@ -849,17 +847,18 @@ export default function BoostPage() {
                 : null;
               const isStatsOpen = !!openStats[c.id];
 
+              const engagedTotal =
+                (c.live_service_clicks ?? 0) +
+                (c.live_booking_modal_opens ?? 0) +
+                (c.live_chat_opens ?? 0);
+
               const STATS_ROWS = [
-                { label: "Profile Visits",    value: c.live_profile_visits,        format: "int" },
-                { label: "Unique Visitors",   value: c.live_unique_visitors,        format: "int" },
-                { label: "Last 7 Days",       value: c.live_visits_last_7_days,     format: "int" },
-                { label: "SQRZ Domain",       value: c.live_visits_sqrz_domain,     format: "int" },
-                { label: "Custom Domain",     value: c.live_visits_custom_domain,   format: "int" },
-                ...((c.live_service_clicks ?? 0) > 0       ? [{ label: "Service Clicks",    value: c.live_service_clicks,       format: "int"     }] : []),
-                ...((c.live_booking_modal_opens ?? 0) > 0  ? [{ label: "Modal Opens",        value: c.live_booking_modal_opens,  format: "int"     }] : []),
-                { label: "Booking Requests",  value: c.live_booking_requests ?? 0, format: "int" },
-                ...((c.live_profile_visits ?? 0) > 0       ? [{ label: "Conversion",         value: c.live_conversion_rate,      format: "percent" }] : []),
-                ...(c.live_top_service                     ? [{ label: "Top Service",        value: c.live_top_service,          format: "text"    }] : []),
+                { label: "Profile Visits",  value: c.live_profile_visits,      format: "int" },
+                { label: "Unique Visitors", value: c.live_unique_visitors,      format: "int" },
+                { label: "Last 7 Days",     value: c.live_visits_last_7_days,   format: "int" },
+                { label: "SQRZ Domain",     value: c.live_visits_sqrz_domain,   format: "int" },
+                { label: "Custom Domain",   value: c.live_visits_custom_domain, format: "int" },
+                ...(engagedTotal > 0 ? [{ label: "Engaged", value: engagedTotal, format: "int", sublabel: "service clicks · modal opens · chat opens" }] : []),
               ];
               const allStatsEmpty = STATS_ROWS.every((r) => !r.value);
 
@@ -1013,7 +1012,7 @@ export default function BoostPage() {
                               gap: 8,
                               marginBottom: 14,
                             }}>
-                              {STATS_ROWS.map(({ label, value, format }) => (
+                              {STATS_ROWS.map(({ label, value, format, sublabel }: { label: string; value: number | null; format: string; sublabel?: string }) => (
                                 <div
                                   key={label}
                                   style={{
@@ -1031,12 +1030,13 @@ export default function BoostPage() {
                                       ? "—"
                                       : format === "currency"
                                         ? `$${Number(value).toFixed(2)}`
-                                        : format === "percent"
-                                          ? `${Number(value).toFixed(1)}%`
-                                          : format === "text"
-                                            ? String(value)
-                                            : Number(value).toLocaleString()}
+                                        : Number(value).toLocaleString()}
                                   </div>
+                                  {sublabel && (
+                                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.3 }}>
+                                      {sublabel}
+                                    </div>
+                                  )}
                                 </div>
                               ))}
                             </div>
