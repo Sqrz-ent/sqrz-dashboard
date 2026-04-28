@@ -350,6 +350,25 @@ export default function BoostPage() {
   const growFee = Math.round(growBudgetNum * 0.2 * 100) / 100;
   const growTotal = growBudgetNum + growFee;
 
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  async function handleGrowRetry(budget: number) {
+    setRetryingId(String(budget));
+    try {
+      const res = await fetch("/api/grow/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ budget }),
+      });
+      const data = await res.json();
+      if (res.ok && data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    } catch { /* silent */ } finally {
+      setRetryingId(null);
+    }
+  }
+
   async function handleGrowCheckout() {
     setGrowLoading(true);
     setGrowError(null);
@@ -950,25 +969,24 @@ export default function BoostPage() {
                             Proceed to Payment →
                           </a>
                         ) : (
-                          <a
-                            href={GROW_MEETING_URL}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            onClick={() => handleGrowRetry(c.budget_amount)}
+                            disabled={retryingId !== null}
                             style={{
                               display: "inline-block",
                               padding: "6px 14px",
-                              background: "var(--surface)",
-                              color: ACCENT,
-                              border: `1px solid ${ACCENT}`,
+                              background: ACCENT,
+                              color: "#111",
+                              border: "none",
                               borderRadius: 8,
                               fontSize: 12,
                               fontWeight: 700,
-                              textDecoration: "none",
+                              cursor: retryingId !== null ? "wait" : "pointer",
                               whiteSpace: "nowrap" as const,
                             }}
                           >
-                            Contact us to complete payment →
-                          </a>
+                            {retryingId !== null ? "Redirecting…" : "Complete Payment →"}
+                          </button>
                         )
                       )}
                     </div>
