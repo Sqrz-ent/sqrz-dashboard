@@ -154,15 +154,17 @@ export async function loader({ request }: Route.LoaderArgs) {
     supabase
       .from("boost_campaign_stats")
       .select([
-        "id", "promote_type", "promote_link_id", "target_audience", "goal",
-        "channel", "duration", "utm_url", "budget_amount", "budget_currency",
-        "status", "created_at", "starts_at", "ends_at",
+        "id", "profile_id", "channel", "campaign_type",
+        "promote_type", "promote_link_id", "target_audience",
+        "goal", "duration", "utm_url", "budget_amount",
+        "budget_currency", "status", "created_at",
+        "starts_at", "ends_at",
         "live_profile_visits", "live_unique_visitors",
-        "live_visits_last_7_days",
-        "live_engaged", "live_service_clicks", "live_booking_modal_opens",
-        "live_booking_requests", "live_chat_opens", "live_download_clicks",
-        "campaign_days_elapsed", "campaign_duration_days", "campaign_days_remaining",
-        "data_source",
+        "live_visits_last_7_days", "live_engaged",
+        "live_service_clicks", "live_booking_modal_opens",
+        "live_chat_opens", "live_download_clicks",
+        "campaign_days_elapsed", "campaign_duration_days",
+        "campaign_days_remaining", "data_source",
       ].join(", "))
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
