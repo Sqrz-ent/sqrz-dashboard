@@ -207,8 +207,8 @@ export default function PartnerOnboarding() {
                 Booking commissions
               </div>
               <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                Refer creatives with Stripe Connect into bookings. Earn 2.5% of every completed
-                booking value.
+                Actively refer a creative to a specific booker by sharing their profile link. Earn
+                2.5% when that booking completes. Requires Stripe Connect on both sides.
               </div>
             </div>
 
@@ -300,12 +300,12 @@ export default function PartnerOnboarding() {
             </p>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                "Commissions are earned on gross subscription revenue and completed bookings processed through SQRZ.",
-                "Commission window is 12 months from a referred user's first payment.",
-                "Payouts are processed monthly for balances above €25.",
-                "SQRZ reserves the right to pause or revoke partner status for abuse or violation of platform terms.",
-                "Booking referral commissions (2.5%) apply only when the referred profile has active Stripe Connect.",
-                "You may not refer yourself or create fraudulent accounts.",
+                "Subscription commissions (30–50%) are earned on gross revenue from users who sign up through your referral link, for 12 months from their first payment.",
+                "Booking commissions (2.5%) are earned per booking only when you actively refer a specific creative to a specific booker by sharing their profile link. There are no passive booking commissions — each referral requires a deliberate action.",
+                "Booking commissions apply only to creatives already in your SQRZ partner network who have active Stripe Connect enabled.",
+                "Payouts are processed monthly for accumulated balances above €25 via Stripe Connect.",
+                "You may not refer yourself, create fraudulent accounts, or generate artificial activity to inflate commissions.",
+                "SQRZ reserves the right to pause or revoke partner status for abuse, fraud, or violation of platform terms.",
               ].map((term, i) => (
                 <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>
                   <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>•</span>
