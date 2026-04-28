@@ -63,45 +63,46 @@ type PrivateLink = {
 
 type Campaign = {
   id: string;
+  created_at: string;
+  profile_id: string;
   promote_type: string;
   promote_link_id: string | null;
-  target_audience: string | null;
+  promote_service_id: string | null;
   goal: string | null;
+  budget_amount: number;
+  budget_currency: string;
+  notes: string | null;
+  status: "draft" | "pending" | "pending_payment" | "preparing" | "live" | "completed";
   channel: string | null;
   duration: string | null;
   utm_url: string | null;
-  budget_amount: number;
-  budget_currency: string;
-  status: "draft" | "pending" | "pending_payment" | "preparing" | "live" | "completed";
-  stripe_payment_link_url: string | null;
-  created_at: string;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
   starts_at: string | null;
   ends_at: string | null;
-  stat_impressions: number | null;
-  stat_reach: number | null;
-  stat_link_clicks: number | null;
-  stat_profile_visits: number | null;
-  stat_return_visits: number | null;
-  stat_inquiries: number | null;
-  stat_cost_per_click: number | null;
-  stat_cpm: number | null;
-  stats_updated_at: string | null;
+  target_audience: string | null;
+  campaign_type: string | null;
+  fee_pct: number | null;
+  fee_amount: number | null;
+  stripe_payment_id: string | null;
+  stripe_payment_status: string | null;
+  stripe_payment_link_url: string | null;
+  requires_payment: boolean | null;
+  payment_expires_at: string | null;
   data_source: "live" | "manual" | null;
   live_profile_visits: number | null;
-  live_return_visits: number | null;
   live_unique_visitors: number | null;
   live_visits_last_7_days: number | null;
-  live_jitsu_pageviews: number | null;
-  live_countries: string[] | null;
   live_engaged: number | null;
   live_service_clicks: number | null;
   live_booking_modal_opens: number | null;
-  live_booking_requests: number | null;
   live_chat_opens: number | null;
   live_download_clicks: number | null;
   campaign_days_elapsed: number | null;
-  campaign_days_remaining: number | null;
   campaign_duration_days: number | null;
+  campaign_days_remaining: number | null;
 };
 
 const BUDGET_OPTIONS = [
@@ -155,20 +156,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [{ data: campaigns }, { data: privateLinks }, { count: campaignCount }] = await Promise.all([
     supabase
       .from("boost_campaign_stats")
-      .select([
-        "id", "profile_id", "channel", "campaign_type",
-        "promote_type", "promote_link_id", "target_audience",
-        "goal", "duration", "utm_url", "budget_amount",
-        "budget_currency", "status", "created_at",
-        "starts_at", "ends_at",
-        "live_profile_visits", "live_unique_visitors",
-        "live_visits_last_7_days", "live_engaged",
-        "live_service_clicks", "live_booking_modal_opens",
-        "live_chat_opens", "live_download_clicks",
-        "campaign_days_elapsed", "campaign_duration_days",
-        "campaign_days_remaining", "data_source",
-        "stripe_payment_link_url",
-      ].join(", "))
+      .select(`
+        id, created_at, profile_id, promote_type, promote_link_id,
+        promote_service_id, goal, budget_amount, budget_currency,
+        notes, status, channel, duration, utm_url, utm_source,
+        utm_medium, utm_campaign, utm_content, starts_at, ends_at,
+        target_audience, campaign_type, fee_pct, fee_amount,
+        stripe_payment_id, stripe_payment_status,
+        stripe_payment_link_url,
+        requires_payment, payment_expires_at,
+        live_profile_visits, live_unique_visitors,
+        live_visits_last_7_days, live_engaged,
+        live_service_clicks, live_booking_modal_opens,
+        live_chat_opens, live_download_clicks,
+        campaign_days_elapsed, campaign_duration_days,
+        campaign_days_remaining, data_source
+      `)
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
     supabase
