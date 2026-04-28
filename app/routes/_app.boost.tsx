@@ -162,6 +162,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         "live_engaged", "live_service_clicks", "live_booking_modal_opens",
         "live_booking_requests", "live_chat_opens", "live_download_clicks",
         "campaign_days_elapsed", "campaign_duration_days", "campaign_days_remaining",
+        "data_source",
       ].join(", "))
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
@@ -182,7 +183,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       is_beta: (profile.is_beta as boolean) ?? false,
       grow_qualified: (profile.grow_qualified as boolean) ?? false,
       campaign_count: campaignCount ?? 0,
-      campaigns,
+      campaigns: campaigns ?? [],
       privateLinks: privateLinks ?? [],
       email: (profile.email as string) ?? "",
       profile_id: profile.id as string,
