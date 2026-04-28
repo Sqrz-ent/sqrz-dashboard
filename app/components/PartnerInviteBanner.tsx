@@ -28,7 +28,7 @@ export default function PartnerInviteBanner({ invitedAt }: { invitedAt: string |
         </p>
       </div>
       <Link
-        to="/office/partner-onboarding"
+        to="/partner-onboarding"
         style={{
           display: "inline-block",
           padding: "8px 18px",
