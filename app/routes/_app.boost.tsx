@@ -132,7 +132,7 @@ const GROW_MEETING_URL =
 const DURATION_DAYS: Record<string, number> = {
   "1 Week":  7,
   "2 Weeks": 14,
-  "1 Month": 30,
+  "4 Weeks": 28,
 };
 
 function addDays(date: Date, days: number): Date {
@@ -220,7 +220,8 @@ export async function action({ request }: Route.ActionArgs) {
     .from("boost_campaigns")
     .select("id, status, ends_at")
     .eq("profile_id", profile.id as string)
-    .in("status", ["pending", "live", "preparing"]);
+    .in("status", ["pending", "live", "preparing"])
+    .eq("campaign_type", "boost");
 
   const trulyActive = (activeCampaigns ?? []).filter((c) => {
     if (c.status === "live" && c.ends_at) {
@@ -602,7 +603,7 @@ export default function BoostPage() {
     <div style={{ marginBottom: 20 }}>
       <label style={labelStyle}>Campaign Duration</label>
       <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-        {["1 Week", "2 Weeks", "1 Month"].map((d) => (
+        {["1 Week", "2 Weeks", "4 Weeks"].map((d) => (
           <button key={d} type="button" onClick={() => setDuration(d)} style={pillStyle(duration === d)}>
             {d}
           </button>
