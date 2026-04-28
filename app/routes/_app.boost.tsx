@@ -94,6 +94,11 @@ type Campaign = {
   live_countries: string[] | null;
   live_visits_sqrz_domain: number | null;
   live_visits_custom_domain: number | null;
+  live_service_clicks: number | null;
+  live_booking_modal_opens: number | null;
+  live_booking_requests: number | null;
+  live_conversion_rate: number | null;
+  live_top_service: string | null;
   campaign_days_elapsed: number | null;
   campaign_days_remaining: number | null;
   campaign_duration_days: number | null;
@@ -155,6 +160,8 @@ export async function loader({ request }: Route.LoaderArgs) {
         "status", "created_at", "starts_at", "ends_at",
         "live_profile_visits", "live_unique_visitors",
         "live_visits_last_7_days", "live_visits_sqrz_domain", "live_visits_custom_domain",
+        "live_service_clicks", "live_booking_modal_opens", "live_booking_requests",
+        "live_conversion_rate", "live_top_service",
         "campaign_days_elapsed", "campaign_duration_days", "campaign_days_remaining",
       ].join(", "))
       .eq("profile_id", profile.id as string)
@@ -736,6 +743,18 @@ export default function BoostPage() {
               </div>
             )}
 
+            <div style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "10px 14px",
+              fontSize: 13,
+              color: "var(--text-muted)",
+              marginBottom: 16,
+            }}>
+              💡 <strong>Tip:</strong> Add your Meta or Google pixel in Profile → Settings to retarget visitors from this campaign. SQRZ tracks all visits automatically — your pixel handles the retargeting on your own ad account.
+            </div>
+
             {promoteField}
             {channelField}
             {durationField}
@@ -831,11 +850,16 @@ export default function BoostPage() {
               const isStatsOpen = !!openStats[c.id];
 
               const STATS_ROWS = [
-                { label: "Profile Visits",  value: c.live_profile_visits,        format: "int" },
-                { label: "Unique Visitors", value: c.live_unique_visitors,        format: "int" },
-                { label: "Last 7 Days",     value: c.live_visits_last_7_days,     format: "int" },
-                { label: "SQRZ Domain",     value: c.live_visits_sqrz_domain,     format: "int" },
-                { label: "Custom Domain",   value: c.live_visits_custom_domain,   format: "int" },
+                { label: "Profile Visits",    value: c.live_profile_visits,        format: "int" },
+                { label: "Unique Visitors",   value: c.live_unique_visitors,        format: "int" },
+                { label: "Last 7 Days",       value: c.live_visits_last_7_days,     format: "int" },
+                { label: "SQRZ Domain",       value: c.live_visits_sqrz_domain,     format: "int" },
+                { label: "Custom Domain",     value: c.live_visits_custom_domain,   format: "int" },
+                ...((c.live_service_clicks ?? 0) > 0       ? [{ label: "Service Clicks",    value: c.live_service_clicks,       format: "int"     }] : []),
+                ...((c.live_booking_modal_opens ?? 0) > 0  ? [{ label: "Modal Opens",        value: c.live_booking_modal_opens,  format: "int"     }] : []),
+                { label: "Booking Requests",  value: c.live_booking_requests ?? 0, format: "int" },
+                ...((c.live_profile_visits ?? 0) > 0       ? [{ label: "Conversion",         value: c.live_conversion_rate,      format: "percent" }] : []),
+                ...(c.live_top_service                     ? [{ label: "Top Service",        value: c.live_top_service,          format: "text"    }] : []),
               ];
               const allStatsEmpty = STATS_ROWS.every((r) => !r.value);
 
@@ -1007,7 +1031,11 @@ export default function BoostPage() {
                                       ? "—"
                                       : format === "currency"
                                         ? `$${Number(value).toFixed(2)}`
-                                        : Number(value).toLocaleString()}
+                                        : format === "percent"
+                                          ? `${Number(value).toFixed(1)}%`
+                                          : format === "text"
+                                            ? String(value)
+                                            : Number(value).toLocaleString()}
                                   </div>
                                 </div>
                               ))}

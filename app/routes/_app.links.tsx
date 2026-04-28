@@ -65,6 +65,10 @@ type PrivateLink = {
   title: string | null;
   use_count: number;
   unique_visitors: number;
+  views_7d: number;
+  referrer_count: number;
+  booking_modal_opens: number;
+  booking_requests: number;
   expires_at: string | null;
   max_uses: number | null;
   description: string | null;
@@ -104,38 +108,77 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const rawLinks = linksRes.data ?? [];
 
-  // Fetch unique visitor counts per link from profile_views
+  // Fetch per-link stats from profile_views + jitsu_events
   const admin = createSupabaseAdminClient();
   const linkIds = rawLinks.map((l) => l.id as string);
-  const uniqueVisitorMap: Record<string, number> = {};
-  if (linkIds.length > 0) {
-    const { data: viewRows } = await admin
-      .from("profile_views")
-      .select("link_id, visitor_fingerprint")
-      .in("link_id", linkIds)
-      .not("visitor_fingerprint", "is", null);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const profileSlug = profile.slug as string;
 
-    for (const row of viewRows ?? []) {
-      const lid = row.link_id as string;
-      if (!uniqueVisitorMap[lid]) uniqueVisitorMap[lid] = 0;
-      uniqueVisitorMap[lid]++;
-    }
-    // Deduplicate by visitor_fingerprint per link
+  const uniqueVisitorMap: Record<string, number> = {};
+  const views7dMap: Record<string, number> = {};
+  const referrerCountMap: Record<string, number> = {};
+  let bookingModalOpens = 0;
+  let bookingRequests = 0;
+
+  if (linkIds.length > 0) {
+    const [{ data: viewRows }, { count: modalOpens }, { count: requestsSent }] = await Promise.all([
+      admin
+        .from("profile_views")
+        .select("link_id, visitor_fingerprint, created_at, referrer")
+        .in("link_id", linkIds),
+      admin
+        .from("jitsu_events")
+        .select("*", { count: "exact", head: true })
+        .eq("profile_slug", profileSlug)
+        .eq("event_type", "booking_modal_open"),
+      admin
+        .from("jitsu_events")
+        .select("*", { count: "exact", head: true })
+        .eq("profile_slug", profileSlug)
+        .eq("event_type", "booking_request_sent"),
+    ]);
+
+    bookingModalOpens = modalOpens ?? 0;
+    bookingRequests = requestsSent ?? 0;
+
+    // Unique visitors (deduplicated by fingerprint per link)
     const seen: Record<string, Set<string>> = {};
     for (const row of viewRows ?? []) {
       const lid = row.link_id as string;
-      const fp = row.visitor_fingerprint as string;
-      if (!seen[lid]) seen[lid] = new Set();
-      seen[lid].add(fp);
+      const fp = row.visitor_fingerprint as string | null;
+      if (fp) {
+        if (!seen[lid]) seen[lid] = new Set();
+        seen[lid].add(fp);
+      }
     }
     for (const lid of Object.keys(seen)) {
       uniqueVisitorMap[lid] = seen[lid].size;
+    }
+
+    // Views last 7 days per link
+    for (const row of viewRows ?? []) {
+      const lid = row.link_id as string;
+      if ((row.created_at as string) >= sevenDaysAgo) {
+        views7dMap[lid] = (views7dMap[lid] ?? 0) + 1;
+      }
+    }
+
+    // Referrer count per link
+    for (const row of viewRows ?? []) {
+      const lid = row.link_id as string;
+      if (row.referrer) {
+        referrerCountMap[lid] = (referrerCountMap[lid] ?? 0) + 1;
+      }
     }
   }
 
   const links = rawLinks.map((l) => ({
     ...l,
     unique_visitors: uniqueVisitorMap[l.id as string] ?? 0,
+    views_7d: views7dMap[l.id as string] ?? 0,
+    referrer_count: referrerCountMap[l.id as string] ?? 0,
+    booking_modal_opens: bookingModalOpens,
+    booking_requests: bookingRequests,
   }));
 
   return Response.json(
@@ -668,6 +711,23 @@ function LinkCard({
           {link.unique_visitors > 0 ? ` · ${link.unique_visitors} unique visitor${link.unique_visitors !== 1 ? "s" : ""}` : ""}
           {link.max_uses ? ` · max ${link.max_uses}` : ""}
           {link.expires_at ? ` · expires ${new Date(link.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
+          {link.page_type === "book" && (
+            <>
+              {link.booking_modal_opens > 0 ? ` · ${link.booking_modal_opens} modal open${link.booking_modal_opens !== 1 ? "s" : ""}` : ""}
+              {link.booking_requests > 0 ? ` · ${link.booking_requests} booking request${link.booking_requests !== 1 ? "s" : ""}` : ""}
+            </>
+          )}
+          {link.page_type === "download" && (
+            <span style={{ display: "block", marginTop: 3, fontStyle: "italic" }}>
+              Track downloads by adding a download_clicked event
+            </span>
+          )}
+          {link.page_type === "event" && (
+            <>
+              {link.views_7d > 0 ? ` · ${link.views_7d} view${link.views_7d !== 1 ? "s" : ""} last 7d` : ""}
+              {link.referrer_count > 0 ? ` · ${link.referrer_count} from referrer` : ""}
+            </>
+          )}
         </div>
         <button
           onClick={toggleShowOnProfile}
