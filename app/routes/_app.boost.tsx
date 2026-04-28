@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -215,23 +215,18 @@ export async function action({ request }: Route.ActionArgs) {
   const duration = (formData.get("duration") as string) || null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
-  // ── Monthly cap check ($150/month for standard Boost) ──────────────────────
-  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-  const { data: monthlyBoosts } = await supabase
+  // ── Active campaign check ─────────────────────────────────────────────────
+  const { count } = await supabase
     .from("boost_campaigns")
-    .select("budget_amount")
+    .select("*", { count: "exact", head: true })
     .eq("profile_id", profile.id as string)
-    .neq("promote_type", "grow")
-    .neq("status", "cancelled")
-    .gte("created_at", monthStart);
+    .in("status", ["pending", "live", "preparing"]);
 
-  const monthlyTotal = (monthlyBoosts ?? []).reduce((sum, c) => sum + (c.budget_amount ?? 0), 0);
-
-  if (monthlyTotal + newBudget > 150) {
+  if ((count ?? 0) > 0) {
     return Response.json({
       ok: false,
       limitError: true,
-      message: "You've reached your $150 monthly Boost limit.",
+      message: "You already have an active campaign. Wait for it to complete before starting a new one.",
     }, { headers });
   }
 
@@ -331,6 +326,8 @@ export default function BoostPage() {
   const [budget, setBudget] = useState<number | null>(null);
   const [boostSuccess, setBoostSuccess] = useState(false);
   const [boostError, setBoostError] = useState<string | null>(null);
+  const [rerunSource, setRerunSource] = useState<Campaign | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   // Stats expand state — keyed by campaign id
   const [openStats, setOpenStats] = useState<Record<string, boolean>>({});
@@ -443,6 +440,7 @@ export default function BoostPage() {
     }
     setBoostError(null);
     setBoostSuccess(false);
+    setRerunSource(null);
     const fd = new FormData();
     fd.append("promote_type", promoteType!);
     fd.append("promote_link_id", promoteLinkId);
@@ -453,6 +451,21 @@ export default function BoostPage() {
     fd.append("budget_amount", String(budget));
     fd.append("notes", notes);
     fetcher.submit(fd, { method: "post" });
+  }
+
+  function handleRerun(c: Campaign) {
+    setRerunSource(c);
+    setPromoteType(c.promote_type);
+    setPromoteLinkId(c.promote_link_id ?? "");
+    setChannel(c.channel);
+    setDuration(c.duration);
+    setGoal(c.goal);
+    setTargetAudience(c.target_audience ?? "");
+    setBudget(null);
+    setNotes("");
+    setBoostError(null);
+    setBoostSuccess(false);
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   }
 
   function toggleStats(id: string) {
@@ -557,13 +570,24 @@ export default function BoostPage() {
   const channelField = (
     <div style={{ marginBottom: 20 }}>
       <label style={labelStyle}>Where do you want to be seen?</label>
-      <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-        {["Meta (Facebook + Instagram)", "Google", "LinkedIn", "TikTok"].map((ch) => (
-          <button key={ch} type="button" onClick={() => setChannel(ch)} style={pillStyle(channel === ch)}>
-            {ch}
-          </button>
-        ))}
-      </div>
+      {rerunSource ? (
+        <>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+            <button type="button" disabled style={{ ...pillStyle(true), opacity: 1, cursor: "default" }}>
+              {channel}
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>Channel locked — same as original campaign</p>
+        </>
+      ) : (
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+          {["Meta (Facebook + Instagram)", "Google", "LinkedIn", "TikTok"].map((ch) => (
+            <button key={ch} type="button" onClick={() => setChannel(ch)} style={pillStyle(channel === ch)}>
+              {ch}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -754,7 +778,7 @@ export default function BoostPage() {
         <>
           {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
 
-          <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
+          <div ref={formRef} style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
               New Boost Campaign
             </h2>
@@ -800,6 +824,40 @@ export default function BoostPage() {
               💡 <strong>Tip:</strong> Add your Meta or Google pixel in Profile → Settings to retarget visitors from this campaign. SQRZ tracks all visits automatically — your pixel handles the retargeting on your own ad account.
             </div>
 
+            {rerunSource && (
+              <div style={{
+                background: "rgba(245,166,35,0.08)",
+                border: "1px solid rgba(245,166,35,0.2)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 20,
+                fontSize: 13,
+                color: "var(--text-muted)",
+                lineHeight: 1.6,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+                gap: 12,
+              }}>
+                <span>Rerunning campaign — same channel as before. Change what you want to promote if needed.</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRerunSource(null);
+                    setChannel(null);
+                    setPromoteType(null);
+                    setPromoteLinkId("");
+                    setDuration(null);
+                    setGoal(null);
+                    setTargetAudience("");
+                  }}
+                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-muted)", fontFamily: FONT_BODY, whiteSpace: "nowrap" as const, flexShrink: 0, padding: 0 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             {promoteField}
             {channelField}
             {durationField}
@@ -828,7 +886,7 @@ export default function BoostPage() {
 
             {actionData?.limitError && (
               <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
-                Monthly boost limit reached ($150/mo). Upgrade to Grow for unlimited campaigns.
+                You already have an active campaign. Wait for it to complete before starting a new one.
               </p>
             )}
 
@@ -1198,6 +1256,28 @@ export default function BoostPage() {
                       </div>
                     )}
                   </div>
+
+                  {c.status === "completed" && (
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 10 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleRerun(c)}
+                        style={{
+                          background: "none",
+                          border: `1.5px solid ${ACCENT}`,
+                          borderRadius: 8,
+                          padding: "7px 16px",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: ACCENT,
+                          cursor: "pointer",
+                          fontFamily: FONT_BODY,
+                        }}
+                      >
+                        Rerun Campaign →
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
