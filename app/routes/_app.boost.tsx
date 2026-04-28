@@ -297,7 +297,7 @@ export async function action({ request }: Route.ActionArgs) {
     })
     .eq("id", inserted.id);
 
-  return Response.json({ ok: true }, { headers });
+  return Response.json({ ok: true, campaignId: inserted.id }, { headers });
 }
 
 export default function BoostPage() {
@@ -330,6 +330,7 @@ export default function BoostPage() {
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
   const [boostSuccess, setBoostSuccess] = useState(false);
+  const [boostError, setBoostError] = useState<string | null>(null);
 
   // Stats expand state — keyed by campaign id
   const [openStats, setOpenStats] = useState<Record<string, boolean>>({});
@@ -398,10 +399,15 @@ export default function BoostPage() {
   }
 
   const isSubmitting = fetcher.state !== "idle";
-  const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string; error?: string } | undefined;
+  const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string; error?: string; campaignId?: string } | undefined;
 
   if (actionData?.ok && !boostSuccess) {
     setBoostSuccess(true);
+    const paymentUrl = BOOST_PAYMENT_LINKS[Number(budget)];
+    if (paymentUrl && actionData.campaignId) {
+      const finalUrl = `${paymentUrl}?client_reference_id=${actionData.campaignId}&prefilled_email=${encodeURIComponent(email)}`;
+      window.location.href = finalUrl;
+    }
     setPromoteType(null);
     setPromoteLinkId("");
     setChannel(null);
@@ -426,7 +432,16 @@ export default function BoostPage() {
     growBudgetNum >= growMinBudget;
 
   function handleBoostSubmit() {
-    if (!boostCanSubmit) return;
+    if (!boostCanSubmit) {
+      if (!promoteType) setBoostError("Please select what to promote.");
+      else if (promoteType === "link" && !promoteLinkId) setBoostError("Please select a link.");
+      else if (!channel) setBoostError("Please select a channel.");
+      else if (!duration) setBoostError("Please select a duration.");
+      else if (!goal) setBoostError("Please select a goal.");
+      else if (!budget) setBoostError("Please select a budget.");
+      return;
+    }
+    setBoostError(null);
     setBoostSuccess(false);
     const fd = new FormData();
     fd.append("promote_type", promoteType!);
@@ -811,27 +826,40 @@ export default function BoostPage() {
               </p>
             )}
 
+            {actionData?.limitError && (
+              <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
+                Monthly boost limit reached ($150/mo). Upgrade to Grow for unlimited campaigns.
+              </p>
+            )}
+
             <button
               type="button"
               onClick={handleBoostSubmit}
-              disabled={isSubmitting || !boostCanSubmit}
+              disabled={isSubmitting}
               style={{
                 width: "100%",
                 padding: "14px",
-                background: !boostCanSubmit ? "var(--surface-muted)" : ACCENT,
-                color: !boostCanSubmit ? "var(--text-muted)" : "#111",
+                background: ACCENT,
+                color: "#111",
                 border: "none",
                 borderRadius: 12,
                 fontSize: 15,
                 fontWeight: 700,
-                cursor: !boostCanSubmit ? "not-allowed" : "pointer",
+                cursor: "pointer",
                 fontFamily: FONT_BODY,
                 letterSpacing: "0.02em",
                 transition: "background 0.15s",
+                opacity: isSubmitting ? 0.7 : 1,
               }}
             >
               {isSubmitting ? "Activating…" : "Activate Boost →"}
             </button>
+
+            {boostError && (
+              <p style={{ fontSize: 13, color: "#ef4444", marginTop: 8, marginBottom: 0 }}>
+                {boostError}
+              </p>
+            )}
 
             {/* Grow upsell */}
             <div style={{
