@@ -720,11 +720,10 @@ function LinkCard({
         >
           {url}
         </a>
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>
+        {/* Row 1 — primary stats */}
+        <div style={{ fontSize: 12, color: "var(--text)", marginTop: 4 }}>
           {link.use_count} view{link.use_count !== 1 ? "s" : ""}
           {link.unique_visitors > 0 ? ` · ${link.unique_visitors} unique visitor${link.unique_visitors !== 1 ? "s" : ""}` : ""}
-          {link.max_uses ? ` · max ${link.max_uses}` : ""}
-          {link.expires_at ? ` · expires ${new Date(link.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
           {link.page_type === "book" && (
             <>
               {link.booking_modal_opens > 0 ? ` · ${link.booking_modal_opens} modal open${link.booking_modal_opens !== 1 ? "s" : ""}` : ""}
@@ -732,20 +731,21 @@ function LinkCard({
             </>
           )}
           {link.page_type === "download" && (
-            <>
-              {link.download_clicks > 0 ? ` · ${link.download_clicks} link click${link.download_clicks !== 1 ? "s" : ""}` : ""}
-              {link.download_clicks === 0 && (
-                <span style={{ display: "block", marginTop: 3, fontStyle: "italic", color: "var(--text-muted)" }}>
-                  Link clicks tracked — file delivery handled externally
-                </span>
-              )}
-            </>
+            link.download_clicks > 0
+              ? ` · ${link.download_clicks} link click${link.download_clicks !== 1 ? "s" : ""}`
+              : ""
           )}
-          {link.page_type === "event" && (
-            <>
-              {link.views_7d > 0 ? ` · ${link.views_7d} view${link.views_7d !== 1 ? "s" : ""} last 7d` : ""}
-              {link.referrer_count > 0 ? ` · ${link.referrer_count} from referrer` : ""}
-            </>
+        </div>
+        {/* Row 2 — secondary stats */}
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+          {`Last 7 days: ${link.views_7d}`}
+          {link.expires_at && new Date(link.expires_at) > new Date()
+            ? ` · Expires: ${new Date(link.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
+            : ""}
+          {link.page_type === "download" && link.download_clicks === 0 && (
+            <span style={{ fontStyle: "italic" }}>
+              {" · "}Link clicks tracked — file delivery handled externally
+            </span>
           )}
         </div>
         <button
