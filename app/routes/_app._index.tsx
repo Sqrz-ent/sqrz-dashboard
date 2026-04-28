@@ -415,122 +415,48 @@ export default function DashboardIndex() {
         )}
       </div>
 
-      {/* Theme picker */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {([
-            { key: "midnight", label: "Midnight", accent: "#F3B130" },
-            { key: "neon",     label: "Neon",     accent: "#A855F7" },
-            { key: "studio",   label: "Studio",   accent: "#38BDF8" },
-          ] as const).map(({ key, label, accent }) => {
-            const active = selectedTemplate === key;
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  setSelectedTemplate(key);
-                  const fd = new FormData();
-                  fd.append("intent", "update_template");
-                  fd.append("template_id", key);
-                  templateFetcher.submit(fd, { method: "post" });
-                }}
-                style={{
-                  flex: "1 1 80px",
-                  minWidth: 80,
-                  padding: "16px 10px 14px",
-                  background: active ? "var(--surface-muted)" : "var(--bg)",
-                  border: active ? `2px solid ${accent}` : "2px solid var(--border)",
-                  borderRadius: 14,
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 10,
-                  transition: "border-color 0.15s, background 0.15s",
-                  fontFamily: FONT,
-                }}
-              >
-                <div style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: "50%",
-                  background: accent,
-                  boxShadow: active ? `0 0 16px ${accent}60` : "none",
-                  transition: "box-shadow 0.15s",
-                }} />
-                <span style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: active ? accent : "var(--text)",
-                  letterSpacing: "0.04em",
-                }}>
-                  {label}
-                </span>
-                {active && <span style={{ fontSize: 10, color: accent }}>✓</span>}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Quick stats */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
-          gap: 12,
+          gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+          gap: 8,
           marginBottom: 16,
         }}
       >
-        <div style={{ ...card, textAlign: "center" }}>
+        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
           <p style={metaLabel}>Total Views</p>
-          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
             {((a.total_views ?? 0) as number).toLocaleString()}
           </p>
         </div>
 
-        <div style={{ ...card, textAlign: "center" }}>
+        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
           <p style={metaLabel}>Booking Inquiries</p>
-          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
             {((a.booking_modal_opens_7d ?? 0) as number).toLocaleString()}
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "4px 0 0" }}>Last 7 days</p>
         </div>
 
-        <div style={{ ...card, textAlign: "center" }}>
+        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
           <p style={metaLabel}>Chat Opens</p>
-          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
             {((a.chat_opens_7d ?? 0) as number).toLocaleString()}
           </p>
         </div>
 
-        <div style={{ ...card, textAlign: "center" }}>
+        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
           <p style={metaLabel}>Organic Visits</p>
-          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
             {((a.organic_views ?? 0) as number).toLocaleString()}
           </p>
         </div>
 
-        <div style={{ ...card, textAlign: "center" }}>
+        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
           <p style={metaLabel}>Active Bookings</p>
-          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
             {String(activeBookingsCount)}
-          </p>
-        </div>
-
-        <div style={{ ...card, textAlign: "center" }}>
-          <p style={metaLabel}>Plan</p>
-          <p
-            style={{
-              color: isPaid ? ACCENT : "var(--text-muted)",
-              fontSize: 16,
-              fontWeight: 700,
-              margin: 0,
-              lineHeight: 1.6,
-            }}
-          >
-            {planName ?? "Free"}
           </p>
         </div>
       </div>
@@ -615,6 +541,65 @@ export default function DashboardIndex() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Theme picker */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {([
+            { key: "midnight", label: "Midnight", accent: "#F3B130" },
+            { key: "neon",     label: "Neon",     accent: "#A855F7" },
+            { key: "studio",   label: "Studio",   accent: "#38BDF8" },
+          ] as const).map(({ key, label, accent }) => {
+            const active = selectedTemplate === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedTemplate(key);
+                  const fd = new FormData();
+                  fd.append("intent", "update_template");
+                  fd.append("template_id", key);
+                  templateFetcher.submit(fd, { method: "post" });
+                }}
+                style={{
+                  flex: "1 1 80px",
+                  minWidth: 80,
+                  padding: "16px 10px 14px",
+                  background: active ? "var(--surface-muted)" : "var(--bg)",
+                  border: active ? `2px solid ${accent}` : "2px solid var(--border)",
+                  borderRadius: 14,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 10,
+                  transition: "border-color 0.15s, background 0.15s",
+                  fontFamily: FONT,
+                }}
+              >
+                <div style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: "50%",
+                  background: accent,
+                  boxShadow: active ? `0 0 16px ${accent}60` : "none",
+                  transition: "box-shadow 0.15s",
+                }} />
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: active ? accent : "var(--text)",
+                  letterSpacing: "0.04em",
+                }}>
+                  {label}
+                </span>
+                {active && <span style={{ fontSize: 10, color: accent }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Availability widget */}
