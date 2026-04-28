@@ -92,12 +92,12 @@ type Campaign = {
   live_visits_last_7_days: number | null;
   live_jitsu_pageviews: number | null;
   live_countries: string[] | null;
-  live_visits_sqrz_domain: number | null;
-  live_visits_custom_domain: number | null;
+  live_engaged: number | null;
   live_service_clicks: number | null;
   live_booking_modal_opens: number | null;
   live_booking_requests: number | null;
   live_chat_opens: number | null;
+  live_download_clicks: number | null;
   campaign_days_elapsed: number | null;
   campaign_days_remaining: number | null;
   campaign_duration_days: number | null;
@@ -158,8 +158,9 @@ export async function loader({ request }: Route.LoaderArgs) {
         "channel", "duration", "utm_url", "budget_amount", "budget_currency",
         "status", "created_at", "starts_at", "ends_at",
         "live_profile_visits", "live_unique_visitors",
-        "live_visits_last_7_days", "live_visits_sqrz_domain", "live_visits_custom_domain",
-        "live_service_clicks", "live_booking_modal_opens", "live_booking_requests", "live_chat_opens",
+        "live_visits_last_7_days",
+        "live_engaged", "live_service_clicks", "live_booking_modal_opens",
+        "live_booking_requests", "live_chat_opens", "live_download_clicks",
         "campaign_days_elapsed", "campaign_duration_days", "campaign_days_remaining",
       ].join(", "))
       .eq("profile_id", profile.id as string)
@@ -847,18 +848,15 @@ export default function BoostPage() {
                 : null;
               const isStatsOpen = !!openStats[c.id];
 
-              const engagedTotal =
-                (c.live_service_clicks ?? 0) +
-                (c.live_booking_modal_opens ?? 0) +
-                (c.live_chat_opens ?? 0);
-
               const STATS_ROWS = [
-                { label: "Profile Visits",  value: c.live_profile_visits,      format: "int" },
-                { label: "Unique Visitors", value: c.live_unique_visitors,      format: "int" },
-                { label: "Last 7 Days",     value: c.live_visits_last_7_days,   format: "int" },
-                { label: "SQRZ Domain",     value: c.live_visits_sqrz_domain,   format: "int" },
-                { label: "Custom Domain",   value: c.live_visits_custom_domain, format: "int" },
-                ...(engagedTotal > 0 ? [{ label: "Engaged", value: engagedTotal, format: "int", sublabel: "service clicks · modal opens · chat opens" }] : []),
+                { label: "Profile Visits",  value: c.live_profile_visits,    format: "int" },
+                { label: "Unique Visitors", value: c.live_unique_visitors,    format: "int" },
+                { label: "Last 7 Days",     value: c.live_visits_last_7_days, format: "int" },
+                ...((c.live_engaged ?? 0) > 0            ? [{ label: "Engaged",        value: c.live_engaged,             format: "int", sublabel: "interactions" }] : []),
+                ...((c.live_service_clicks ?? 0) > 0     ? [{ label: "Service Clicks", value: c.live_service_clicks,      format: "int" }] : []),
+                ...((c.live_chat_opens ?? 0) > 0         ? [{ label: "Chat Opens",     value: c.live_chat_opens,          format: "int" }] : []),
+                ...((c.live_download_clicks ?? 0) > 0    ? [{ label: "Link Clicks",    value: c.live_download_clicks,     format: "int" }] : []),
+                ...((c.live_booking_modal_opens ?? 0) > 0 ? [{ label: "Modal Opens",   value: c.live_booking_modal_opens, format: "int" }] : []),
               ];
               const allStatsEmpty = STATS_ROWS.every((r) => !r.value);
 
@@ -1040,6 +1038,21 @@ export default function BoostPage() {
                                 </div>
                               ))}
                             </div>
+
+                            {/* Funnel */}
+                            {(c.live_profile_visits ?? 0) > 0 && c.data_source === "live" && (
+                              <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", gap: 8, alignItems: "center", marginTop: 8, marginBottom: 10, flexWrap: "wrap" as const }}>
+                                <span>{c.live_profile_visits} visited</span>
+                                <span>→</span>
+                                <span>{c.live_engaged ?? 0} engaged</span>
+                                {(c.live_booking_modal_opens ?? 0) > 0 && (
+                                  <>
+                                    <span>→</span>
+                                    <span>{c.live_booking_modal_opens} considered booking</span>
+                                  </>
+                                )}
+                              </div>
+                            )}
 
                             {/* Campaign progress */}
                             {c.campaign_days_elapsed != null && c.campaign_duration_days != null && (
