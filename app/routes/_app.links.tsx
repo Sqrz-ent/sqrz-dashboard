@@ -733,10 +733,10 @@ function LinkCard({
           )}
           {link.page_type === "download" && (
             <>
-              {link.download_clicks > 0 ? ` · ${link.download_clicks} download${link.download_clicks !== 1 ? "s" : ""}` : ""}
+              {link.download_clicks > 0 ? ` · ${link.download_clicks} link click${link.download_clicks !== 1 ? "s" : ""}` : ""}
               {link.download_clicks === 0 && (
                 <span style={{ display: "block", marginTop: 3, fontStyle: "italic", color: "var(--text-muted)" }}>
-                  Download clicks tracked automatically
+                  Link clicks tracked — file delivery handled externally
                 </span>
               )}
             </>
