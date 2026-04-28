@@ -929,25 +929,47 @@ export default function BoostPage() {
                       }}>
                         {badge.label}
                       </span>
-                      {c.status === "pending_payment" && paymentUrl && (
-                        <a
-                          href={paymentUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: "inline-block",
-                            padding: "6px 14px",
-                            background: ACCENT,
-                            color: "#111",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            fontWeight: 700,
-                            textDecoration: "none",
-                            whiteSpace: "nowrap" as const,
-                          }}
-                        >
-                          Proceed to Payment →
-                        </a>
+                      {isPending && (
+                        paymentUrl ? (
+                          <a
+                            href={paymentUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "inline-block",
+                              padding: "6px 14px",
+                              background: ACCENT,
+                              color: "#111",
+                              borderRadius: 8,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              textDecoration: "none",
+                              whiteSpace: "nowrap" as const,
+                            }}
+                          >
+                            Proceed to Payment →
+                          </a>
+                        ) : (
+                          <a
+                            href={GROW_MEETING_URL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: "inline-block",
+                              padding: "6px 14px",
+                              background: "var(--surface)",
+                              color: ACCENT,
+                              border: `1px solid ${ACCENT}`,
+                              borderRadius: 8,
+                              fontSize: 12,
+                              fontWeight: 700,
+                              textDecoration: "none",
+                              whiteSpace: "nowrap" as const,
+                            }}
+                          >
+                            Contact us to complete payment →
+                          </a>
+                        )
                       )}
                     </div>
                   </div>
