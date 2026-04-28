@@ -851,15 +851,19 @@ export default function BoostPage() {
                 : null;
               const isStatsOpen = !!openStats[c.id];
 
+              const engagedParts = [
+                (c.live_service_clicks ?? 0) > 0     ? `${c.live_service_clicks} service click${c.live_service_clicks !== 1 ? "s" : ""}` : null,
+                (c.live_booking_modal_opens ?? 0) > 0 ? `${c.live_booking_modal_opens} modal open${c.live_booking_modal_opens !== 1 ? "s" : ""}` : null,
+                (c.live_chat_opens ?? 0) > 0         ? `${c.live_chat_opens} chat${c.live_chat_opens !== 1 ? "s" : ""}` : null,
+                (c.live_download_clicks ?? 0) > 0    ? `${c.live_download_clicks} download${c.live_download_clicks !== 1 ? "s" : ""}` : null,
+              ].filter(Boolean);
+              const engagedSublabel = engagedParts.length > 0 ? engagedParts.join(" · ") : "—";
+
               const STATS_ROWS = [
                 { label: "Profile Visits",  value: c.live_profile_visits,    format: "int" },
                 { label: "Unique Visitors", value: c.live_unique_visitors,    format: "int" },
                 { label: "Last 7 Days",     value: c.live_visits_last_7_days, format: "int" },
-                ...((c.live_engaged ?? 0) > 0            ? [{ label: "Engaged",        value: c.live_engaged,             format: "int", sublabel: "interactions" }] : []),
-                ...((c.live_service_clicks ?? 0) > 0     ? [{ label: "Service Clicks", value: c.live_service_clicks,      format: "int" }] : []),
-                ...((c.live_chat_opens ?? 0) > 0         ? [{ label: "Chat Opens",     value: c.live_chat_opens,          format: "int" }] : []),
-                ...((c.live_download_clicks ?? 0) > 0    ? [{ label: "Link Clicks",    value: c.live_download_clicks,     format: "int" }] : []),
-                ...((c.live_booking_modal_opens ?? 0) > 0 ? [{ label: "Modal Opens",   value: c.live_booking_modal_opens, format: "int" }] : []),
+                { label: "Engaged",         value: c.live_engaged ?? 0,       format: "int", sublabel: engagedSublabel },
               ];
               const allStatsEmpty = STATS_ROWS.every((r) => !r.value);
 
