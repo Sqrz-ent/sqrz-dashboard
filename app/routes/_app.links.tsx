@@ -69,6 +69,7 @@ type PrivateLink = {
   referrer_count: number;
   booking_modal_opens: number;
   booking_requests: number;
+  download_clicks: number;
   expires_at: string | null;
   max_uses: number | null;
   description: string | null;
@@ -117,11 +118,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const uniqueVisitorMap: Record<string, number> = {};
   const views7dMap: Record<string, number> = {};
   const referrerCountMap: Record<string, number> = {};
+  const downloadClickMap: Record<string, number> = {};
   let bookingModalOpens = 0;
   let bookingRequests = 0;
 
   if (linkIds.length > 0) {
-    const [{ data: viewRows }, { count: modalOpens }, { count: requestsSent }] = await Promise.all([
+    const [{ data: viewRows }, { count: modalOpens }, { count: requestsSent }, { data: downloadRows }] = await Promise.all([
       admin
         .from("profile_views")
         .select("link_id, visitor_fingerprint, created_at, referrer")
@@ -136,10 +138,21 @@ export async function loader({ request }: Route.LoaderArgs) {
         .select("*", { count: "exact", head: true })
         .eq("profile_slug", profileSlug)
         .eq("event_type", "booking_request_sent"),
+      admin
+        .from("jitsu_events")
+        .select("event_properties")
+        .eq("profile_slug", profileSlug)
+        .eq("event_type", "download_clicked"),
     ]);
 
     bookingModalOpens = modalOpens ?? 0;
     bookingRequests = requestsSent ?? 0;
+
+    // Download clicks per link_slug
+    for (const row of downloadRows ?? []) {
+      const ls = (row.event_properties as Record<string, string> | null)?.link_slug;
+      if (ls) downloadClickMap[ls] = (downloadClickMap[ls] ?? 0) + 1;
+    }
 
     // Unique visitors (deduplicated by fingerprint per link)
     const seen: Record<string, Set<string>> = {};
@@ -179,6 +192,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     referrer_count: referrerCountMap[l.id as string] ?? 0,
     booking_modal_opens: bookingModalOpens,
     booking_requests: bookingRequests,
+    download_clicks: downloadClickMap[l.link_slug as string] ?? 0,
   }));
 
   return Response.json(
@@ -718,9 +732,14 @@ function LinkCard({
             </>
           )}
           {link.page_type === "download" && (
-            <span style={{ display: "block", marginTop: 3, fontStyle: "italic" }}>
-              Track downloads by adding a download_clicked event
-            </span>
+            <>
+              {link.download_clicks > 0 ? ` · ${link.download_clicks} download${link.download_clicks !== 1 ? "s" : ""}` : ""}
+              {link.download_clicks === 0 && (
+                <span style={{ display: "block", marginTop: 3, fontStyle: "italic", color: "var(--text-muted)" }}>
+                  Download clicks tracked automatically
+                </span>
+              )}
+            </>
           )}
           {link.page_type === "event" && (
             <>
