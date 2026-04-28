@@ -39,29 +39,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profileId = profile.id as string;
 
   const adminClient = createSupabaseAdminClient();
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [{ count: viewCount }, { data: recentViews }] = await Promise.all([
-    adminClient
-      .from("profile_views")
-      .select("*", { count: "exact", head: true })
-      .eq("profile_id", profile.id as string)
-      .is("link_id", null),
-    adminClient
-      .from("profile_views")
-      .select("created_at, visitor_fingerprint")
-      .eq("profile_id", profile.id as string)
-      .is("link_id", null)
-      .gte("created_at", sevenDaysAgo),
-  ]);
-
-  const totalRecentViews = recentViews?.length ?? 0;
-  const uniqueVisitors7d = new Set(recentViews?.map((v) => v.visitor_fingerprint)).size;
-  const viewsByDay = (recentViews ?? []).reduce((acc: Record<string, number>, view) => {
-    const day = (view.created_at as string).split("T")[0];
-    acc[day] = (acc[day] || 0) + 1;
-    return acc;
-  }, {});
+  const { data: analyticsRaw } = await adminClient
+    .from("profile_analytics")
+    .select("*")
+    .eq("profile_id", profile.id as string)
+    .maybeSingle();
 
   const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
@@ -116,10 +99,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json(
     {
       profile,
-      viewCount: viewCount ?? 0,
-      totalRecentViews,
-      uniqueVisitors7d,
-      viewsByDay,
+      analytics: analyticsRaw ?? null,
       activeBookingsCount: activeBookingsRes.count ?? 0,
       upcomingBookings: upcomingBookingsRes.data ?? [],
       hasSkills: (skillsRes.count ?? 0) > 0,
@@ -218,7 +198,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, viewCount, totalRecentViews, uniqueVisitors7d, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
+  const { profile, analytics, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -229,10 +209,13 @@ export default function DashboardIndex() {
     ?? "there";
   const planId = p.plan_id as number | null | undefined;
 
-  const views = totalRecentViews as number;
-  const uniqueVisitors = uniqueVisitors7d as number;
-  const formOpens = 0;
-  const trend = null;
+  const a = (analytics ?? {}) as Record<string, number | null>;
+  const views          = (a.views_7d                  ?? 0) as number;
+  const uniqueVisitors = (a.unique_visitors_7d         ?? 0) as number;
+  const formOpens      = (a.booking_modal_opens_7d     ?? 0) as number;
+  const trend = (a.views_prev_7d ?? 0) > 0
+    ? Math.round(((views - (a.views_prev_7d as number)) / (a.views_prev_7d as number)) * 100)
+    : null;
   const trendUp = trend !== null && trend >= 0;
   const isPaid = !!planId && planId > 0;
 
@@ -503,7 +486,29 @@ export default function DashboardIndex() {
         <div style={{ ...card, textAlign: "center" }}>
           <p style={metaLabel}>Total Views</p>
           <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
-            {(viewCount as number).toLocaleString()}
+            {((a.total_views ?? 0) as number).toLocaleString()}
+          </p>
+        </div>
+
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Booking Inquiries</p>
+          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+            {((a.booking_modal_opens_7d ?? 0) as number).toLocaleString()}
+          </p>
+          <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "4px 0 0" }}>Last 7 days</p>
+        </div>
+
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Chat Opens</p>
+          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+            {((a.chat_opens_7d ?? 0) as number).toLocaleString()}
+          </p>
+        </div>
+
+        <div style={{ ...card, textAlign: "center" }}>
+          <p style={metaLabel}>Organic Visits</p>
+          <p style={{ color: "var(--text)", fontSize: 28, fontWeight: 700, margin: 0 }}>
+            {((a.organic_views ?? 0) as number).toLocaleString()}
           </p>
         </div>
 
