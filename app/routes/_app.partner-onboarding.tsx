@@ -115,7 +115,7 @@ export default function PartnerOnboarding() {
       {/* ── Step 1 — The invitation ─────────────────────────────────────────── */}
       {step === 1 && (
         <div style={card}>
-          <div style={{ fontSize: 28, marginBottom: 16 }}>✦</div>
+          <div style={{ fontSize: 28, marginBottom: 16, color: ACCENT }}>✦</div>
           <h1
             style={{
               fontFamily: "'Barlow Condensed', sans-serif",
@@ -128,14 +128,18 @@ export default function PartnerOnboarding() {
               lineHeight: 1.1,
             }}
           >
-            You&apos;ve been chosen
+            You&apos;re invited to join the SQRZ Partner Program
           </h1>
           <p style={{ fontSize: 15, lineHeight: 1.7, color: "var(--text)", margin: "0 0 12px" }}>
-            Will Villa has personally invited you to join the SQRZ Partner Program.
+            Partners contribute to growing the SQRZ network by bringing in relevant creatives and
+            connections. As a benefit, they receive a share of generated revenue through Stripe
+            Connect.
           </p>
           <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text-muted)", margin: 0 }}>
-            This is an exclusive, invite-only program for independent creatives who believe in the
-            platform and want to grow with it.
+            Participation is independent and freelance-based.
+          </p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", fontStyle: "italic", marginTop: 16, lineHeight: 1.6 }}>
+            * The value of a network grows proportionally to the square of its participants (Metcalfe&apos;s Law)
           </p>
 
           <button
