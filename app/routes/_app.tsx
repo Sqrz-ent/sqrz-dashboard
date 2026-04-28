@@ -8,6 +8,7 @@ import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
 import LeadsPanel from "~/components/LeadsPanel";
+import PartnerInviteBanner from "~/components/PartnerInviteBanner";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -102,6 +103,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       growCampaignPriceId,
       isClaimed: !!(profile?.is_claimed as boolean | null),
       isPartner: !!(profile?.is_partner as boolean | null),
+      partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
+      partnerInvitedAt: (profile?.partner_invited_at as string | null) ?? null,
     },
     { headers }
   );
@@ -128,7 +131,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId, isClaimed, isPartner } =
+  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -183,6 +186,7 @@ export default function AppLayout() {
   // Derive work mode title + breadcrumb from pathname
   function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
     if (pathname === "/office/partners") return { title: "Partners", breadcrumb: "Office" };
+    if (pathname === "/office/partner-onboarding") return { title: "Partner Program", breadcrumb: "Office" };
     if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
     if (pathname === "/office") return { title: "Office", breadcrumb: null };
     if (pathname.startsWith("/crew/")) return { title: "Crew", breadcrumb: "Crew" };
@@ -510,6 +514,11 @@ export default function AppLayout() {
             ✕
           </button>
         </div>
+      )}
+
+      {/* ── Partner invite banner ───────────────────────────────────────────── */}
+      {partnerInviteStatus === "invited" && (
+        <PartnerInviteBanner invitedAt={partnerInvitedAt} />
       )}
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
