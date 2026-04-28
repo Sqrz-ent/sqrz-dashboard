@@ -216,13 +216,20 @@ export async function action({ request }: Route.ActionArgs) {
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
   // ── Active campaign check ─────────────────────────────────────────────────
-  const { count } = await supabase
+  const { data: activeCampaigns } = await supabase
     .from("boost_campaigns")
-    .select("*", { count: "exact", head: true })
+    .select("id, status, ends_at")
     .eq("profile_id", profile.id as string)
     .in("status", ["pending", "live", "preparing"]);
 
-  if ((count ?? 0) > 0) {
+  const trulyActive = (activeCampaigns ?? []).filter((c) => {
+    if (c.status === "live" && c.ends_at) {
+      return new Date(c.ends_at) > new Date();
+    }
+    return true; // pending and preparing are always active
+  });
+
+  if (trulyActive.length > 0) {
     return Response.json({
       ok: false,
       limitError: true,
