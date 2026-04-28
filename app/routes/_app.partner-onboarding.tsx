@@ -298,24 +298,20 @@ export default function PartnerOnboarding() {
             <p style={{ margin: "0 0 8px", color: "var(--text)", fontWeight: 600, fontSize: 14 }}>
               By joining the SQRZ Partner Program you agree to:
             </p>
-            <ul style={{ margin: 0, padding: "0 0 0 18px" }}>
-              <li>
-                Commissions are earned on gross subscription revenue and completed bookings
-                processed through SQRZ.
-              </li>
-              <li>
-                Commission window is 12 months from a referred user&apos;s first payment.
-              </li>
-              <li>Payouts are processed monthly for balances above €25.</li>
-              <li>
-                SQRZ reserves the right to pause or revoke partner status for abuse or violation of
-                platform terms.
-              </li>
-              <li>
-                Booking referral commissions (2.5%) apply only when the referred profile has active
-                Stripe Connect.
-              </li>
-              <li>You may not refer yourself or create fraudulent accounts.</li>
+            <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+              {[
+                "Commissions are earned on gross subscription revenue and completed bookings processed through SQRZ.",
+                "Commission window is 12 months from a referred user's first payment.",
+                "Payouts are processed monthly for balances above €25.",
+                "SQRZ reserves the right to pause or revoke partner status for abuse or violation of platform terms.",
+                "Booking referral commissions (2.5%) apply only when the referred profile has active Stripe Connect.",
+                "You may not refer yourself or create fraudulent accounts.",
+              ].map((term, i) => (
+                <li key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0, marginTop: 1 }}>•</span>
+                  <span>{term}</span>
+                </li>
+              ))}
             </ul>
             <p style={{ margin: "12px 0 0" }}>
               <a
