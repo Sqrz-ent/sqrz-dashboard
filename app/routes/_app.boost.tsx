@@ -72,7 +72,8 @@ type Campaign = {
   utm_url: string | null;
   budget_amount: number;
   budget_currency: string;
-  status: "draft" | "pending" | "preparing" | "live" | "completed";
+  status: "draft" | "pending" | "pending_payment" | "preparing" | "live" | "completed";
+  stripe_payment_link_url: string | null;
   created_at: string;
   starts_at: string | null;
   ends_at: string | null;
@@ -110,11 +111,12 @@ const BUDGET_OPTIONS = [
 ] as const;
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
-  draft:     { label: "Draft",           color: "#888",    bg: "rgba(136,136,136,0.12)" },
-  pending:   { label: "Pending Payment", color: "#888",    bg: "rgba(136,136,136,0.12)" },
-  preparing: { label: "Preparing",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
-  live:      { label: "Live",            color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
-  completed: { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
+  draft:           { label: "Draft",           color: "#888",    bg: "rgba(136,136,136,0.12)" },
+  pending:         { label: "Pending Payment", color: "#888",    bg: "rgba(136,136,136,0.12)" },
+  pending_payment: { label: "Payment Due",     color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
+  preparing:       { label: "Preparing",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
+  live:            { label: "Live",            color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
+  completed:       { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
 };
 
 const BOOST_PAYMENT_LINKS: Record<number, string> = {
@@ -165,6 +167,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         "live_chat_opens", "live_download_clicks",
         "campaign_days_elapsed", "campaign_duration_days",
         "campaign_days_remaining", "data_source",
+        "stripe_payment_link_url",
       ].join(", "))
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
@@ -643,7 +646,7 @@ export default function BoostPage() {
                   {[
                     `You set the budget — minimum $${growMinBudget.toLocaleString()} (your ad spend)`,
                     "SQRZ adds a 20% management fee for full campaign handling",
-                    "After payment, Will personally contacts you to define your strategy — Google, Meta, LinkedIn, TikTok, Spotify Ads or a mix — based on your goals and audience",
+                    "After payment, book a strategy call to align on your channel mix — Google, Meta, LinkedIn, TikTok, Spotify Ads or a combination — based on your goals and audience.",
                   ].map((point) => (
                     <li key={point} style={{ display: "flex", gap: 10, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
                       <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0 }}>•</span>
@@ -845,10 +848,10 @@ export default function BoostPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {campaigns.map((c) => {
               const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
-              const isPending = c.status === "draft" || c.status === "pending";
+              const isPending = c.status === "draft" || c.status === "pending" || c.status === "pending_payment";
               const isPaid = c.status === "live" || c.status === "preparing";
               const hasStats = c.status === "live" || c.status === "completed";
-              const baseUrl = BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
+              const baseUrl = c.stripe_payment_link_url ?? BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
               const paymentUrl = baseUrl
                 ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
                 : null;
@@ -923,6 +926,26 @@ export default function BoostPage() {
                       }}>
                         {badge.label}
                       </span>
+                      {c.status === "pending_payment" && paymentUrl && (
+                        <a
+                          href={paymentUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 14px",
+                            background: ACCENT,
+                            color: "#111",
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textDecoration: "none",
+                            whiteSpace: "nowrap" as const,
+                          }}
+                        >
+                          Proceed to Payment →
+                        </a>
+                      )}
                     </div>
                   </div>
 
