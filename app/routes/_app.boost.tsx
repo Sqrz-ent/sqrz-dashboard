@@ -331,7 +331,7 @@ export default function BoostPage() {
 
   // Grow-only state
   const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 500;
-  const [growBudget, setGrowBudget] = useState(growMinBudget);
+  const [growBudget, setGrowBudget] = useState<string | number>("");
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);
   const [growSuccess, setGrowSuccess] = useState(searchParams.get("grow") === "success");
@@ -340,8 +340,9 @@ export default function BoostPage() {
     if (searchParams.get("grow") === "success") setGrowSuccess(true);
   }, [searchParams]);
 
-  const growFee = Math.round(growBudget * 0.2 * 100) / 100;
-  const growTotal = growBudget + growFee;
+  const growBudgetNum = Number(growBudget);
+  const growFee = Math.round(growBudgetNum * 0.2 * 100) / 100;
+  const growTotal = growBudgetNum + growFee;
 
   async function handleGrowCheckout() {
     setGrowLoading(true);
@@ -351,7 +352,7 @@ export default function BoostPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          budget: growBudget,
+          budget: growBudgetNum,
           promote_type: promoteType,
           promote_link_id: promoteType === "link" ? promoteLinkId : null,
           target_audience: targetAudience || null,
@@ -397,7 +398,7 @@ export default function BoostPage() {
   const growCanSubmit =
     !!promoteType &&
     (promoteType !== "link" || !!promoteLinkId) &&
-    growBudget >= growMinBudget;
+    growBudgetNum >= growMinBudget;
 
   function handleBoostSubmit() {
     if (!boostCanSubmit) return;
@@ -591,9 +592,9 @@ export default function BoostPage() {
                   <input
                     type="number"
                     min={growMinBudget}
-                    step={100}
                     value={growBudget}
-                    onChange={(e) => setGrowBudget(Math.max(growMinBudget, Number(e.target.value)))}
+                    onChange={(e) => setGrowBudget(e.target.value)}
+                    placeholder={`e.g. ${growMinBudget}`}
                     style={{
                       width: "100%",
                       padding: "10px 13px",
@@ -612,27 +613,29 @@ export default function BoostPage() {
                   </p>
                 </div>
 
-                <div style={{
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: "14px 16px",
-                  marginBottom: 20,
-                  fontSize: 13,
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
-                    <span>Campaign budget</span>
-                    <span style={{ fontFamily: "monospace" }}>${growBudget.toLocaleString()}</span>
+                {growBudgetNum >= growMinBudget && (
+                  <div style={{
+                    background: "var(--bg)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "14px 16px",
+                    marginBottom: 20,
+                    fontSize: 13,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+                      <span>Campaign budget</span>
+                      <span style={{ fontFamily: "monospace" }}>${growBudgetNum.toLocaleString()}</span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+                      <span>Management fee (20%)</span>
+                      <span style={{ fontFamily: "monospace" }}>+${growFee.toLocaleString()}</span>
+                    </div>
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+                      <span>Total charged</span>
+                      <span style={{ fontFamily: "monospace" }}>${growTotal.toLocaleString()}</span>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
-                    <span>Management fee (20%)</span>
-                    <span style={{ fontFamily: "monospace" }}>+${growFee.toLocaleString()}</span>
-                  </div>
-                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                    <span>Total charged</span>
-                    <span style={{ fontFamily: "monospace" }}>${growTotal.toLocaleString()}</span>
-                  </div>
-                </div>
+                )}
 
                 {notesField}
 
