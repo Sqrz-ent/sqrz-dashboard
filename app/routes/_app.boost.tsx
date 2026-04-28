@@ -352,13 +352,13 @@ export default function BoostPage() {
 
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  async function handleGrowRetry(budget: number) {
-    setRetryingId(String(budget));
+  async function handleGrowRetry(budget: number, campaignId: string) {
+    setRetryingId(campaignId);
     try {
       const res = await fetch("/api/grow/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ budget }),
+        body: JSON.stringify({ budget, campaignId }),
       });
       const data = await res.json();
       if (res.ok && data.checkout_url) {
@@ -970,7 +970,7 @@ export default function BoostPage() {
                           </a>
                         ) : (
                           <button
-                            onClick={() => handleGrowRetry(c.budget_amount)}
+                            onClick={() => handleGrowRetry(c.budget_amount, c.id)}
                             disabled={retryingId !== null}
                             style={{
                               display: "inline-block",

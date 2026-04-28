@@ -14,6 +14,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   let body: {
     budget?: number;
+    campaignId?: string | null;
     promote_type?: string | null;
     promote_link_id?: string | null;
     target_audience?: string | null;
@@ -37,6 +38,29 @@ export async function action({ request }: Route.ActionArgs) {
   const fee = Math.round(budget * 0.2 * 100) / 100;
   const total = budget + fee;
   const promoteType = body.promote_type ?? "profile";
+  const existingCampaignId = body.campaignId ?? null;
+
+  let campaignId: string;
+
+  if (existingCampaignId) {
+    campaignId = existingCampaignId;
+  } else {
+    const { data: inserted, error: insertError } = await supabase.from("boost_campaigns").insert({
+      profile_id: profile.id as string,
+      promote_type: promoteType,
+      promote_link_id: promoteType === "link" && body.promote_link_id ? body.promote_link_id : null,
+      target_audience: body.target_audience ?? null,
+      budget_amount: budget,
+      budget_currency: "USD",
+      status: "pending",
+      notes: body.notes ?? "grow campaign — awaiting payment",
+    }).select("id").single();
+
+    if (insertError || !inserted) {
+      return Response.json({ error: "Failed to create campaign" }, { status: 500, headers });
+    }
+    campaignId = inserted.id as string;
+  }
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -55,25 +79,16 @@ export async function action({ request }: Route.ActionArgs) {
     ],
     success_url: "https://dashboard.sqrz.com/boost?grow=success",
     cancel_url: "https://dashboard.sqrz.com/boost",
+    client_reference_id: campaignId,
     customer_email: (profile.email as string) ?? undefined,
     metadata: {
       profile_id: profile.id as string,
+      campaign_id: campaignId,
       budget: String(budget),
       fee: String(fee),
       total: String(total),
       type: "grow_campaign",
     },
-  });
-
-  await supabase.from("boost_campaigns").insert({
-    profile_id: profile.id as string,
-    promote_type: promoteType,
-    promote_link_id: promoteType === "link" && body.promote_link_id ? body.promote_link_id : null,
-    target_audience: body.target_audience ?? null,
-    budget_amount: budget,
-    budget_currency: "USD",
-    status: "pending",
-    notes: body.notes ?? "grow campaign — awaiting payment",
   });
 
   return Response.json({ checkout_url: session.url }, { headers });
