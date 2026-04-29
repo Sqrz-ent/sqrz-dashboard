@@ -631,17 +631,187 @@ export default function BoostPage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={sectionTitle}>{grow_qualified ? "SQRZ Grow" : "Boost"}</h1>
+      <h1 style={sectionTitle}>Boost</h1>
       <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: -12, marginBottom: 28 }}>
-        {grow_qualified
-          ? "Concierge campaign management — we handle everything."
-          : "Activate targeted attention for your profile"}
+        Activate targeted attention for your profile
       </p>
 
-      {/* ── GROW section ─────────────────────────────────────────────────────── */}
-      {grow_qualified ? (
+      {/* ── BOOST section ───────────────────────────────────────────────────── */}
+      {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
+
+      <div ref={formRef} style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
+        <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
+          New Boost Campaign
+        </h2>
+
+        {/* How Boost works */}
+        <div style={{
+          background: "rgba(245,166,35,0.06)",
+          border: "1px solid rgba(245,166,35,0.18)",
+          borderRadius: 10,
+          padding: "12px 14px",
+          marginBottom: 24,
+          fontSize: 13,
+          color: "var(--text-muted)",
+          lineHeight: 1.6,
+        }}>
+          Boost runs a single-channel paid ad campaign pointing to your SQRZ profile or link. You choose the channel and budget — we handle setup and execution. Ad spend is separate from your $39/mo subscription.
+        </div>
+
+        {boostSuccess && (
+          <div style={{
+            background: "rgba(34,197,94,0.1)",
+            border: "1px solid rgba(34,197,94,0.3)",
+            borderRadius: 10,
+            padding: "14px 16px",
+            marginBottom: 20,
+            fontSize: 14,
+            color: "#22c55e",
+            lineHeight: 1.5,
+          }}>
+            Campaign created — complete payment below to activate it.
+          </div>
+        )}
+
+        <div style={{
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 8,
+          padding: "10px 14px",
+          fontSize: 13,
+          color: "var(--text-muted)",
+          marginBottom: 16,
+        }}>
+          💡 <strong>Tip:</strong> Add your Meta or Google pixel in Profile → Settings to retarget visitors from this campaign. SQRZ tracks all visits automatically — your pixel handles the retargeting on your own ad account.
+        </div>
+
+        {rerunSource && (
+          <div style={{
+            background: "rgba(245,166,35,0.08)",
+            border: "1px solid rgba(245,166,35,0.2)",
+            borderRadius: 10,
+            padding: "12px 14px",
+            marginBottom: 20,
+            fontSize: 13,
+            color: "var(--text-muted)",
+            lineHeight: 1.6,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+          }}>
+            <span>Rerunning campaign — same channel as before. Change what you want to promote if needed.</span>
+            <button
+              type="button"
+              onClick={() => {
+                setRerunSource(null);
+                setChannel(null);
+                setPromoteType(null);
+                setPromoteLinkId("");
+                setDuration(null);
+                setGoal(null);
+                setTargetAudience("");
+              }}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-muted)", fontFamily: FONT_BODY, whiteSpace: "nowrap" as const, flexShrink: 0, padding: 0 }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
+        {promoteField}
+        {channelField}
+        {durationField}
+        {goalField}
+        {audienceField}
+
+        {/* Budget pills */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={labelStyle}>Budget</label>
+          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+            {BUDGET_OPTIONS.map((o) => (
+              <button key={o.value} type="button" onClick={() => setBudget(o.value)} style={pillStyle(budget === o.value)}>
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {notesField}
+
+        {actionData?.ok === false && !actionData?.limitError && (
+          <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
+            {actionData.error ?? "Something went wrong. Please try again."}
+          </p>
+        )}
+
+        {actionData?.limitError && (
+          <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
+            You already have an active campaign. Wait for it to complete before starting a new one.
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={handleBoostSubmit}
+          disabled={isSubmitting}
+          style={{
+            width: "100%",
+            padding: "14px",
+            background: ACCENT,
+            color: "#111",
+            border: "none",
+            borderRadius: 12,
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+            letterSpacing: "0.02em",
+            transition: "background 0.15s",
+            opacity: isSubmitting ? 0.7 : 1,
+          }}
+        >
+          {isSubmitting ? "Activating…" : "Activate Boost →"}
+        </button>
+
+        {boostError && (
+          <p style={{ fontSize: 13, color: "#ef4444", marginTop: 8, marginBottom: 0 }}>
+            {boostError}
+          </p>
+        )}
+
+        {/* Grow upsell — only when not already Grow qualified */}
+        {!grow_qualified && (
+          <div style={{
+            marginTop: 16,
+            padding: "13px 16px",
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            fontSize: 13,
+            color: "var(--text-muted)",
+            lineHeight: 1.6,
+          }}>
+            Want a multichannel strategy with creative support? SQRZ Grow clients get a dedicated campaign plan and monthly strategy calls.{" "}
+            <a
+              href={GROW_MEETING_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}
+            >
+              Talk to Will →
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* ── GROW section — additive when qualified ────────────────────────────── */}
+      {grow_qualified && (
         <>
           <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
+            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
+              New Grow Campaign
+            </h2>
             {growSuccess ? (
               <div style={{
                 background: "rgba(34,197,94,0.08)",
@@ -779,175 +949,6 @@ export default function BoostPage() {
                 </div>
               </>
             )}
-          </div>
-        </>
-      ) : (
-        /* ── BOOST section ───────────────────────────────────────────────────── */
-        <>
-          {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
-
-          <div ref={formRef} style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
-            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
-              New Boost Campaign
-            </h2>
-
-            {/* How Boost works */}
-            <div style={{
-              background: "rgba(245,166,35,0.06)",
-              border: "1px solid rgba(245,166,35,0.18)",
-              borderRadius: 10,
-              padding: "12px 14px",
-              marginBottom: 24,
-              fontSize: 13,
-              color: "var(--text-muted)",
-              lineHeight: 1.6,
-            }}>
-              Boost runs a single-channel paid ad campaign pointing to your SQRZ profile or link. You choose the channel and budget — we handle setup and execution. Ad spend is separate from your $39/mo subscription.
-            </div>
-
-            {boostSuccess && (
-              <div style={{
-                background: "rgba(34,197,94,0.1)",
-                border: "1px solid rgba(34,197,94,0.3)",
-                borderRadius: 10,
-                padding: "14px 16px",
-                marginBottom: 20,
-                fontSize: 14,
-                color: "#22c55e",
-                lineHeight: 1.5,
-              }}>
-                Campaign created — complete payment below to activate it.
-              </div>
-            )}
-
-            <div style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "10px 14px",
-              fontSize: 13,
-              color: "var(--text-muted)",
-              marginBottom: 16,
-            }}>
-              💡 <strong>Tip:</strong> Add your Meta or Google pixel in Profile → Settings to retarget visitors from this campaign. SQRZ tracks all visits automatically — your pixel handles the retargeting on your own ad account.
-            </div>
-
-            {rerunSource && (
-              <div style={{
-                background: "rgba(245,166,35,0.08)",
-                border: "1px solid rgba(245,166,35,0.2)",
-                borderRadius: 10,
-                padding: "12px 14px",
-                marginBottom: 20,
-                fontSize: 13,
-                color: "var(--text-muted)",
-                lineHeight: 1.6,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "flex-start",
-                gap: 12,
-              }}>
-                <span>Rerunning campaign — same channel as before. Change what you want to promote if needed.</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRerunSource(null);
-                    setChannel(null);
-                    setPromoteType(null);
-                    setPromoteLinkId("");
-                    setDuration(null);
-                    setGoal(null);
-                    setTargetAudience("");
-                  }}
-                  style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "var(--text-muted)", fontFamily: FONT_BODY, whiteSpace: "nowrap" as const, flexShrink: 0, padding: 0 }}
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-
-            {promoteField}
-            {channelField}
-            {durationField}
-            {goalField}
-            {audienceField}
-
-            {/* Budget pills */}
-            <div style={{ marginBottom: 20 }}>
-              <label style={labelStyle}>Budget</label>
-              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-                {BUDGET_OPTIONS.map((o) => (
-                  <button key={o.value} type="button" onClick={() => setBudget(o.value)} style={pillStyle(budget === o.value)}>
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {notesField}
-
-            {actionData?.ok === false && !actionData?.limitError && (
-              <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
-                {actionData.error ?? "Something went wrong. Please try again."}
-              </p>
-            )}
-
-            {actionData?.limitError && (
-              <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
-                You already have an active campaign. Wait for it to complete before starting a new one.
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={handleBoostSubmit}
-              disabled={isSubmitting}
-              style={{
-                width: "100%",
-                padding: "14px",
-                background: ACCENT,
-                color: "#111",
-                border: "none",
-                borderRadius: 12,
-                fontSize: 15,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: FONT_BODY,
-                letterSpacing: "0.02em",
-                transition: "background 0.15s",
-                opacity: isSubmitting ? 0.7 : 1,
-              }}
-            >
-              {isSubmitting ? "Activating…" : "Activate Boost →"}
-            </button>
-
-            {boostError && (
-              <p style={{ fontSize: 13, color: "#ef4444", marginTop: 8, marginBottom: 0 }}>
-                {boostError}
-              </p>
-            )}
-
-            {/* Grow upsell */}
-            <div style={{
-              marginTop: 16,
-              padding: "13px 16px",
-              background: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 12,
-              fontSize: 13,
-              color: "var(--text-muted)",
-              lineHeight: 1.6,
-            }}>
-              Want a multichannel strategy with creative support? SQRZ Grow clients get a dedicated campaign plan and monthly strategy calls.{" "}
-              <a
-                href={GROW_MEETING_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}
-              >
-                Talk to Will →
-              </a>
-            </div>
           </div>
         </>
       )}
