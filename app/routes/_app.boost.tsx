@@ -113,8 +113,8 @@ const BUDGET_OPTIONS = [
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
   draft:           { label: "Draft",           color: "#888",    bg: "rgba(136,136,136,0.12)" },
-  pending:         { label: "Pending Payment", color: "#888",    bg: "rgba(136,136,136,0.12)" },
-  pending_payment: { label: "Payment Due",     color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
+  pending:         { label: "Pending Payment", color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
+  pending_payment: { label: "Pending Payment", color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
   preparing:       { label: "Preparing",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
   live:            { label: "Live",            color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
   completed:       { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
@@ -1005,7 +1005,7 @@ export default function BoostPage() {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                        {c.promote_type === "grow" ? "Grow Campaign" : c.promote_type === "link" ? "Private Link Boost" : "Profile Boost"}
+                        {c.campaign_type === "grow" ? "Grow Campaign" : c.promote_type === "link" ? "Private Link Boost" : "Profile Boost"}
                       </div>
                       {c.channel && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
@@ -1042,52 +1042,11 @@ export default function BoostPage() {
                       }}>
                         {badge.label}
                       </span>
-                      {isPending && (
-                        paymentUrl ? (
-                          <a
-                            href={paymentUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: "inline-block",
-                              padding: "6px 14px",
-                              background: ACCENT,
-                              color: "#111",
-                              borderRadius: 8,
-                              fontSize: 12,
-                              fontWeight: 700,
-                              textDecoration: "none",
-                              whiteSpace: "nowrap" as const,
-                            }}
-                          >
-                            Proceed to Payment →
-                          </a>
-                        ) : (
-                          <button
-                            onClick={() => handleGrowRetry(c.budget_amount, c.id)}
-                            disabled={retryingId !== null}
-                            style={{
-                              display: "inline-block",
-                              padding: "6px 14px",
-                              background: ACCENT,
-                              color: "#111",
-                              border: "none",
-                              borderRadius: 8,
-                              fontSize: 12,
-                              fontWeight: 700,
-                              cursor: retryingId !== null ? "wait" : "pointer",
-                              whiteSpace: "nowrap" as const,
-                            }}
-                          >
-                            {retryingId !== null ? "Redirecting…" : "Complete Payment →"}
-                          </button>
-                        )
-                      )}
                     </div>
                   </div>
 
                   {/* Payment section for pending campaigns */}
-                  {isPending && !grow_qualified && (
+                  {isPending && (
                     <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 14 }}>
                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
                         Ad Budget
@@ -1120,17 +1079,29 @@ export default function BoostPage() {
                           Pay ${c.budget_amount} →
                         </a>
                       ) : (
-                        <div style={{
-                          padding: "12px",
-                          background: "var(--surface-muted)",
-                          borderRadius: 10,
-                          fontSize: 13,
-                          color: "#ef4444",
-                          textAlign: "center" as const,
-                          marginBottom: 8,
-                        }}>
-                          Payment link unavailable — contact support
-                        </div>
+                        <button
+                          onClick={() => handleGrowRetry(c.budget_amount, c.id)}
+                          disabled={retryingId !== null}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            padding: "12px",
+                            background: ACCENT,
+                            color: "#111",
+                            border: "none",
+                            borderRadius: 10,
+                            fontSize: 14,
+                            fontWeight: 700,
+                            textAlign: "center" as const,
+                            cursor: retryingId !== null ? "wait" : "pointer",
+                            fontFamily: FONT_BODY,
+                            boxSizing: "border-box" as const,
+                            marginBottom: 8,
+                            opacity: retryingId !== null ? 0.7 : 1,
+                          }}
+                        >
+                          {retryingId !== null ? "Redirecting…" : `Pay $${c.budget_amount} →`}
+                        </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
                         Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
