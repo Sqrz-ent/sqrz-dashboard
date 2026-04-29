@@ -524,7 +524,7 @@ export default function PartnersPage() {
       </div>
 
       {/* ── Section 3: Earnings cards ─────────────────────────────────────── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
         <div style={card}>
           <span style={lbl}>Lifetime earned</span>
           <p style={{ fontSize: 22, fontWeight: 700, margin: 0, color: "var(--text)" }}>{fmtMoney(earnings.lifetime)}</p>
