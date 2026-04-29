@@ -671,8 +671,8 @@ export default function PartnersPage() {
               ) : (
                 bookingRows.map((r, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "11px 14px", fontFamily: "monospace", color: "var(--text)", fontWeight: 600 }}>
-                      {r.referred_slug}
+                    <td style={{ padding: "11px 14px", fontFamily: "monospace", color: "var(--text)", fontWeight: 600, overflow: "hidden" }}>
+                      <span className="truncate block">{r.referred_slug}</span>
                     </td>
                     <td style={{ padding: "11px 14px" }}>
                       <span style={{
@@ -714,12 +714,13 @@ export default function PartnersPage() {
               ) : (
                 filteredReferrals.map((r, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "11px 14px", fontFamily: "monospace", color: "var(--text)", fontWeight: 600 }}>
+                    <td style={{ padding: "11px 14px", fontFamily: "monospace", color: "var(--text)", fontWeight: 600, overflow: "hidden" }}>
                       {r.status === "active" ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span>{r.slug}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <span className="truncate" style={{ minWidth: 0, flex: "1 1 0" }}>{r.slug}</span>
                           {r.hasStripeConnect ? (
                             <button
+                              className="hidden md:inline-flex items-center"
                               onClick={() => copyReferralLink(r.slug)}
                               title={`Copy referral link for ${r.slug}`}
                               style={{
@@ -732,13 +733,16 @@ export default function PartnersPage() {
                                 cursor: "pointer",
                                 whiteSpace: "nowrap",
                                 fontFamily: FONT_BODY,
+                                flexShrink: 0,
                               }}
                             >
                               {copiedSlug === r.slug ? "copied!" : "copy link"}
                             </button>
                           ) : null}
                         </div>
-                      ) : r.slug}
+                      ) : (
+                        <span className="truncate block">{r.slug}</span>
+                      )}
                     </td>
                     <td style={{ padding: "11px 14px" }}>
                       {r.status === "pending" ? (
@@ -766,7 +770,39 @@ export default function PartnersPage() {
                       )}
                     </td>
                     <td style={{ padding: "11px 14px" }}>
-                      <StatusPill status={r.status} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <StatusPill status={r.status} />
+                        {r.status === "active" && r.hasStripeConnect && (
+                          <button
+                            className="md:hidden"
+                            onClick={() => copyReferralLink(r.slug)}
+                            title={`Copy referral link for ${r.slug}`}
+                            style={{
+                              background: copiedSlug === r.slug ? "rgba(74,222,128,0.15)" : "none",
+                              border: "0.5px solid var(--border)",
+                              borderRadius: 6,
+                              padding: "3px 5px",
+                              cursor: "pointer",
+                              color: copiedSlug === r.slug ? GREEN : "var(--text-muted)",
+                              display: "flex",
+                              alignItems: "center",
+                              flexShrink: 0,
+                              transition: "all 0.15s",
+                            }}
+                          >
+                            {copiedSlug === r.slug ? (
+                              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <path d="M3 8l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            ) : (
+                              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                                <rect x="5" y="2" width="9" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                                <path d="M5 4H3.5A1.5 1.5 0 0 0 2 5.5v8A1.5 1.5 0 0 0 3.5 15h6A1.5 1.5 0 0 0 11 13.5V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                              </svg>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
