@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useLoaderData, useFetcher, useSearchParams } from "react-router";
+import { useLoaderData, useFetcher, useSearchParams, redirect } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
   createSupabaseServerClient,
@@ -503,7 +503,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   // Session confirm / decline (no token)
   if (intent === "confirm_booking" || intent === "decline_booking") {
-    const newStatus = intent === "confirm_booking" ? "confirmed" : "requested";
+    const newStatus = intent === "confirm_booking" ? "confirmed" : "cancelled";
     const { error } = await supabase.from("bookings").update({ status: newStatus }).eq("id", params.id);
     return Response.json({ ok: !error }, { headers });
   }
@@ -517,6 +517,15 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (!bkCheck || bkCheck.owner_id !== profile.id) {
     return Response.json({ error: "Unauthorized" }, { headers, status: 403 });
+  }
+
+  if (intent === "decline_request") {
+    await supabase
+      .from("bookings")
+      .update({ status: "cancelled" })
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string);
+    return redirect("/office", { headers });
   }
 
   if (intent === "update_status") {
@@ -1737,8 +1746,7 @@ function ProposalSection({
             onClick={() => {
               if (!window.confirm("Decline this booking request?")) return;
               const fd = new FormData();
-              fd.append("intent", "update_status");
-              fd.append("status", "archived");
+              fd.append("intent", "decline_request");
               declineFetcher.submit(fd, { method: "post" });
             }}
             disabled={declineFetcher.state !== "idle"}
