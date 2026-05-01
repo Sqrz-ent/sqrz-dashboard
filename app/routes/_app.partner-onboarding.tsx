@@ -315,12 +315,12 @@ export default function PartnerOnboarding() {
             </ul>
             <p style={{ margin: "12px 0 0" }}>
               <a
-                href="https://sqrz.com/terms"
+                href="https://sqrz.com/partnerprogram"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}
               >
-                Full Terms of Service → sqrz.com/terms
+                Partner Program Terms → sqrz.com/partnerprogram
               </a>
             </p>
           </div>
