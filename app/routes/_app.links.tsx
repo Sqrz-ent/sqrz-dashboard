@@ -80,6 +80,8 @@ type PrivateLink = {
   event_date: string | null;
   event_venue: string | null;
   event_city: string | null;
+  lead_gate: boolean;
+  lead_count: number;
 };
 
 type ProfileService = { id: string; title: string };
@@ -97,7 +99,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [linksRes, servicesRes] = await Promise.all([
     supabase
       .from("private_booking_links")
-      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city")
+      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate")
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
     supabase
@@ -119,11 +121,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const views7dMap: Record<string, number> = {};
   const referrerCountMap: Record<string, number> = {};
   const downloadClickMap: Record<string, number> = {};
+  const leadCountMap: Record<string, number> = {};
   let bookingModalOpens = 0;
   let bookingRequests = 0;
 
   if (linkIds.length > 0) {
-    const [{ data: viewRows }, { count: modalOpens }, { count: requestsSent }, { data: downloadRows }] = await Promise.all([
+    const [{ data: viewRows }, { count: modalOpens }, { count: requestsSent }, { data: downloadRows }, { data: leadRows }] = await Promise.all([
       admin
         .from("profile_views")
         .select("link_id, visitor_fingerprint, created_at, referrer")
@@ -143,6 +146,10 @@ export async function loader({ request }: Route.LoaderArgs) {
         .select("event_properties")
         .eq("profile_slug", profileSlug)
         .eq("event_type", "download_clicked"),
+      admin
+        .from("link_leads")
+        .select("link_id")
+        .in("link_id", linkIds),
     ]);
 
     bookingModalOpens = modalOpens ?? 0;
@@ -183,6 +190,12 @@ export async function loader({ request }: Route.LoaderArgs) {
         referrerCountMap[lid] = (referrerCountMap[lid] ?? 0) + 1;
       }
     }
+
+    // Lead count per link
+    for (const row of leadRows ?? []) {
+      const lid = row.link_id as string;
+      leadCountMap[lid] = (leadCountMap[lid] ?? 0) + 1;
+    }
   }
 
   const links = rawLinks.map((l) => ({
@@ -193,6 +206,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     booking_modal_opens: bookingModalOpens,
     booking_requests: bookingRequests,
     download_clicks: downloadClickMap[l.link_slug as string] ?? 0,
+    lead_count: leadCountMap[l.id as string] ?? 0,
   }));
 
   return Response.json(
@@ -241,6 +255,7 @@ export async function action({ request }: Route.ActionArgs) {
       event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: (fd.get("expires_at") as string) || null,
+      lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -285,6 +300,7 @@ export async function action({ request }: Route.ActionArgs) {
       event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: (fd.get("expires_at") as string) || null,
+      lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
     })
     .eq("id", id)
     .eq("profile_id", profile.id as string);
@@ -374,6 +390,7 @@ function CreateLinkModal({
   const [eventVenue, setEventVenue] = useState("");
   const [eventCity, setEventCity] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
+  const [leadGate, setLeadGate] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Pre-fill when editing link changes
@@ -392,6 +409,7 @@ function CreateLinkModal({
       setEventVenue(editingLink.event_venue || "");
       setEventCity(editingLink.event_city || "");
       setExpiresAt(toDateInput(editingLink.expires_at));
+      setLeadGate(editingLink.lead_gate ?? false);
       setSlugError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -419,6 +437,7 @@ function CreateLinkModal({
     setExternalUrl(""); setExternalUrlLabel("");
     setEventDate(""); setEventVenue(""); setEventCity("");
     setExpiresAt("");
+    setLeadGate(false);
   }
 
   function validateSlug() {
@@ -449,7 +468,7 @@ function CreateLinkModal({
     fd.append("description", description);
     fd.append("cover_image_url", coverImageUrl);
     if (pageType === "book") fd.append("prefill_service", prefillService);
-    if (pageType !== "book") { fd.append("external_url", externalUrl); fd.append("external_url_label", externalUrlLabel); }
+    if (pageType !== "book") { fd.append("external_url", externalUrl); fd.append("external_url_label", externalUrlLabel); fd.append("lead_gate", String(leadGate)); }
     if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
     if (expiresAt) fd.append("expires_at", expiresAt);
     fetcher.submit(fd, { method: "post" });
@@ -493,6 +512,33 @@ function CreateLinkModal({
             ))}
           </div>
         </div>
+
+        {/* Lead Gate toggle — download and event only */}
+        {(pageType === "download" || pageType === "event") && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <span style={{ ...labelStyle, marginBottom: 2 }}>Lead Gate</span>
+              <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Visitors must leave their email to access the link</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLeadGate(v => !v)}
+              style={{
+                width: 38, height: 22, borderRadius: 11, border: "none",
+                background: leadGate ? "#22c55e" : "var(--border)",
+                cursor: "pointer", position: "relative", flexShrink: 0,
+                transition: "background 0.15s", marginTop: 2,
+              }}
+            >
+              <span style={{
+                position: "absolute", top: 3, left: leadGate ? 19 : 3,
+                width: 16, height: 16, borderRadius: "50%", background: "#fff",
+                transition: "left 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                pointerEvents: "none",
+              }} />
+            </button>
+          </div>
+        )}
 
         {/* BOOK — service selector (required), shown immediately after page type */}
         {pageType === "book" && (
@@ -748,6 +794,23 @@ function LinkCard({
             </span>
           )}
         </div>
+        {/* Row 3 — lead gate stats */}
+        {link.lead_gate && (
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+            {link.lead_count} lead{link.lead_count !== 1 ? "s" : ""}
+            {link.lead_count > 0 && (
+              <>
+                {" · "}
+                <a
+                  href={`/api/links/${link.id}/leads-csv`}
+                  style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}
+                >
+                  Download CSV
+                </a>
+              </>
+            )}
+          </div>
+        )}
         <button
           onClick={toggleShowOnProfile}
           style={{
