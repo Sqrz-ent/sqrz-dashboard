@@ -28,7 +28,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const budget = Number(body.budget);
   const planId = profile.plan_id as number | null;
-  const isBeta = planId === null || planId === 4;
+  const isBeta = planId === null;
   const minBudget = isBeta ? 100 : 500;
 
   if (!budget || budget < minBudget) {

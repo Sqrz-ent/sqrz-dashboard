@@ -958,7 +958,7 @@ export default function LinksPage() {
 
   const createFetcher = useFetcher();
   const cardFetcher = useFetcher();
-  const locked = getPlanLevel(plan_id, is_beta, grow_qualified) < FEATURE_GATES.links;
+  const locked = getPlanLevel(plan_id) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLink, setEditingLink] = useState<PrivateLink | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -1018,7 +1018,7 @@ export default function LinksPage() {
       <h1 style={sectionTitle}>Private Links</h1>
 
       {locked && (
-        <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
+        <UpgradeBanner planName="Creator plan" upgradeParam="creator" />
       )}
 
       {toast && (

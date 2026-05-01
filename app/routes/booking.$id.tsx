@@ -3801,7 +3801,7 @@ export default function BookingAccessPage() {
   };
 
   const b = booking;
-  const planLevel = getPlanLevel(planId, isBeta);
+  const planLevel = getPlanLevel(planId);
 
   // ── Owner / authenticated member — full rich UI ────────────────────────────
   if (isOwner) {

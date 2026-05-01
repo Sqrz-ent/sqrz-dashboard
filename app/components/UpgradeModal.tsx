@@ -15,8 +15,6 @@ interface UpgradeModalProps {
   isPartner: boolean;
   // Boost plan
   boostMonthlyPriceId: string;
-  // Grow plan
-  growCampaignPriceId: string;
 }
 
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
@@ -79,7 +77,6 @@ export default function UpgradeModal({
   isClaimed,
   isPartner,
   boostMonthlyPriceId,
-  growCampaignPriceId,
 }: UpgradeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<UpgradeView>(contextToView(upgradeContext));

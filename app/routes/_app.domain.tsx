@@ -422,7 +422,7 @@ export default function DomainPage() {
     is_beta: boolean;
   };
   const navigate = useNavigate();
-  const domainLocked = getPlanLevel(data.plan_id, data.is_beta) < FEATURE_GATES.domain;
+  const domainLocked = getPlanLevel(data.plan_id) < FEATURE_GATES.domain;
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>

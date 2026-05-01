@@ -319,7 +319,7 @@ export default function BoostPage() {
   const isFirstCampaign = campaign_count === 0;
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
-  const locked = getPlanLevel(plan_id, is_beta) < FEATURE_GATES.boost;
+  const locked = getPlanLevel(plan_id) < FEATURE_GATES.boost;
 
   // Shared form state
   const [promoteType, setPromoteType] = useState<string | null>(null);

@@ -202,7 +202,7 @@ export default function PaymentsPage() {
 
   const isActive = connectStatus === "active";
   const isPending = connectStatus === "pending";
-  const locked = getPlanLevel(planId, false) < FEATURE_GATES.domain;
+  const locked = getPlanLevel(planId) < FEATURE_GATES.payments;
 
   // ── Summary metrics ────────────────────────────────────────────────────────
   const totalEarned = walletRows

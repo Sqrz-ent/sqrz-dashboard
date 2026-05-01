@@ -79,15 +79,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   }
 
-  // Fetch Boost (plan 5) and Grow (plan 2) price IDs from plans table
-  const { data: upgradePlans } = await supabase
+  // Fetch Boost (plan 2) price ID from plans table
+  const { data: boostPlanRow } = await supabase
     .from("plans")
-    .select("id, stripe_price_monthly")
-    .in("id", [2, 5]);
-  type PlanRow = { id: number; stripe_price_monthly: string | null };
-  const planRows = (upgradePlans ?? []) as PlanRow[];
-  const boostMonthlyPriceId = planRows.find((r) => r.id === 5)?.stripe_price_monthly ?? "";
-  const growCampaignPriceId = planRows.find((r) => r.id === 2)?.stripe_price_monthly ?? "";
+    .select("stripe_price_monthly")
+    .eq("id", 2)
+    .single();
+  const boostMonthlyPriceId = (boostPlanRow?.stripe_price_monthly as string | null) ?? "";
 
   console.log("[loader] subscription:", subscriptionData);
 
@@ -100,7 +98,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
       boostMonthlyPriceId,
-      growCampaignPriceId,
       isClaimed: !!(profile?.is_claimed as boolean | null),
       isPartner: !!(profile?.is_partner as boolean | null),
       partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
@@ -131,7 +128,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, growCampaignPriceId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -566,7 +563,7 @@ export default function AppLayout() {
           earlyAccessCouponId={earlyAccessCouponId}
           referredByCode={p?.referred_by_code as string | null ?? null}
           boostMonthlyPriceId={boostMonthlyPriceId}
-          growCampaignPriceId={growCampaignPriceId}
+
           isClaimed={isClaimed}
           isPartner={isPartner}
         />
