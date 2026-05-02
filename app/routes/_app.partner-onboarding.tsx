@@ -184,10 +184,10 @@ export default function PartnerOnboarding() {
             <div style={infoCard}>
               <div style={{ fontSize: 20, marginBottom: 8 }}>💰</div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
-                Earn 30% commission
+                Earn 50% commission
               </div>
               <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                On every subscription you refer, for 12 months. Tiers: 30% → 40% → 50% as you grow.
+                On every subscription you refer, for 12 months. Reach 25 active referrals to unlock Elite — 75% for 24 months.
               </div>
             </div>
 
@@ -300,7 +300,7 @@ export default function PartnerOnboarding() {
             </p>
             <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                "Subscription commissions (30–50%) are earned on gross revenue from users who sign up through your referral link, for 12 months from their first payment.",
+                "Subscription commissions (50% Partner · 75% Elite) are earned on gross revenue from users who sign up through your referral link. Partner tier: 12 months. Elite tier (25+ active referrals): 24 months from their first payment.",
                 "Booking commissions (2.5%) are earned per booking only when you actively refer a specific creative to a specific booker by sharing their profile link. There are no passive booking commissions — each referral requires a deliberate action.",
                 "Booking commissions apply only to creatives already in your SQRZ partner network who have active Stripe Connect enabled.",
                 "Payouts are processed monthly for accumulated balances above €25 via Stripe Connect.",

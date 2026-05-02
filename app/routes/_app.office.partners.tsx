@@ -12,6 +12,7 @@ const ACCENT_BG = "rgba(245,166,35,0.12)";
 const AMBER = "#fbbf24";
 const GREEN = "#4ade80";
 const BLUE = "#185FA5";
+const PURPLE = "#8b5cf6";
 
 const card: React.CSSProperties = {
   background: "var(--surface)",
@@ -52,12 +53,13 @@ type BookingRow = {
 type LoaderData = {
   refCode: string | null;
   commissionPct: number;
-  tier: "Starter" | "Pro" | "Elite";
+  tier: "Partner" | "Elite";
   referrals: Referral[];
   stats: { all: number; active: number; expired: number; pending: number };
   earnings: { lifetime: number; pending: number; paid: number; pendingSubTotal: number; pendingBookingTotal: number };
   activeCount: number;
   nextTierCount: number | null;
+  commissionWindowMonths: number;
   bookingTotal: number;
   bookingCount: number;
   bookingRows: BookingRow[];
@@ -79,10 +81,8 @@ function planLabel(planId: number | null): string {
   return map[planId] ?? "Plan";
 }
 
-function tierFromPct(pct: number): "Starter" | "Pro" | "Elite" {
-  if (pct >= 50) return "Elite";
-  if (pct >= 40) return "Pro";
-  return "Starter";
+function tierFromPct(pct: number): "Partner" | "Elite" {
+  return pct >= 75 ? "Elite" : "Partner";
 }
 
 function fmtMoney(n: number): string {
@@ -120,7 +120,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // 1. Referral code
   const { data: refCodeRow } = await supabase
     .from("referral_codes")
-    .select("id, code, commission_pct, tier_grace_until")
+    .select("id, code, commission_pct")
     .eq("owner_id", profile.id as string)
     .eq("is_active", true)
     .maybeSingle();
@@ -195,7 +195,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const activeCount = stats.active;
   const tier = tierFromPct(commissionPct);
-  const nextTierCount = tier === "Elite" ? null : tier === "Pro" ? 15 : 5;
+  const nextTierCount = tier === "Elite" ? null : 25;
+  const commissionWindowMonths = tier === "Elite" ? 24 : 12;
 
   // 5. Booking referral earnings
   const { data: rawBookingEarnings } = await supabase
@@ -243,6 +244,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       earnings: { lifetime: lifetimeEarned, pending: pendingSubTotal + pendingBookingTotal, paid: paidTotal.paid, pendingSubTotal, pendingBookingTotal },
       activeCount,
       nextTierCount,
+      commissionWindowMonths,
       bookingTotal,
       bookingCount,
       bookingRows,
@@ -265,6 +267,7 @@ export default function PartnersPage() {
     earnings,
     activeCount,
     nextTierCount,
+    commissionWindowMonths,
     bookingTotal,
     bookingCount,
     bookingRows,
@@ -299,10 +302,6 @@ export default function PartnersPage() {
     });
   }
 
-  const tierOrder: Array<"Starter" | "Pro" | "Elite"> = ["Starter", "Pro", "Elite"];
-  const tierPcts: Record<string, number> = { Starter: 30, Pro: 40, Elite: 50 };
-  const tierThresholds: Record<string, number | null> = { Starter: 5, Pro: 15, Elite: null };
-
   const progress = nextTierCount ? Math.min(1, activeCount / nextTierCount) : 1;
 
   const filteredReferrals = tab === "booked"
@@ -334,7 +333,7 @@ export default function PartnersPage() {
             You've been invited by Will Villa into the SQRZ Partner Program.
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, opacity: 0.7 }}>
-            Earn {commissionPct}% of every subscription you bring in, for 12 months.
+            Earn {commissionPct}% of every subscription you bring in, for {commissionWindowMonths} months.
           </p>
           <p style={{ fontSize: 13, color: "var(--color-text-tertiary)", marginTop: 3 }}>
             To earn booking commissions, your referrals need to activate Stripe Connect on their profile.
@@ -343,8 +342,8 @@ export default function PartnersPage() {
         <span style={{
           padding: "4px 12px",
           borderRadius: 20,
-          background: ACCENT_BG,
-          color: ACCENT,
+          background: tier === "Elite" ? "rgba(139,92,246,0.12)" : ACCENT_BG,
+          color: tier === "Elite" ? PURPLE : ACCENT,
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: "0.04em",
@@ -571,26 +570,29 @@ export default function PartnersPage() {
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
           <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>
             {tier === "Elite"
-              ? "Maximum tier reached"
-              : tier === "Pro"
-                ? `Pro tier reached — ${(nextTierCount ?? 0) - activeCount} more active referrals to Elite (50%)`
-                : `${activeCount} of ${nextTierCount} active referrals to Pro (40%)`}
+              ? "Elite tier — 75% commission for 24 months"
+              : `${activeCount} of 25 active referrals to Elite (75% · 24 months)`}
           </span>
           <div style={{ display: "flex", gap: 6 }}>
-            {tierOrder.map((t) => {
+            {(["Partner", "Elite"] as const).map((t) => {
               const isCurrent = t === tier;
-              const isNext = tierOrder.indexOf(t) === tierOrder.indexOf(tier) + 1;
+              const isNext = t === "Elite" && tier === "Partner";
+              const tColor = t === "Elite" ? PURPLE : ACCENT;
               return (
                 <span key={t} style={{
                   padding: "3px 10px",
                   borderRadius: 20,
                   fontSize: 11,
                   fontWeight: 700,
-                  background: isCurrent ? ACCENT_BG : "transparent",
-                  color: isCurrent ? ACCENT : isNext ? ACCENT : "var(--text-muted)",
-                  border: isCurrent ? `1px solid ${ACCENT}` : isNext ? `1px solid rgba(245,166,35,0.4)` : "1px solid var(--border)",
+                  background: isCurrent ? (t === "Elite" ? "rgba(139,92,246,0.12)" : ACCENT_BG) : "transparent",
+                  color: isCurrent ? tColor : isNext ? tColor : "var(--text-muted)",
+                  border: isCurrent
+                    ? `1px solid ${tColor}`
+                    : isNext
+                      ? `1px solid ${t === "Elite" ? "rgba(139,92,246,0.4)" : "rgba(245,166,35,0.4)"}`
+                      : "1px solid var(--border)",
                 }}>
-                  {t} {tierPcts[t]}%
+                  {t} {t === "Elite" ? "75%" : "50%"}
                 </span>
               );
             })}
@@ -605,9 +607,9 @@ export default function PartnersPage() {
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{activeCount} active now</span>
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                {(tierThresholds[tier] ?? 0) - activeCount > 0
-                  ? `${(tierThresholds[tier] ?? 0) - activeCount} more to ${tier === "Starter" ? "Pro" : "Elite"}`
-                  : `Qualifying for ${tier === "Starter" ? "Pro" : "Elite"}`}
+                {25 - activeCount > 0
+                  ? `${25 - activeCount} more to Elite`
+                  : "Qualifying for Elite"}
               </span>
             </div>
           </>
