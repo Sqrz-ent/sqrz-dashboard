@@ -231,7 +231,7 @@ export default function UpgradeModal({
                 Monthly
               </p>
               <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-                $15<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                $12<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>Billed monthly</p>
               <Form method="post" action="/api/stripe/checkout">
@@ -265,9 +265,9 @@ export default function UpgradeModal({
               ) : (
                 <>
                   <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-                    $8.25<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                    $84<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/yr</span>
                   </p>
-                  <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>$99 billed yearly</p>
+                  <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>Billed yearly</p>
                 </>
               )}
               <Form method="post" action="/api/stripe/checkout">
