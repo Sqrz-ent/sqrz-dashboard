@@ -209,29 +209,6 @@ export async function action({ request }: Route.ActionArgs) {
   const duration = (formData.get("duration") as string) || null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
-  // ── Active campaign check ─────────────────────────────────────────────────
-  const { data: activeCampaigns } = await supabase
-    .from("boost_campaigns")
-    .select("id, status, ends_at")
-    .eq("profile_id", profile.id as string)
-    .in("status", ["pending", "live", "preparing"])
-    .eq("campaign_type", "boost");
-
-  const trulyActive = (activeCampaigns ?? []).filter((c) => {
-    if (c.status === "live" && c.ends_at) {
-      return new Date(c.ends_at) > new Date();
-    }
-    return true; // pending and preparing are always active
-  });
-
-  if (trulyActive.length > 0) {
-    return Response.json({
-      ok: false,
-      limitError: true,
-      message: "You already have an active campaign. Wait for it to complete before starting a new one.",
-    }, { headers });
-  }
-
   // ── Insert ─────────────────────────────────────────────────────────────────
   const { data: inserted, error } = await supabase
     .from("boost_campaigns")
@@ -400,7 +377,7 @@ export default function BoostPage() {
   }
 
   const isSubmitting = fetcher.state !== "idle";
-  const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string; error?: string; campaignId?: string } | undefined;
+  const actionData = fetcher.data as { ok?: boolean; message?: string; error?: string; campaignId?: string } | undefined;
 
   useEffect(() => {
     if (!actionData?.ok || boostSuccess || !actionData.campaignId) return;
@@ -769,15 +746,9 @@ export default function BoostPage() {
 
         {notesField}
 
-        {actionData?.ok === false && !actionData?.limitError && (
+        {actionData?.ok === false && (
           <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
             {actionData.error ?? "Something went wrong. Please try again."}
-          </p>
-        )}
-
-        {actionData?.limitError && (
-          <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
-            You already have an active campaign. Wait for it to complete before starting a new one.
           </p>
         )}
 
