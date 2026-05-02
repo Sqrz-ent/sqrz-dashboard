@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
+import { redirect, useLoaderData, useFetcher, useSearchParams, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -320,6 +320,7 @@ export default function BoostPage() {
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
   const locked = getPlanLevel(plan_id) < FEATURE_GATES.boost;
+  const navigate = useNavigate();
 
   // Shared form state
   const [promoteType, setPromoteType] = useState<string | null>(null);
@@ -347,7 +348,9 @@ export default function BoostPage() {
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);
   const [growSuccess, setGrowSuccess] = useState(searchParams.get("grow") === "success");
-  const [campaignMode, setCampaignMode] = useState<"boost" | "grow">("boost");
+  const [campaignMode, setCampaignMode] = useState<"boost" | "grow">(
+    grow_qualified && locked ? "grow" : "boost"
+  );
 
   useEffect(() => {
     if (searchParams.get("grow") === "success") setGrowSuccess(true);
@@ -637,8 +640,8 @@ export default function BoostPage() {
         Activate targeted attention for your profile
       </p>
 
-      {/* ── Campaign type selector — Boost + Grow qualified only ── */}
-      {!locked && grow_qualified && (
+      {/* ── Campaign type selector — shown whenever grow_qualified ── */}
+      {grow_qualified && (
         <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
           {(["boost", "grow"] as const).map((mode) => (
             <button
@@ -664,9 +667,40 @@ export default function BoostPage() {
       )}
 
       {/* ── BOOST section ───────────────────────────────────────────────────── */}
-      {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
-
-      {(locked || !grow_qualified || campaignMode === "boost") && (
+      {(!grow_qualified || campaignMode === "boost") && (
+      <>
+      {locked && !grow_qualified && (
+        <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
+      )}
+      {locked && grow_qualified && (
+        <div
+          onClick={() => navigate("?upgrade=boost")}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderLeft: "3px solid #F5A623",
+            borderRadius: 10,
+            padding: "14px 18px",
+            marginBottom: 20,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+          }}
+        >
+          <span style={{ fontSize: 20, flexShrink: 0, lineHeight: 1 }}>🔒</span>
+          <div>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text)", lineHeight: 1.4 }}>
+              Boost is a self-serve plan — upgrade to run your own campaigns alongside Grow.
+            </p>
+            <p style={{ margin: "3px 0 0", fontSize: 13, color: "#F5A623", fontWeight: 600, lineHeight: 1 }}>
+              Upgrade now →
+            </p>
+          </div>
+        </div>
+      )}
+      {(!locked || !grow_qualified) && (
       <div ref={formRef} style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
           New Boost Campaign
@@ -833,9 +867,11 @@ export default function BoostPage() {
         )}
       </div>
       )}
+      </>
+      )}
 
       {/* ── GROW section — shown when grow_qualified + Grow tab selected ─────── */}
-      {grow_qualified && !locked && campaignMode === "grow" && (
+      {grow_qualified && campaignMode === "grow" && (
         <>
           <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
