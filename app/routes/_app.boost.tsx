@@ -3,7 +3,7 @@ import { redirect, useLoaderData, useFetcher, useSearchParams, useNavigate } fro
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
+import { getPlanLevel } from "~/lib/plans";
 import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
@@ -118,12 +118,6 @@ const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }>
   preparing:       { label: "Preparing",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
   live:            { label: "Live",            color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
   completed:       { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
-};
-
-const BOOST_PAYMENT_LINKS: Record<number, string> = {
-  50:  "https://buy.stripe.com/7sY7sKbc35tI1gyanq57W01",
-  100: "https://buy.stripe.com/bJeaEWgwn2hwe3k0MQ57W02",
-  150: "https://buy.stripe.com/7sY9AScg7f4i8J0cvy57W03",
 };
 
 const GROW_MEETING_URL =
@@ -319,7 +313,7 @@ export default function BoostPage() {
   const isFirstCampaign = campaign_count === 0;
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
-  const locked = getPlanLevel(plan_id) < FEATURE_GATES.boost;
+  const freeUser = getPlanLevel(plan_id) < 1;
   const navigate = useNavigate();
 
   // Shared form state
@@ -348,9 +342,7 @@ export default function BoostPage() {
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);
   const [growSuccess, setGrowSuccess] = useState(searchParams.get("grow") === "success");
-  const [campaignMode, setCampaignMode] = useState<"boost" | "grow">(
-    grow_qualified && locked ? "grow" : "boost"
-  );
+  const [campaignMode, setCampaignMode] = useState<"boost" | "grow">("boost");
 
   useEffect(() => {
     if (searchParams.get("grow") === "success") setGrowSuccess(true);
@@ -410,13 +402,9 @@ export default function BoostPage() {
   const isSubmitting = fetcher.state !== "idle";
   const actionData = fetcher.data as { ok?: boolean; limitError?: boolean; message?: string; error?: string; campaignId?: string } | undefined;
 
-  if (actionData?.ok && !boostSuccess) {
+  useEffect(() => {
+    if (!actionData?.ok || boostSuccess || !actionData.campaignId) return;
     setBoostSuccess(true);
-    const paymentUrl = BOOST_PAYMENT_LINKS[Number(budget)];
-    if (paymentUrl && actionData.campaignId) {
-      const finalUrl = `${paymentUrl}?client_reference_id=${actionData.campaignId}&prefilled_email=${encodeURIComponent(email)}`;
-      window.location.href = finalUrl;
-    }
     setPromoteType(null);
     setPromoteLinkId("");
     setChannel(null);
@@ -425,7 +413,17 @@ export default function BoostPage() {
     setTargetAudience("");
     setBudget(null);
     setNotes("");
-  }
+    // Trigger Stripe checkout — $25 activation or $5 reactivation
+    fetch("/api/boost/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ campaignId: actionData.campaignId }),
+    })
+      .then((r) => r.json())
+      .then((d) => { if (d.checkout_url) window.location.href = d.checkout_url; })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actionData?.ok, actionData?.campaignId]);
 
   const boostCanSubmit =
     !!promoteType &&
@@ -666,42 +664,12 @@ export default function BoostPage() {
         </div>
       )}
 
+      {/* ── Creator upgrade banner — free users only ─────────────────────────── */}
+      {freeUser && <UpgradeBanner planName="Creator plan" upgradeParam="creator" />}
+
       {/* ── BOOST section ───────────────────────────────────────────────────── */}
-      {(!grow_qualified || campaignMode === "boost") && (
-      <>
-      {locked && !grow_qualified && (
-        <UpgradeBanner planName="Boost plan" upgradeParam="boost" />
-      )}
-      {locked && grow_qualified && (
-        <div
-          onClick={() => navigate("?upgrade=boost")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderLeft: "3px solid #F5A623",
-            borderRadius: 10,
-            padding: "14px 18px",
-            marginBottom: 20,
-            cursor: "pointer",
-            fontFamily: FONT_BODY,
-          }}
-        >
-          <span style={{ fontSize: 20, flexShrink: 0, lineHeight: 1 }}>🔒</span>
-          <div>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "var(--text)", lineHeight: 1.4 }}>
-              Boost is a self-serve plan — upgrade to run your own campaigns alongside Grow.
-            </p>
-            <p style={{ margin: "3px 0 0", fontSize: 13, color: "#F5A623", fontWeight: 600, lineHeight: 1 }}>
-              Upgrade now →
-            </p>
-          </div>
-        </div>
-      )}
-      {(!locked || !grow_qualified) && (
-      <div ref={formRef} style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
+      {!freeUser && (!grow_qualified || campaignMode === "boost") && (
+      <div ref={formRef} style={card}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
           New Boost Campaign
         </h2>
@@ -867,11 +835,9 @@ export default function BoostPage() {
         )}
       </div>
       )}
-      </>
-      )}
 
       {/* ── GROW section — shown when grow_qualified + Grow tab selected ─────── */}
-      {grow_qualified && campaignMode === "grow" && (
+      {!freeUser && grow_qualified && campaignMode === "grow" && (
         <>
           <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
@@ -1033,9 +999,8 @@ export default function BoostPage() {
               const isPending = c.status === "draft" || c.status === "pending" || c.status === "pending_payment";
               const isPaid = c.status === "live" || c.status === "preparing";
               const hasStats = c.status === "live" || c.status === "completed";
-              const baseUrl = c.stripe_payment_link_url ?? BOOST_PAYMENT_LINKS[c.budget_amount] ?? null;
-              const paymentUrl = baseUrl
-                ? `${baseUrl}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
+              const paymentUrl = c.stripe_payment_link_url
+                ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
                 : null;
               const isStatsOpen = !!openStats[c.id];
 
