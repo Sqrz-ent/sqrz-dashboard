@@ -74,99 +74,54 @@ export async function action({ request }: ActionFunctionArgs) {
     console.log("[webhook] booking_type:", session.metadata?.booking_type, "| booking_id:", session.metadata?.booking_id, "| invite_token:", session.metadata?.invite_token);
     console.log("[webhook] subscription:", session.subscription, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
 
-    // ── Boost ad budget payment ──────────────────────────────────────────────
-    const BOOST_AMOUNTS = [50, 100, 150, 300];
-    const amountDollars = (session.amount_total ?? 0) / 100;
-    const isBoostPayment =
-      session.client_reference_id &&
-      BOOST_AMOUNTS.includes(amountDollars);
-
-    if (isBoostPayment) {
-      const campaignId = session.client_reference_id as string;
-      const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
-
-      console.log("[webhook] boost payment received:", customerEmail, amountDollars, "campaign:", campaignId);
-
-      // Update the specific campaign to live
-      const { error: campaignError } = await supabase
-        .from("boost_campaigns")
-        .update({ status: "live" })
-        .eq("id", campaignId);
-      if (campaignError) {
-        console.error("[webhook] boost campaign update failed:", campaignError);
-      } else {
-        console.log("[webhook] boost campaign set to live:", campaignId);
-      }
-
-      // Notify will@sqrz.com via Resend
-      try {
-        const { Resend } = await import("resend");
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        await resend.emails.send({
-          from: "noreply@sqrz.com",
-          to: "will@sqrz.com",
-          subject: `New Boost payment — ${amountDollars}€`,
-          html: `
-            <p>A new Boost ad budget payment has been received.</p>
-            <p><strong>Amount:</strong> €${amountDollars}</p>
-            <p><strong>Customer:</strong> ${customerEmail}</p>
-            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-            <p><strong>Campaign ID:</strong> ${campaignId}</p>
-            <p>Log in to the dashboard to review and activate the campaign.</p>
-          `,
-        });
-        console.log("[webhook] boost notification email sent");
-      } catch (emailErr) {
-        console.error("[webhook] boost notification email failed:", emailErr);
-      }
-
-      return Response.json({ received: true });
-    }
-
-    // ── Grow campaign payment ────────────────────────────────────────────────
-    if (session.metadata?.type === "grow_campaign" && session.metadata?.profile_id) {
-      const profileId = session.metadata.profile_id;
+    // ── Boost / Grow campaign payment (unified) ──────────────────────────────
+    if (session.metadata?.campaign_id) {
+      const campaignId = session.metadata.campaign_id;
+      const campaignType = session.metadata.campaign_type ?? "boost";
       const paymentIntent = session.payment_intent as string | null;
+      const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
+      const totalDollars = (session.amount_total ?? 0) / 100;
 
-      console.log("[webhook] grow campaign payment received — profile:", profileId, "pi:", paymentIntent);
+      console.log("[webhook] campaign payment received — type:", campaignType, "id:", campaignId, "total:", totalDollars);
 
-      const { error: growError } = await supabase
+      const { error: campaignError } = await supabase
         .from("boost_campaigns")
         .update({
           status: "preparing",
           stripe_payment_id: paymentIntent,
+          stripe_payment_status: "paid",
         })
-        .eq("profile_id", profileId)
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(1);
+        .eq("id", campaignId);
 
-      if (growError) {
-        console.error("[webhook] grow campaign update failed:", growError);
+      if (campaignError) {
+        console.error("[webhook] campaign update failed:", campaignError);
       } else {
-        console.log("[webhook] grow campaign set to preparing — profile:", profileId);
+        console.log("[webhook] campaign set to preparing:", campaignId);
       }
 
+      // Notify will@sqrz.com
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
+        const isGrow = campaignType === "grow";
         await resend.emails.send({
           from: "SQRZ <noreply@sqrz.com>",
           to: "will@sqrz.com",
-          subject: `New Grow campaign payment — $${session.metadata.total}`,
+          subject: `New ${isGrow ? "Grow" : "Boost"} campaign payment — $${session.metadata.total}`,
           html: `
-            <p>A new SQRZ Grow campaign payment has been received.</p>
-            <p><strong>Budget:</strong> $${session.metadata.budget}</p>
-            <p><strong>Management fee:</strong> $${session.metadata.fee}</p>
+            <p>A new SQRZ ${isGrow ? "Grow" : "Boost"} campaign payment has been received.</p>
+            <p><strong>Ad budget:</strong> $${session.metadata.budget_amount}</p>
+            <p><strong>${isGrow ? "Management fee (20%)" : "Activation fee"}:</strong> $${session.metadata.fee}</p>
             <p><strong>Total charged:</strong> $${session.metadata.total}</p>
-            <p><strong>Profile ID:</strong> ${profileId}</p>
-            <p><strong>Payment Intent:</strong> ${paymentIntent}</p>
-            <p>Contact the client within 24 hours to schedule their strategy session.</p>
+            <p><strong>Customer:</strong> ${customerEmail}</p>
+            <p><strong>Campaign ID:</strong> ${campaignId}</p>
+            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
+            ${isGrow ? "<p>Contact the client within 24 hours to schedule their strategy session.</p>" : "<p>Log in to the dashboard to review and activate the campaign.</p>"}
           `,
         });
-        console.log("[webhook] grow campaign notification email sent");
+        console.log("[webhook] campaign notification email sent");
       } catch (emailErr) {
-        console.error("[webhook] grow campaign notification email failed:", emailErr);
+        console.error("[webhook] campaign notification email failed:", emailErr);
       }
 
       return Response.json({ received: true });

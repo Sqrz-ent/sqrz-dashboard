@@ -288,6 +288,7 @@ export default function BoostPage() {
       profile_slug: string;
     };
   const isFirstCampaign = campaign_count === 0;
+  const isReactivation = campaigns.some((c) => c.status === "completed");
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
   const freeUser = getPlanLevel(plan_id) < 1;
@@ -318,11 +319,11 @@ export default function BoostPage() {
   const [growBudget, setGrowBudget] = useState<string | number>("");
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);
-  const [growSuccess, setGrowSuccess] = useState(searchParams.get("grow") === "success");
+  const [growSuccess, setGrowSuccess] = useState(searchParams.get("campaign_paid") === "true");
   const [campaignMode, setCampaignMode] = useState<"boost" | "grow">("boost");
 
   useEffect(() => {
-    if (searchParams.get("grow") === "success") setGrowSuccess(true);
+    if (searchParams.get("campaign_paid") === "true") setGrowSuccess(true);
   }, [searchParams]);
 
   const growBudgetNum = Number(growBudget);
@@ -334,10 +335,10 @@ export default function BoostPage() {
   async function handleGrowRetry(budget: number, campaignId: string) {
     setRetryingId(campaignId);
     try {
-      const res = await fetch("/api/grow/checkout", {
+      const res = await fetch("/api/campaigns/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ budget, campaignId }),
+        body: JSON.stringify({ campaign_type: "grow", budget_amount: budget, campaign_id: campaignId }),
       });
       const data = await res.json();
       if (res.ok && data.checkout_url) {
@@ -352,11 +353,12 @@ export default function BoostPage() {
     setGrowLoading(true);
     setGrowError(null);
     try {
-      const res = await fetch("/api/grow/checkout", {
+      const res = await fetch("/api/campaigns/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          budget: growBudgetNum,
+          campaign_type: "grow",
+          budget_amount: growBudgetNum,
           promote_type: promoteType,
           promote_link_id: promoteType === "link" ? promoteLinkId : null,
           target_audience: targetAudience || null,
@@ -391,10 +393,15 @@ export default function BoostPage() {
     setBudget(null);
     setNotes("");
     // Trigger Stripe checkout — $25 activation or $5 reactivation
-    fetch("/api/boost/checkout", {
+    fetch("/api/campaigns/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ campaignId: actionData.campaignId }),
+      body: JSON.stringify({
+        campaign_type: "boost",
+        budget_amount: budget,
+        campaign_id: actionData.campaignId,
+        is_reactivation: isReactivation,
+      }),
     })
       .then((r) => r.json())
       .then((d) => { if (d.checkout_url) window.location.href = d.checkout_url; })
@@ -745,6 +752,31 @@ export default function BoostPage() {
         </div>
 
         {notesField}
+
+        {/* Price breakdown */}
+        {budget && (
+          <div style={{
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: "14px 16px",
+            marginBottom: 16,
+            fontSize: 13,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+              <span>Ad budget</span>
+              <span style={{ fontFamily: "monospace" }}>${budget}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+              <span>{isReactivation ? "Reactivation fee" : "Activation fee"}</span>
+              <span style={{ fontFamily: "monospace" }}>+${isReactivation ? 5 : 25}</span>
+            </div>
+            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+              <span>Total</span>
+              <span style={{ fontFamily: "monospace" }}>${budget + (isReactivation ? 5 : 25)}</span>
+            </div>
+          </div>
+        )}
 
         {actionData?.ok === false && (
           <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
