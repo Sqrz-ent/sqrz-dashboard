@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Form } from "react-router";
 
-type UpgradeView = "all" | "creator" | "boost" | "grow";
+type UpgradeView = "all" | "creator" | "grow";
 
 interface UpgradeModalProps {
   onClose: () => void;
@@ -13,8 +13,6 @@ interface UpgradeModalProps {
   earlyAccessCouponId: string;
   isClaimed: boolean;
   isPartner: boolean;
-  // Boost plan
-  boostMonthlyPriceId: string;
 }
 
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
@@ -23,33 +21,25 @@ const PLANS: { key: UpgradeView; name: string; price: string; bullets: string[] 
   {
     key: "creator",
     name: "Creator",
-    price: "From $7/mo",
-    bullets: ["Custom domain", "Pixel tracking", "Analytics"],
-  },
-  {
-    key: "boost",
-    name: "Boost",
-    price: "$39/mo",
-    bullets: ["Everything in Creator", "Boost campaigns", "Private links"],
+    price: "From $15/mo",
+    bullets: ["Custom domain", "Pixel tracking", "Analytics", "Private links", "Boost campaigns"],
   },
   {
     key: "grow",
     name: "Grow",
     price: "Contact us",
-    bullets: ["Everything in Boost", "Media library", "Personal access"],
+    bullets: ["Managed campaigns", "Media library", "Personal access"],
   },
 ];
 
 const HEADINGS: Record<UpgradeView, { title: string; subtitle: string }> = {
-  all:     { title: "Choose a plan",        subtitle: "Unlock more of SQRZ as your needs grow." },
-  creator: { title: "Upgrade to Creator",   subtitle: "Unlock your full profile, custom domain, and more." },
-  boost:   { title: "Upgrade to Boost",     subtitle: "Run targeted campaigns and unlock private links." },
-  grow:    { title: "Upgrade to Grow",      subtitle: "Unlock the full SQRZ platform including media library." },
+  all:     { title: "Choose a plan",      subtitle: "Unlock more of SQRZ as your needs grow." },
+  creator: { title: "Upgrade to Creator", subtitle: "Unlock your full profile, custom domain, and more." },
+  grow:    { title: "Upgrade to Grow",    subtitle: "Unlock the full SQRZ platform including media library." },
 };
 
 function contextToView(ctx: string): UpgradeView {
   if (ctx === "creator") return "creator";
-  if (ctx === "boost")   return "boost";
   if (ctx === "grow")    return "grow";
   return "all";
 }
@@ -76,7 +66,6 @@ export default function UpgradeModal({
   earlyAccessCouponId,
   isClaimed,
   isPartner,
-  boostMonthlyPriceId,
 }: UpgradeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<UpgradeView>(contextToView(upgradeContext));
@@ -137,7 +126,7 @@ export default function UpgradeModal({
           className="upgrade-modal"
           style={{
             position: "relative",
-            width: view === "all" ? "min(680px, 100%)" : "min(480px, 100%)",
+            width: view === "all" ? "min(560px, 100%)" : "min(480px, 100%)",
             background: "var(--surface)",
             border: "1px solid var(--border)",
             boxShadow: "0 24px 64px rgba(0,0,0,0.7)",
@@ -242,7 +231,7 @@ export default function UpgradeModal({
                 Monthly
               </p>
               <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-                $12<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                $15<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>Billed monthly</p>
               <Form method="post" action="/api/stripe/checkout">
@@ -259,7 +248,7 @@ export default function UpgradeModal({
                 borderRadius: 20, padding: "3px 10px", whiteSpace: "nowrap",
                 letterSpacing: "0.04em", textTransform: "uppercase",
               }}>
-                {referredByCode ? "Your Invite" : "Save 42%"}
+                {referredByCode ? "Your Invite" : "Save 45%"}
               </span>
               <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
                 Yearly
@@ -270,15 +259,15 @@ export default function UpgradeModal({
                     $29<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/yr</span>
                   </p>
                   <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
-                    <s>$84/year</s>{" "}with your invite
+                    <s>$99/year</s>{" "}with your invite
                   </p>
                 </>
               ) : (
                 <>
                   <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-                    $7<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
+                    $8.25<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
                   </p>
-                  <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>$84 billed yearly</p>
+                  <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>$99 billed yearly</p>
                 </>
               )}
               <Form method="post" action="/api/stripe/checkout">
@@ -286,27 +275,6 @@ export default function UpgradeModal({
                 {(isClaimed || isPartner) && earlyAccessCouponId && (
                   <input type="hidden" name="coupon_id" value={earlyAccessCouponId} />
                 )}
-                <button type="submit" style={submitBtn}>Select</button>
-              </Form>
-            </div>
-          </div>
-        )}
-
-        {/* ── Boost plan ── */}
-        {view === "boost" && (
-          <div style={{ marginTop: 22 }}>
-            <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 14, padding: "18px 16px" }}>
-              <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>
-                Monthly
-              </p>
-              <p style={{ color: "var(--text)", fontSize: 26, fontWeight: 800, margin: "0 0 2px" }}>
-                $39<span style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 400 }}>/mo</span>
-              </p>
-              <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
-                Everything in Creator · Targeted campaigns · Private links
-              </p>
-              <Form method="post" action="/api/stripe/checkout">
-                <input type="hidden" name="price_id" value={boostMonthlyPriceId} />
                 <button type="submit" style={submitBtn}>Select</button>
               </Form>
             </div>
@@ -324,7 +292,7 @@ export default function UpgradeModal({
                 Custom pricing
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 16px" }}>
-                Everything in Boost · Media library · Personal access
+                Managed campaigns · Media library · Personal access
               </p>
               <a
                 href="https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call"

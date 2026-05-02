@@ -79,14 +79,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   }
 
-  // Fetch Boost (plan 2) price ID from plans table
-  const { data: boostPlanRow } = await supabase
-    .from("plans")
-    .select("stripe_price_monthly")
-    .eq("id", 2)
-    .single();
-  const boostMonthlyPriceId = (boostPlanRow?.stripe_price_monthly as string | null) ?? "";
-
   console.log("[loader] subscription:", subscriptionData);
 
   return Response.json(
@@ -97,7 +89,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
       creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
       earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
-      boostMonthlyPriceId,
       isClaimed: !!(profile?.is_claimed as boolean | null),
       isPartner: !!(profile?.is_partner as boolean | null),
       partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
@@ -128,7 +119,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, boostMonthlyPriceId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -562,8 +553,6 @@ export default function AppLayout() {
           yearlyPriceId={creatorYearlyPriceId}
           earlyAccessCouponId={earlyAccessCouponId}
           referredByCode={p?.referred_by_code as string | null ?? null}
-          boostMonthlyPriceId={boostMonthlyPriceId}
-
           isClaimed={isClaimed}
           isPartner={isPartner}
         />

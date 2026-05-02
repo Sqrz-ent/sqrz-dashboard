@@ -3,8 +3,6 @@ import { redirect, useLoaderData, useFetcher, useSearchParams, useNavigate } fro
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { getPlanLevel } from "~/lib/plans";
-import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -291,7 +289,6 @@ export default function BoostPage() {
   const isReactivation = campaigns.some((c) => c.status === "completed");
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
-  const freeUser = getPlanLevel(plan_id) < 1;
   const navigate = useNavigate();
 
   // Shared form state
@@ -648,11 +645,8 @@ export default function BoostPage() {
         </div>
       )}
 
-      {/* ── Creator upgrade banner — free users only ─────────────────────────── */}
-      {freeUser && <UpgradeBanner planName="Creator plan" upgradeParam="creator" />}
-
       {/* ── BOOST section ───────────────────────────────────────────────────── */}
-      {!freeUser && (!grow_qualified || campaignMode === "boost") && (
+      {(!grow_qualified || campaignMode === "boost") && (
       <div ref={formRef} style={card}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
           New Boost Campaign
@@ -669,7 +663,7 @@ export default function BoostPage() {
           color: "var(--text-muted)",
           lineHeight: 1.6,
         }}>
-          Boost runs a single-channel paid ad campaign pointing to your SQRZ profile or link. You choose the channel and budget — we handle setup and execution. Ad spend is separate from your $39/mo subscription.
+          Boost runs a single-channel paid ad campaign pointing to your SQRZ profile or link. You choose the channel and budget — we handle setup and execution. Each campaign is a one-time payment ($25 activation fee + your ad budget).
         </div>
 
         {boostSuccess && (
@@ -840,7 +834,7 @@ export default function BoostPage() {
       )}
 
       {/* ── GROW section — shown when grow_qualified + Grow tab selected ─────── */}
-      {!freeUser && grow_qualified && campaignMode === "grow" && (
+      {grow_qualified && campaignMode === "grow" && (
         <>
           <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
