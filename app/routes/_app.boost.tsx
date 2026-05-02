@@ -347,6 +347,7 @@ export default function BoostPage() {
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);
   const [growSuccess, setGrowSuccess] = useState(searchParams.get("grow") === "success");
+  const [campaignMode, setCampaignMode] = useState<"boost" | "grow">("boost");
 
   useEffect(() => {
     if (searchParams.get("grow") === "success") setGrowSuccess(true);
@@ -636,9 +637,36 @@ export default function BoostPage() {
         Activate targeted attention for your profile
       </p>
 
+      {/* ── Campaign type selector — Boost + Grow qualified only ── */}
+      {!locked && grow_qualified && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+          {(["boost", "grow"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setCampaignMode(mode)}
+              style={{
+                padding: "9px 20px",
+                borderRadius: 24,
+                border: campaignMode === mode ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
+                background: campaignMode === mode ? "rgba(245,166,35,0.1)" : "var(--bg)",
+                color: campaignMode === mode ? ACCENT : "var(--text-muted)",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: FONT_BODY,
+              }}
+            >
+              {mode === "boost" ? "Boost — Self-serve" : "Grow — Managed"}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* ── BOOST section ───────────────────────────────────────────────────── */}
       {locked && <UpgradeBanner planName="Boost plan" upgradeParam="boost" />}
 
+      {(locked || !grow_qualified || campaignMode === "boost") && (
       <div ref={formRef} style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
           New Boost Campaign
@@ -804,9 +832,10 @@ export default function BoostPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* ── GROW section — additive when qualified ────────────────────────────── */}
-      {grow_qualified && (
+      {/* ── GROW section — shown when grow_qualified + Grow tab selected ─────── */}
+      {grow_qualified && !locked && campaignMode === "grow" && (
         <>
           <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
             <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
