@@ -184,12 +184,9 @@ function UsernameStep({
         }}
       >
         Already have an account?{" "}
-        <button
-          onClick={onLoginClick}
-          style={{ ...ghostButtonStyle, color: "#F5A623" }}
-        >
+        <a href="/login" style={{ color: "#F5A623", fontWeight: 600, textDecoration: "none" }}>
           Log in →
-        </button>
+        </a>
       </p>
     </div>
   );
