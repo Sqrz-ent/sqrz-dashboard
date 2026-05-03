@@ -367,7 +367,7 @@ export default function AccountPage() {
               SQRZ Creator — Free
             </span>
             <a
-              href="?upgrade=boost"
+              href="?upgrade=creator"
               style={{
                 display: "inline-block",
                 padding: "9px 20px",
@@ -380,7 +380,7 @@ export default function AccountPage() {
                 fontFamily: FONT_BODY,
               }}
             >
-              Upgrade to Boost →
+              Upgrade to Creator →
             </a>
           </div>
         ) : (
