@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, useLoaderData, useFetcher, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -350,6 +350,7 @@ function ServiceModal({
   fetcher: ReturnType<typeof useFetcher>;
   isPremium: boolean;
 }) {
+  const navigate = useNavigate();
   const [priceOnRequest, setPriceOnRequest] = useState(false);
   const [isInstant, setIsInstant] = useState(false);
   const [form, setForm] = useState({
@@ -512,24 +513,33 @@ function ServiceModal({
         <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
 
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: isPremium ? "var(--text)" : "var(--text-muted)", fontFamily: FONT_BODY }}>
               Instant Booking
             </span>
-            <span style={{
-              fontSize: 10,
-              fontWeight: 700,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase" as const,
-              padding: "2px 7px",
-              borderRadius: 20,
-              border: isPremium ? `1px solid rgba(245,166,35,0.5)` : "1px solid var(--border)",
-              color: isPremium ? ACCENT : "var(--text-muted)",
-              background: isPremium ? "rgba(245,166,35,0.08)" : "transparent",
-              fontFamily: FONT_BODY,
-            }}>
-              Premium
-            </span>
+            {!isPremium && (
+              <button
+                type="button"
+                onClick={() => navigate("?upgrade=creator")}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "2px 8px",
+                  borderRadius: 20,
+                  border: "none",
+                  background: "rgba(245,166,35,0.12)",
+                  color: ACCENT,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT_BODY,
+                  letterSpacing: "0.03em",
+                }}
+              >
+                Creator Plan
+              </button>
+            )}
           </div>
           <button
             type="button"
@@ -561,12 +571,6 @@ function ServiceModal({
             }} />
           </button>
         </div>
-
-        {!isPremium && (
-          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "-4px 0 0", fontFamily: FONT_BODY }}>
-            Upgrade to a paid plan to enable instant booking.
-          </p>
-        )}
 
         {isInstant && (
           <>
