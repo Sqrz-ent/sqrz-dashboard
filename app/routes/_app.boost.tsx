@@ -307,6 +307,7 @@ export default function BoostPage() {
 
   const isFreeUser = !plan_id;
   const [showLinkUpgrade, setShowLinkUpgrade] = useState(false);
+  const [showPixelUpgrade, setShowPixelUpgrade] = useState(false);
 
   // Shared form state
   const [promoteType, setPromoteType] = useState<string | null>(null);
@@ -668,10 +669,50 @@ export default function BoostPage() {
   return (
     <>
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={sectionTitle}>Boost</h1>
-      <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: -12, marginBottom: 28 }}>
-        Activate targeted attention for your profile
-      </p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 12, flexWrap: "wrap" as const }}>
+        <div>
+          <h1 style={{ ...sectionTitle, marginBottom: 6 }}>Boost</h1>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+            One-time campaign · You pick channel &amp; budget · $25 activation + ad spend
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => plan_id ? navigate("/domain") : setShowPixelUpgrade(true)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 5,
+            padding: "6px 12px",
+            borderRadius: 20,
+            border: "1px solid var(--border)",
+            background: plan_id ? "var(--surface)" : "rgba(245,166,35,0.07)",
+            color: plan_id ? "var(--text-muted)" : ACCENT,
+            fontSize: 12,
+            fontWeight: 600,
+            cursor: "pointer",
+            fontFamily: FONT_BODY,
+            whiteSpace: "nowrap" as const,
+            marginTop: 4,
+          }}
+        >
+          🎯 {plan_id ? "Pixel Settings →" : "Add Retargeting Pixel"}
+          {!plan_id && (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              background: "rgba(245,166,35,0.15)",
+              color: ACCENT,
+              borderRadius: 20,
+              padding: "1px 6px",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase" as const,
+            }}>
+              Creator
+            </span>
+          )}
+        </button>
+      </div>
 
       {/* ── Campaign type selector — shown whenever grow_qualified ── */}
       {grow_qualified && (
@@ -706,20 +747,6 @@ export default function BoostPage() {
           New Boost Campaign
         </h2>
 
-        {/* How Boost works */}
-        <div style={{
-          background: "rgba(245,166,35,0.06)",
-          border: "1px solid rgba(245,166,35,0.18)",
-          borderRadius: 10,
-          padding: "12px 14px",
-          marginBottom: 24,
-          fontSize: 13,
-          color: "var(--text-muted)",
-          lineHeight: 1.6,
-        }}>
-          Boost runs a single-channel paid ad campaign pointing to your SQRZ profile or link. You choose the channel and budget — we handle setup and execution. Each campaign is a one-time payment ($25 activation fee + your ad budget).
-        </div>
-
         {boostSuccess && (
           <div style={{
             background: "rgba(34,197,94,0.1)",
@@ -734,18 +761,6 @@ export default function BoostPage() {
             Campaign created — complete payment below to activate it.
           </div>
         )}
-
-        <div style={{
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          padding: "10px 14px",
-          fontSize: 13,
-          color: "var(--text-muted)",
-          marginBottom: 16,
-        }}>
-          💡 <strong>Tip:</strong> Add your Meta or Google pixel in Profile → Settings to retarget visitors from this campaign. SQRZ tracks all visits automatically — your pixel handles the retargeting on your own ad account.
-        </div>
 
         {rerunSource && (
           <div style={{
@@ -1350,6 +1365,18 @@ export default function BoostPage() {
     {showLinkUpgrade && (
       <UpgradeModal
         onClose={() => setShowLinkUpgrade(false)}
+        upgradeContext="creator"
+        monthlyPriceId={creatorMonthlyPriceId}
+        yearlyPriceId={creatorYearlyPriceId}
+        referredByCode={referredByCode}
+        earlyAccessCouponId={earlyAccessCouponId}
+        isClaimed={isClaimed}
+        isPartner={isPartner}
+      />
+    )}
+    {showPixelUpgrade && (
+      <UpgradeModal
+        onClose={() => setShowPixelUpgrade(false)}
         upgradeContext="creator"
         monthlyPriceId={creatorMonthlyPriceId}
         yearlyPriceId={creatorYearlyPriceId}
