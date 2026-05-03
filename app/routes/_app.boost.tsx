@@ -1109,7 +1109,7 @@ export default function BoostPage() {
                       ) : (
                         <button
                           onClick={() => handleGrowRetry(c.budget_amount, c.id)}
-                          disabled={retryingId !== null}
+                          disabled={retryingId === c.id}
                           style={{
                             display: "block",
                             width: "100%",
@@ -1121,14 +1121,14 @@ export default function BoostPage() {
                             fontSize: 14,
                             fontWeight: 700,
                             textAlign: "center" as const,
-                            cursor: retryingId !== null ? "wait" : "pointer",
+                            cursor: retryingId === c.id ? "wait" : "pointer",
                             fontFamily: FONT_BODY,
                             boxSizing: "border-box" as const,
                             marginBottom: 8,
-                            opacity: retryingId !== null ? 0.7 : 1,
+                            opacity: retryingId === c.id ? 0.7 : 1,
                           }}
                         >
-                          {retryingId !== null ? "Redirecting…" : `Pay $${c.budget_amount} →`}
+                          {retryingId === c.id ? "Redirecting…" : `Pay $${c.budget_amount} →`}
                         </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>

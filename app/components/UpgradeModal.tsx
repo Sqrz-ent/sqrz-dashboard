@@ -21,7 +21,7 @@ const PLANS: { key: UpgradeView; name: string; price: string; bullets: string[] 
   {
     key: "creator",
     name: "Creator",
-    price: "From $15/mo",
+    price: "From $12/mo",
     bullets: ["Custom domain", "Pixel tracking", "Analytics", "Private links", "Boost campaigns"],
   },
   {
