@@ -39,22 +39,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const admin = createSupabaseAdminClient();
 
-  const [subRes, planRes] = await Promise.all([
-    admin
-      .from("subscriptions")
-      .select("*")
-      .eq("profile_id", profile.id as string)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    profile.plan_id
-      ? supabase
-          .from("plans")
-          .select("id, name")
-          .eq("id", profile.plan_id as number)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
+  const subRes = await admin
+    .from("subscriptions")
+    .select("*")
+    .eq("profile_id", profile.id as string)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
   const sub = subRes.data;
   const customerId = profile.stripe_customer_id as string | null;
@@ -94,7 +85,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       profile,
       subscription: sub ?? null,
-      plan: planRes.data ?? null,
       stripePrice,
       billingPortalUrl,
     },
@@ -164,10 +154,9 @@ function fmtPrice(amount: number | null, currency: string | null, interval: stri
 }
 
 export default function AccountPage() {
-  const { profile, subscription, plan, stripePrice, billingPortalUrl } = useLoaderData<typeof loader>() as {
+  const { profile, subscription, stripePrice, billingPortalUrl } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     subscription: Record<string, unknown> | null;
-    plan: { id: number; name: string } | null;
     stripePrice: { amount: number | null; interval: string | null; currency: string | null };
     billingPortalUrl: string | null;
   };
@@ -235,9 +224,11 @@ export default function AccountPage() {
   }
 
   const slug = (profile.slug as string) ?? "";
-  const planName = plan?.name ?? (profile.plan_id ? `Plan ${profile.plan_id}` : null);
   const planId = (profile.plan_id as number | null) ?? null;
-  const isFreeOrCreator = !planId || planId === 1;
+  const planName = planId === 1 ? "SQRZ Creator"
+    : planId === 2 ? "SQRZ Boost"
+    : null;
+  const isFreeOrCreator = !planId;
   const priceLabel = fmtPrice(stripePrice.amount, stripePrice.currency, stripePrice.interval);
   const planLabel = planName && priceLabel ? `${planName} · ${priceLabel}` : planName;
 
