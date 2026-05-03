@@ -351,6 +351,7 @@ function ServiceModal({
   isPremium: boolean;
 }) {
   const navigate = useNavigate();
+  const [showInstantUpsell, setShowInstantUpsell] = useState(false);
   const [priceOnRequest, setPriceOnRequest] = useState(false);
   const [isInstant, setIsInstant] = useState(false);
   const [form, setForm] = useState({
@@ -520,7 +521,7 @@ function ServiceModal({
             {!isPremium && (
               <button
                 type="button"
-                onClick={() => navigate("?upgrade=creator")}
+                onClick={() => setShowInstantUpsell((v) => !v)}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -571,6 +572,37 @@ function ServiceModal({
             }} />
           </button>
         </div>
+
+        {showInstantUpsell && !isPremium && (
+          <div style={{
+            marginTop: 10,
+            padding: "12px 14px",
+            background: "rgba(245,166,35,0.06)",
+            border: "1px solid rgba(245,166,35,0.18)",
+            borderRadius: 10,
+          }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px", lineHeight: 1.5, fontFamily: FONT_BODY }}>
+              Let clients book and pay you directly — no back-and-forth. Available on the Creator Plan.
+            </p>
+            <button
+              type="button"
+              onClick={() => { onClose(); navigate("/account"); }}
+              style={{
+                padding: "7px 16px",
+                background: ACCENT,
+                color: "#111",
+                border: "none",
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT_BODY,
+              }}
+            >
+              Upgrade Plan →
+            </button>
+          </div>
+        )}
 
         {isInstant && (
           <>
