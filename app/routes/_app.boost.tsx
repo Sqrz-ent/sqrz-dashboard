@@ -87,6 +87,7 @@ type Campaign = {
   fee_amount: number | null;
   stripe_payment_id: string | null;
   stripe_payment_status: string | null;
+  stripe_payment_link_id: string | null;
   stripe_payment_link_url: string | null;
   requires_payment: boolean | null;
   payment_expires_at: string | null;
@@ -156,7 +157,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         utm_medium, utm_campaign, utm_content, starts_at, ends_at,
         target_audience, campaign_type, fee_pct, fee_amount,
         stripe_payment_id, stripe_payment_status,
-        stripe_payment_link_url,
+        stripe_payment_link_id, stripe_payment_link_url,
         requires_payment, payment_expires_at,
         live_profile_visits, live_unique_visitors,
         live_visits_last_7_days, live_engaged,
