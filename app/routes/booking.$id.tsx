@@ -3723,6 +3723,46 @@ export default function BookingAccessPage() {
   const data = useLoaderData<typeof loader>() as Record<string, unknown>;
   console.log('[booking page] loader data proposal:', data.proposal);
 
+  // ── Dark mode (mirrors _app.tsx — same key, same class) ────────────────────
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    const saved = localStorage.getItem("sqrz_theme") as "dark" | "light" | null;
+    const initial = saved ?? "dark";
+    setTheme(initial);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(initial);
+  }, []);
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("sqrz_theme", next);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(next);
+  }
+  const themeToggle = (
+    <button
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      style={{
+        position: "fixed",
+        top: 16,
+        right: 16,
+        zIndex: 9999,
+        background: "none",
+        border: "none",
+        color: "var(--text-muted)",
+        fontSize: 18,
+        cursor: "pointer",
+        lineHeight: 1,
+        display: "flex",
+        alignItems: "center",
+        padding: 6,
+      }}
+    >
+      {theme === "dark" ? "☀️" : "🌙"}
+    </button>
+  );
+
   // ── Invalid token ──────────────────────────────────────────────────────────
   if (data.accessType === "invalid_token") {
     return (
@@ -3807,6 +3847,7 @@ export default function BookingAccessPage() {
   if (isOwner) {
     return (
       <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
+        {themeToggle}
         <PaymentSuccessBanner />
         <MemberView
           booking={b}
@@ -3845,6 +3886,7 @@ export default function BookingAccessPage() {
 
   return (
     <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      {themeToggle}
       <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 24px 80px" }}>
         {!b ? (
           <p style={{ color: "var(--text-muted)", textAlign: "center" }}>Booking not found.</p>
