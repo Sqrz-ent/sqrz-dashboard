@@ -39,7 +39,6 @@ type TabKey = "active" | "booked" | "expired" | "pending";
 
 type Referral = {
   slug: string;
-  planLabel: string;
   earned: number;
   status: ReferralStatus;
   hasStripeConnect: boolean;
@@ -69,17 +68,6 @@ type LoaderData = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function planLabel(planId: number | null): string {
-  if (!planId) return "—";
-  const map: Record<number, string> = {
-    1: "Creator",
-    2: "Grow",
-    3: "Grow Pro",
-    4: "Early Access",
-    5: "Boost",
-  };
-  return map[planId] ?? "Plan";
-}
 
 function tierFromPct(pct: number): "Partner" | "Elite" {
   return pct >= 75 ? "Elite" : "Partner";
@@ -141,7 +129,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const referredIds = (rawUses ?? []).map((r) => r.referred_profile_id as string);
   const { data: referredProfiles } = await supabase
     .from("profiles")
-    .select("id, slug, plan_id, updated_at, stripe_connect_id, stripe_connect_status")
+    .select("id, slug, stripe_connect_id, stripe_connect_status")
     .in("id", referredIds.length ? referredIds : ["00000000-0000-0000-0000-000000000000"]);
 
   // 4. Earnings
@@ -167,7 +155,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const referrals: Referral[] = (rawUses ?? []).map((u) => {
     const prof = (referredProfiles ?? []).find((p) => p.id === u.referred_profile_id);
     const slug = (prof?.slug as string | null) ?? "unknown";
-    const plan = (prof?.plan_id as number | null) ?? null;
     const earned = earnedByProfile[(u.referred_profile_id as string)] ?? 0;
     const commissionEndsAt = u.commission_ends_at as string | null;
     const converted = !!(u.converted);
@@ -182,7 +169,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         : "expired";
 
     const hasStripeConnect = !!(prof?.stripe_connect_id && prof?.stripe_connect_status === "active");
-    return { slug, planLabel: planLabel(plan), earned, status, hasStripeConnect };
+    return { slug, earned, status, hasStripeConnect };
   });
 
   // Stats
@@ -653,7 +640,7 @@ export default function PartnersPage() {
               {(
                 [
                   { label: "Referral",      width: "26%" },
-                  { label: "Type",          width: "24%" },
+                  { label: "Promote",       width: "24%" },
                   { label: "Your earnings", width: "26%" },
                   { label: "Status",        width: "24%" },
                 ] as const
@@ -717,48 +704,38 @@ export default function PartnersPage() {
                 filteredReferrals.map((r, i) => (
                   <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
                     <td style={{ padding: "11px 14px", fontFamily: "monospace", color: "var(--text)", fontWeight: 600, overflow: "hidden" }}>
-                      {r.status === "active" ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                          <span className="truncate" style={{ minWidth: 0, flex: "1 1 0" }}>{r.slug}</span>
-                          {r.hasStripeConnect ? (
-                            <button
-                              className="hidden md:inline-flex items-center"
-                              onClick={() => copyReferralLink(r.slug)}
-                              title={`Copy referral link for ${r.slug}`}
-                              style={{
-                                background: "none",
-                                border: "0.5px solid var(--border)",
-                                borderRadius: 6,
-                                padding: "2px 7px",
-                                fontSize: 11,
-                                color: "var(--text-muted)",
-                                cursor: "pointer",
-                                whiteSpace: "nowrap",
-                                fontFamily: FONT_BODY,
-                                flexShrink: 0,
-                              }}
-                            >
-                              {copiedSlug === r.slug ? "copied!" : "copy link"}
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : (
-                        <span className="truncate block">{r.slug}</span>
-                      )}
+                      <span className="truncate block">{r.slug}</span>
                     </td>
                     <td style={{ padding: "11px 14px" }}>
-                      {r.status === "pending" ? (
-                        <span style={{ color: "var(--text-muted)" }}>—</span>
+                      {r.hasStripeConnect ? (
+                        <button
+                          onClick={() => copyReferralLink(r.slug)}
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: 20,
+                            fontSize: 11,
+                            fontWeight: 700,
+                            background: copiedSlug === r.slug ? "rgba(74,222,128,0.15)" : ACCENT_BG,
+                            color: copiedSlug === r.slug ? GREEN : ACCENT,
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: FONT_BODY,
+                            whiteSpace: "nowrap",
+                            transition: "all 0.15s",
+                          }}
+                        >
+                          {copiedSlug === r.slug ? "Copied!" : "Copy Link"}
+                        </button>
                       ) : (
                         <span style={{
                           padding: "2px 8px",
                           borderRadius: 20,
                           fontSize: 11,
                           fontWeight: 700,
-                          background: r.planLabel.includes("Boost") ? "rgba(251,191,36,0.12)" : "rgba(96,165,250,0.12)",
-                          color: r.planLabel.includes("Boost") ? AMBER : "#60a5fa",
+                          background: "var(--surface-muted)",
+                          color: "var(--text-muted)",
                         }}>
-                          {r.planLabel}
+                          Stripe Required
                         </span>
                       )}
                     </td>
@@ -772,39 +749,7 @@ export default function PartnersPage() {
                       )}
                     </td>
                     <td style={{ padding: "11px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <StatusPill status={r.status} />
-                        {r.status === "active" && r.hasStripeConnect && (
-                          <button
-                            className="md:hidden"
-                            onClick={() => copyReferralLink(r.slug)}
-                            title={`Copy referral link for ${r.slug}`}
-                            style={{
-                              background: copiedSlug === r.slug ? "rgba(74,222,128,0.15)" : "none",
-                              border: "0.5px solid var(--border)",
-                              borderRadius: 6,
-                              padding: "3px 5px",
-                              cursor: "pointer",
-                              color: copiedSlug === r.slug ? GREEN : "var(--text-muted)",
-                              display: "flex",
-                              alignItems: "center",
-                              flexShrink: 0,
-                              transition: "all 0.15s",
-                            }}
-                          >
-                            {copiedSlug === r.slug ? (
-                              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                <path d="M3 8l3.5 3.5L13 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                              </svg>
-                            ) : (
-                              <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                                <rect x="5" y="2" width="9" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
-                                <path d="M5 4H3.5A1.5 1.5 0 0 0 2 5.5v8A1.5 1.5 0 0 0 3.5 15h6A1.5 1.5 0 0 0 11 13.5V13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                              </svg>
-                            )}
-                          </button>
-                        )}
-                      </div>
+                      <StatusPill status={r.status} />
                     </td>
                   </tr>
                 ))
