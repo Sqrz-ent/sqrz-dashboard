@@ -666,6 +666,7 @@ export default function BoostPage() {
   );
 
   return (
+    <>
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={sectionTitle}>Boost</h1>
       <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: -12, marginBottom: 28 }}>
@@ -1358,5 +1359,6 @@ export default function BoostPage() {
         isPartner={isPartner}
       />
     )}
+    </>
   );
 }
