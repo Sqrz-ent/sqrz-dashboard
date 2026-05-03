@@ -38,6 +38,9 @@ export default [
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
   route("api/payout", "routes/api.payout.tsx"),
 
+  // Links API
+  route("api/links/:linkId/leads-csv", "routes/api.links.$linkId.leads-csv.tsx"),
+
   // Campaign checkout (unified Boost + Grow)
   route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
 
