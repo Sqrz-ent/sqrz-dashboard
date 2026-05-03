@@ -235,22 +235,6 @@ export default function AppLayout() {
       }}
     >
       {/* ── Beta banner ─────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          width: "100%",
-          background: "var(--surface-muted)",
-          color: "var(--text-muted)",
-          fontSize: 13,
-          textAlign: "center",
-          padding: "6px 16px",
-          lineHeight: 1.4,
-        }}
-      >
-        🚧 SQRZ is in beta — things may break. If you notice something please reach out to Will Villa directly on{" "}
-        <a href="https://instagram.com/willvillamusic" target="_blank" rel="noopener noreferrer" style={{ color: "#F5A623", textDecoration: "none" }}>Instagram</a>
-        {" "}or{" "}
-        <a href="https://linkedin.com/in/soywillvilla" target="_blank" rel="noopener noreferrer" style={{ color: "#F5A623", textDecoration: "none" }}>LinkedIn</a>.
-      </div>
 
       {/* ── Top progress bar ────────────────────────────────────────────────── */}
       <div
