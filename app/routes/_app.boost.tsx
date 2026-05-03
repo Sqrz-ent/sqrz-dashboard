@@ -888,7 +888,7 @@ export default function BoostPage() {
             color: "var(--text-muted)",
             lineHeight: 1.6,
           }}>
-            Want a multichannel strategy with creative support? SQRZ Grow clients get a dedicated campaign plan and monthly strategy calls.{" "}
+            Want a multichannel strategy with creative support?{" "}
             <a
               href={GROW_MEETING_URL}
               target="_blank"
