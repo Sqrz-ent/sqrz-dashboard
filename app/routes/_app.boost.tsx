@@ -717,25 +717,43 @@ export default function BoostPage() {
 
       {/* ── Campaign type selector — shown whenever grow_qualified ── */}
       {grow_qualified && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 24 }}>
+        <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
           {(["boost", "grow"] as const).map((mode) => (
             <button
               key={mode}
               type="button"
               onClick={() => setCampaignMode(mode)}
               style={{
-                padding: "9px 20px",
-                borderRadius: 24,
+                padding: "14px 22px",
+                borderRadius: 14,
                 border: campaignMode === mode ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                background: campaignMode === mode ? "rgba(245,166,35,0.1)" : "var(--bg)",
-                color: campaignMode === mode ? ACCENT : "var(--text-muted)",
-                fontSize: 13,
-                fontWeight: 600,
+                background: campaignMode === mode ? "rgba(245,166,35,0.08)" : "var(--surface)",
                 cursor: "pointer",
                 fontFamily: FONT_BODY,
+                textAlign: "left",
+                display: "flex",
+                flexDirection: "column",
+                gap: 3,
+                flex: 1,
               }}
             >
-              {mode === "boost" ? "Boost — Self-serve" : "Grow — Managed"}
+              <span style={{
+                fontSize: 14,
+                fontWeight: 700,
+                color: campaignMode === mode ? ACCENT : "var(--text)",
+              }}>
+                {mode === "boost" ? "Boost" : "Grow"}
+              </span>
+              <span style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                fontWeight: 400,
+                lineHeight: 1.4,
+              }}>
+                {mode === "boost"
+                  ? "Small campaigns · single channel · self-serve"
+                  : "Multichannel campaigns · dedicated team · managed for you"}
+              </span>
             </button>
           ))}
         </div>
