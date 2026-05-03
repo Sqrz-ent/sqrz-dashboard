@@ -315,15 +315,15 @@ export default function PartnersPage() {
       {/* ── Section 1: Header ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 4px", color: "var(--text)" }}>Partner program</h1>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 6px", color: "var(--text)" }}>Partner Program</h1>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 2px" }}>
-            You've been invited by Will Villa into the SQRZ Partner Program.
+            You're a SQRZ Partner. Earn commission on every subscription you refer.
           </p>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, opacity: 0.7 }}>
-            Earn {commissionPct}% of every subscription you bring in, for {commissionWindowMonths} months.
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 2px" }}>
+            50% for 12 months · 75% for 24 months — depending on your tier.
           </p>
-          <p style={{ fontSize: 13, color: "var(--color-text-tertiary)", marginTop: 3 }}>
-            To earn booking commissions, your referrals need to activate Stripe Connect on their profile.
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+            Booking commissions activate once your referrals connect Stripe on their profile.
           </p>
         </div>
         <span style={{
