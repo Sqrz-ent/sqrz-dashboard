@@ -38,6 +38,13 @@ export default [
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
   route("api/payout", "routes/api.payout.tsx"),
 
+  // Invoice API routes
+  route("api/invoices/create", "routes/api.invoices.create.ts"),
+  route("api/invoices/upload", "routes/api.invoices.upload.ts"),
+  route("api/invoices/download", "routes/api.invoices.download.ts"),
+  route("api/invoices/void", "routes/api.invoices.void.ts"),
+  route("api/invoices/payment-intent", "routes/api.invoices.payment-intent.ts"),
+
   // Links API
   route("api/links/:linkId/leads-csv", "routes/api.links.$linkId.leads-csv.tsx"),
 
