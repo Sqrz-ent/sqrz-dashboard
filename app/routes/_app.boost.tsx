@@ -3,6 +3,7 @@ import { redirect, useLoaderData, useFetcher, useSearchParams, useNavigate } fro
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import UpgradeModal from "~/components/UpgradeModal";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -188,6 +189,12 @@ export async function loader({ request }: Route.LoaderArgs) {
       email: (profile.email as string) ?? "",
       profile_id: profile.id as string,
       profile_slug: (profile.slug as string) ?? "",
+      referredByCode: (profile.referred_by_code as string | null) ?? null,
+      isClaimed: (profile.is_claimed as boolean) ?? false,
+      isPartner: (profile.is_partner as boolean) ?? false,
+      creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
+      creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
+      earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
     },
     { headers }
   );
@@ -273,7 +280,8 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function BoostPage() {
-  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email, profile_slug } =
+  const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email, profile_slug,
+          referredByCode, isClaimed, isPartner, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId } =
     useLoaderData<typeof loader>() as {
       campaigns: Campaign[];
       privateLinks: PrivateLink[];
@@ -284,12 +292,21 @@ export default function BoostPage() {
       email: string;
       profile_id: string;
       profile_slug: string;
+      referredByCode: string | null;
+      isClaimed: boolean;
+      isPartner: boolean;
+      creatorMonthlyPriceId: string;
+      creatorYearlyPriceId: string;
+      earlyAccessCouponId: string;
     };
   const isFirstCampaign = campaign_count === 0;
   const isReactivation = campaigns.some((c) => c.status === "completed");
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const isFreeUser = !plan_id;
+  const [showLinkUpgrade, setShowLinkUpgrade] = useState(false);
 
   // Shared form state
   const [promoteType, setPromoteType] = useState<string | null>(null);
@@ -494,9 +511,45 @@ export default function BoostPage() {
         <button type="button" onClick={() => setPromoteType("profile")} style={pillStyle(promoteType === "profile")}>
           My Profile
         </button>
-        <button type="button" onClick={() => setPromoteType("link")} style={pillStyle(promoteType === "link")}>
-          A Private Link
-        </button>
+        {isFreeUser ? (
+          <button
+            type="button"
+            onClick={() => setShowLinkUpgrade(true)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "7px 14px",
+              borderRadius: 20,
+              border: "1px solid var(--border)",
+              background: "var(--surface-muted)",
+              color: "var(--text-muted)",
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: "pointer",
+              fontFamily: FONT_BODY,
+              opacity: 0.75,
+            }}
+          >
+            A Private Link
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              background: "rgba(245,166,35,0.15)",
+              color: ACCENT,
+              borderRadius: 20,
+              padding: "2px 7px",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase" as const,
+            }}>
+              Creator
+            </span>
+          </button>
+        ) : (
+          <button type="button" onClick={() => setPromoteType("link")} style={pillStyle(promoteType === "link")}>
+            A Private Link
+          </button>
+        )}
       </div>
       {promoteType === "link" && (
         <select
@@ -1292,5 +1345,18 @@ export default function BoostPage() {
         )}
       </div>
     </div>
+
+    {showLinkUpgrade && (
+      <UpgradeModal
+        onClose={() => setShowLinkUpgrade(false)}
+        upgradeContext="creator"
+        monthlyPriceId={creatorMonthlyPriceId}
+        yearlyPriceId={creatorYearlyPriceId}
+        referredByCode={referredByCode}
+        earlyAccessCouponId={earlyAccessCouponId}
+        isClaimed={isClaimed}
+        isPartner={isPartner}
+      />
+    )}
   );
 }

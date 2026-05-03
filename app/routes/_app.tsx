@@ -104,9 +104,9 @@ const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
   { to: "/service", label: "Service" },
+  { to: "/boost", label: "Boost" },
   { to: "/domain", label: "Domain" },
   { to: "/links", label: "Links" },
-  { to: "/boost", label: "Boost" },
   { to: "/payments", label: "Payments" },
   { to: "/account", label: "Account" },
 ];
