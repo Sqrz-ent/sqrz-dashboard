@@ -9,12 +9,12 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/sqrz-favicon.png",
+      "src": "/sqrz-logo.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/sqrz-favicon.png",
+      "src": "/sqrz-logo.png",
       "sizes": "512x512",
       "type": "image/png"
     }
