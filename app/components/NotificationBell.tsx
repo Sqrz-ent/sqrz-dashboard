@@ -85,10 +85,7 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
     markAllAsRead,
     toasts,
     dismissToast,
-    leads,
     unreadMessageCount,
-    profileId,
-    profileName,
   } = useNotifications();
 
   const [open, setOpen] = useState(false);

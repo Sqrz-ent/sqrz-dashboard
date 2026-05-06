@@ -263,14 +263,6 @@ export default function BookingChat({
 
       setText("");
       onAfterSend?.(content);
-
-      if (isOwner) {
-        fetch("/api/notify-first-reply", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingId }),
-        }).catch(() => { /* non-fatal */ });
-      }
     } catch (error) {
       console.error("[BookingChat] send failed:", error);
       if (messagingProvider === "stream") {

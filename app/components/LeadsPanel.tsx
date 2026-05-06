@@ -26,7 +26,6 @@ interface Conversation {
   created_at: string;
   title: string | null;
   service: string | null;
-  buyer_label: string | null;
   buyer_name: string | null;
   messages: ConvMessage[];
 }
@@ -34,7 +33,6 @@ interface Conversation {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STATUS_COLOR: Record<string, string> = {
-  lead:      "#888888",
   requested: "#F3B130",
   pending:   "#F3B130",
   confirmed: "#22c55e",
@@ -44,7 +42,6 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  lead:      "Lead",
   requested: "Requested",
   pending:   "Pending",
   confirmed: "Confirmed",
@@ -56,14 +53,14 @@ const STATUS_LABEL: Record<string, string> = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getConvTitle(conv: Conversation): string {
-  if (conv.status === "lead") {
-    return conv.buyer_label ?? "Guest via chat";
-  }
   if (conv.title && conv.title !== "Booking Request") {
     return conv.title;
   }
   if (conv.service) {
     return conv.service;
+  }
+  if (conv.buyer_name) {
+    return conv.buyer_name;
   }
   return "Booking request";
 }
@@ -149,22 +146,16 @@ function StatusBadge({ status }: { status: string }) {
 
 function ConversationThread({
   conv,
-  profileId,
   profileName,
   messagingProvider,
   streamChannel,
   streamUserId,
-  onConvert,
-  onDecline,
 }: {
   conv: Conversation;
-  profileId: string | null;
   profileName: string | null;
   messagingProvider: "supabase" | "stream";
   streamChannel: StreamChannelLike | null;
   streamUserId: string | null;
-  onConvert: () => void;
-  onDecline: () => void;
 }) {
   const [messages, setMessages] = useState<ConvMessage[]>(conv.messages ?? []);
   const [authUserId, setAuthUserId] = useState<string | null>(null);
@@ -275,12 +266,6 @@ function ConversationThread({
         });
       }
       setReply("");
-      // Notify buyer on first seller reply — fire and forget
-      fetch("/api/notify-first-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId: conv.id }),
-      }).catch(() => { /* non-fatal */ });
     } catch (e) {
       console.error("Send failed:", e);
     } finally {
@@ -288,10 +273,7 @@ function ConversationThread({
     }
   }
 
-  const isLead = conv.status === "lead";
-  const buyerName = conv.buyer_label
-    ? conv.buyer_label.replace(" via chat", "")
-    : getConvTitle(conv);
+  const buyerName = conv.buyer_name ?? getConvTitle(conv);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
@@ -422,50 +404,6 @@ function ConversationThread({
         </button>
       </div>
 
-      {/* Lead actions — only for lead status */}
-      {isLead && (
-        <div
-          style={{
-            flexShrink: 0,
-            display: "flex",
-            gap: 8,
-            padding: "10px 12px",
-            borderTop: "1px solid var(--border)",
-            background: "var(--surface)",
-          }}
-        >
-          <button
-            onClick={onConvert}
-            style={{
-              flex: 1,
-              padding: "8px 12px",
-              background: "#F5A623",
-              border: "none",
-              borderRadius: 8,
-              color: "#111",
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Send Proposal →
-          </button>
-          <button
-            onClick={onDecline}
-            style={{
-              padding: "8px 12px",
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              color: "var(--text-muted)",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            Decline
-          </button>
-        </div>
-      )}
     </div>
   );
 }
@@ -505,6 +443,7 @@ export default function LeadsPanel({
         .from("bookings")
         .select("id, status, created_at, title, service")
         .eq("owner_id", profileId)
+        .neq("status", "lead")
         .order("created_at", { ascending: false });
 
       if (!bookings || bookings.length === 0) {
@@ -516,7 +455,7 @@ export default function LeadsPanel({
 
       const participantPromise = supabase
         .from("booking_participants")
-        .select("booking_id, email, name")
+        .select("booking_id, name")
         .in("booking_id", bookingIds)
         .eq("role", "buyer");
 
@@ -533,12 +472,10 @@ export default function LeadsPanel({
         participantPromise,
       ]);
 
-      const buyerLabelMap: Record<string, string> = {};
       const buyerNameMap: Record<string, string> = {};
-      for (const p of (participants ?? []) as { booking_id: string; email: string | null; name: string | null }[]) {
+      for (const p of (participants ?? []) as { booking_id: string; name: string | null }[]) {
         if (p.booking_id) {
-          if (p.email) buyerLabelMap[p.booking_id] = `${p.email} via chat`;
-          buyerNameMap[p.booking_id] = p.name ?? p.email ?? "Guest";
+          buyerNameMap[p.booking_id] = p.name ?? "Guest";
         }
       }
 
@@ -621,7 +558,6 @@ export default function LeadsPanel({
         bookings as Array<{ id: string; status: string; created_at: string; title: string | null; service: string | null }>
       ).map((b) => ({
         ...b,
-        buyer_label: buyerLabelMap[b.id] ?? null,
         buyer_name: buyerNameMap[b.id] ?? null,
         messages: msgsByBooking[b.id] ?? [],
       }));
@@ -705,21 +641,6 @@ export default function LeadsPanel({
         .eq("is_read", false)
         .then(() => {});
     }
-  }
-
-  async function handleConvert(id: string) {
-    await supabase.from("bookings").update({ status: "requested" }).eq("id", id);
-    setConversations((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, status: "requested" } : c))
-    );
-    window.open(`/booking/${id}`, "_blank");
-    setSelectedId(null);
-  }
-
-  async function handleDecline(id: string) {
-    await supabase.from("bookings").update({ status: "declined" }).eq("id", id);
-    setConversations((prev) => prev.filter((c) => c.id !== id));
-    setSelectedId(null);
   }
 
   if (!mounted) return null;
@@ -877,13 +798,10 @@ export default function LeadsPanel({
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             <ConversationThread
               conv={selectedConv}
-              profileId={profileId}
               profileName={profileName}
               messagingProvider={isBeta ? "stream" : "supabase"}
               streamChannel={streamChannelsRef.current[selectedConv.id] ?? null}
               streamUserId={streamUserId}
-              onConvert={() => handleConvert(selectedConv.id)}
-              onDecline={() => handleDecline(selectedConv.id)}
             />
           </div>
         ) : (

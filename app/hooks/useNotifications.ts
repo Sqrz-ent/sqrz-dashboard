@@ -14,12 +14,6 @@ export type Notification = {
 
 export type Toast = Notification & { toastId: string };
 
-export type Lead = {
-  id: string;
-  description: string | null;
-  created_at: string;
-};
-
 // ─── Read-state persistence (localStorage) ────────────────────────────────────
 
 const READ_KEY = "sqrz_notif_read";
@@ -43,10 +37,7 @@ function persistReadIds(ids: Set<string>) {
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [leads, setLeads] = useState<Lead[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [profileId, setProfileId] = useState<string | null>(null);
-  const [profileName, setProfileName] = useState<string | null>(null);
   const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const initialized = useRef(false);
 
@@ -66,11 +57,6 @@ export function useNotifications() {
         .select("id, name")
         .eq("user_id", user.id)
         .single();
-
-      if (!profileError && profile) {
-        setProfileId(profile.id as string);
-        setProfileName((profile.name as string) ?? null);
-      }
 
       if (profileError || !profile) return;
 
@@ -99,25 +85,6 @@ export function useNotifications() {
               buyer_name: buyer?.name ?? null,
             };
           })
-        );
-      }
-
-      // Initial fetch: open leads
-      const { data: leadData } = await supabase
-        .from("bookings")
-        .select("id, created_at, description")
-        .eq("owner_id", profile.id)
-        .eq("status", "lead")
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (leadData) {
-        setLeads(
-          leadData.map((b: Record<string, unknown>) => ({
-            id: b.id as string,
-            description: (b.description as string) ?? null,
-            created_at: b.created_at as string,
-          }))
         );
       }
 
@@ -153,15 +120,7 @@ export function useNotifications() {
               const b = payload.new as Record<string, unknown>;
               const bStatus = b.status as string;
 
-              if (bStatus === "lead") {
-                // Add to leads list
-                const lead: Lead = {
-                  id: b.id as string,
-                  description: (b.description as string) ?? null,
-                  created_at: b.created_at as string,
-                };
-                setLeads((prev) => [lead, ...prev]);
-              } else if (bStatus === "requested") {
+              if (bStatus === "requested") {
                 // Add to notifications + toast for new booking requests only
                 const notif: Notification = {
                   id: b.id as string,
@@ -226,28 +185,7 @@ export function useNotifications() {
     setToasts((prev) => prev.filter((t) => t.toastId !== toastId));
   }
 
-  async function convertLead(id: string) {
-    const { error } = await supabase
-      .from("bookings")
-      .update({ status: "requested" })
-      .eq("id", id);
-    if (!error) {
-      setLeads((prev) => prev.filter((l) => l.id !== id));
-    }
-  }
-
-  async function declineLead(id: string) {
-    const { error } = await supabase
-      .from("bookings")
-      .update({ status: "declined" })
-      .eq("id", id);
-    if (!error) {
-      setLeads((prev) => prev.filter((l) => l.id !== id));
-    }
-  }
-
   const unreadCount = notifications.filter((n) => !n.read).length;
-  const leadCount = leads.length;
 
   return {
     notifications,
@@ -256,12 +194,6 @@ export function useNotifications() {
     markAllAsRead,
     toasts,
     dismissToast,
-    leads,
-    leadCount,
-    convertLead,
-    declineLead,
-    profileId,
-    profileName,
     unreadMessageCount,
   };
 }
