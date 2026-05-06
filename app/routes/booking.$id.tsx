@@ -2881,7 +2881,7 @@ function SlideOver({ open, onClose, title, children }: {
 }) {
   if (!open) return null;
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex", justifyContent: "flex-end" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 10020, display: "flex", justifyContent: "flex-end" }}>
       {/* Backdrop */}
       <div
         onClick={onClose}
