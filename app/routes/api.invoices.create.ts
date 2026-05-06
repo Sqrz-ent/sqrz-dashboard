@@ -6,17 +6,71 @@ import {
   roundCurrency,
 } from "~/lib/proposal-pricing";
 
+const COUNTRY_LABEL_BY_CODE: Record<string, string> = {
+  AR: "Argentina",
+  AT: "Austria",
+  AU: "Australia",
+  BE: "Belgium",
+  BO: "Bolivia",
+  BR: "Brazil",
+  CA: "Canada",
+  CH: "Switzerland",
+  CL: "Chile",
+  CO: "Colombia",
+  CR: "Costa Rica",
+  CZ: "Czech Republic",
+  DE: "Germany",
+  DK: "Denmark",
+  DO: "Dominican Republic",
+  EC: "Ecuador",
+  ES: "Spain",
+  FI: "Finland",
+  FR: "France",
+  GB: "United Kingdom",
+  GR: "Greece",
+  HR: "Croatia",
+  HU: "Hungary",
+  IE: "Ireland",
+  IT: "Italy",
+  JP: "Japan",
+  KR: "South Korea",
+  MX: "Mexico",
+  NL: "Netherlands",
+  NO: "Norway",
+  NZ: "New Zealand",
+  PA: "Panama",
+  PE: "Peru",
+  PL: "Poland",
+  PT: "Portugal",
+  PY: "Paraguay",
+  RO: "Romania",
+  SE: "Sweden",
+  SG: "Singapore",
+  TR: "Turkey",
+  US: "United States",
+  UY: "Uruguay",
+  ZA: "South Africa",
+};
+
+function normalizeCountryValue(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return COUNTRY_LABEL_BY_CODE[trimmed.toUpperCase()] ?? trimmed;
+}
+
 function deriveIssuerCountry(profile: Record<string, unknown>): string | null {
-  const explicitCountry =
+  const explicitCountry = normalizeCountryValue(
     (profile.company_country as string | null) ||
-    (profile.location_iso as string | null);
-  if (explicitCountry && explicitCountry.trim()) return explicitCountry.trim();
+    (profile.location_iso as string | null)
+  );
+  if (explicitCountry) return explicitCountry;
 
   const address = (profile.company_address as string | null)?.trim();
   if (!address) return null;
 
   const lastSegment = address.split(",").map((part) => part.trim()).filter(Boolean).pop();
-  return lastSegment || null;
+  return normalizeCountryValue(lastSegment);
 }
 
 export async function action({ request }: { request: Request }) {
@@ -116,7 +170,7 @@ export async function action({ request }: { request: Request }) {
       due_date: due_date || null,
       issuer_name: issuerName,
       issuer_address: (profile.company_address as string | null) ?? null,
-      issuer_city: (profile.city as string | null) ?? null,
+      issuer_city: null,
       issuer_country: deriveIssuerCountry(profile as Record<string, unknown>),
       issuer_vat_id: (profile.vat_id as string | null) ?? null,
       issuer_tax_id: null,

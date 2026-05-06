@@ -87,6 +87,105 @@ const subtleCard: React.CSSProperties = {
   padding: "14px 16px",
 };
 
+const COUNTRY_OPTIONS = [
+  "Argentina",
+  "Australia",
+  "Austria",
+  "Belgium",
+  "Bolivia",
+  "Brazil",
+  "Canada",
+  "Chile",
+  "Colombia",
+  "Costa Rica",
+  "Croatia",
+  "Czech Republic",
+  "Denmark",
+  "Dominican Republic",
+  "Ecuador",
+  "Finland",
+  "France",
+  "Germany",
+  "Greece",
+  "Hungary",
+  "Ireland",
+  "Italy",
+  "Japan",
+  "Mexico",
+  "Netherlands",
+  "New Zealand",
+  "Norway",
+  "Panama",
+  "Paraguay",
+  "Peru",
+  "Poland",
+  "Portugal",
+  "Romania",
+  "Singapore",
+  "South Africa",
+  "South Korea",
+  "Spain",
+  "Sweden",
+  "Switzerland",
+  "Turkey",
+  "United Kingdom",
+  "United States",
+  "Uruguay",
+];
+
+const COUNTRY_LABEL_BY_CODE: Record<string, string> = {
+  AR: "Argentina",
+  AT: "Austria",
+  AU: "Australia",
+  BE: "Belgium",
+  BO: "Bolivia",
+  BR: "Brazil",
+  CA: "Canada",
+  CH: "Switzerland",
+  CL: "Chile",
+  CO: "Colombia",
+  CR: "Costa Rica",
+  CZ: "Czech Republic",
+  DE: "Germany",
+  DK: "Denmark",
+  DO: "Dominican Republic",
+  EC: "Ecuador",
+  ES: "Spain",
+  FI: "Finland",
+  FR: "France",
+  GB: "United Kingdom",
+  GR: "Greece",
+  HR: "Croatia",
+  HU: "Hungary",
+  IE: "Ireland",
+  IT: "Italy",
+  JP: "Japan",
+  KR: "South Korea",
+  MX: "Mexico",
+  NL: "Netherlands",
+  NO: "Norway",
+  NZ: "New Zealand",
+  PA: "Panama",
+  PE: "Peru",
+  PL: "Poland",
+  PT: "Portugal",
+  PY: "Paraguay",
+  RO: "Romania",
+  SE: "Sweden",
+  SG: "Singapore",
+  TR: "Turkey",
+  US: "United States",
+  UY: "Uruguay",
+  ZA: "South Africa",
+};
+
+function normalizeCountryValue(value: string | null | undefined): string {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return COUNTRY_LABEL_BY_CODE[trimmed.toUpperCase()] ?? trimmed;
+}
+
 function CompletionBadge({ filled, total }: { filled: number; total: number }) {
   const done = filled >= total && total > 0;
   return (
@@ -195,6 +294,7 @@ export async function action({ request }: Route.ActionArgs) {
     const { error } = await supabase.from("profiles").update({
       company_name: formData.get("company_name") as string,
       company_address: formData.get("company_address") as string,
+      company_country: ((formData.get("company_country") as string) || null),
       company_tax_id: null,
       legal_form: formData.get("legal_form") as string,
       vat_id: (formData.get("vat_id") as string) || null,
@@ -778,10 +878,15 @@ export default function ServicePage() {
   const vatPlaceholder = isUS ? "e.g. 12-3456789" : isLatAm ? "e.g. NIT 900.123.456-7" : "e.g. DE123456789";
   const responsiblePersonLabel = isUS ? "Responsible Person / Registered Agent" : "Responsible Person";
   const companyAddressLabel = isUS ? "Company Address (US)" : "Company Address";
-  const invoiceCountry =
+  const businessCountry = normalizeCountryValue(
     (profile.company_country as string | null) ||
-    (profile.location_iso as string | null) ||
-    ((profile.company_address as string | null)?.split(",").map((part) => part.trim()).filter(Boolean).pop() ?? null);
+    (profile.location_iso as string | null)
+  );
+  const invoiceCountry =
+    businessCountry ||
+    normalizeCountryValue(
+      (profile.company_address as string | null)?.split(",").map((part) => part.trim()).filter(Boolean).pop() ?? null
+    );
   const invoicingChecks = [
     { label: "Company or issuer name", done: !!((profile.company_name as string | null) || (profile.name as string | null)) },
     { label: "Legal form", done: !!(profile.legal_form as string | null) },
@@ -946,10 +1051,27 @@ export default function ServicePage() {
             )}
 
             {showCompanyAddress ? (
-              <div>
-                <label style={labelStyle}>{companyAddressLabel}</label>
-                <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
-              </div>
+              <>
+                <div>
+                  <label style={labelStyle}>{companyAddressLabel}</label>
+                  <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Company Country</label>
+                  <select
+                    name="company_country"
+                    defaultValue={businessCountry}
+                    style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
+                  >
+                    <option value="">— Select country —</option>
+                    {COUNTRY_OPTIONS.map((country) => (
+                      <option key={country} value={country}>
+                        {country}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
             ) : !hasForm ? (
               <>
                 <div>
@@ -960,6 +1082,21 @@ export default function ServicePage() {
                   <label style={labelStyle}>Company Address</label>
                   <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
                 </div>
+                <div>
+                  <label style={labelStyle}>Company Country</label>
+                  <select
+                    name="company_country"
+                    defaultValue={businessCountry}
+                    style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
+                  >
+                    <option value="">— Select country —</option>
+                    {COUNTRY_OPTIONS.map((country) => (
+                      <option key={country} value={country}>
+                        {country}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </>
             ) : null}
 
@@ -968,6 +1105,9 @@ export default function ServicePage() {
             )}
             {showCompanyAddress === false && hasForm && (
               <input type="hidden" name="company_address" value={(profile.company_address as string) ?? ""} />
+            )}
+            {showCompanyAddress === false && hasForm && (
+              <input type="hidden" name="company_country" value={businessCountry} />
             )}
 
             {hasForm && (
