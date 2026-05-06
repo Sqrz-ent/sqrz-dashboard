@@ -787,6 +787,50 @@ export default function ServicePage() {
       )}
 
       <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 18 }}>Services</h2>
+
+        {services.length === 0 ? (
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No services added yet.</p>
+        ) : (
+          <div style={{ marginBottom: 16 }}>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={services.map((s) => s.id)} strategy={verticalListSortingStrategy}>
+                {services.map((service) => (
+                  <SortableServiceRow
+                    key={service.id}
+                    service={service}
+                    onEdit={() => setServiceModal({ open: true, editing: service })}
+                    onDelete={() => {
+                      const fd = new FormData();
+                      fd.append("intent", "delete_service");
+                      fd.append("id", service.id);
+                      deleteFetcher.submit(fd, { method: "post" });
+                    }}
+                    onToggleActive={() => {
+                      // Optimistic update
+                      setServices(prev => prev.map(s => s.id === service.id ? { ...s, is_active: !service.is_active } : s));
+                      const fd = new FormData();
+                      fd.append("intent", "toggle_service_active");
+                      fd.append("id", service.id);
+                      fd.append("is_active", String(!service.is_active));
+                      activeFetcher.submit(fd, { method: "post" });
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
+          </div>
+        )}
+
+        <button
+          onClick={() => setServiceModal({ open: true, editing: null })}
+          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+        >
+          + Add Service
+        </button>
+      </div>
+
+      <div style={card}>
         <CompletionBadge filled={businessFilled} total={1} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
         <businessFetcher.Form method="post">
@@ -1037,50 +1081,6 @@ export default function ServicePage() {
             </p>
           </div>
         </div>
-      </div>
-
-      <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 18 }}>Services</h2>
-
-        {services.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No services added yet.</p>
-        ) : (
-          <div style={{ marginBottom: 16 }}>
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={services.map((s) => s.id)} strategy={verticalListSortingStrategy}>
-                {services.map((service) => (
-                  <SortableServiceRow
-                    key={service.id}
-                    service={service}
-                    onEdit={() => setServiceModal({ open: true, editing: service })}
-                    onDelete={() => {
-                      const fd = new FormData();
-                      fd.append("intent", "delete_service");
-                      fd.append("id", service.id);
-                      deleteFetcher.submit(fd, { method: "post" });
-                    }}
-                    onToggleActive={() => {
-                      // Optimistic update
-                      setServices(prev => prev.map(s => s.id === service.id ? { ...s, is_active: !service.is_active } : s));
-                      const fd = new FormData();
-                      fd.append("intent", "toggle_service_active");
-                      fd.append("id", service.id);
-                      fd.append("is_active", String(!service.is_active));
-                      activeFetcher.submit(fd, { method: "post" });
-                    }}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
-          </div>
-        )}
-
-        <button
-          onClick={() => setServiceModal({ open: true, editing: null })}
-          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-        >
-          + Add Service
-        </button>
       </div>
 
       <ServiceModal
