@@ -152,7 +152,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
 
   const hasTypedAllocations = allocations.some((a) => !!a.allocation_type);
 
-  const feePct    = wallet.sqrz_fee_pct ?? 8;
+  const feePct    = wallet.sqrz_fee_pct ?? 0;
   const taxPctVal = wallet.tax_pct ?? 0;
   // net = member's rate (before tax/fees); SQRZ fee on net only
   const memberRate      = wallet.secured_amount ?? 0;

@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import type { ActionFunctionArgs } from "react-router";
+import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
 
 export async function action({ request }: ActionFunctionArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -39,6 +40,12 @@ export async function action({ request }: ActionFunctionArgs) {
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+  const { data: ownerPlan } = await admin
+    .from("profiles")
+    .select("plans(booking_fee_pct)")
+    .eq("id", profile.id as string)
+    .maybeSingle();
+  const fallbackFeePct = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
 
   // a. Insert booking
   const { data: booking, error: bookingError } = await admin
@@ -94,6 +101,10 @@ export async function action({ request }: ActionFunctionArgs) {
       message: proposal_message || null,
       line_items: line_items?.length ? line_items : null,
       requires_payment: requires_payment ?? false,
+      sqrz_fee_pct: resolveLockedSqrzFeePct({
+        requiresPayment: requires_payment ?? false,
+        fallbackFeePct,
+      }),
       status: "sent",
       sent_by: "member",
       version: 1,

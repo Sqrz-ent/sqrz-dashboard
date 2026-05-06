@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLoaderData, useFetcher, useSearchParams, redirect } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
@@ -8,6 +8,10 @@ import {
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getPlanLevel } from "~/lib/plans";
 import { handleBookingReferral } from "~/lib/booking-referral.server";
+import {
+  resolveLockedSqrzFeePct,
+  roundCurrency,
+} from "~/lib/proposal-pricing";
 import { supabase as browserClient } from "~/lib/supabase.client";
 import BookingWallet, { type WalletData } from "~/components/BookingWallet";
 import BookingChat from "~/components/BookingChat";
@@ -47,6 +51,7 @@ type Proposal = {
   requires_payment?: boolean | null;
   line_items?: LineItem[] | null;
   tax_pct?: number | null;
+  sqrz_fee_pct?: number | null;
 } | null;
 
 type MemberInfo = {
@@ -57,6 +62,45 @@ type MemberInfo = {
   company_address: string | null;
   responsible_person: string | null;
 } | null;
+
+function getLatestProposalRecord(proposals: unknown): NonNullable<Proposal> | null {
+  if (!Array.isArray(proposals)) return null;
+  return (proposals as Array<NonNullable<Proposal>>)
+    .slice()
+    .sort((a, b) => ((b.version ?? 0) - (a.version ?? 0)))[0] ?? null;
+}
+
+async function syncWalletFromProposal(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  walletId: string;
+  proposal: NonNullable<Proposal> | null;
+}) {
+  const { admin, walletId, proposal } = input;
+  if (!proposal || !walletId) return;
+
+  const proposalNet = Number(proposal.rate ?? 0);
+  const proposalTaxPct = Number(proposal.tax_pct ?? 0);
+  const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
+  const proposalFeePct = resolveLockedSqrzFeePct({
+    requiresPayment: proposal.requires_payment,
+    proposalFeePct: proposal.sqrz_fee_pct,
+    fallbackFeePct: 0,
+  });
+  const proposalFeeAmount = roundCurrency(proposalNet * proposalFeePct / 100);
+  const proposalTotal = roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount);
+
+  await admin
+    .from("booking_wallets")
+    .update({
+      secured_amount: proposalNet,
+      total_budget: proposalTotal,
+      currency: proposal.currency ?? "EUR",
+      sqrz_fee_pct: proposalFeePct,
+      tax_pct: proposalTaxPct || null,
+      tax_amount: proposalTaxAmount || null,
+    })
+    .eq("id", walletId);
+}
 
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -158,20 +202,45 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
         let baseWallet = existingWallet;
         if (!baseWallet) {
-          const firstProposal = (booking.booking_proposals ?? [])[0];
+          const latestProposal = getLatestProposalRecord(booking.booking_proposals);
+          const proposalNet = Number(latestProposal?.rate ?? 0);
+          const proposalTaxPct = Number(latestProposal?.tax_pct ?? 0);
+          const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
+          const lockedProposalFeePct = resolveLockedSqrzFeePct({
+            requiresPayment: latestProposal?.requires_payment,
+            proposalFeePct: latestProposal?.sqrz_fee_pct,
+            fallbackFeePct: proposalFeePct,
+          });
+          const proposalFeeAmount = roundCurrency(proposalNet * lockedProposalFeePct / 100);
           const { data: newWallet } = await admin
             .from("booking_wallets")
             .insert({
               booking_id: booking.id,
               owner_profile_id: profile!.id,
-              total_budget: firstProposal?.rate ?? 0,
-              currency: firstProposal?.currency ?? "EUR",
-              sqrz_fee_pct: 10,
+              total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
+              secured_amount: proposalNet,
+              currency: latestProposal?.currency ?? "EUR",
+              sqrz_fee_pct: lockedProposalFeePct,
+              tax_pct: proposalTaxPct || null,
+              tax_amount: proposalTaxAmount || null,
               status: "pending",
             })
             .select("*")
             .single();
           baseWallet = newWallet ?? null;
+        } else {
+          const latestProposal = getLatestProposalRecord(booking.booking_proposals);
+          await syncWalletFromProposal({
+            admin,
+            walletId: (baseWallet as { id: string }).id,
+            proposal: latestProposal,
+          });
+          const { data: refreshedWallet } = await admin
+            .from("booking_wallets")
+            .select("*")
+            .eq("id", (baseWallet as { id: string }).id)
+            .maybeSingle();
+          baseWallet = refreshedWallet ?? baseWallet;
         }
         if (baseWallet) {
           const { data: allocations } = await admin
@@ -185,10 +254,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       wallet = tokenWallet as WalletData | null;
     }
 
-    const sortedProposals = ((booking.booking_proposals ?? []) as Array<NonNullable<Proposal>>)
-      .slice()
-      .sort((a: any, b: any) => ((b.version ?? 0) - (a.version ?? 0)));
-    const proposal = sortedProposals[0] ?? null;
+    const proposal = getLatestProposalRecord(booking.booking_proposals);
 
     // Load invoice + buyer participant for owner
     let tokenInvoice: Record<string, unknown> | null = null;
@@ -351,20 +417,45 @@ export async function loader({ request, params }: Route.LoaderArgs) {
 
       let baseWallet = existingWallet;
       if (!baseWallet) {
-        const firstProposal = (booking.booking_proposals ?? [])[0];
+        const latestProposal = getLatestProposalRecord(booking.booking_proposals);
+        const proposalNet = Number(latestProposal?.rate ?? 0);
+        const proposalTaxPct = Number(latestProposal?.tax_pct ?? 0);
+        const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
+        const proposalFeePct = resolveLockedSqrzFeePct({
+          requiresPayment: latestProposal?.requires_payment,
+          proposalFeePct: latestProposal?.sqrz_fee_pct,
+          fallbackFeePct: 0,
+        });
+        const proposalFeeAmount = roundCurrency(proposalNet * proposalFeePct / 100);
         const { data: newWallet } = await admin
           .from("booking_wallets")
           .insert({
             booking_id: booking.id,
             owner_profile_id: profile!.id,
-            total_budget: firstProposal?.rate ?? 0,
-            currency: firstProposal?.currency ?? "EUR",
-            sqrz_fee_pct: 10,
+            total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
+            secured_amount: proposalNet,
+            currency: latestProposal?.currency ?? "EUR",
+            sqrz_fee_pct: proposalFeePct,
+            tax_pct: proposalTaxPct || null,
+            tax_amount: proposalTaxAmount || null,
             status: "pending",
           })
           .select("*")
           .single();
         baseWallet = newWallet ?? null;
+      } else {
+        const latestProposal = getLatestProposalRecord(booking.booking_proposals);
+        await syncWalletFromProposal({
+          admin,
+          walletId: (baseWallet as { id: string }).id,
+          proposal: latestProposal,
+        });
+        const { data: refreshedWallet } = await admin
+          .from("booking_wallets")
+          .select("*")
+          .eq("id", (baseWallet as { id: string }).id)
+          .maybeSingle();
+        baseWallet = refreshedWallet ?? baseWallet;
       }
 
       if (baseWallet) {
@@ -376,10 +467,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       }
     }
 
-    const sortedProposals = ((booking.booking_proposals ?? []) as Array<NonNullable<Proposal>>)
-      .slice()
-      .sort((a: any, b: any) => ((b.version ?? 0) - (a.version ?? 0)));
-    const proposal = sortedProposals[0] ?? null;
+    const proposal = getLatestProposalRecord(booking.booking_proposals);
 
     // Fetch owner's plan + business info (for non-owner participants; owner uses their own profile)
     let sessionProposalFeePct: number | null = null;
@@ -565,7 +653,20 @@ export async function action({ request, params }: Route.ActionArgs) {
     } catch { /* ignore parse error */ }
 
     const admin = createSupabaseAdminClient();
-
+    const { data: ownerPlan } = await admin
+      .from("profiles")
+      .select("plans(booking_fee_pct)")
+      .eq("id", profile.id as string)
+      .maybeSingle();
+    const fallbackFeePct = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
+    const lockedFeePct = resolveLockedSqrzFeePct({
+      requiresPayment,
+      fallbackFeePct,
+    });
+    const normalizedRate = Number(rate ?? 0);
+    const normalizedTaxPct = taxPct ?? 0;
+    const normalizedTaxAmount = normalizedTaxPct > 0 ? roundCurrency(normalizedRate * normalizedTaxPct / 100) : 0;
+    const normalizedFeeAmount = roundCurrency(normalizedRate * lockedFeePct / 100);
     const { error: bookingError } = await supabase
       .from("bookings")
       .update({ status: "pending" })
@@ -611,11 +712,24 @@ export async function action({ request, params }: Route.ActionArgs) {
         parent_proposal_id: parentProposalId,
         line_items: lineItems ?? null,
         tax_pct: taxPct,
+        sqrz_fee_pct: lockedFeePct,
       })
       .select();
 
     console.log("[proposal insert] error:", insertError);
     console.log("[proposal insert] data:", insertData);
+
+    await admin
+      .from("booking_wallets")
+      .update({
+        secured_amount: normalizedRate,
+        total_budget: roundCurrency(normalizedRate + normalizedTaxAmount + normalizedFeeAmount),
+        currency,
+        sqrz_fee_pct: lockedFeePct,
+        tax_pct: normalizedTaxPct || null,
+        tax_amount: normalizedTaxAmount || null,
+      })
+      .eq("booking_id", params.id);
 
     try {
       const { data: bkData } = await supabase
@@ -1232,7 +1346,11 @@ function ProposalSection({
                 const net = p.rate ?? 0;
                 const tPct = p.tax_pct ?? 0;
                 const tAmt = tPct > 0 ? Math.round(net * tPct / 100 * 100) / 100 : 0;
-                const feePct2 = proposalFeePct ?? 8;
+                const feePct2 = resolveLockedSqrzFeePct({
+                  requiresPayment: p.requires_payment,
+                  proposalFeePct: p.sqrz_fee_pct,
+                  fallbackFeePct: proposalFeePct ?? 0,
+                });
                 const feeAmt2 = Math.round(net * feePct2 / 100 * 100) / 100;
                 const bookerPays2 = Math.round((net + tAmt + feeAmt2) * 100) / 100;
                 // Member receives net + tax; SQRZ fee is added on top for the booker
@@ -2236,7 +2354,7 @@ function GuestBuyerProposalCard({
   ].filter(Boolean) as string[];
 
   // Fee: prefer wallet-locked pct (post-payment), then plan pct (pre-payment)
-  const feePct: number | null = walletFeePct ?? proposalFeePct ?? null;
+  const feePct: number | null = walletFeePct ?? proposal?.sqrz_fee_pct ?? proposalFeePct ?? null;
   const net = proposal.rate ?? 0;
   const taxRate = proposal.tax_pct ?? 0;
   const taxAmt = taxRate > 0 ? Math.round(net * taxRate / 100 * 100) / 100 : 0;

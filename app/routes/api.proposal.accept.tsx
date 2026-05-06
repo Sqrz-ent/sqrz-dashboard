@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
 
 export async function action({ request }: { request: Request }) {
   const { booking_id, proposal_id, invite_token } = await request.json();
@@ -25,7 +26,7 @@ export async function action({ request }: { request: Request }) {
   // 2. Get proposal details including line_items and tax_pct
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("rate, currency, requires_payment, booking_id, line_items, tax_pct, bookings(title, owner_id, profiles(name))")
+    .select("rate, currency, requires_payment, sqrz_fee_pct, booking_id, line_items, tax_pct, bookings(title, owner_id, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -45,8 +46,11 @@ export async function action({ request }: { request: Request }) {
 
   const planId: number | null = (ownerProfile?.plan_id as number | null) ?? null;
   const planFeePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
-  // Free users (plan_id=null) or manual payments get 0% fee
-  const feePct: number = (planId === null || proposal.requires_payment === false) ? 0 : planFeePct;
+  const feePct = resolveLockedSqrzFeePct({
+    requiresPayment: proposal.requires_payment,
+    proposalFeePct: (proposal as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,
+    fallbackFeePct: planId === null ? 0 : planFeePct,
+  });
   const connectId: string | null = ownerProfile?.stripe_connect_id ?? null;
 
   // Amount calculations (in cents)
@@ -56,6 +60,9 @@ export async function action({ request }: { request: Request }) {
   const taxAmount = Math.round(rate * taxPct / 100 * 100);
   const feeAmount = Math.round(rate * feePct / 100 * 100);  // fee on net, not on net+tax
   const totalAmount = Math.round(rate * 100) + taxAmount + feeAmount;
+  const taxAmountMajor = Math.round(rate * taxPct / 100 * 100) / 100;
+  const feeAmountMajor = Math.round(rate * feePct / 100 * 100) / 100;
+  const totalAmountMajor = Math.round((rate + taxAmountMajor + feeAmountMajor) * 100) / 100;
 
   console.log("[accept] requires_payment:", proposal.requires_payment, "feePct:", feePct, "rate:", rate, "total:", totalAmount / 100, "connectId:", connectId);
 
@@ -131,10 +138,12 @@ export async function action({ request }: { request: Request }) {
           .insert({
             booking_id,
             owner_profile_id: ownerProfileId,
-            total_budget: proposal.rate ?? 0,
+            total_budget: totalAmountMajor,
             secured_amount: proposal.rate ?? 0,
             currency: proposal.currency ?? "EUR",
             sqrz_fee_pct: feePct,
+            tax_pct: taxPct || null,
+            tax_amount: taxAmountMajor || null,
             status: "open",
             client_paid: false,
             payout_status: "pending",
@@ -142,6 +151,18 @@ export async function action({ request }: { request: Request }) {
           .select("id")
           .single();
         walletId = newWallet?.id ?? null;
+      } else {
+        await adminClient
+          .from("booking_wallets")
+          .update({
+            total_budget: totalAmountMajor,
+            secured_amount: proposal.rate ?? 0,
+            currency: proposal.currency ?? "EUR",
+            sqrz_fee_pct: feePct,
+            tax_pct: taxPct || null,
+            tax_amount: taxAmountMajor || null,
+          })
+          .eq("id", walletId);
       }
 
       const lineItems = proposal.line_items as Array<{ label: string; type: string; amount: number }> | null;

@@ -1,6 +1,11 @@
 import Stripe from "stripe";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import {
+  reconcileInvoiceLineItems,
+  resolveLockedSqrzFeePct,
+  roundCurrency,
+} from "~/lib/proposal-pricing";
 
 export async function action({ request }: { request: Request }) {
   const { supabase } = createSupabaseServerClient(request);
@@ -58,7 +63,7 @@ export async function action({ request }: { request: Request }) {
   // Fetch booking owned by this profile
   const { data: booking } = await adminClient
     .from("bookings")
-    .select("id, title, owner_id")
+    .select("id, title, service, owner_id")
     .eq("id", booking_id)
     .eq("owner_id", profile.id as string)
     .maybeSingle();
@@ -70,7 +75,7 @@ export async function action({ request }: { request: Request }) {
   // Fetch accepted proposal (latest version, status=accepted)
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("id, rate, currency, tax_pct, tax_amount, line_items")
+    .select("id, rate, currency, tax_pct, tax_amount, line_items, requires_payment, sqrz_fee_pct")
     .eq("booking_id", booking_id)
     .eq("status", "accepted")
     .order("version", { ascending: false })
@@ -81,11 +86,18 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "No accepted proposal found for this booking" }, { status: 404 });
   }
 
-  // Calculate fee amounts
-  const sqrzFeeRate = planId === 5 ? 0.03 : planId === 1 ? 0.05 : 0;
-  const sqrzFeeAmount = Number(proposal.rate) * sqrzFeeRate;
+  const lockedFeePct = resolveLockedSqrzFeePct({
+    requiresPayment: (proposal as { requires_payment?: boolean | null }).requires_payment,
+    proposalFeePct: (proposal as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,
+  });
+  const sqrzFeeAmount = roundCurrency(Number(proposal.rate) * (lockedFeePct / 100));
   const taxAmt = Number((proposal as { tax_amount?: number | null }).tax_amount ?? 0);
-  const gross = Number(proposal.rate) + taxAmt + sqrzFeeAmount;
+  const gross = roundCurrency(Number(proposal.rate) + taxAmt + sqrzFeeAmount);
+  const invoiceLineItems = reconcileInvoiceLineItems({
+    netAmount: proposal.rate,
+    rawLineItems: proposal.line_items,
+    primaryLabel: (booking.service as string | null) || (booking.title as string | null) || "Professional services",
+  });
 
   const issuerName = (
     (profile.company_name as string | null) ||
@@ -123,7 +135,7 @@ export async function action({ request }: { request: Request }) {
       tax_amount: taxAmt,
       sqrz_fee_amount: sqrzFeeAmount,
       gross_amount: gross,
-      line_items: (proposal.line_items as unknown[]) ?? [],
+      line_items: invoiceLineItems,
       notes: notes || null,
       pdf_source: "generated",
       status: "sent",
