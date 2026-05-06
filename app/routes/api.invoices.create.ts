@@ -7,6 +7,19 @@ import {
   roundCurrency,
 } from "~/lib/proposal-pricing";
 
+function deriveIssuerCountry(profile: Record<string, unknown>): string | null {
+  const explicitCountry =
+    (profile.company_country as string | null) ||
+    (profile.location_iso as string | null);
+  if (explicitCountry && explicitCountry.trim()) return explicitCountry.trim();
+
+  const address = (profile.company_address as string | null)?.trim();
+  if (!address) return null;
+
+  const lastSegment = address.split(",").map((part) => part.trim()).filter(Boolean).pop();
+  return lastSegment || null;
+}
+
 export async function action({ request }: { request: Request }) {
   const { supabase } = createSupabaseServerClient(request);
   const {
@@ -119,8 +132,9 @@ export async function action({ request }: { request: Request }) {
       issuer_name: issuerName,
       issuer_address: (profile.company_address as string | null) ?? null,
       issuer_city: (profile.city as string | null) ?? null,
+      issuer_country: deriveIssuerCountry(profile as Record<string, unknown>),
       issuer_vat_id: (profile.vat_id as string | null) ?? null,
-      issuer_tax_id: (profile.company_tax_id as string | null) ?? null,
+      issuer_tax_id: null,
       issuer_email: (profile.email as string | null) ?? null,
       issuer_legal_form: (profile.legal_form as string | null) ?? null,
       recipient_name,

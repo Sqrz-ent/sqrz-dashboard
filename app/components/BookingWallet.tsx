@@ -160,9 +160,9 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
   const sqrzFee         = Math.round(memberRate * (feePct / 100) * 100) / 100;
   const bookerPays      = wallet.total_budget ?? Math.round((memberRate + taxAmt + sqrzFee) * 100) / 100;
   const hasTax          = taxPctVal > 0 || taxAmt > 0;
-  // Gross received = net + tax - SQRZ fee (tax collected from buyer, remitted to authority)
-  const youReceiveGross = Math.round((memberRate + taxAmt - sqrzFee) * 100) / 100;
-  const yourNetIncome   = Math.round((memberRate - sqrzFee) * 100) / 100;
+  // SQRZ fee is charged on top to the booker, so seller gross remains net + tax.
+  const youReceiveGross = Math.round((memberRate + taxAmt) * 100) / 100;
+  const yourNetIncome   = memberRate;
 
   const s = sym(wallet.currency);
   const isPaid = wallet.client_paid || (paidFetcher.state === "idle" && paidFetcher.data?.ok === true);

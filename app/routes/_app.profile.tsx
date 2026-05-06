@@ -290,7 +290,7 @@ export async function action({ request }: Route.ActionArgs) {
     const { error } = await supabase.from("profiles").update({
       company_name: formData.get("company_name") as string,
       company_address: formData.get("company_address") as string,
-      company_tax_id: formData.get("company_tax_id") as string,
+      company_tax_id: null,
       legal_form: formData.get("legal_form") as string,
       vat_id: (formData.get("vat_id") as string) || null,
       trade_register_court: (formData.get("trade_register_court") as string) || null,
@@ -1104,7 +1104,6 @@ export default function ProfilePage() {
             <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
             <businessFetcher.Form method="post">
               <input type="hidden" name="intent" value="update_business" />
-              <input type="hidden" name="company_tax_id" value={(profile.company_tax_id as string) ?? ""} />
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
                 {/* Legal Form dropdown — always first */}
