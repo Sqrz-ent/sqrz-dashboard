@@ -77,7 +77,7 @@ function ToastItem({
 
 // ─── Bell + dropdown ──────────────────────────────────────────────────────────
 
-export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: () => void }) {
+export default function NotificationBell() {
   const {
     notifications,
     unreadCount,
@@ -85,7 +85,6 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
     markAllAsRead,
     toasts,
     dismissToast,
-    unreadMessageCount,
   } = useNotifications();
 
   const [open, setOpen] = useState(false);
@@ -128,8 +127,7 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
     setOpen((v) => !v);
   }
 
-  const showMessagesEntry = typeof onOpenMessages === "function";
-  const totalBadge = unreadCount + (showMessagesEntry ? unreadMessageCount : 0);
+  const totalBadge = unreadCount;
 
   return (
     <>
@@ -228,56 +226,6 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
           {/* List */}
           <div style={{ maxHeight: 400, overflowY: "auto" }}>
             {/* Messages entry row — always visible */}
-            {showMessagesEntry && (
-              <button
-                onClick={() => { onOpenMessages?.(); setOpen(false); }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "11px 16px",
-                  background: "rgba(245,166,35,0.06)",
-                  border: "none",
-                  borderBottom: "1px solid var(--border)",
-                  cursor: "pointer",
-                  textAlign: "left",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: "50%",
-                      background: "#F5A623",
-                      flexShrink: 0,
-                    }}
-                  />
-                  <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>
-                    Messages
-                  </span>
-                  {unreadMessageCount > 0 && (
-                    <span
-                      style={{
-                        background: "rgba(245,166,35,0.15)",
-                        color: "#F5A623",
-                        fontSize: 10,
-                        fontWeight: 700,
-                        borderRadius: 8,
-                        padding: "1px 6px",
-                      }}
-                    >
-                      {unreadMessageCount} unread
-                    </span>
-                  )}
-                </div>
-                <span style={{ color: "#F5A623", fontSize: 12, fontWeight: 600 }}>
-                  View →
-                </span>
-              </button>
-            )}
-
             {/* Booking notifications */}
             {notifications.length === 0 ? (
               <div

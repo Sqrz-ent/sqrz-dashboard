@@ -38,7 +38,6 @@ function persistReadIds(ids: Set<string>) {
 export function useNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
-  const [unreadMessageCount, setUnreadMessageCount] = useState(0);
   const initialized = useRef(false);
 
   useEffect(() => {
@@ -86,23 +85,6 @@ export function useNotifications() {
             };
           })
         );
-      }
-
-      // Unread message count across all owned bookings
-      const { data: ownedIds } = await supabase
-        .from("bookings")
-        .select("id")
-        .eq("owner_id", profile.id);
-
-      if (ownedIds && ownedIds.length > 0) {
-        const ids = (ownedIds as { id: string }[]).map((b) => b.id);
-        const { count } = await supabase
-          .from("messages")
-          .select("id", { count: "exact", head: true })
-          .in("booking_id", ids)
-          .eq("is_read", false)
-          .neq("sender_id", profile.id);
-        setUnreadMessageCount(count ?? 0);
       }
 
       initialized.current = true;
@@ -194,6 +176,5 @@ export function useNotifications() {
     markAllAsRead,
     toasts,
     dismissToast,
-    unreadMessageCount,
   };
 }

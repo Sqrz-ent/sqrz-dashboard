@@ -7,7 +7,6 @@ import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
-import LeadsPanel from "~/components/LeadsPanel";
 import PartnerInviteBanner from "~/components/PartnerInviteBanner";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -136,8 +135,6 @@ export default function AppLayout() {
   }
 
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [messagesOpen, setMessagesOpen] = useState(false);
-
   useEffect(() => {
     if (p !== null && p.onboarding_completed === false) {
       setShowOnboarding(true);
@@ -344,7 +341,7 @@ export default function AppLayout() {
                 Upgrade
               </button>
             )}
-            <NotificationBell onOpenMessages={p?.is_beta ? () => setMessagesOpen(true) : undefined} />
+            <NotificationBell />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -417,7 +414,7 @@ export default function AppLayout() {
 
           {/* Right — bell + theme */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 80, justifyContent: "flex-end" }}>
-            <NotificationBell onOpenMessages={p?.is_beta ? () => setMessagesOpen(true) : undefined} />
+            <NotificationBell />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -579,28 +576,6 @@ export default function AppLayout() {
             <span>{item.label}</span>
           </NavLink>
         ))}
-
-        {p?.is_beta && (
-          <button
-            onClick={() => setMessagesOpen(true)}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              background: "none",
-              border: "none",
-              fontSize: 11,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            <span style={{ fontSize: 18 }}>💬</span>
-            <span>Messages</span>
-          </button>
-        )}
-
         {isPartner ? (
           <NavLink
             to="/office/partners"
@@ -637,19 +612,6 @@ export default function AppLayout() {
           </a>
         )}
       </nav>
-
-      {p?.is_beta && (
-        <LeadsPanel
-          open={messagesOpen}
-          onClose={() => setMessagesOpen(false)}
-          profileId={(p?.id as string) ?? null}
-          profileName={
-            [[p?.first_name, p?.last_name].filter(Boolean).join(" ").trim(), p?.name]
-              .find(v => !!v) as string ?? null
-          }
-          isBeta={!!p?.is_beta}
-        />
-      )}
 
       <style>{`
         @keyframes sqrzProgress {
