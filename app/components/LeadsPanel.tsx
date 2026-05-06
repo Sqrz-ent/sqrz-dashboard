@@ -3,6 +3,7 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { StreamChat } from "stream-chat";
 import { supabase } from "~/lib/supabase.client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -16,6 +17,8 @@ interface ConvMessage {
   created_at: string;
   is_read: boolean | null;
 }
+
+type StreamChannelLike = any;
 
 interface Conversation {
   id: string;
@@ -88,6 +91,25 @@ function avatarLetter(conv: Conversation): string {
   return getConvTitle(conv).charAt(0).toUpperCase();
 }
 
+function mapStreamMessages(channelMessages: Array<Record<string, any>>, bookingId: string): ConvMessage[] {
+  return channelMessages.map((message) => ({
+    id: String(message.id ?? crypto.randomUUID()),
+    booking_id: bookingId,
+    message: (message.text as string | undefined) ?? null,
+    sender_name: (message.user?.name as string | undefined) ?? null,
+    sender_id: (message.user?.id as string | undefined) ?? null,
+    created_at: (message.created_at as string | undefined) ?? new Date().toISOString(),
+    is_read: true,
+  }));
+}
+
+function bookingIdFromMainChannelId(channelId: string): string | null {
+  const prefix = "booking_";
+  const suffix = "_main";
+  if (!channelId.startsWith(prefix) || !channelId.endsWith(suffix)) return null;
+  return channelId.slice(prefix.length, -suffix.length);
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -129,12 +151,18 @@ function ConversationThread({
   conv,
   profileId,
   profileName,
+  messagingProvider,
+  streamChannel,
+  streamUserId,
   onConvert,
   onDecline,
 }: {
   conv: Conversation;
   profileId: string | null;
   profileName: string | null;
+  messagingProvider: "supabase" | "stream";
+  streamChannel: StreamChannelLike | null;
+  streamUserId: string | null;
   onConvert: () => void;
   onDecline: () => void;
 }) {
@@ -147,14 +175,27 @@ function ConversationThread({
 
   // Get auth user id (different from profiles.id for migrated users)
   useEffect(() => {
+    if (messagingProvider === "stream") {
+      setAuthUserId(streamUserId);
+      return;
+    }
+
     supabase.auth.getUser().then(({ data }) => {
       setAuthUserId(data.user?.id ?? null);
     });
-  }, []);
+  }, [messagingProvider, streamUserId]);
 
   // Fetch messages on open — reset initial flag so we snap on first load
   useEffect(() => {
     isInitialRef.current = true;
+
+    if (messagingProvider === "stream") {
+      if (streamChannel) {
+        setMessages(mapStreamMessages(streamChannel.state.messages as Array<Record<string, any>>, conv.id));
+      }
+      return;
+    }
+
     supabase
       .from("messages")
       .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
@@ -162,11 +203,17 @@ function ConversationThread({
       .order("created_at", { ascending: true })
       .then(({ data }) => { if (data) setMessages(data as ConvMessage[]); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conv.id]);
+  }, [conv.id, messagingProvider, streamChannel]);
 
   // Mark as read when authUserId is known
   useEffect(() => {
     if (!authUserId) return;
+
+    if (messagingProvider === "stream") {
+      streamChannel?.markRead().catch(() => {});
+      return;
+    }
+
     supabase
       .from("messages")
       .update({ is_read: true })
@@ -174,10 +221,18 @@ function ConversationThread({
       .neq("sender_id", authUserId)
       .then(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conv.id, authUserId]);
+  }, [conv.id, authUserId, messagingProvider, streamChannel]);
 
   // Realtime
   useEffect(() => {
+    if (messagingProvider === "stream") {
+      if (!streamChannel) return;
+      const subscription = streamChannel.on("message.new", () => {
+        setMessages(mapStreamMessages(streamChannel.state.messages as Array<Record<string, any>>, conv.id));
+      });
+      return () => { subscription.unsubscribe?.(); };
+    }
+
     const ch = supabase
       .channel(`conv-messages-${conv.id}`)
       .on(
@@ -187,7 +242,7 @@ function ConversationThread({
       )
       .subscribe();
     return () => { supabase.removeChannel(ch); };
-  }, [conv.id]);
+  }, [conv.id, messagingProvider, streamChannel]);
 
   // Scroll to bottom — instant on initial load, smooth on new messages
   useLayoutEffect(() => {
@@ -206,13 +261,19 @@ function ConversationThread({
     if (!content || sending) return;
     setSending(true);
     try {
-      await supabase.from("messages").insert({
-        booking_id: conv.id,
-        sender_id: authUserId,
-        sender_name: profileName ?? "You",
-        message: content,
-        is_read: false,
-      });
+      if (messagingProvider === "stream") {
+        if (!streamChannel) throw new Error("Stream channel is not ready");
+        await streamChannel.sendMessage({ text: content });
+        setMessages(mapStreamMessages(streamChannel.state.messages as Array<Record<string, any>>, conv.id));
+      } else {
+        await supabase.from("messages").insert({
+          booking_id: conv.id,
+          sender_id: authUserId,
+          sender_name: profileName ?? "You",
+          message: content,
+          is_read: false,
+        });
+      }
       setReply("");
       // Notify buyer on first seller reply — fire and forget
       fetch("/api/notify-first-reply", {
@@ -416,6 +477,7 @@ interface LeadsPanelProps {
   onClose: () => void;
   profileId: string | null;
   profileName: string | null;
+  isBeta?: boolean;
 }
 
 export default function LeadsPanel({
@@ -423,11 +485,15 @@ export default function LeadsPanel({
   onClose,
   profileId,
   profileName,
+  isBeta = false,
 }: LeadsPanelProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [streamUserId, setStreamUserId] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const streamClientRef = useRef<StreamChat | null>(null);
+  const streamChannelsRef = useRef<Record<string, StreamChannelLike>>({});
   useEffect(() => setMounted(true), []);
 
   // Fetch all conversations when panel opens and profileId is ready
@@ -448,17 +514,23 @@ export default function LeadsPanel({
 
       const bookingIds = (bookings as { id: string }[]).map((b) => b.id);
 
+      const participantPromise = supabase
+        .from("booking_participants")
+        .select("booking_id, email, name")
+        .in("booking_id", bookingIds)
+        .eq("role", "buyer");
+
+      const messagesPromise = !isBeta
+        ? supabase
+            .from("messages")
+            .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
+            .in("booking_id", bookingIds)
+            .order("created_at", { ascending: true })
+        : Promise.resolve({ data: [] as ConvMessage[] });
+
       const [{ data: messages }, { data: participants }] = await Promise.all([
-        supabase
-          .from("messages")
-          .select("id, booking_id, message, sender_name, sender_id, created_at, is_read")
-          .in("booking_id", bookingIds)
-          .order("created_at", { ascending: true }),
-        supabase
-          .from("booking_participants")
-          .select("booking_id, email, name")
-          .in("booking_id", bookingIds)
-          .eq("role", "buyer"),
+        messagesPromise,
+        participantPromise,
       ]);
 
       const buyerLabelMap: Record<string, string> = {};
@@ -471,10 +543,78 @@ export default function LeadsPanel({
       }
 
       const msgsByBooking: Record<string, ConvMessage[]> = {};
-      for (const msg of (messages ?? []) as ConvMessage[]) {
-        const bid = msg.booking_id ?? "";
-        if (!msgsByBooking[bid]) msgsByBooking[bid] = [];
-        msgsByBooking[bid].push(msg);
+      if (isBeta) {
+        const inboxResponse = await fetch("/api/messaging/stream-inbox");
+        const inboxPayload = await inboxResponse.json() as {
+          apiKey?: string;
+          token?: string;
+          streamUser?: { id: string; name: string };
+          channelIds?: string[];
+          error?: string;
+        };
+
+        if (!inboxResponse.ok || !inboxPayload.apiKey || !inboxPayload.token || !inboxPayload.streamUser?.id) {
+          throw new Error(inboxPayload.error ?? "Failed to initialize Stream inbox");
+        }
+
+        const client = StreamChat.getInstance(inboxPayload.apiKey);
+        if (client.userID && client.userID !== inboxPayload.streamUser.id) {
+          await client.disconnectUser();
+        }
+        if (!client.userID) {
+          await client.connectUser(inboxPayload.streamUser, inboxPayload.token);
+        }
+
+        streamClientRef.current = client;
+        setStreamUserId(inboxPayload.streamUser.id);
+
+        const channels = await client.queryChannels(
+          {
+            type: "messaging",
+            id: { $in: inboxPayload.channelIds ?? bookingIds.map((bookingId) => `booking_${bookingId}_main`) },
+          },
+          { last_message_at: -1 },
+          { watch: true, state: true }
+        );
+
+        streamChannelsRef.current = Object.fromEntries(
+          channels
+            .map((channel) => [bookingIdFromMainChannelId(channel.id), channel] as const)
+            .filter((entry): entry is [string, StreamChannelLike] => !!entry[0])
+        );
+
+        for (const channel of channels) {
+          const streamBookingId = bookingIdFromMainChannelId(channel.id);
+          if (!streamBookingId) continue;
+          msgsByBooking[streamBookingId] = mapStreamMessages(
+            channel.state.messages as Array<Record<string, any>>,
+            streamBookingId
+          );
+
+          channel.on("message.new", () => {
+            const updatedMessages = mapStreamMessages(
+              channel.state.messages as Array<Record<string, any>>,
+              streamBookingId
+            );
+            setConversations((prev) => {
+              const next = prev.map((conv) =>
+                conv.id === streamBookingId ? { ...conv, messages: updatedMessages } : conv
+              );
+              next.sort((a, b) => {
+                const aLast = a.messages.at(-1)?.created_at ?? a.created_at;
+                const bLast = b.messages.at(-1)?.created_at ?? b.created_at;
+                return new Date(bLast).getTime() - new Date(aLast).getTime();
+              });
+              return next;
+            });
+          });
+        }
+      } else {
+        for (const msg of (messages ?? []) as ConvMessage[]) {
+          const bid = msg.booking_id ?? "";
+          if (!msgsByBooking[bid]) msgsByBooking[bid] = [];
+          msgsByBooking[bid].push(msg);
+        }
       }
 
       const convs: Conversation[] = (
@@ -495,7 +635,17 @@ export default function LeadsPanel({
       setConversations(convs);
     }
     load();
-  }, [open, profileId]);
+  }, [open, profileId, isBeta]);
+
+  useEffect(() => {
+    return () => {
+      const client = streamClientRef.current;
+      if (client) {
+        client.disconnectUser().catch(() => {});
+        streamClientRef.current = null;
+      }
+    };
+  }, []);
 
   // Reset selection when panel closes
   useEffect(() => {
@@ -534,6 +684,9 @@ export default function LeadsPanel({
   }, [open, onClose, selectedId]);
 
   function handleSelectConv(id: string) {
+    if (isBeta) {
+      streamChannelsRef.current[id]?.markRead?.().catch(() => {});
+    }
     // Optimistic: mark all messages for this booking as read in local state
     setConversations((prev) =>
       prev.map((c) =>
@@ -544,12 +697,14 @@ export default function LeadsPanel({
     );
     setSelectedId(id);
     // Background DB update
-    supabase
-      .from("messages")
-      .update({ is_read: true })
-      .eq("booking_id", id)
-      .eq("is_read", false)
-      .then(() => {});
+    if (!isBeta) {
+      supabase
+        .from("messages")
+        .update({ is_read: true })
+        .eq("booking_id", id)
+        .eq("is_read", false)
+        .then(() => {});
+    }
   }
 
   async function handleConvert(id: string) {
@@ -724,6 +879,9 @@ export default function LeadsPanel({
               conv={selectedConv}
               profileId={profileId}
               profileName={profileName}
+              messagingProvider={isBeta ? "stream" : "supabase"}
+              streamChannel={streamChannelsRef.current[selectedConv.id] ?? null}
+              streamUserId={streamUserId}
               onConvert={() => handleConvert(selectedConv.id)}
               onDecline={() => handleDecline(selectedConv.id)}
             />

@@ -32,6 +32,8 @@ export default [
   // API routes (server-only, action handlers)
   route("api/notify-guest", "routes/api.notify-guest.tsx"),
   route("api/notify-member", "routes/api.notify-member.tsx"),
+  route("api/messaging/stream-token", "routes/api.messaging.stream-token.ts"),
+  route("api/messaging/stream-inbox", "routes/api.messaging.stream-inbox.ts"),
   route("api/booking/create", "routes/api.booking.create.tsx"),
   route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
   route("api/proposal/counter", "routes/api.proposal.counter.tsx"),

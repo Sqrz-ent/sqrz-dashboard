@@ -3,7 +3,9 @@
 
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
+import { StreamChat } from "stream-chat";
 import { supabase } from "~/lib/supabase.client";
+import type { MessagingProvider } from "~/lib/messaging/types";
 
 interface Message {
   id: string;
@@ -14,10 +16,23 @@ interface Message {
   created_at: string;
 }
 
+function mapStreamMessages(channelMessages: Array<Record<string, any>>, bookingId: string): Message[] {
+  return channelMessages.map((message) => ({
+    id: String(message.id ?? crypto.randomUUID()),
+    booking_id: bookingId,
+    sender_id: (message.user?.id as string | undefined) ?? null,
+    sender_name: (message.user?.name as string | undefined) ?? null,
+    message: (message.text as string | undefined) ?? null,
+    created_at: (message.created_at as string | undefined) ?? new Date().toISOString(),
+  }));
+}
+
 interface BookingChatProps {
   bookingId: string;
   currentUserEmail: string;
   isOwner: boolean;
+  messagingProvider?: MessagingProvider;
+  bookingToken?: string | null;
   /** Display name to use as sender_name — no email addresses ever exposed */
   senderName?: string;
   /** Name of the other participant — used as fallback when a message has no sender_name */
@@ -29,29 +44,42 @@ export default function BookingChat({
   bookingId,
   currentUserEmail,
   isOwner,
+  messagingProvider = "supabase",
+  bookingToken = null,
   senderName,
   participantName,
   onAfterSend,
 }: BookingChatProps) {
-  console.log("[BookingChat] render props:", { bookingId, currentUserEmail });
+  console.log("[BookingChat] render props:", { bookingId, currentUserEmail, messagingProvider });
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<{ id: string; email: string } | null>(null);
+  const [currentSenderId, setCurrentSenderId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const streamClientRef = useRef<StreamChat | null>(null);
+  const streamChannelRef = useRef<any>(null);
 
   // ── Resolve auth user on mount ────────────────────────────────────────────────
   useEffect(() => {
+    if (messagingProvider !== "supabase") return;
+
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setAuthUser({ id: user.id, email: user.email ?? currentUserEmail });
+      if (user) {
+        setAuthUser({ id: user.id, email: user.email ?? currentUserEmail });
+        setCurrentSenderId(user.id);
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [messagingProvider]);
 
   // ── Fetch messages + realtime subscription ────────────────────────────────────
   useEffect(() => {
+    if (messagingProvider !== "supabase") return;
     if (!bookingId) return;
 
     // Fetch initial messages
@@ -88,7 +116,113 @@ export default function BookingChat({
       supabase.removeChannel(channel);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookingId, open]);
+  }, [bookingId, open, messagingProvider]);
+
+  // ── Stream bootstrap + subscription ──────────────────────────────────────────
+  useEffect(() => {
+    if (messagingProvider !== "stream" || !bookingId) return;
+
+    let active = true;
+    let subscription: { unsubscribe?: () => void } | null = null;
+
+    async function initStream() {
+      setLoading(true);
+      setStreamError(null);
+
+      try {
+        const params = new URLSearchParams({ bookingId });
+        if (bookingToken) params.set("token", bookingToken);
+
+        const response = await fetch(`/api/messaging/stream-token?${params.toString()}`);
+        const payload = await response.json() as {
+          apiKey?: string;
+          token?: string;
+          channelId?: string;
+          streamUser?: { id: string; name: string };
+          error?: string;
+        };
+
+        if (!response.ok || !payload.apiKey || !payload.token || !payload.channelId || !payload.streamUser?.id) {
+          throw new Error(payload.error ?? "Failed to initialize Stream chat");
+        }
+
+        const client = StreamChat.getInstance(payload.apiKey);
+        if (client.userID && client.userID !== payload.streamUser.id) {
+          await client.disconnectUser();
+        }
+        if (!client.userID) {
+          await client.connectUser(
+            { id: payload.streamUser.id, name: payload.streamUser.name ?? senderName ?? "SQRZ User" },
+            payload.token
+          );
+        }
+
+        const channel = client.channel("messaging", payload.channelId);
+        await channel.watch();
+
+        if (!active) return;
+
+        streamClientRef.current = client;
+        streamChannelRef.current = channel;
+        setAuthUser({ id: payload.streamUser.id, email: currentUserEmail });
+        setCurrentSenderId(payload.streamUser.id);
+        setMessages(mapStreamMessages(channel.state.messages as Array<Record<string, any>>, bookingId));
+        setUnreadCount(typeof channel.countUnread === "function" ? channel.countUnread() : 0);
+
+        if (open) {
+          await channel.markRead();
+          if (active) setUnreadCount(0);
+        }
+
+        subscription = channel.on("message.new", async (event: Record<string, any>) => {
+          if (!active) return;
+
+          setMessages(mapStreamMessages(channel.state.messages as Array<Record<string, any>>, bookingId));
+
+          const eventSenderId = event.user?.id as string | undefined;
+          if (!open && eventSenderId && eventSenderId !== payload.streamUser?.id) {
+            setUnreadCount((count) => count + 1);
+          }
+
+          if (open) {
+            try {
+              await channel.markRead();
+              if (active) setUnreadCount(0);
+            } catch {
+              // Non-fatal — UI can still update from local message state.
+            }
+          }
+        });
+      } catch (error) {
+        console.error("[BookingChat] Stream init failed:", error);
+        if (active) {
+          setStreamError(error instanceof Error ? error.message : "Stream chat failed to load");
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    initStream();
+
+    return () => {
+      active = false;
+      subscription?.unsubscribe?.();
+      streamChannelRef.current = null;
+      if (streamClientRef.current) {
+        streamClientRef.current.disconnectUser().catch(() => {});
+        streamClientRef.current = null;
+      }
+    };
+  }, [bookingId, bookingToken, currentUserEmail, messagingProvider, senderName]);
+
+  useEffect(() => {
+    if (!open || messagingProvider !== "stream" || !streamChannelRef.current) return;
+
+    streamChannelRef.current.markRead()
+      .then(() => setUnreadCount(0))
+      .catch(() => {});
+  }, [open, messagingProvider]);
 
   // ── Auto-scroll to bottom ────────────────────────────────────────────────────
   useEffect(() => {
@@ -107,22 +241,43 @@ export default function BookingChat({
     if (!content || sending) return;
 
     setSending(true);
-    await supabase.from("messages").insert({
-      booking_id: bookingId,
-      message: content,
-      sender_id: authUser?.id ?? null,
-      sender_name: senderName ?? null,
-    });
-    setText("");
-    setSending(false);
-    onAfterSend?.(content);
-    // Notify buyer on first seller reply — fire and forget
-    if (isOwner) {
-      fetch("/api/notify-first-reply", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookingId }),
-      }).catch(() => { /* non-fatal */ });
+    try {
+      if (messagingProvider === "stream") {
+        if (!streamChannelRef.current) {
+          throw new Error("Stream channel is not ready yet");
+        }
+
+        await streamChannelRef.current.sendMessage({ text: content });
+        setMessages(mapStreamMessages(
+          streamChannelRef.current.state.messages as Array<Record<string, any>>,
+          bookingId
+        ));
+      } else {
+        await supabase.from("messages").insert({
+          booking_id: bookingId,
+          message: content,
+          sender_id: authUser?.id ?? null,
+          sender_name: senderName ?? null,
+        });
+      }
+
+      setText("");
+      onAfterSend?.(content);
+
+      if (isOwner) {
+        fetch("/api/notify-first-reply", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingId }),
+        }).catch(() => { /* non-fatal */ });
+      }
+    } catch (error) {
+      console.error("[BookingChat] send failed:", error);
+      if (messagingProvider === "stream") {
+        setStreamError(error instanceof Error ? error.message : "Failed to send message");
+      }
+    } finally {
+      setSending(false);
     }
   }
 
@@ -229,9 +384,7 @@ export default function BookingChat({
               </p>
             ) : (
               messages.map((msg) => {
-                const isMine =
-                  authUser &&
-                  msg.sender_id === authUser.id;
+                const isMine = !!currentSenderId && msg.sender_id === currentSenderId;
                 const rawLabel = msg.sender_name ?? (participantName ?? "Guest");
                 const senderLabel =
                   rawLabel.length > 22
@@ -297,6 +450,32 @@ export default function BookingChat({
                 );
               })
             )}
+            {loading && messages.length === 0 && (
+              <p
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  textAlign: "center",
+                  margin: "12px auto 0",
+                }}
+              >
+                Connecting chat...
+              </p>
+            )}
+            {streamError && messagingProvider === "stream" && (
+              <p
+                style={{
+                  color: "#fca5a5",
+                  fontSize: 12,
+                  textAlign: "center",
+                  margin: "12px auto 0",
+                  maxWidth: 220,
+                  lineHeight: 1.4,
+                }}
+              >
+                {streamError}
+              </p>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -320,7 +499,7 @@ export default function BookingChat({
                 }
               }}
               placeholder="Type a message…"
-              disabled={sending}
+              disabled={sending || loading}
               style={{
                 flex: 1,
                 background: "var(--surface)",
@@ -331,12 +510,12 @@ export default function BookingChat({
                 fontSize: 16,
                 outline: "none",
                 fontFamily,
-                opacity: sending ? 0.6 : 1,
+                opacity: sending || loading ? 0.6 : 1,
               }}
             />
             <button
               onClick={handleSend}
-              disabled={!text.trim() || sending}
+              disabled={!text.trim() || sending || loading}
               style={{
                 padding: "9px 14px",
                 background: accent,
@@ -345,8 +524,8 @@ export default function BookingChat({
                 borderRadius: 9,
                 fontSize: 12,
                 fontWeight: 700,
-                cursor: !text.trim() || sending ? "default" : "pointer",
-                opacity: !text.trim() || sending ? 0.5 : 1,
+                cursor: !text.trim() || sending || loading ? "default" : "pointer",
+                opacity: !text.trim() || sending || loading ? 0.5 : 1,
                 fontFamily,
                 flexShrink: 0,
               }}

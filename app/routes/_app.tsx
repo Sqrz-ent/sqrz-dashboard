@@ -644,6 +644,7 @@ export default function AppLayout() {
           [[p?.first_name, p?.last_name].filter(Boolean).join(" ").trim(), p?.name]
             .find(v => !!v) as string ?? null
         }
+        isBeta={!!p?.is_beta}
       />
 
       <style>{`

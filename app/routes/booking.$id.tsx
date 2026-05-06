@@ -6,6 +6,8 @@ import {
   createSupabaseAdminClient,
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { resolveMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
+import type { MessagingProvider } from "~/lib/messaging/types";
 import { getPlanLevel } from "~/lib/plans";
 import { handleBookingReferral } from "~/lib/booking-referral.server";
 import {
@@ -62,6 +64,8 @@ type MemberInfo = {
   company_address: string | null;
   responsible_person: string | null;
 } | null;
+
+type BookingMessagingProvider = MessagingProvider;
 
 function getLatestProposalRecord(proposals: unknown): NonNullable<Proposal> | null {
   if (!Array.isArray(proposals)) return null;
@@ -166,6 +170,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (!booking) return Response.json({ accessType: "invalid_token" }, { headers });
 
     const isOwner = !!(profile && booking.owner_id === profile.id);
+    const messagingProvider = await resolveMessagingProviderForBooking({
+      admin,
+      bookingId: params.id!,
+    });
 
     const [{ data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
       admin
@@ -310,6 +318,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         memberEmail: (ownerPlan?.email as string | null) ?? null,
         invoice: tokenInvoice,
         buyerParticipant: tokenBuyerParticipant,
+        messagingProvider,
       },
       { headers }
     );
@@ -318,6 +327,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   // ── TOKEN ONLY (no session) ────────────────────────────────────────────────
   if (tokenRow) {
     const booking = tokenRow.bookings as Booking;
+    const messagingProvider = await resolveMessagingProviderForBooking({
+      admin,
+      bookingId: params.id!,
+    });
     const participant: GuestParticipant = {
       id: tokenRow.id as string,
       booking_id: tokenRow.booking_id as string,
@@ -379,6 +392,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         isBeta: false,
         senderName,
         memberEmail: (ownerPlan?.email as string | null) ?? null,
+        messagingProvider,
       },
       { headers }
     );
@@ -397,6 +411,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (!booking) return Response.json({ accessType: "invalid_token" }, { headers });
 
     const isOwner = !!(profile && booking.owner_id === profile.id);
+    const messagingProvider = await resolveMessagingProviderForBooking({
+      admin,
+      bookingId: params.id!,
+    });
 
     if (!isOwner) {
       const isParticipant = (booking.booking_participants ?? []).some(
@@ -548,6 +566,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         senderName: profileSenderName(profile as Record<string, unknown> | null),
         invoice: sessionInvoice,
         buyerParticipant: sessionBuyerParticipant,
+        messagingProvider,
       },
       { headers }
     );
@@ -3524,6 +3543,8 @@ function MemberView({
   planLevel,
   userEmail,
   senderName,
+  messagingProvider,
+  bookingToken,
   stripeConnectId,
   memberInfo,
   proposalFeePct,
@@ -3536,6 +3557,8 @@ function MemberView({
   planLevel: number;
   userEmail: string;
   senderName: string | null;
+  messagingProvider: BookingMessagingProvider;
+  bookingToken?: string | null;
   stripeConnectId: string | null;
   memberInfo?: MemberInfo;
   proposalFeePct?: number | null;
@@ -3688,6 +3711,8 @@ function MemberView({
         bookingId={b.id as string}
         currentUserEmail={userEmail}
         isOwner={true}
+        messagingProvider={messagingProvider}
+        bookingToken={bookingToken}
         senderName={senderName ?? undefined}
         participantName={buyerParticipant?.name ?? buyerParticipant?.email?.split("@")[0] ?? undefined}
       />
@@ -3798,6 +3823,7 @@ export default function BookingAccessPage() {
     memberEmail,
     invoice,
     buyerParticipant,
+    messagingProvider,
   } = data as {
     booking: Booking;
     userEmail: string;
@@ -3816,6 +3842,7 @@ export default function BookingAccessPage() {
     memberEmail?: string | null;
     invoice?: InvoiceRecord | null;
     buyerParticipant?: BuyerParticipant;
+    messagingProvider: BookingMessagingProvider;
   };
 
   const b = booking;
@@ -3833,6 +3860,8 @@ export default function BookingAccessPage() {
           planLevel={planLevel}
           userEmail={userEmail}
           senderName={senderName}
+          messagingProvider={messagingProvider}
+          bookingToken={bookingToken}
           stripeConnectId={stripeConnectId ?? null}
           memberInfo={memberInfo}
           proposalFeePct={proposalFeePct}
@@ -3953,6 +3982,8 @@ export default function BookingAccessPage() {
         bookingId={b.id as string}
         currentUserEmail={userEmail}
         isOwner={false}
+        messagingProvider={messagingProvider}
+        bookingToken={bookingToken}
         senderName={senderName ?? undefined}
         participantName={memberInfo?.company_name ?? memberInfo?.name ?? undefined}
         onAfterSend={handleBuyerChatSend}
