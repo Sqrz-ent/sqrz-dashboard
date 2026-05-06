@@ -627,12 +627,48 @@ export default function BoostPage() {
         </>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-          {["Meta (Facebook + Instagram)", "Google", "LinkedIn", "TikTok"].map((ch) => (
+          {["Meta (Facebook + Instagram)", "Google"].map((ch) => (
             <button key={ch} type="button" onClick={() => setChannel(ch)} style={pillStyle(channel === ch)}>
               {ch}
             </button>
           ))}
+          <a
+            href={GROW_MEETING_URL}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "8px 16px",
+              borderRadius: 24,
+              border: "1.5px dashed rgba(245,166,35,0.45)",
+              background: "rgba(245,166,35,0.08)",
+              color: ACCENT,
+              fontSize: 13,
+              fontWeight: 700,
+              textDecoration: "none",
+              fontFamily: FONT_BODY,
+              minHeight: 38,
+            }}
+          >
+            Unlock multi-channel campaigns
+          </a>
         </div>
+      )}
+      {!rerunSource && (
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
+          Need LinkedIn, TikTok, Spotify Ads, or a mixed channel strategy?{" "}
+          <a
+            href={GROW_MEETING_URL}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: ACCENT, fontWeight: 700, textDecoration: "none" }}
+          >
+            Unlock multi-channel campaigns
+          </a>
+          .
+        </p>
       )}
     </div>
   );
