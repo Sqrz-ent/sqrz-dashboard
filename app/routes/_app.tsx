@@ -103,7 +103,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
-  { to: "/service", label: "Service" },
+  { to: "/service", label: "Business" },
   { to: "/boost", label: "Boost" },
   { to: "/domain", label: "Domain" },
   { to: "/links", label: "Links" },

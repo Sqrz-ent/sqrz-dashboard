@@ -80,6 +80,31 @@ const saveBtn: React.CSSProperties = {
   marginTop: 14,
 };
 
+const subtleCard: React.CSSProperties = {
+  background: "var(--bg)",
+  border: "1px solid var(--border)",
+  borderRadius: 12,
+  padding: "14px 16px",
+};
+
+function CompletionBadge({ filled, total }: { filled: number; total: number }) {
+  const done = filled >= total && total > 0;
+  return (
+    <span style={{
+      position: "absolute", top: 14, right: 16,
+      fontSize: 11, fontWeight: 700,
+      background: done ? "#F5A623" : "var(--surface-muted)",
+      color: done ? "#7a4800" : "var(--text-muted)",
+      padding: "3px 10px",
+      borderRadius: 20,
+      fontFamily: FONT_BODY,
+      letterSpacing: "0.02em",
+    }}>
+      {done ? "✓ Complete" : `${filled}/${total}`}
+    </span>
+  );
+}
+
 function MenuDots({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
   const [open, setOpen] = useState(false);
   return (
@@ -163,6 +188,23 @@ export async function action({ request }: Route.ActionArgs) {
       is_active: true,
       sort_order: 0,
     });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_business") {
+    const { error } = await supabase.from("profiles").update({
+      company_name: formData.get("company_name") as string,
+      company_address: formData.get("company_address") as string,
+      company_tax_id: null,
+      legal_form: formData.get("legal_form") as string,
+      vat_id: (formData.get("vat_id") as string) || null,
+      trade_register_court: (formData.get("trade_register_court") as string) || null,
+      trade_register_number: (formData.get("trade_register_number") as string) || null,
+      responsible_person: (formData.get("responsible_person") as string) || null,
+      regulatory_body: (formData.get("regulatory_body") as string) || null,
+      dpo_email: (formData.get("dpo_email") as string) || null,
+      external_privacy_url: (formData.get("external_privacy_url") as string) || null,
+    }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -633,6 +675,7 @@ export default function ServicePage() {
   const deleteFetcher = useFetcher();
   const activeFetcher = useFetcher();
   const reorderFetcher = useFetcher();
+  const businessFetcher = useFetcher();
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -640,6 +683,7 @@ export default function ServicePage() {
     editing: null,
   });
   const [toggleError, setToggleError] = useState<string | null>(null);
+  const [selectedLegalForm, setSelectedLegalForm] = useState<string>((profile.legal_form as string) ?? "");
 
   // Keep local state in sync when loader re-runs (after add/delete/edit)
   useEffect(() => {
@@ -662,6 +706,7 @@ export default function ServicePage() {
 
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
+  const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -686,9 +731,46 @@ export default function ServicePage() {
     reorderFetcher.submit(fd, { method: "post" });
   }
 
+  const lf = selectedLegalForm.trim();
+  const isPartnership = ["GbR", "Partnerschaft"].includes(lf);
+  const isGmbH = ["GmbH", "UG (haftungsbeschränkt)", "AG"].includes(lf);
+  const isIntlLtd = ["Ltd.", "S.L.", "SAS", "B.V."].includes(lf);
+  const isLatAm = ["S.A.S. (Colombia)", "S.A. (Latin America)", "Ltda. (Latin America)", "S.A. de C.V. (México)", "S. de R.L. de C.V. (México)", "MEI / Ltda. (Brasil)", "SpA (Chile)"].includes(lf);
+  const isUS = ["LLC (Limited Liability Company)", "C-Corp", "S-Corp", "Sole Proprietor (US)", "Partnership (US)"].includes(lf);
+  const isUSCorp = ["C-Corp", "S-Corp"].includes(lf);
+  const isOther = lf === "Other";
+  const hasForm = !!lf;
+
+  const showCompanyName = isPartnership || isGmbH || isIntlLtd || isLatAm || isUS || isOther;
+  const showCompanyAddress = isPartnership || isGmbH || isIntlLtd || isLatAm || isUS || isOther;
+  const showResponsiblePerson = hasForm;
+  const showVat = hasForm;
+  const showTradeRegister = isGmbH || isOther;
+  const showStateOfIncorporation = isUSCorp;
+  const showRegulatoryBody = isOther;
+  const showDpo = hasForm;
+  const showExternalPrivacy = hasForm;
+
+  const vatLabel = isUS ? "EIN (Employer Identification Number)" : "VAT ID";
+  const vatPlaceholder = isUS ? "e.g. 12-3456789" : isLatAm ? "e.g. NIT 900.123.456-7" : "e.g. DE123456789";
+  const responsiblePersonLabel = isUS ? "Responsible Person / Registered Agent" : "Responsible Person";
+  const companyAddressLabel = isUS ? "Company Address (US)" : "Company Address";
+  const invoiceCountry =
+    (profile.company_country as string | null) ||
+    (profile.location_iso as string | null) ||
+    ((profile.company_address as string | null)?.split(",").map((part) => part.trim()).filter(Boolean).pop() ?? null);
+  const invoicingChecks = [
+    { label: "Company or issuer name", done: !!((profile.company_name as string | null) || (profile.name as string | null)) },
+    { label: "Legal form", done: !!(profile.legal_form as string | null) },
+    { label: "Company address", done: !!(profile.company_address as string | null) },
+    { label: "Issuer country", done: !!invoiceCountry },
+    { label: "VAT / tax identifier", done: !!(profile.vat_id as string | null) },
+  ];
+  const invoicingReady = invoicingChecks.every((item) => item.done);
+
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={sectionTitle}>Services</h1>
+      <h1 style={sectionTitle}>Business</h1>
 
       {toggleError && (
         <div style={{
@@ -705,7 +787,260 @@ export default function ServicePage() {
       )}
 
       <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 18 }}>Your Services</h2>
+        <CompletionBadge filled={businessFilled} total={1} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
+        <businessFetcher.Form method="post">
+          <input type="hidden" name="intent" value="update_business" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Legal Form</label>
+              <select
+                name="legal_form"
+                value={selectedLegalForm}
+                onChange={(e) => setSelectedLegalForm(e.target.value)}
+                style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
+              >
+                <option value="">— Select legal form —</option>
+                <optgroup label="Individual">
+                  <option>Freelancer / Selbstständig</option>
+                  <option>Sole Trader</option>
+                </optgroup>
+                <optgroup label="Partnership">
+                  <option>GbR</option>
+                  <option>Partnerschaft</option>
+                </optgroup>
+                <optgroup label="Limited Company">
+                  <option>GmbH</option>
+                  <option>UG (haftungsbeschränkt)</option>
+                  <option>AG</option>
+                  <option>Ltd.</option>
+                  <option>S.L.</option>
+                  <option>SAS</option>
+                  <option>B.V.</option>
+                </optgroup>
+                <optgroup label="United States">
+                  <option>LLC (Limited Liability Company)</option>
+                  <option>C-Corp</option>
+                  <option>S-Corp</option>
+                  <option>Sole Proprietor (US)</option>
+                  <option>Partnership (US)</option>
+                </optgroup>
+                <optgroup label="Latin America">
+                  <option>S.A.S. (Colombia)</option>
+                  <option>S.A. (Latin America)</option>
+                  <option>Ltda. (Latin America)</option>
+                  <option>S.A. de C.V. (México)</option>
+                  <option>S. de R.L. de C.V. (México)</option>
+                  <option>MEI / Ltda. (Brasil)</option>
+                  <option>SpA (Chile)</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option>Other</option>
+                </optgroup>
+              </select>
+            </div>
+
+            {showCompanyName && (
+              <div>
+                <label style={labelStyle}>Company Name</label>
+                <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
+              </div>
+            )}
+
+            {showCompanyAddress ? (
+              <div>
+                <label style={labelStyle}>{companyAddressLabel}</label>
+                <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+              </div>
+            ) : !hasForm ? (
+              <>
+                <div>
+                  <label style={labelStyle}>Company Name</label>
+                  <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Company Address</label>
+                  <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+                </div>
+              </>
+            ) : null}
+
+            {!showCompanyName && hasForm && (
+              <input type="hidden" name="company_name" value={(profile.company_name as string) ?? ""} />
+            )}
+            {showCompanyAddress === false && hasForm && (
+              <input type="hidden" name="company_address" value={(profile.company_address as string) ?? ""} />
+            )}
+
+            {hasForm && (
+              <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 16 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                  Legal &amp; Compliance
+                </p>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
+                  Shown in the legal footer on your profile page.
+                </p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {showResponsiblePerson && (
+                    <div>
+                      <label style={labelStyle}>{responsiblePersonLabel}</label>
+                      <input name="responsible_person" defaultValue={(profile.responsible_person as string) ?? ""} placeholder="Full legal name" style={inputStyle} />
+                    </div>
+                  )}
+                  {showVat && (
+                    <div>
+                      <label style={labelStyle}>{vatLabel}</label>
+                      <input name="vat_id" defaultValue={(profile.vat_id as string) ?? ""} placeholder={vatPlaceholder} style={inputStyle} />
+                    </div>
+                  )}
+                  {showStateOfIncorporation && (
+                    <div>
+                      <label style={labelStyle}>State of Incorporation</label>
+                      <input name="trade_register_court" defaultValue={(profile.trade_register_court as string) ?? ""} placeholder="e.g. Delaware, Wyoming" style={inputStyle} />
+                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", fontFamily: FONT_BODY }}>
+                        Stored as "Registered in: [state]" in the legal footer.
+                      </p>
+                    </div>
+                  )}
+                  {showTradeRegister && (
+                    <>
+                      <div>
+                        <label style={labelStyle}>Trade Register Court</label>
+                        <input name="trade_register_court" defaultValue={(profile.trade_register_court as string) ?? ""} placeholder="e.g. Amtsgericht Mannheim" style={inputStyle} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Trade Register Number</label>
+                        <input name="trade_register_number" defaultValue={(profile.trade_register_number as string) ?? ""} placeholder="e.g. HRB 12345" style={inputStyle} />
+                      </div>
+                    </>
+                  )}
+                  {showRegulatoryBody && (
+                    <div>
+                      <label style={labelStyle}>Professional Regulatory Body</label>
+                      <input name="regulatory_body" defaultValue={(profile.regulatory_body as string) ?? ""} style={inputStyle} />
+                    </div>
+                  )}
+                  {showDpo && (
+                    <div>
+                      <label style={labelStyle}>Data Protection Officer Email</label>
+                      <input type="email" name="dpo_email" defaultValue={(profile.dpo_email as string) ?? ""} placeholder="datenschutz@example.com" style={inputStyle} />
+                    </div>
+                  )}
+                  {showExternalPrivacy && (
+                    <div>
+                      <label style={labelStyle}>External Privacy Policy URL</label>
+                      <input type="url" name="external_privacy_url" defaultValue={(profile.external_privacy_url as string) ?? ""} placeholder="https://..." style={inputStyle} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          {businessFetcher.data?.error && (
+            <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{(businessFetcher.data as { error?: string }).error}</p>
+          )}
+          <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>
+            {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
+          </button>
+        </businessFetcher.Form>
+      </div>
+
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Invoicing</h2>
+
+        <div style={{ ...subtleCard, marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+            <div>
+              <p style={{ ...labelStyle, marginBottom: 8 }}>Invoice Mode</p>
+              <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                E-invoices
+              </p>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY, maxWidth: 620 }}>
+                Enable structured e-invoices for future invoices only. Existing invoices stay unchanged, and you remain responsible for invoice numbering and local tax compliance.
+              </p>
+            </div>
+            <div style={{ flexShrink: 0, textAlign: "right" }}>
+              <div style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 12px",
+                borderRadius: 999,
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                opacity: 0.75,
+              }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", fontFamily: FONT_BODY }}>
+                  Off
+                </span>
+                <span style={{
+                  width: 36,
+                  height: 20,
+                  borderRadius: 999,
+                  background: "var(--surface-muted)",
+                  position: "relative",
+                  display: "inline-block",
+                }}>
+                  <span style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: "50%",
+                    background: "var(--text-muted)",
+                    position: "absolute",
+                    top: 3,
+                    left: 3,
+                  }} />
+                </span>
+              </div>
+              <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                Coming soon
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div style={{ ...subtleCard, marginBottom: 14 }}>
+          <p style={{ ...labelStyle, marginBottom: 10 }}>Activation Readiness</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {invoicingChecks.map((item) => (
+              <div key={item.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <span style={{ color: "var(--text)", fontSize: 13, fontFamily: FONT_BODY }}>{item.label}</span>
+                <span style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: item.done ? "#4ade80" : "var(--text-muted)",
+                  background: item.done ? "rgba(74,222,128,0.12)" : "var(--surface-muted)",
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                  fontFamily: FONT_BODY,
+                }}>
+                  {item.done ? "Ready" : "Missing"}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontSize: 12, color: invoicingReady ? "#4ade80" : "var(--text-muted)", margin: "12px 0 0", fontFamily: FONT_BODY }}>
+            {invoicingReady
+              ? "Your current business details are sufficient for enabling e-invoices once the feature is activated."
+              : "Complete the missing issuer details first. E-invoicing should only be enabled once your company data is legally complete."}
+          </p>
+        </div>
+
+        <div style={subtleCard}>
+          <p style={{ ...labelStyle, marginBottom: 10 }}>Compliance Notes</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY }}>
+              Changing invoice mode should affect future invoices only and must not rewrite or renumber previously issued invoices.
+            </p>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY }}>
+              If you later turn e-invoicing back on, numbering should continue in the same sequence. SQRZ helps generate documents, but you remain responsible for compliance with your local invoicing rules.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 18 }}>Services</h2>
 
         {services.length === 0 ? (
           <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No services added yet.</p>
