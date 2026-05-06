@@ -344,7 +344,7 @@ export default function AppLayout() {
                 Upgrade
               </button>
             )}
-            <NotificationBell onOpenMessages={() => setMessagesOpen(true)} />
+            <NotificationBell onOpenMessages={p?.is_beta ? () => setMessagesOpen(true) : undefined} />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -417,7 +417,7 @@ export default function AppLayout() {
 
           {/* Right — bell + theme */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 80, justifyContent: "flex-end" }}>
-            <NotificationBell onOpenMessages={() => setMessagesOpen(true)} />
+            <NotificationBell onOpenMessages={p?.is_beta ? () => setMessagesOpen(true) : undefined} />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -580,24 +580,26 @@ export default function AppLayout() {
           </NavLink>
         ))}
 
-        <button
-          onClick={() => setMessagesOpen(true)}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 3,
-            background: "none",
-            border: "none",
-            fontSize: 11,
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            padding: 0,
-          }}
-        >
-          <span style={{ fontSize: 18 }}>💬</span>
-          <span>Messages</span>
-        </button>
+        {p?.is_beta && (
+          <button
+            onClick={() => setMessagesOpen(true)}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 3,
+              background: "none",
+              border: "none",
+              fontSize: 11,
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              padding: 0,
+            }}
+          >
+            <span style={{ fontSize: 18 }}>💬</span>
+            <span>Messages</span>
+          </button>
+        )}
 
         {isPartner ? (
           <NavLink
@@ -636,16 +638,18 @@ export default function AppLayout() {
         )}
       </nav>
 
-      <LeadsPanel
-        open={messagesOpen}
-        onClose={() => setMessagesOpen(false)}
-        profileId={(p?.id as string) ?? null}
-        profileName={
-          [[p?.first_name, p?.last_name].filter(Boolean).join(" ").trim(), p?.name]
-            .find(v => !!v) as string ?? null
-        }
-        isBeta={!!p?.is_beta}
-      />
+      {p?.is_beta && (
+        <LeadsPanel
+          open={messagesOpen}
+          onClose={() => setMessagesOpen(false)}
+          profileId={(p?.id as string) ?? null}
+          profileName={
+            [[p?.first_name, p?.last_name].filter(Boolean).join(" ").trim(), p?.name]
+              .find(v => !!v) as string ?? null
+          }
+          isBeta={!!p?.is_beta}
+        />
+      )}
 
       <style>{`
         @keyframes sqrzProgress {

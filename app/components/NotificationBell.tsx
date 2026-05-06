@@ -131,7 +131,8 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
     setOpen((v) => !v);
   }
 
-  const totalBadge = unreadCount + unreadMessageCount;
+  const showMessagesEntry = typeof onOpenMessages === "function";
+  const totalBadge = unreadCount + (showMessagesEntry ? unreadMessageCount : 0);
 
   return (
     <>
@@ -230,7 +231,7 @@ export default function NotificationBell({ onOpenMessages }: { onOpenMessages?: 
           {/* List */}
           <div style={{ maxHeight: 400, overflowY: "auto" }}>
             {/* Messages entry row — always visible */}
-            {(
+            {showMessagesEntry && (
               <button
                 onClick={() => { onOpenMessages?.(); setOpen(false); }}
                 style={{
