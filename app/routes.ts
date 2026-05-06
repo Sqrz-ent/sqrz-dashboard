@@ -43,7 +43,7 @@ export default [
   route("api/invoices/upload", "routes/api.invoices.upload.ts"),
   route("api/invoices/download", "routes/api.invoices.download.ts"),
   route("api/invoices/void", "routes/api.invoices.void.ts"),
-  route("api/invoices/payment-intent", "routes/api.invoices.payment-intent.ts"),
+  route("api/invoicing/activate", "routes/api.invoicing.activate.tsx"),
 
   // Links API
   route("api/links/:linkId/leads-csv", "routes/api.links.$linkId.leads-csv.tsx"),

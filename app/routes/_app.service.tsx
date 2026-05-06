@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -205,6 +205,22 @@ export async function action({ request }: Route.ActionArgs) {
       dpo_email: (formData.get("dpo_email") as string) || null,
       external_privacy_url: (formData.get("external_privacy_url") as string) || null,
     }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "toggle_e_invoice_enabled") {
+    const hasPaidPlan = !!profile.plan_id && Number(profile.plan_id) > 0;
+    const hasOneTimeUnlock = !!(profile.e_invoice_unlocked_at as string | null);
+    if (!hasPaidPlan && !hasOneTimeUnlock) {
+      return Response.json({ ok: false, error: "E-invoice activation is required first." }, { status: 403, headers });
+    }
+
+    const enabled = formData.get("enabled") === "true";
+    const { error } = await supabase
+      .from("profiles")
+      .update({ e_invoice_enabled: enabled })
+      .eq("id", profile.id as string);
+
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -670,12 +686,14 @@ export default function ServicePage() {
     profile: Record<string, unknown>;
     services: Service[];
   };
+  const [searchParams] = useSearchParams();
 
   const serviceFetcher = useFetcher();
   const deleteFetcher = useFetcher();
   const activeFetcher = useFetcher();
   const reorderFetcher = useFetcher();
   const businessFetcher = useFetcher();
+  const eInvoiceFetcher = useFetcher();
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -706,7 +724,12 @@ export default function ServicePage() {
 
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
+  const hasPaidPlan = isPremium;
+  const hasOneTimeEInvoiceUnlock = !!(profile.e_invoice_unlocked_at as string | null);
+  const hasEInvoiceAccess = hasPaidPlan || hasOneTimeEInvoiceUnlock;
+  const eInvoiceEnabled = hasEInvoiceAccess && !!(profile.e_invoice_enabled as boolean | null);
   const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
+  const eInvoiceStatus = searchParams.get("einvoice");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
@@ -771,6 +794,37 @@ export default function ServicePage() {
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={sectionTitle}>Business</h1>
+
+      {eInvoiceStatus === "unlocked" && (
+        <div style={{
+          background: "rgba(74,222,128,0.12)",
+          border: "1px solid rgba(74,222,128,0.35)",
+          borderRadius: 12,
+          padding: "12px 16px",
+          marginBottom: 18,
+          color: "#4ade80",
+          fontSize: 13,
+          fontWeight: 600,
+          fontFamily: FONT_BODY,
+        }}>
+          E-invoicing is now unlocked for this account. You can turn it on below.
+        </div>
+      )}
+
+      {eInvoiceStatus === "cancelled" && (
+        <div style={{
+          background: "rgba(245,166,35,0.08)",
+          border: "1px solid rgba(245,166,35,0.25)",
+          borderRadius: 12,
+          padding: "12px 16px",
+          marginBottom: 18,
+          color: "var(--text-muted)",
+          fontSize: 13,
+          fontFamily: FONT_BODY,
+        }}>
+          E-invoice activation was cancelled. Standard PDF invoices are still available.
+        </div>
+      )}
 
       {toggleError && (
         <div style={{
@@ -1000,47 +1054,127 @@ export default function ServicePage() {
                 E-invoices
               </p>
               <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY, maxWidth: 620 }}>
-                Enable structured e-invoices for future invoices only. Existing invoices stay unchanged, and you remain responsible for invoice numbering and local tax compliance.
+                Standard PDF invoice creation is available to all users. Structured e-invoices are optional and affect future invoices only.
               </p>
             </div>
             <div style={{ flexShrink: 0, textAlign: "right" }}>
-              <div style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 12px",
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                opacity: 0.75,
-              }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", fontFamily: FONT_BODY }}>
-                  Off
-                </span>
-                <span style={{
-                  width: 36,
-                  height: 20,
-                  borderRadius: 999,
-                  background: "var(--surface-muted)",
-                  position: "relative",
-                  display: "inline-block",
-                }}>
-                  <span style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: "50%",
-                    background: "var(--text-muted)",
-                    position: "absolute",
-                    top: 3,
-                    left: 3,
-                  }} />
-                </span>
-              </div>
-              <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
-                Coming soon
-              </p>
+              {hasEInvoiceAccess ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const fd = new FormData();
+                      fd.append("intent", "toggle_e_invoice_enabled");
+                      fd.append("enabled", String(!eInvoiceEnabled));
+                      eInvoiceFetcher.submit(fd, { method: "post" });
+                    }}
+                    disabled={eInvoiceFetcher.state !== "idle"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      cursor: eInvoiceFetcher.state !== "idle" ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 700, color: eInvoiceEnabled ? ACCENT : "var(--text-muted)", fontFamily: FONT_BODY }}>
+                      {eInvoiceEnabled ? "On" : "Off"}
+                    </span>
+                    <span style={{
+                      width: 36,
+                      height: 20,
+                      borderRadius: 999,
+                      background: eInvoiceEnabled ? ACCENT : "var(--surface-muted)",
+                      position: "relative",
+                      display: "inline-block",
+                    }}>
+                      <span style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: "50%",
+                        background: eInvoiceEnabled ? "#111" : "var(--text-muted)",
+                        position: "absolute",
+                        top: 3,
+                        left: eInvoiceEnabled ? 19 : 3,
+                      }} />
+                    </span>
+                  </button>
+                  <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                    {hasPaidPlan ? "Included in your plan" : "Unlocked with one-time activation"}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 12px",
+                    borderRadius: 999,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    opacity: 0.75,
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", fontFamily: FONT_BODY }}>
+                      Off
+                    </span>
+                    <span style={{
+                      width: 36,
+                      height: 20,
+                      borderRadius: 999,
+                      background: "var(--surface-muted)",
+                      position: "relative",
+                      display: "inline-block",
+                    }}>
+                      <span style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: "50%",
+                        background: "var(--text-muted)",
+                        position: "absolute",
+                        top: 3,
+                        left: 3,
+                      }} />
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                    One-time activation available
+                  </p>
+                </>
+              )}
             </div>
           </div>
+          {!hasEInvoiceAccess && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
+              <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                Unlock e-invoicing for $25 one time
+              </p>
+              <p style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6, margin: "0 0 10px", fontFamily: FONT_BODY }}>
+                No subscription required. Standard PDF invoices remain available even if you stay on the free plan.
+              </p>
+              <form method="post" action="/api/invoicing/activate">
+                <button
+                  type="submit"
+                  style={{
+                    padding: "10px 16px",
+                    background: ACCENT,
+                    color: "#111",
+                    border: "none",
+                    borderRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: FONT_BODY,
+                  }}
+                >
+                  Unlock e-invoices
+                </button>
+              </form>
+            </div>
+          )}
         </div>
 
         <div style={{ ...subtleCard, marginBottom: 14 }}>

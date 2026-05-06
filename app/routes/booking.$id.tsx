@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLoaderData, useFetcher, useSearchParams, redirect } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
@@ -2928,16 +2928,13 @@ function GenerateInvoiceSlideOver({
   open,
   onClose,
   bookingId,
-  planId,
   buyerParticipant,
 }: {
   open: boolean;
   onClose: () => void;
   bookingId: string;
-  planId: number | null;
   buyerParticipant: BuyerParticipant;
 }) {
-  const isPaidUser = planId === 1 || planId === 5;
   const today = new Date().toISOString().split("T")[0];
 
   const [form, setForm] = useState({
@@ -2955,103 +2952,11 @@ function GenerateInvoiceSlideOver({
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Stripe payment state for free users
-  const [paymentStep, setPaymentStep] = useState(false);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [stripeInstance, setStripeInstance] = useState<Record<string, unknown> | null>(null);
-  const [cardElement, setCardElement] = useState<Record<string, unknown> | null>(null);
-  const [cardMounted, setCardMounted] = useState(false);
-  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
-
-  const cardRef = useRef<HTMLDivElement>(null);
-
-  // Mount Stripe card element when entering payment step
-  useEffect(() => {
-    if (!paymentStep || !clientSecret || !cardRef.current || cardMounted) return;
-    const stripeKey = (
-      typeof window !== "undefined"
-        ? (window as unknown as Record<string, string>).__STRIPE_PK__ ?? ""
-        : ""
-    );
-    if (!stripeKey || typeof (window as unknown as Record<string, unknown>).Stripe !== "function") return;
-
-    const strp = (window as unknown as Record<string, unknown>).Stripe as (key: string) => Record<string, unknown>;
-    const instance = strp(stripeKey);
-    setStripeInstance(instance);
-
-    const elements = (instance.elements as (opts: Record<string, unknown>) => Record<string, unknown>)({ clientSecret });
-    const card = (elements.create as (type: string, opts: Record<string, unknown>) => Record<string, unknown>)("card", {
-      style: {
-        base: { fontSize: "15px", color: "var(--text)", fontFamily: "ui-sans-serif, system-ui, sans-serif" },
-      },
-    });
-    (card.mount as (el: HTMLDivElement) => void)(cardRef.current);
-    setCardElement(card);
-    setCardMounted(true);
-
-    return () => {
-      (card.unmount as () => void)();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentStep, clientSecret, cardMounted]);
-
-  async function handleFreeUserSubmit() {
-    if (!isPaidUser && !paymentStep) {
-      // Step 1: create payment intent
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch("/api/invoices/payment-intent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ booking_id: bookingId }),
-        });
-        const json = (await res.json()) as { client_secret?: string; error?: string };
-        if (!res.ok || !json.client_secret) throw new Error(json.error ?? "Payment setup failed");
-
-        // Extract PI id from client_secret: "pi_xxx_secret_yyy" → "pi_xxx"
-        const piId = json.client_secret.split("_secret_")[0];
-        setClientSecret(json.client_secret);
-        setPaymentIntentId(piId);
-        setPaymentStep(true);
-        setCardMounted(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unknown error");
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    if (!isPaidUser && paymentStep) {
-      // Step 2: confirm card payment
-      if (!stripeInstance || !cardElement || !clientSecret) {
-        setError("Stripe not initialized");
-        return;
-      }
-      setLoading(true);
-      setError(null);
-      try {
-        const result = await (stripeInstance.confirmCardPayment as (secret: string, opts: Record<string, unknown>) => Promise<{ error?: { message: string }; paymentIntent?: { status: string } }>)(clientSecret, {
-          payment_method: { card: cardElement },
-        });
-        if (result.error) throw new Error(result.error.message);
-        if (result.paymentIntent?.status !== "succeeded") throw new Error("Payment did not succeed");
-        // Payment succeeded — submit the form
-        await submitInvoiceForm(paymentIntentId);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Payment failed");
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Paid user — submit directly
-    await submitInvoiceForm(null);
+  async function handleGenerateInvoice() {
+    await submitInvoiceForm();
   }
 
-  async function submitInvoiceForm(piId: string | null) {
+  async function submitInvoiceForm() {
     setLoading(true);
     setError(null);
     try {
@@ -3067,7 +2972,6 @@ function GenerateInvoiceSlideOver({
       if (form.recipient_country) fd.append("recipient_country", form.recipient_country);
       if (form.recipient_vat_id) fd.append("recipient_vat_id", form.recipient_vat_id);
       if (form.notes) fd.append("notes", form.notes);
-      if (piId) fd.append("stripe_payment_intent", piId);
 
       const res = await fetch("/api/invoices/create", { method: "POST", body: fd });
       const json = (await res.json()) as { signed_url?: string; invoice_number?: string; error?: string };
@@ -3099,26 +3003,6 @@ function GenerateInvoiceSlideOver({
 
   return (
     <SlideOver open={open} onClose={onClose} title="Generate Invoice">
-      {!isPaidUser && (
-        <div style={{
-          background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)",
-          borderRadius: 10, padding: "12px 14px", marginBottom: 16,
-        }}>
-          <p style={{ color: ACCENT, fontSize: 13, fontWeight: 600, margin: "0 0 6px" }}>
-            Invoice generation costs $1.50
-          </p>
-          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 10px", lineHeight: 1.6 }}>
-            Your PDF will download immediately after payment.
-          </p>
-          <a
-            href="/account"
-            style={{ color: ACCENT, fontSize: 12, fontWeight: 700, textDecoration: "underline" }}
-          >
-            Upgrade to Creator to generate invoices for free →
-          </a>
-        </div>
-      )}
-
       {buyerParticipant && !buyerParticipant.billing_confirmed && (
         <div style={{
           background: "var(--surface-muted)", border: "1px solid var(--border)",
@@ -3129,116 +3013,97 @@ function GenerateInvoiceSlideOver({
           </p>
         </div>
       )}
-
-      {paymentStep && !isPaidUser && (
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ ...fieldLbl, marginBottom: 8 }}>Card details</p>
-          <div
-            ref={cardRef}
-            style={{
-              padding: "11px 13px",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              background: "var(--surface)",
-              minHeight: 42,
-            }}
-          />
+      <>
+        <p style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Recipient</p>
+        <label style={fieldLbl}>Name *</label>
+        <input
+          style={inputSty}
+          value={form.recipient_name}
+          onChange={(e) => setForm((f) => ({ ...f, recipient_name: e.target.value }))}
+          placeholder="Client or company name"
+        />
+        <label style={fieldLbl}>Email</label>
+        <input
+          type="email"
+          style={inputSty}
+          value={form.recipient_email}
+          onChange={(e) => setForm((f) => ({ ...f, recipient_email: e.target.value }))}
+          placeholder="client@email.com"
+        />
+        <label style={fieldLbl}>Address</label>
+        <input
+          style={inputSty}
+          value={form.recipient_address}
+          onChange={(e) => setForm((f) => ({ ...f, recipient_address: e.target.value }))}
+          placeholder="Street address"
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
+            <label style={fieldLbl}>City</label>
+            <input
+              style={inputSty}
+              value={form.recipient_city}
+              onChange={(e) => setForm((f) => ({ ...f, recipient_city: e.target.value }))}
+              placeholder="City"
+            />
+          </div>
+          <div>
+            <label style={fieldLbl}>Country</label>
+            <input
+              style={inputSty}
+              value={form.recipient_country}
+              onChange={(e) => setForm((f) => ({ ...f, recipient_country: e.target.value }))}
+              placeholder="DE / US / FR"
+            />
+          </div>
         </div>
-      )}
+        <label style={fieldLbl}>VAT ID</label>
+        <input
+          style={inputSty}
+          value={form.recipient_vat_id}
+          onChange={(e) => setForm((f) => ({ ...f, recipient_vat_id: e.target.value }))}
+          placeholder="e.g. DE123456789"
+        />
 
-      {(!paymentStep || isPaidUser) && (
-        <>
-          <p style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Recipient</p>
-          <label style={fieldLbl}>Name *</label>
-          <input
-            style={inputSty}
-            value={form.recipient_name}
-            onChange={(e) => setForm((f) => ({ ...f, recipient_name: e.target.value }))}
-            placeholder="Client or company name"
-          />
-          <label style={fieldLbl}>Email</label>
-          <input
-            type="email"
-            style={inputSty}
-            value={form.recipient_email}
-            onChange={(e) => setForm((f) => ({ ...f, recipient_email: e.target.value }))}
-            placeholder="client@email.com"
-          />
-          <label style={fieldLbl}>Address</label>
-          <input
-            style={inputSty}
-            value={form.recipient_address}
-            onChange={(e) => setForm((f) => ({ ...f, recipient_address: e.target.value }))}
-            placeholder="Street address"
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <div>
-              <label style={fieldLbl}>City</label>
-              <input
-                style={inputSty}
-                value={form.recipient_city}
-                onChange={(e) => setForm((f) => ({ ...f, recipient_city: e.target.value }))}
-                placeholder="City"
-              />
-            </div>
-            <div>
-              <label style={fieldLbl}>Country</label>
-              <input
-                style={inputSty}
-                value={form.recipient_country}
-                onChange={(e) => setForm((f) => ({ ...f, recipient_country: e.target.value }))}
-                placeholder="DE / US / FR"
-              />
-            </div>
+        <div style={{ borderTop: "1px solid var(--border)", margin: "12px 0" }} />
+        <p style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Invoice details</p>
+
+        <label style={fieldLbl}>Invoice number (auto if blank)</label>
+        <input
+          style={inputSty}
+          value={form.invoice_number}
+          onChange={(e) => setForm((f) => ({ ...f, invoice_number: e.target.value }))}
+          placeholder="INV-2026-001"
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div>
+            <label style={fieldLbl}>Invoice date *</label>
+            <input
+              type="date"
+              style={inputSty}
+              value={form.invoice_date}
+              onChange={(e) => setForm((f) => ({ ...f, invoice_date: e.target.value }))}
+            />
           </div>
-          <label style={fieldLbl}>VAT ID</label>
-          <input
-            style={inputSty}
-            value={form.recipient_vat_id}
-            onChange={(e) => setForm((f) => ({ ...f, recipient_vat_id: e.target.value }))}
-            placeholder="e.g. DE123456789"
-          />
-
-          <div style={{ borderTop: "1px solid var(--border)", margin: "12px 0" }} />
-          <p style={{ ...lbl, marginBottom: 12, fontSize: 12 }}>Invoice details</p>
-
-          <label style={fieldLbl}>Invoice number (auto if blank)</label>
-          <input
-            style={inputSty}
-            value={form.invoice_number}
-            onChange={(e) => setForm((f) => ({ ...f, invoice_number: e.target.value }))}
-            placeholder="INV-2026-001"
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <div>
-              <label style={fieldLbl}>Invoice date *</label>
-              <input
-                type="date"
-                style={inputSty}
-                value={form.invoice_date}
-                onChange={(e) => setForm((f) => ({ ...f, invoice_date: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label style={fieldLbl}>Due date</label>
-              <input
-                type="date"
-                style={inputSty}
-                value={form.due_date}
-                onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
-              />
-            </div>
+          <div>
+            <label style={fieldLbl}>Due date</label>
+            <input
+              type="date"
+              style={inputSty}
+              value={form.due_date}
+              onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))}
+            />
           </div>
+        </div>
 
-          <label style={fieldLbl}>Notes</label>
-          <textarea
-            style={{ ...inputSty, minHeight: 72, resize: "vertical" as const }}
-            value={form.notes}
-            onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-            placeholder="Any additional notes on the invoice…"
-          />
-        </>
-      )}
+        <label style={fieldLbl}>Notes</label>
+        <textarea
+          style={{ ...inputSty, minHeight: 72, resize: "vertical" as const }}
+          value={form.notes}
+          onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+          placeholder="Any additional notes on the invoice…"
+        />
+      </>
 
       {error && (
         <p style={{ color: "#f87171", fontSize: 13, margin: "8px 0" }}>{error}</p>
@@ -3246,8 +3111,8 @@ function GenerateInvoiceSlideOver({
 
       <div style={{ display: "flex", gap: 10, marginTop: 8 }}>
         <button
-          onClick={handleFreeUserSubmit}
-          disabled={loading || (!form.recipient_name && !paymentStep)}
+          onClick={handleGenerateInvoice}
+          disabled={loading || !form.recipient_name}
           style={{
             flex: 1,
             padding: "12px",
@@ -3262,13 +3127,7 @@ function GenerateInvoiceSlideOver({
             fontFamily: FONT_BODY,
           }}
         >
-          {loading
-            ? "Processing…"
-            : !isPaidUser && !paymentStep
-            ? "Next: Pay $1.50 →"
-            : !isPaidUser && paymentStep
-            ? "Pay & Generate PDF"
-            : "Generate & Download PDF"}
+          {loading ? "Generating…" : "Generate & Download PDF"}
         </button>
         <button
           onClick={onClose}
@@ -3439,12 +3298,10 @@ function InvoiceSection({
   booking,
   invoice,
   buyerParticipant,
-  planId,
 }: {
   booking: Booking;
   invoice: InvoiceRecord | null;
   buyerParticipant: BuyerParticipant;
-  planId: number | null;
 }) {
   const bookingId = booking.id as string;
   const bookingStatus = booking.status as string;
@@ -3647,7 +3504,6 @@ function InvoiceSection({
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         bookingId={bookingId}
-        planId={planId}
         buyerParticipant={buyerParticipant}
       />
       <UploadInvoiceSlideOver
@@ -3666,7 +3522,6 @@ function MemberView({
   booking,
   wallet,
   planLevel,
-  planId,
   userEmail,
   senderName,
   stripeConnectId,
@@ -3678,7 +3533,6 @@ function MemberView({
   booking: Booking;
   wallet: WalletData | null;
   planLevel: number;
-  planId: number | null;
   userEmail: string;
   senderName: string | null;
   stripeConnectId: string | null;
@@ -3805,7 +3659,6 @@ function MemberView({
           booking={b}
           invoice={invoice}
           buyerParticipant={buyerParticipant}
-          planId={planId}
         />
 
         {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
@@ -3976,7 +3829,6 @@ export default function BookingAccessPage() {
           booking={b}
           wallet={wallet}
           planLevel={planLevel}
-          planId={planId}
           userEmail={userEmail}
           senderName={senderName}
           stripeConnectId={stripeConnectId ?? null}

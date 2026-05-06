@@ -1,4 +1,3 @@
-import Stripe from "stripe";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import {
@@ -51,7 +50,6 @@ export async function action({ request }: { request: Request }) {
   const recipient_country = (formData.get("recipient_country") as string) || null;
   const recipient_vat_id = (formData.get("recipient_vat_id") as string) || null;
   const notes = (formData.get("notes") as string) || null;
-  const stripe_payment_intent = (formData.get("stripe_payment_intent") as string) || null;
 
   console.log("[invoices/create] parsed fields:", JSON.stringify({
     booking_id, proposal_id, invoice_number, invoice_date, due_date,
@@ -59,19 +57,6 @@ export async function action({ request }: { request: Request }) {
   }));
 
   const planId = (profile.plan_id as number | null) ?? null;
-  const isPaidUser = planId === 1 || planId === 5;
-
-  // Free user gate: require stripe_payment_intent and verify it succeeded
-  if (!isPaidUser) {
-    if (!stripe_payment_intent) {
-      return Response.json({ error: "Payment required for free plan" }, { status: 402 });
-    }
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
-    const pi = await stripe.paymentIntents.retrieve(stripe_payment_intent);
-    if (pi.status !== "succeeded") {
-      return Response.json({ error: "Payment not completed" }, { status: 402 });
-    }
-  }
 
   // Fetch booking owned by this profile
   const { data: booking } = await adminClient
@@ -156,7 +141,6 @@ export async function action({ request }: { request: Request }) {
       invoice_type: "proposal",
       plan_id_at_issuance: planId,
       invoice_fee_paid: true,
-      stripe_payment_intent_id: stripe_payment_intent || null,
     })
     .select("id, invoice_number")
     .single();
