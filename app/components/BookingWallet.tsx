@@ -37,6 +37,7 @@ interface Props {
   wallet: WalletData;
   bookingStatus: string;
   stripeConnectId?: string | null;
+  requiresPayment?: boolean | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -115,7 +116,7 @@ function TypeBadge({ type }: { type: string }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }: Props) {
+export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, requiresPayment }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newType,   setNewType]   = useState<string>("expense");
   const [newLabel,  setNewLabel]  = useState("Transport");
@@ -170,6 +171,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
     (deliveredFetcher.state === "idle" && deliveredFetcher.data?.ok === true);
   const justDelivered = deliveredFetcher.state === "idle" && deliveredFetcher.data?.ok === true;
   const isConfirmedBooking = bookingStatus === "confirmed";
+  const isManagedPayment = requiresPayment === true;
 
   function markAsPaid() {
     const fd = new FormData();
@@ -576,7 +578,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
         }}>
           <div>
             <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 5px" }}>
-              Client payment
+              {isManagedPayment ? "Client payment" : "Client payment (manual)"}
             </p>
             <span style={{
               display: "inline-block",
@@ -608,7 +610,11 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
                 whiteSpace: "nowrap",
               }}
             >
-              {paidFetcher.state !== "idle" ? "Saving…" : "Mark as paid ✓"}
+              {paidFetcher.state !== "idle"
+                ? "Saving…"
+                : isManagedPayment
+                  ? "Mark as paid ✓"
+                  : "Confirm payment received ✓"}
             </button>
           )}
         </div>
@@ -632,7 +638,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
               {wallet.payout_status === "released" ? "Released ✓" : (wallet.payout_status ?? "Not initiated")}
             </span>
           </div>
-          {isDelivered && stripeConnectId ? (
+          {isManagedPayment && isDelivered && stripeConnectId ? (
             <a
               href="https://express.stripe.com"
               target="_blank"
@@ -652,7 +658,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
             >
               Stripe dashboard →
             </a>
-          ) : isDelivered && !stripeConnectId ? (
+          ) : isManagedPayment && isDelivered && !stripeConnectId ? (
             <a
               href="/payments"
               style={{
@@ -672,7 +678,9 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
             </a>
           ) : isPaid && !isDelivered ? (
             <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              Mark as Delivered to release funds
+              {isManagedPayment
+                ? "Mark as Delivered to release funds"
+                : "Manual payment confirmed"}
             </span>
           ) : null}
         </div>
@@ -712,7 +720,9 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId }
         )}
         {isDelivered && !justDelivered && wallet.payout_status === "approved" && (
           <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "12px 0 0" }}>
-            ✓ Delivery confirmed — funds available in your Stripe Connect account.
+            {isManagedPayment
+              ? "✓ Delivery confirmed — funds available in your Stripe Connect account."
+              : "✓ Delivery confirmed."}
           </p>
         )}
       </div>

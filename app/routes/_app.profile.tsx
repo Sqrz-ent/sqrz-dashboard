@@ -77,6 +77,13 @@ const saveBtn: React.CSSProperties = {
   marginTop: 14,
 };
 
+const subtleCard: React.CSSProperties = {
+  background: "var(--bg)",
+  border: "1px solid var(--border)",
+  borderRadius: 12,
+  padding: "14px 16px",
+};
+
 function CompletionBadge({ filled, total }: { filled: number; total: number }) {
   const done = filled >= total && total > 0;
   return (
@@ -1097,109 +1104,122 @@ export default function ProfilePage() {
         const vatPlaceholder = isUS ? "e.g. 12-3456789" : isLatAm ? "e.g. NIT 900.123.456-7" : "e.g. DE123456789";
         const responsiblePersonLabel = isUS ? "Responsible Person / Registered Agent" : "Responsible Person";
         const companyAddressLabel = isUS ? "Company Address (US)" : "Company Address";
+        const invoiceCountry =
+          (profile.company_country as string | null) ||
+          (profile.location_iso as string | null) ||
+          ((profile.company_address as string | null)?.split(",").map((part) => part.trim()).filter(Boolean).pop() ?? null);
+        const invoicingChecks = [
+          { label: "Company or issuer name", done: !!((profile.company_name as string | null) || (profile.name as string | null)) },
+          { label: "Legal form", done: !!(profile.legal_form as string | null) },
+          { label: "Company address", done: !!(profile.company_address as string | null) },
+          { label: "Issuer country", done: !!invoiceCountry },
+          { label: "VAT / tax identifier", done: !!(profile.vat_id as string | null) },
+        ];
+        const invoicingReady = invoicingChecks.every((item) => item.done);
 
         return (
-          <div style={card}>
-            <CompletionBadge filled={businessFilled} total={1} />
-            <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
-            <businessFetcher.Form method="post">
-              <input type="hidden" name="intent" value="update_business" />
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <>
+            <div style={card}>
+              <CompletionBadge filled={businessFilled} total={1} />
+              <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
+              <businessFetcher.Form method="post">
+                <input type="hidden" name="intent" value="update_business" />
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-                {/* Legal Form dropdown — always first */}
-                <div>
-                  <label style={labelStyle}>Legal Form</label>
-                  <select
-                    name="legal_form"
-                    value={selectedLegalForm}
-                    onChange={(e) => setSelectedLegalForm(e.target.value)}
-                    style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
-                  >
-                    <option value="">— Select legal form —</option>
-                    <optgroup label="Individual">
-                      <option>Freelancer / Selbstständig</option>
-                      <option>Sole Trader</option>
-                    </optgroup>
-                    <optgroup label="Partnership">
-                      <option>GbR</option>
-                      <option>Partnerschaft</option>
-                    </optgroup>
-                    <optgroup label="Limited Company">
-                      <option>GmbH</option>
-                      <option>UG (haftungsbeschränkt)</option>
-                      <option>AG</option>
-                      <option>Ltd.</option>
-                      <option>S.L.</option>
-                      <option>SAS</option>
-                      <option>B.V.</option>
-                    </optgroup>
-                    <optgroup label="United States">
-                      <option>LLC (Limited Liability Company)</option>
-                      <option>C-Corp</option>
-                      <option>S-Corp</option>
-                      <option>Sole Proprietor (US)</option>
-                      <option>Partnership (US)</option>
-                    </optgroup>
-                    <optgroup label="Latin America">
-                      <option>S.A.S. (Colombia)</option>
-                      <option>S.A. (Latin America)</option>
-                      <option>Ltda. (Latin America)</option>
-                      <option>S.A. de C.V. (México)</option>
-                      <option>S. de R.L. de C.V. (México)</option>
-                      <option>MEI / Ltda. (Brasil)</option>
-                      <option>SpA (Chile)</option>
-                    </optgroup>
-                    <optgroup label="Other">
-                      <option>Other</option>
-                    </optgroup>
-                  </select>
-                </div>
-
-                {/* Company Name — shown for entity types */}
-                {showCompanyName && (
+                  {/* Legal Form dropdown — always first */}
                   <div>
-                    <label style={labelStyle}>Company Name</label>
-                    <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
+                    <label style={labelStyle}>Legal Form</label>
+                    <select
+                      name="legal_form"
+                      value={selectedLegalForm}
+                      onChange={(e) => setSelectedLegalForm(e.target.value)}
+                      style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
+                    >
+                      <option value="">— Select legal form —</option>
+                      <optgroup label="Individual">
+                        <option>Freelancer / Selbstständig</option>
+                        <option>Sole Trader</option>
+                      </optgroup>
+                      <optgroup label="Partnership">
+                        <option>GbR</option>
+                        <option>Partnerschaft</option>
+                      </optgroup>
+                      <optgroup label="Limited Company">
+                        <option>GmbH</option>
+                        <option>UG (haftungsbeschränkt)</option>
+                        <option>AG</option>
+                        <option>Ltd.</option>
+                        <option>S.L.</option>
+                        <option>SAS</option>
+                        <option>B.V.</option>
+                      </optgroup>
+                      <optgroup label="United States">
+                        <option>LLC (Limited Liability Company)</option>
+                        <option>C-Corp</option>
+                        <option>S-Corp</option>
+                        <option>Sole Proprietor (US)</option>
+                        <option>Partnership (US)</option>
+                      </optgroup>
+                      <optgroup label="Latin America">
+                        <option>S.A.S. (Colombia)</option>
+                        <option>S.A. (Latin America)</option>
+                        <option>Ltda. (Latin America)</option>
+                        <option>S.A. de C.V. (México)</option>
+                        <option>S. de R.L. de C.V. (México)</option>
+                        <option>MEI / Ltda. (Brasil)</option>
+                        <option>SpA (Chile)</option>
+                      </optgroup>
+                      <optgroup label="Other">
+                        <option>Other</option>
+                      </optgroup>
+                    </select>
                   </div>
-                )}
 
-                {/* Company Address */}
-                {showCompanyAddress ? (
-                  <div>
-                    <label style={labelStyle}>{companyAddressLabel}</label>
-                    <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
-                  </div>
-                ) : !hasForm ? (
-                  <>
+                  {/* Company Name — shown for entity types */}
+                  {showCompanyName && (
                     <div>
                       <label style={labelStyle}>Company Name</label>
                       <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
                     </div>
+                  )}
+
+                  {/* Company Address */}
+                  {showCompanyAddress ? (
                     <div>
-                      <label style={labelStyle}>Company Address</label>
+                      <label style={labelStyle}>{companyAddressLabel}</label>
                       <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
                     </div>
-                  </>
-                ) : null}
+                  ) : !hasForm ? (
+                    <>
+                      <div>
+                        <label style={labelStyle}>Company Name</label>
+                        <input name="company_name" defaultValue={(profile.company_name as string) ?? ""} style={inputStyle} />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>Company Address</label>
+                        <input name="company_address" defaultValue={(profile.company_address as string) ?? ""} style={inputStyle} />
+                      </div>
+                    </>
+                  ) : null}
 
-                {/* Hidden passthrough for fields not shown */}
-                {!showCompanyName && hasForm && (
-                  <input type="hidden" name="company_name" value={(profile.company_name as string) ?? ""} />
-                )}
-                {showCompanyAddress === false && hasForm && (
-                  <input type="hidden" name="company_address" value={(profile.company_address as string) ?? ""} />
-                )}
+                  {/* Hidden passthrough for fields not shown */}
+                  {!showCompanyName && hasForm && (
+                    <input type="hidden" name="company_name" value={(profile.company_name as string) ?? ""} />
+                  )}
+                  {showCompanyAddress === false && hasForm && (
+                    <input type="hidden" name="company_address" value={(profile.company_address as string) ?? ""} />
+                  )}
 
-                {/* Legal & Compliance — shown when a form is selected */}
-                {hasForm && (
-                  <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 16 }}>
-                    <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", margin: "0 0 6px", fontFamily: FONT_BODY }}>
-                      Legal &amp; Compliance
-                    </p>
-                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
-                      Shown in the legal footer on your profile page.
-                    </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {/* Legal & Compliance — shown when a form is selected */}
+                  {hasForm && (
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 8, paddingTop: 16 }}>
+                      <p style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                        Legal &amp; Compliance
+                      </p>
+                      <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6, fontFamily: FONT_BODY }}>
+                        Shown in the legal footer on your profile page.
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                       {showResponsiblePerson && (
                         <div>
                           <label style={labelStyle}>{responsiblePersonLabel}</label>
@@ -1292,18 +1312,113 @@ export default function ProfilePage() {
                           />
                         </div>
                       )}
+                      </div>
                     </div>
-                  </div>
+                  )}
+                </div>
+                {businessFetcher.data?.error && (
+                  <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{(businessFetcher.data as { error?: string }).error}</p>
                 )}
+                <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>
+                  {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
+                </button>
+              </businessFetcher.Form>
+            </div>
+
+            <div style={card}>
+              <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Invoicing</h2>
+
+              <div style={{ ...subtleCard, marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+                  <div>
+                    <p style={{ ...labelStyle, marginBottom: 8 }}>Invoice Mode</p>
+                    <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                      E-invoices
+                    </p>
+                    <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY, maxWidth: 620 }}>
+                      Enable structured e-invoices for future invoices only. Existing invoices stay unchanged, and you remain responsible for invoice numbering and local tax compliance.
+                    </p>
+                  </div>
+                  <div style={{ flexShrink: 0, textAlign: "right" }}>
+                    <div style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      opacity: 0.75,
+                    }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", fontFamily: FONT_BODY }}>
+                        Off
+                      </span>
+                      <span style={{
+                        width: 36,
+                        height: 20,
+                        borderRadius: 999,
+                        background: "var(--surface-muted)",
+                        position: "relative",
+                        display: "inline-block",
+                      }}>
+                        <span style={{
+                          width: 14,
+                          height: 14,
+                          borderRadius: "50%",
+                          background: "var(--text-muted)",
+                          position: "absolute",
+                          top: 3,
+                          left: 3,
+                        }} />
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                      Coming soon
+                    </p>
+                  </div>
+                </div>
               </div>
-              {businessFetcher.data?.error && (
-                <p style={{ color: "#ef4444", fontSize: 12, margin: "10px 0 0" }}>{(businessFetcher.data as { error?: string }).error}</p>
-              )}
-              <button type="submit" style={saveBtn} disabled={businessFetcher.state !== "idle"}>
-                {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
-              </button>
-            </businessFetcher.Form>
-          </div>
+
+              <div style={{ ...subtleCard, marginBottom: 14 }}>
+                <p style={{ ...labelStyle, marginBottom: 10 }}>Activation Readiness</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {invoicingChecks.map((item) => (
+                    <div key={item.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <span style={{ color: "var(--text)", fontSize: 13, fontFamily: FONT_BODY }}>{item.label}</span>
+                      <span style={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: item.done ? "#4ade80" : "var(--text-muted)",
+                        background: item.done ? "rgba(74,222,128,0.12)" : "var(--surface-muted)",
+                        borderRadius: 999,
+                        padding: "3px 10px",
+                        fontFamily: FONT_BODY,
+                      }}>
+                        {item.done ? "Ready" : "Missing"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p style={{ fontSize: 12, color: invoicingReady ? "#4ade80" : "var(--text-muted)", margin: "12px 0 0", fontFamily: FONT_BODY }}>
+                  {invoicingReady
+                    ? "Your current business details are sufficient for enabling e-invoices once the feature is activated."
+                    : "Complete the missing issuer details first. E-invoicing should only be enabled once your company data is legally complete."}
+                </p>
+              </div>
+
+              <div style={subtleCard}>
+                <p style={{ ...labelStyle, marginBottom: 10 }}>Compliance Notes</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY }}>
+                    Changing invoice mode should affect future invoices only and must not rewrite or renumber previously issued invoices.
+                  </p>
+                  <p style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY }}>
+                    If you later turn e-invoicing back on, numbering should continue in the same sequence. SQRZ helps generate documents, but you remain responsible for compliance with your local invoicing rules.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
         );
       })()}
 

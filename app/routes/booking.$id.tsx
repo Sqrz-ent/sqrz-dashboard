@@ -3793,7 +3793,12 @@ function MemberView({
         {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} proposalFeePct={proposalFeePct} />}
 
         {showPayments && wallet && (
-          <BookingWallet wallet={wallet} bookingStatus={b.status as string} stripeConnectId={stripeConnectId} />
+          <BookingWallet
+            wallet={wallet}
+            bookingStatus={b.status as string}
+            stripeConnectId={stripeConnectId}
+            requiresPayment={proposal?.requires_payment ?? null}
+          />
         )}
 
         <InvoiceSection
