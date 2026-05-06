@@ -3373,7 +3373,7 @@ function InvoiceSection({
     }
   }
 
-  const isBookable = ["confirmed", "completed"].includes(bookingStatus) || bookingStatus === "pending";
+  const isBookable = ["confirmed", "completed"].includes(bookingStatus);
 
   if (!isBookable) return null;
 
