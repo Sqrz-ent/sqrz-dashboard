@@ -634,7 +634,7 @@ export default function BoostPage() {
           ))}
         </div>
       )}
-      {!rerunSource && (
+      {!rerunSource && !grow_qualified && (
         <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
           Need LinkedIn, TikTok, Spotify Ads, or a mixed channel strategy?{" "}
           <a
