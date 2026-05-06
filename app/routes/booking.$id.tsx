@@ -3527,6 +3527,7 @@ function MemberView({
   stripeConnectId,
   memberInfo,
   proposalFeePct,
+  proposal,
   invoice,
   buyerParticipant,
 }: {
@@ -3538,6 +3539,7 @@ function MemberView({
   stripeConnectId: string | null;
   memberInfo?: MemberInfo;
   proposalFeePct?: number | null;
+  proposal: Proposal | null;
   invoice: InvoiceRecord | null;
   buyerParticipant: BuyerParticipant;
 }) {
@@ -3834,6 +3836,7 @@ export default function BookingAccessPage() {
           stripeConnectId={stripeConnectId ?? null}
           memberInfo={memberInfo}
           proposalFeePct={proposalFeePct}
+          proposal={proposal ?? null}
           invoice={invoice ?? null}
           buyerParticipant={buyerParticipant ?? null}
         />
