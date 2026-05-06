@@ -632,28 +632,6 @@ export default function BoostPage() {
               {ch}
             </button>
           ))}
-          <a
-            href={GROW_MEETING_URL}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "8px 16px",
-              borderRadius: 24,
-              border: "1.5px dashed rgba(245,166,35,0.45)",
-              background: "rgba(245,166,35,0.08)",
-              color: ACCENT,
-              fontSize: 13,
-              fontWeight: 700,
-              textDecoration: "none",
-              fontFamily: FONT_BODY,
-              minHeight: 38,
-            }}
-          >
-            Unlock multi-channel campaigns
-          </a>
         </div>
       )}
       {!rerunSource && (
@@ -929,30 +907,6 @@ export default function BoostPage() {
           <p style={{ fontSize: 13, color: "#ef4444", marginTop: 8, marginBottom: 0 }}>
             {boostError}
           </p>
-        )}
-
-        {/* Grow upsell — only when not already Grow qualified */}
-        {!grow_qualified && (
-          <div style={{
-            marginTop: 16,
-            padding: "13px 16px",
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 12,
-            fontSize: 13,
-            color: "var(--text-muted)",
-            lineHeight: 1.6,
-          }}>
-            Want a multichannel strategy with creative support?{" "}
-            <a
-              href={GROW_MEETING_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}
-            >
-              Talk to Will →
-            </a>
-          </div>
         )}
       </div>
       )}
