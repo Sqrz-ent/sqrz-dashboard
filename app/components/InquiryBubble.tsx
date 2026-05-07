@@ -351,7 +351,9 @@ export default function InquiryBubble({
     }
   }
 
-  const visitorName = activeThread.visitorName || activeThread.visitorEmail || "Visitor";
+  const visitorName = activeThread?.visitorName || activeThread?.visitorEmail || "Visitor";
+
+  if (!isBeta) return null;
 
   return (
     <>
@@ -384,13 +386,17 @@ export default function InquiryBubble({
             }}
           >
             <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>{visitorName}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
+                {activeThread ? visitorName : "Live inquiry"}
+              </div>
               <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                Live inquiry{waitingThreads.length > 0 ? ` · +${waitingThreads.length} waiting` : ""}
+                {activeThread
+                  ? `Live inquiry${waitingThreads.length > 0 ? ` · +${waitingThreads.length} waiting` : ""}`
+                  : "No active conversation yet"}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              {waitingThreads.length > 0 && (
+              {activeThread && waitingThreads.length > 0 && (
                 <select
                   value={activeThread.id}
                   onChange={(event) => {
@@ -429,7 +435,20 @@ export default function InquiryBubble({
           </div>
 
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
-            {loading ? (
+            {!session || !activeThread ? (
+              <div
+                style={{
+                  margin: "auto 0",
+                  color: "var(--text-muted)",
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                  textAlign: "center",
+                  padding: "0 10px",
+                }}
+              >
+                Nobody is writing right now. This bubble stays here so you can answer instantly as soon as a new inquiry comes in.
+              </div>
+            ) : loading ? (
               <div style={{ margin: "auto 0", color: "var(--text-muted)", fontSize: 13 }}>Connecting…</div>
             ) : messages.length === 0 ? (
               <div style={{ margin: "auto 0", color: "var(--text-muted)", fontSize: 13 }}>Waiting for the first message…</div>
@@ -475,89 +494,97 @@ export default function InquiryBubble({
 
           <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
             {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => void updateThreadStatus("closed")}
-                disabled={updatingStatus}
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: "9px 12px",
-                  fontSize: 12,
-                  cursor: updatingStatus ? "default" : "pointer",
-                  opacity: updatingStatus ? 0.55 : 1,
-                }}
-              >
-                Close inquiry
-              </button>
-              <button
-                onClick={() => {
-                  setConvertForm((prev) => ({
-                    ...prev,
-                    client_name: activeThread.visitorName ?? prev.client_name,
-                    client_email: activeThread.visitorEmail ?? prev.client_email,
-                  }));
-                  setConvertOpen(true);
-                }}
-                disabled={updatingStatus}
-                style={{
-                  flex: 1,
-                  background: "rgba(245,166,35,0.12)",
-                  color: "#F5A623",
-                  border: "1px solid rgba(245,166,35,0.28)",
-                  borderRadius: 10,
-                  padding: "9px 12px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: updatingStatus ? "default" : "pointer",
-                  opacity: updatingStatus ? 0.55 : 1,
-                }}
-              >
-                Convert
-              </button>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void handleSend();
-                  }
-                }}
-                placeholder={`Reply to ${visitorName}…`}
-                style={{
-                  flex: 1,
-                  background: "var(--surface-muted)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 12,
-                  color: "var(--text)",
-                  padding: "12px 14px",
-                  fontSize: 14,
-                }}
-              />
-              <button
-                onClick={() => void handleSend()}
-                disabled={sending || !draft.trim()}
-                style={{
-                  background: "#F5A623",
-                  color: "#111",
-                  border: "none",
-                  borderRadius: 12,
-                  padding: "0 16px",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  opacity: sending || !draft.trim() ? 0.55 : 1,
-                  cursor: sending || !draft.trim() ? "default" : "pointer",
-                }}
-              >
-                Send
-              </button>
-            </div>
+            {!session || !activeThread ? (
+              <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
+                The moment someone writes through your profile bubble, their conversation will appear here.
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => void updateThreadStatus("closed")}
+                    disabled={updatingStatus}
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      color: "var(--text-muted)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 10,
+                      padding: "9px 12px",
+                      fontSize: 12,
+                      cursor: updatingStatus ? "default" : "pointer",
+                      opacity: updatingStatus ? 0.55 : 1,
+                    }}
+                  >
+                    Close inquiry
+                  </button>
+                  <button
+                    onClick={() => {
+                      setConvertForm((prev) => ({
+                        ...prev,
+                        client_name: activeThread.visitorName ?? prev.client_name,
+                        client_email: activeThread.visitorEmail ?? prev.client_email,
+                      }));
+                      setConvertOpen(true);
+                    }}
+                    disabled={updatingStatus}
+                    style={{
+                      flex: 1,
+                      background: "rgba(245,166,35,0.12)",
+                      color: "#F5A623",
+                      border: "1px solid rgba(245,166,35,0.28)",
+                      borderRadius: 10,
+                      padding: "9px 12px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: updatingStatus ? "default" : "pointer",
+                      opacity: updatingStatus ? 0.55 : 1,
+                    }}
+                  >
+                    Convert
+                  </button>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        void handleSend();
+                      }
+                    }}
+                    placeholder={`Reply to ${visitorName}…`}
+                    style={{
+                      flex: 1,
+                      background: "var(--surface-muted)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      color: "var(--text)",
+                      padding: "12px 14px",
+                      fontSize: 14,
+                    }}
+                  />
+                  <button
+                    onClick={() => void handleSend()}
+                    disabled={sending || !draft.trim()}
+                    style={{
+                      background: "#F5A623",
+                      color: "#111",
+                      border: "none",
+                      borderRadius: 12,
+                      padding: "0 16px",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      opacity: sending || !draft.trim() ? 0.55 : 1,
+                      cursor: sending || !draft.trim() ? "default" : "pointer",
+                    }}
+                  >
+                    Send
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -605,6 +632,21 @@ export default function InquiryBubble({
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
+        <span
+          style={{
+            position: "absolute",
+            top: 62,
+            left: "50%",
+            transform: "translateX(-50%)",
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#111",
+            opacity: 0.72,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {session?.threads.length ? (session.threads.length > 1 ? `${session.threads.length} active` : "1 active") : "ready"}
+        </span>
       </button>
 
       <Modal isOpen={convertOpen} onClose={() => setConvertOpen(false)} title="Create Booking">
