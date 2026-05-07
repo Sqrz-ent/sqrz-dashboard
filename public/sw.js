@@ -33,8 +33,8 @@ self.addEventListener('push', (event) => {
   const title = payload.title || 'SQRZ'
   const options = {
     body: payload.body || 'You have a new notification.',
-    icon: '/app-icon-192.png',
-    badge: '/app-badge-96.png',
+    icon: '/sqrz-logo-mark.png',
+    badge: '/sqrz-logo-mark.png',
     tag: payload.tag || 'sqrz-notification',
     data: {
       targetUrl: payload.targetUrl || '/',
