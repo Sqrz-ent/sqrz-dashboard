@@ -79,11 +79,14 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                font-family: "Barlow Condensed", Impact, sans-serif;
-                font-size: 54px;
-                font-weight: 800;
-                letter-spacing: 0.18em;
-                color: #171717;
+                width: 108px;
+                height: 108px;
+              }
+              #sqrz-pwa-boot-logo img {
+                width: 100%;
+                height: 100%;
+                object-fit: contain;
+                display: block;
               }
               #sqrz-pwa-boot-copy {
                 display: flex;
@@ -95,7 +98,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 font-size: 34px;
                 line-height: 0.9;
                 letter-spacing: 0.12em;
-                color: #171717;
+                color: #f5a623;
               }
               #sqrz-pwa-boot-subtitle {
                 font-family: "DM Sans", sans-serif;
@@ -129,9 +132,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <body>
         <div id="sqrz-pwa-boot" aria-hidden="true">
           <div id="sqrz-pwa-boot-card">
-            <div id="sqrz-pwa-boot-logo">[<span style={{ color: "#F5A623", paddingInline: 6 }}>SQRZ</span>]</div>
+            <div id="sqrz-pwa-boot-logo">
+              <img src="/sqrz-logo-mark.png" alt="SQRZ" />
+            </div>
             <div id="sqrz-pwa-boot-copy">
-              <div id="sqrz-pwa-boot-title">DASHBOARD</div>
+              <div id="sqrz-pwa-boot-title">SQRZ</div>
               <div id="sqrz-pwa-boot-subtitle">Loading your dashboard...</div>
             </div>
             <div id="sqrz-pwa-boot-loader" />
