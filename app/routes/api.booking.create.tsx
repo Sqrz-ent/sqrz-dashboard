@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import type { ActionFunctionArgs } from "react-router";
 import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
+import { persistMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
 
 export async function action({ request }: ActionFunctionArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -69,6 +70,19 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const bookingId = booking.id;
+
+  const ownerPlanId = profile.plan_id as number | null | undefined;
+  const messagingProvider = ownerPlanId != null && Number(ownerPlanId) > 0 ? "stream" : "supabase";
+
+  try {
+    await persistMessagingProviderForBooking({
+      admin,
+      bookingId,
+      provider: messagingProvider,
+    });
+  } catch (error) {
+    console.error("[booking.create] failed to persist messaging provider:", error);
+  }
 
   // b. Generate invite token (32-char hex)
   const inviteToken: string = Array.from(crypto.getRandomValues(new Uint8Array(16)))
