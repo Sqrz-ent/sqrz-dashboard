@@ -477,165 +477,8 @@ export default function DashboardIndex() {
         </a>
       )}
 
-      <div style={{ ...card, marginTop: 28, marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14 }}>
-          <div>
-            <p style={{ ...metaLabel, margin: "0 0 8px" }}>Communications</p>
-            <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
-              Premium messaging controls
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "8px 0 0" }}>
-              Control whether new inquiries can reach you and whether your installed SQRZ app can send high-priority alerts.
-            </p>
-          </div>
-          {!isPaid && (
-            <span style={{ fontSize: 11, fontWeight: 700, padding: "6px 10px", borderRadius: 999, background: "var(--surface-muted)", color: ACCENT }}>
-              Premium
-            </span>
-          )}
-        </div>
-
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-              <div>
-                <p style={{ ...metaLabel, margin: "0 0 8px" }}>Profile Inquiry Chat</p>
-                <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
-                  Allow new inquiries
-                </p>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
-                  Show the premium chat bubble on your profile and private link pages. Turn this off if you do not want to receive new inquiries right now.
-                </p>
-              </div>
-              <div style={{ flexShrink: 0, textAlign: "right" }}>
-                {isPaid ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInquiryChatEnabled((value) => !value);
-                        const fd = new FormData();
-                        fd.append("intent", "toggle_inquiry_chat_enabled");
-                        fd.append("enabled", String(!inquiryChatEnabled));
-                        inquiryChatFetcher.submit(fd, { method: "post" });
-                      }}
-                      disabled={inquiryChatFetcher.state !== "idle"}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "8px 12px",
-                        borderRadius: 999,
-                        border: "1px solid var(--border)",
-                        background: "var(--surface)",
-                        cursor: inquiryChatFetcher.state !== "idle" ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontWeight: 700, color: inquiryChatEnabled ? ACCENT : "var(--text-muted)" }}>
-                        {inquiryChatEnabled ? "On" : "Off"}
-                      </span>
-                      <span style={{ width: 36, height: 20, borderRadius: 999, background: inquiryChatEnabled ? ACCENT : "var(--surface-muted)", position: "relative", display: "inline-block" }}>
-                        <span style={{ width: 14, height: 14, borderRadius: "50%", background: inquiryChatEnabled ? "#111" : "var(--text-muted)", position: "absolute", top: 3, left: inquiryChatEnabled ? 19 : 3 }} />
-                      </span>
-                    </button>
-                    <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontWeight: 700 }}>
-                      Included in your plan
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--surface)", opacity: 0.75 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>Off</span>
-                      <span style={{ width: 36, height: 20, borderRadius: 999, background: "var(--surface-muted)", position: "relative", display: "inline-block" }}>
-                        <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--text-muted)", position: "absolute", top: 3, left: 3 }} />
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", fontWeight: 700 }}>
-                      Upgrade to unlock
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-              <div>
-                <p style={{ ...metaLabel, margin: "0 0 8px" }}>Instant Alerts</p>
-                <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
-                  Push notifications
-                </p>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
-                  Get high-priority inquiry alerts on your installed SQRZ app. Best experience on mobile comes from adding SQRZ to your Home Screen first.
-                </p>
-                {pushFeedback && (
-                  <p style={{ color: pushFeedback.includes("Failed") || pushFeedback.includes("not") ? "#f87171" : ACCENT, fontSize: 12, margin: "10px 0 0", fontWeight: 700 }}>
-                    {pushFeedback}
-                  </p>
-                )}
-              </div>
-              <div style={{ flexShrink: 0, textAlign: "right", display: "grid", gap: 8 }}>
-                {!isPaid ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Upgrade to unlock</p>
-                ) : !webPushPublicKey ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Push not configured</p>
-                ) : !pushSupported ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>This browser does not support push here</p>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void (pushSubscribed ? disablePushNotifications() : enablePushNotifications())}
-                      disabled={pushBusy}
-                      style={{
-                        padding: "10px 14px",
-                        borderRadius: 10,
-                        border: pushSubscribed ? "1px solid var(--border)" : "none",
-                        background: pushSubscribed ? "var(--surface)" : ACCENT,
-                        color: pushSubscribed ? "var(--text)" : "#111",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: pushBusy ? "not-allowed" : "pointer",
-                        opacity: pushBusy ? 0.65 : 1,
-                      }}
-                    >
-                      {pushSubscribed ? "Disable alerts" : "Enable alerts"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void sendTestPushNotification()}
-                      disabled={pushBusy || !pushSubscribed}
-                      style={{
-                        padding: "9px 14px",
-                        borderRadius: 10,
-                        border: "1px solid var(--border)",
-                        background: "var(--surface)",
-                        color: "var(--text)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: pushBusy || !pushSubscribed ? "not-allowed" : "pointer",
-                        opacity: pushBusy || !pushSubscribed ? 0.5 : 1,
-                      }}
-                    >
-                      Send test
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {toggleError && (
-          <p style={{ color: "#f87171", fontSize: 12, margin: "12px 0 0", fontWeight: 700 }}>
-            {toggleError}
-          </p>
-        )}
-      </div>
-
       {/* Profile completion */}
-      <div style={{ ...card, marginBottom: 16 }}>
+      <div style={{ ...card, marginTop: 28, marginBottom: 16 }}>
         <div
           style={{
             display: "flex",
@@ -804,6 +647,249 @@ export default function DashboardIndex() {
         </div>
       </div>
 
+      <div style={{ ...card, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14 }}>
+          <div>
+            <p style={{ ...metaLabel, margin: "0 0 8px" }}>Communications</p>
+            <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
+              Creator messaging controls
+            </h2>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "8px 0 0" }}>
+              Control whether new inquiries can reach you and whether your installed SQRZ app can send high-priority alerts.
+            </p>
+          </div>
+          {!isPaid && (
+            <span style={{ fontSize: 11, fontWeight: 700, padding: "6px 10px", borderRadius: 999, background: "rgba(245,166,35,0.14)", color: ACCENT }}>
+              Creator
+            </span>
+          )}
+        </div>
+
+        {!isPaid && (
+          <Link
+            to="/account"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              textDecoration: "none",
+              border: "1px solid rgba(245,166,35,0.4)",
+              borderRadius: 16,
+              padding: "16px 18px",
+              background: "var(--bg)",
+              marginBottom: 14,
+            }}
+          >
+            <span style={{ fontSize: 24, lineHeight: 1 }}>🔒</span>
+            <div>
+              <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 700, margin: "0 0 4px" }}>
+                This feature requires the Creator plan
+              </p>
+              <p style={{ color: ACCENT, fontSize: 14, fontWeight: 700, margin: 0 }}>
+                Upgrade now →
+              </p>
+            </div>
+          </Link>
+        )}
+
+        <div style={{ display: "grid", gap: 12 }}>
+          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+              <div>
+                <p style={{ ...metaLabel, margin: "0 0 8px" }}>Profile Inquiry Chat</p>
+                <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
+                  Allow new inquiries
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
+                  Show the premium chat bubble on your profile and private link pages. Turn this off if you do not want to receive new inquiries right now.
+                </p>
+              </div>
+              <div style={{ flexShrink: 0, textAlign: "right" }}>
+                {isPaid ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInquiryChatEnabled((value) => !value);
+                        const fd = new FormData();
+                        fd.append("intent", "toggle_inquiry_chat_enabled");
+                        fd.append("enabled", String(!inquiryChatEnabled));
+                        inquiryChatFetcher.submit(fd, { method: "post" });
+                      }}
+                      disabled={inquiryChatFetcher.state !== "idle"}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        cursor: inquiryChatFetcher.state !== "idle" ? "not-allowed" : "pointer",
+                      }}
+                    >
+                      <span style={{ fontSize: 12, fontWeight: 700, color: inquiryChatEnabled ? ACCENT : "var(--text-muted)" }}>
+                        {inquiryChatEnabled ? "On" : "Off"}
+                      </span>
+                      <span style={{ width: 36, height: 20, borderRadius: 999, background: inquiryChatEnabled ? ACCENT : "var(--surface-muted)", position: "relative", display: "inline-block" }}>
+                        <span style={{ width: 14, height: 14, borderRadius: "50%", background: inquiryChatEnabled ? "#111" : "var(--text-muted)", position: "absolute", top: 3, left: inquiryChatEnabled ? 19 : 3 }} />
+                      </span>
+                    </button>
+                    <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontWeight: 700 }}>
+                      Included in your plan
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--surface)", opacity: 0.75 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>Off</span>
+                      <span style={{ width: 36, height: 20, borderRadius: 999, background: "var(--surface-muted)", position: "relative", display: "inline-block" }}>
+                        <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--text-muted)", position: "absolute", top: 3, left: 3 }} />
+                      </span>
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", fontWeight: 700 }}>
+                      Upgrade to unlock
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+              <div>
+                <p style={{ ...metaLabel, margin: "0 0 8px" }}>Instant Alerts</p>
+                <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
+                  Push notifications
+                </p>
+                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
+                  Get high-priority inquiry alerts on your installed SQRZ app. Best experience on mobile comes from adding SQRZ to your Home Screen first.
+                </p>
+                {pushFeedback && (
+                  <p style={{ color: pushFeedback.includes("Failed") || pushFeedback.includes("not") ? "#f87171" : ACCENT, fontSize: 12, margin: "10px 0 0", fontWeight: 700 }}>
+                    {pushFeedback}
+                  </p>
+                )}
+              </div>
+              <div style={{ flexShrink: 0, textAlign: "right", display: "grid", gap: 8 }}>
+                {!isPaid ? (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Upgrade to unlock</p>
+                ) : !webPushPublicKey ? (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Push not configured</p>
+                ) : !pushSupported ? (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>This browser does not support push here</p>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void (pushSubscribed ? disablePushNotifications() : enablePushNotifications())}
+                      disabled={pushBusy}
+                      style={{
+                        padding: "10px 14px",
+                        borderRadius: 10,
+                        border: pushSubscribed ? "1px solid var(--border)" : "none",
+                        background: pushSubscribed ? "var(--surface)" : ACCENT,
+                        color: pushSubscribed ? "var(--text)" : "#111",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: pushBusy ? "not-allowed" : "pointer",
+                        opacity: pushBusy ? 0.65 : 1,
+                      }}
+                    >
+                      {pushSubscribed ? "Disable alerts" : "Enable alerts"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void sendTestPushNotification()}
+                      disabled={pushBusy || !pushSubscribed}
+                      style={{
+                        padding: "9px 14px",
+                        borderRadius: 10,
+                        border: "1px solid var(--border)",
+                        background: "var(--surface)",
+                        color: "var(--text)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: pushBusy || !pushSubscribed ? "not-allowed" : "pointer",
+                        opacity: pushBusy || !pushSubscribed ? 0.5 : 1,
+                      }}
+                    >
+                      Send test
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {toggleError && (
+          <p style={{ color: "#f87171", fontSize: 12, margin: "12px 0 0", fontWeight: 700 }}>
+            {toggleError}
+          </p>
+        )}
+      </div>
+
+      {/* Theme picker */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {([
+            { key: "midnight", label: "Midnight", accent: "#F3B130" },
+            { key: "neon",     label: "Neon",     accent: "#A855F7" },
+            { key: "studio",   label: "Studio",   accent: "#38BDF8" },
+          ] as const).map(({ key, label, accent }) => {
+            const active = selectedTemplate === key;
+            return (
+              <button
+                key={key}
+                onClick={() => {
+                  setSelectedTemplate(key);
+                  const fd = new FormData();
+                  fd.append("intent", "update_template");
+                  fd.append("template_id", key);
+                  templateFetcher.submit(fd, { method: "post" });
+                }}
+                style={{
+                  flex: "1 1 80px",
+                  minWidth: 80,
+                  padding: "16px 10px 14px",
+                  background: active ? "var(--surface-muted)" : "var(--bg)",
+                  border: active ? `2px solid ${accent}` : "2px solid var(--border)",
+                  borderRadius: 14,
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 10,
+                  transition: "border-color 0.15s, background 0.15s",
+                  fontFamily: FONT,
+                }}
+              >
+                <div style={{
+                  width: 60,
+                  height: 60,
+                  borderRadius: "50%",
+                  background: accent,
+                  boxShadow: active ? `0 0 16px ${accent}60` : "none",
+                  transition: "box-shadow 0.15s",
+                }} />
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: active ? accent : "var(--text)",
+                  letterSpacing: "0.04em",
+                }}>
+                  {label}
+                </span>
+                {active && <span style={{ fontSize: 10, color: accent }}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Upcoming bookings */}
       <div style={{ ...card, marginBottom: 16 }}>
         <div
@@ -884,65 +970,6 @@ export default function DashboardIndex() {
             ))}
           </div>
         )}
-      </div>
-
-      {/* Theme picker */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {([
-            { key: "midnight", label: "Midnight", accent: "#F3B130" },
-            { key: "neon",     label: "Neon",     accent: "#A855F7" },
-            { key: "studio",   label: "Studio",   accent: "#38BDF8" },
-          ] as const).map(({ key, label, accent }) => {
-            const active = selectedTemplate === key;
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  setSelectedTemplate(key);
-                  const fd = new FormData();
-                  fd.append("intent", "update_template");
-                  fd.append("template_id", key);
-                  templateFetcher.submit(fd, { method: "post" });
-                }}
-                style={{
-                  flex: "1 1 80px",
-                  minWidth: 80,
-                  padding: "16px 10px 14px",
-                  background: active ? "var(--surface-muted)" : "var(--bg)",
-                  border: active ? `2px solid ${accent}` : "2px solid var(--border)",
-                  borderRadius: 14,
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 10,
-                  transition: "border-color 0.15s, background 0.15s",
-                  fontFamily: FONT,
-                }}
-              >
-                <div style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: "50%",
-                  background: accent,
-                  boxShadow: active ? `0 0 16px ${accent}60` : "none",
-                  transition: "box-shadow 0.15s",
-                }} />
-                <span style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: active ? accent : "var(--text)",
-                  letterSpacing: "0.04em",
-                }}>
-                  {label}
-                </span>
-                {active && <span style={{ fontSize: 10, color: accent }}>✓</span>}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       {/* Availability widget */}
