@@ -1,0 +1,16 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" rx="240" fill="#171717"/>
+  <rect x="128" y="128" width="768" height="768" rx="192" fill="#F5A623"/>
+  <rect x="224" y="224" width="576" height="576" rx="148" fill="#FFF5E8"/>
+  <text
+    x="512"
+    y="614"
+    text-anchor="middle"
+    font-family="Barlow Condensed, Arial Black, Arial, sans-serif"
+    font-size="338"
+    font-weight="800"
+    letter-spacing="-0.08em"
+    fill="#171717"
+  >SQ</text>
+  <circle cx="711" cy="310" r="54" fill="#171717"/>
+</svg>

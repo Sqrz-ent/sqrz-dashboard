@@ -3669,6 +3669,27 @@ export default function BookingAccessPage() {
   const [searchParams] = useSearchParams();
   console.log('[booking page] loader data proposal:', data.proposal);
   const fromOffice = searchParams.get("from") === "office";
+  const [isStandalonePwa, setIsStandalonePwa] = useState(false);
+
+  useEffect(() => {
+    const compute = () => {
+      const standalone = typeof window !== "undefined" && (
+        window.matchMedia?.("(display-mode: standalone)")?.matches ||
+        (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+      );
+      setIsStandalonePwa(Boolean(standalone));
+    };
+
+    compute();
+    const media = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(display-mode: standalone)")
+      : null;
+    media?.addEventListener?.("change", compute);
+
+    return () => {
+      media?.removeEventListener?.("change", compute);
+    };
+  }, []);
 
   // ── Dark mode (mirrors _app.tsx — same key, same class) ────────────────────
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -3688,7 +3709,7 @@ export default function BookingAccessPage() {
   }
   const themeToggle = (
     <>
-      {fromOffice && (
+      {fromOffice && isStandalonePwa && (
         <button
           onClick={() => {
             if (window.history.length > 1) {
