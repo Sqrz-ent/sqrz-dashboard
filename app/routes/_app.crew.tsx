@@ -15,14 +15,19 @@ type CrewProfile = {
   avatar_url: string | null;
   city: string | null;
   user_type: string | null;
+  is_published: boolean | null;
   profile_skills: Array<{
     skills: { name: string; category: string } | null;
   }>;
 };
 
-type LoaderData =
-  | { access: "featured"; profiles: CrewProfile[] }
-  | { access: "full"; profiles: CrewProfile[]; total: number; categories: string[] };
+type LoaderData = {
+  access: "full";
+  profiles: CrewProfile[];
+  total: number;
+  categories: string[];
+  isAdmin: boolean;
+};
 
 type ActionData = { profiles: CrewProfile[]; total: number };
 
@@ -35,7 +40,8 @@ async function fetchProfiles(
     category,
     city,
     page,
-  }: { q: string; category: string; city: string; page: number }
+    includeUnpublished,
+  }: { q: string; category: string; city: string; page: number; includeUnpublished: boolean }
 ): Promise<{ profiles: CrewProfile[]; total: number }> {
   const offset = (page - 1) * PAGE_SIZE;
 
@@ -70,13 +76,16 @@ async function fetchProfiles(
   let query = supabase
     .from("profiles")
     .select(
-      "id, name, slug, avatar_url, city, user_type, profile_skills ( skill_id, skills ( name, category ) )",
+      "id, name, slug, avatar_url, city, user_type, is_published, profile_skills ( skill_id, skills ( name, category ) )",
       { count: "exact" }
     )
-    .eq("is_published", true)
     .eq("user_type", "member")
     .order("name", { ascending: true })
     .range(offset, offset + PAGE_SIZE - 1);
+
+  if (!includeUnpublished) {
+    query = query.eq("is_published", true);
+  }
 
   if (q) {
     query = query.or(`name.ilike.%${q}%,slug.ilike.%${q}%,city.ilike.%${q}%`);
@@ -110,37 +119,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // Check plan access
   const userProfile = await getCurrentProfile(supabase, user.id);
-
-  let crewAccess = "featured";
-  if (userProfile?.plan_id) {
-    const { data: plan } = await supabase
-      .from("plans")
-      .select("crew_access")
-      .eq("id", userProfile.plan_id)
-      .maybeSingle();
-    crewAccess = (plan?.crew_access as string) ?? "featured";
-  }
-
-  // Featured-only access (no plan or crew_access = 'featured')
-  if (crewAccess !== "full") {
-    const { data: featuredProfiles } = await supabase
-      .from("profiles")
-      .select(
-        "id, name, slug, avatar_url, city, user_type, profile_skills ( skill_id, skills ( name, category ) )"
-      )
-      .eq("is_published", true)
-      .eq("is_featured", true)
-      .order("name", { ascending: true });
-
-    return Response.json<LoaderData>(
-      { access: "featured", profiles: (featuredProfiles ?? []) as unknown as CrewProfile[] },
-      { headers }
-    );
-  }
+  const isAdmin = Boolean(userProfile?.is_beta);
 
   // Full access — load categories and first page in parallel
   const [{ profiles, total }, categoriesResult] = await Promise.all([
-    fetchProfiles(supabase, { q: "", category: "", city: "", page: 1 }),
+    fetchProfiles(supabase, { q: "", category: "", city: "", page: 1, includeUnpublished: isAdmin }),
     supabase.from("skills").select("category").eq("is_visible", true),
   ]);
 
@@ -150,8 +133,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     ),
   ].sort() as string[];
 
-  return Response.json<LoaderData>(
-    { access: "full", profiles, total, categories },
+  return Response.json(
+    { access: "full", profiles, total, categories, isAdmin },
     { headers }
   );
 }
@@ -164,7 +147,9 @@ export async function action({ request }: Route.ActionArgs) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return Response.json<ActionData>({ profiles: [], total: 0 }, { status: 401 });
+  if (!user) return Response.json({ profiles: [], total: 0 }, { status: 401 });
+  const userProfile = await getCurrentProfile(supabase, user.id);
+  const isAdmin = Boolean(userProfile?.is_beta);
 
   const formData = await request.formData();
   const q = (formData.get("q") as string) ?? "";
@@ -172,44 +157,19 @@ export async function action({ request }: Route.ActionArgs) {
   const city = (formData.get("city") as string) ?? "";
   const page = Math.max(1, parseInt((formData.get("page") as string) ?? "1", 10));
 
-  const result = await fetchProfiles(supabase, { q, category, city, page });
-  return Response.json<ActionData>(result);
-}
-
-// ─── Featured grid (no plan / crew_access = 'featured') ──────────────────────
-
-function FeaturedGrid({ profiles }: { profiles: CrewProfile[] }) {
-  return (
-    <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
-      <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
-        Crew
-      </h1>
-      <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
-        Featured creatives available for hire.
-      </p>
-
-      {profiles.length === 0 ? (
-        <p style={{ color: "var(--text-muted)", fontSize: 14 }}>No featured profiles yet.</p>
-      ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
-            gap: 14,
-          }}
-        >
-          {profiles.map((p) => (
-            <ProfileCard key={p.id} profile={p} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const result = await fetchProfiles(supabase, {
+    q,
+    category,
+    city,
+    page,
+    includeUnpublished: isAdmin,
+  });
+  return Response.json(result);
 }
 
 // ─── Profile card ─────────────────────────────────────────────────────────────
 
-function ProfileCard({ profile }: { profile: CrewProfile }) {
+function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: boolean }) {
   const skills = profile.profile_skills
     .map((ps) => ps.skills)
     .filter(Boolean) as { name: string; category: string }[];
@@ -286,6 +246,25 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
           {profile.name ?? profile.slug}
         </div>
 
+        {isAdmin && (
+          <div style={{ marginBottom: 8 }}>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                borderRadius: 999,
+                padding: "3px 7px",
+                background: profile.is_published ? "rgba(74,222,128,0.14)" : "rgba(245,166,35,0.14)",
+                color: profile.is_published ? "#4ade80" : "#F5A623",
+              }}
+            >
+              {profile.is_published ? "Published" : "Draft"}
+            </span>
+          </div>
+        )}
+
         {/* Slug */}
         {profile.slug && (
           <div style={{ color: "#F5A623", fontSize: 11, marginBottom: 6, opacity: 0.7 }}>
@@ -339,13 +318,10 @@ function ProfileCard({ profile }: { profile: CrewProfile }) {
 
 export default function Crew() {
   const loaderData = useLoaderData<typeof loader>() as LoaderData;
-
-  if (loaderData.access === "featured") return <FeaturedGrid profiles={loaderData.profiles} />;
-
-  const { profiles: initialProfiles, total: initialTotal, categories } = loaderData;
+  const { profiles: initialProfiles, total: initialTotal, categories, isAdmin } = loaderData;
 
   const fetcher = useFetcher<ActionData>();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [q, setQ] = useState("");
   const [category, setCategory] = useState("");
@@ -356,6 +332,13 @@ export default function Crew() {
   const total = fetcher.data?.total ?? initialTotal;
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const isSearching = fetcher.state !== "idle";
+
+  function clearDebounce() {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+  }
 
   function submit(params: { q: string; category: string; city: string; page: number }) {
     fetcher.submit(
@@ -371,12 +354,12 @@ export default function Crew() {
 
   // Debounce text search
   useEffect(() => {
-    clearTimeout(debounceRef.current);
+    clearDebounce();
     debounceRef.current = setTimeout(() => {
       setPage(1);
       submit({ q, category, city, page: 1 });
     }, 300);
-    return () => clearTimeout(debounceRef.current);
+    return clearDebounce;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
@@ -388,7 +371,7 @@ export default function Crew() {
 
   function handleCityChange(val: string) {
     setCity(val);
-    clearTimeout(debounceRef.current);
+    clearDebounce();
     debounceRef.current = setTimeout(() => {
       setPage(1);
       submit({ q, category, city: val, page: 1 });
@@ -418,7 +401,9 @@ export default function Crew() {
         Crew
       </h1>
       <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
-        Search and hire verified creatives for your next gig.
+        {isAdmin
+          ? "Search across all member profiles, including drafts and unpublished profiles."
+          : "Search and hire published creatives for your next gig."}
       </p>
 
       {/* Search + filters */}
@@ -500,7 +485,7 @@ export default function Crew() {
           }}
         >
           {profiles.map((profile) => (
-            <ProfileCard key={profile.id} profile={profile} />
+            <ProfileCard key={profile.id} profile={profile} isAdmin={isAdmin} />
           ))}
         </div>
       )}
