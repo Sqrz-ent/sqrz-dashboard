@@ -1,5 +1,5 @@
-import { redirect, useLoaderData } from "react-router";
-import { useState } from "react";
+import { redirect, useLoaderData, useRevalidator } from "react-router";
+import { useEffect, useMemo, useState } from "react";
 import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -311,6 +311,38 @@ function formatTime(value: string | null) {
   return new Date(value).toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function bookingUrgencyValue(booking: Booking | BuyerBooking) {
+  const unreadCount = Number(booking.chat_summary?.unreadCount ?? 0);
+  const lastMessageAt = booking.chat_summary?.lastMessageAt
+    ? new Date(booking.chat_summary.lastMessageAt).getTime()
+    : 0;
+  const createdAt = "created_at" in booking && booking.created_at
+    ? new Date(booking.created_at).getTime()
+    : 0;
+
+  return {
+    unreadCount,
+    lastActivityAt: lastMessageAt || createdAt || 0,
+  };
+}
+
+function sortBookingsByUrgency<T extends Booking | BuyerBooking>(bookings: T[]) {
+  return [...bookings].sort((a, b) => {
+    const aUrgency = bookingUrgencyValue(a);
+    const bUrgency = bookingUrgencyValue(b);
+
+    if (aUrgency.unreadCount !== bUrgency.unreadCount) {
+      return bUrgency.unreadCount - aUrgency.unreadCount;
+    }
+
+    if (aUrgency.lastActivityAt !== bUrgency.lastActivityAt) {
+      return bUrgency.lastActivityAt - aUrgency.lastActivityAt;
+    }
+
+    return 0;
   });
 }
 
@@ -859,8 +891,56 @@ export default function OfficePage() {
     buyerBookings: BuyerBooking[];
     services: Service[];
   };
+  const revalidator = useRevalidator();
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  const sortedOwnerBookings = useMemo(
+    () => sortBookingsByUrgency(ownerBookings),
+    [ownerBookings]
+  );
+  const sortedBuyerBookings = useMemo(
+    () => sortBookingsByUrgency(buyerBookings),
+    [buyerBookings]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const refresh = () => {
+      if (cancelled) return;
+      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (revalidator.state !== "idle") return;
+      revalidator.revalidate();
+    };
+
+    const intervalId = window.setInterval(refresh, 20000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+      }
+    };
+    const handleOnline = () => refresh();
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", handleOnline);
+    }
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", handleOnline);
+      }
+    };
+  }, [revalidator]);
 
   function handleSuccess(clientEmail: string) {
     setToast(`Booking created — link sent to ${clientEmail}`);
@@ -934,7 +1014,7 @@ export default function OfficePage() {
         }}
       >
         {COLUMNS.map((col) => {
-          const colBookings = ownerBookings.filter((b) => b.status === col.key);
+          const colBookings = sortedOwnerBookings.filter((b) => b.status === col.key);
           return (
             <div
               key={col.key}
@@ -1024,7 +1104,7 @@ export default function OfficePage() {
             </p>
           </div>
           <div style={{ maxWidth: 600 }}>
-            {buyerBookings.map((booking) => (
+            {sortedBuyerBookings.map((booking) => (
               <MyRequestRow key={booking.id} booking={booking} />
             ))}
           </div>
