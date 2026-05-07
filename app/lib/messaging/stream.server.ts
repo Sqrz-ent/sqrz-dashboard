@@ -85,6 +85,13 @@ function getStreamServerClient() {
   return StreamChat.getInstance(apiKey, apiSecret);
 }
 
+export type BookingChatSummary = {
+  bookingId: string;
+  unreadCount: number;
+  lastReadAt: string | null;
+  lastMessageAt: string | null;
+};
+
 export function toStreamMainChannelId(bookingId: string) {
   return `booking_${bookingId}_main`;
 }
@@ -383,4 +390,56 @@ export async function ensureBookingMainChannel(input: {
     type: "main",
     role_key: null,
   };
+}
+
+export async function listBookingChatSummariesForStreamUser(input: {
+  streamUserId: string;
+  bookingIds: string[];
+}): Promise<Record<string, BookingChatSummary>> {
+  const { streamUserId, bookingIds } = input;
+  if (!bookingIds.length) return {};
+
+  const client = getStreamServerClient();
+  const channels = await client.queryChannels(
+    {
+      type: STREAM_CHANNEL_TYPE,
+      members: { $in: [streamUserId] },
+      sqrz_booking_id: { $in: bookingIds },
+    } as any,
+    [{ last_message_at: -1 }] as any,
+    {
+      watch: false,
+      state: true,
+    }
+  );
+
+  const summaries: Record<string, BookingChatSummary> = {};
+
+  for (const channel of channels) {
+    const bookingId =
+      (channel.data?.sqrz_booking_id as string | undefined) ??
+      (typeof channel.id === "string"
+        ? channel.id.match(/^booking_(.+)_main$/)?.[1] ?? null
+        : null);
+
+    if (!bookingId) continue;
+
+    const readState = (channel.state.read as Record<string, any> | undefined)?.[streamUserId] ?? null;
+    const unreadCount = Number(readState?.unread_messages ?? 0);
+    const lastReadAt = typeof readState?.last_read === "string"
+      ? readState.last_read
+      : readState?.last_read?.toISOString?.() ?? null;
+    const lastMessageAt = typeof channel.data?.last_message_at === "string"
+      ? (channel.data.last_message_at as string)
+      : (channel.state.messages?.at?.(-1)?.created_at as string | undefined) ?? null;
+
+    summaries[bookingId] = {
+      bookingId,
+      unreadCount,
+      lastReadAt,
+      lastMessageAt,
+    };
+  }
+
+  return summaries;
 }

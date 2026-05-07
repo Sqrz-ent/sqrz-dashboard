@@ -4,6 +4,12 @@ import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import Modal from "~/components/Modal";
+import {
+  isStreamConfigured,
+  listBookingChatSummariesForStreamUser,
+  toStreamUserIdForProfile,
+  type BookingChatSummary,
+} from "~/lib/messaging/stream.server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,6 +25,7 @@ type Booking = {
   venue_zip: string | null;
   venue_country: string | null;
   buyer_name: string | null;
+  chat_summary?: BookingChatSummary | null;
 };
 
 type BuyerBooking = {
@@ -30,6 +37,7 @@ type BuyerBooking = {
   created_at: string | null;
   owner_name: string;
   invite_token: string | null;
+  chat_summary?: BookingChatSummary | null;
 };
 
 type Service = {
@@ -134,6 +142,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       venue_zip: b.venue_zip ?? null,
       venue_country: b.venue_country ?? null,
       buyer_name: buyer?.name ?? null,
+      chat_summary: null,
     };
   });
 
@@ -186,10 +195,32 @@ export async function loader({ request }: Route.LoaderArgs) {
       created_at: r.booking.created_at,
       owner_name: ownerNameMap[r.booking.owner_id] ?? "Unknown",
       invite_token: r.invite_token,
+      chat_summary: null,
     }))
     .sort((a, b) =>
       new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
     );
+
+  if (isStreamConfigured()) {
+    const allBookingIds = [...new Set([...ownerBookings, ...buyerBookings].map((booking) => booking.id))];
+    if (allBookingIds.length > 0) {
+      try {
+        const chatSummaries = await listBookingChatSummariesForStreamUser({
+          streamUserId: toStreamUserIdForProfile(profile.id as string),
+          bookingIds: allBookingIds,
+        });
+
+        for (const booking of ownerBookings) {
+          booking.chat_summary = chatSummaries[booking.id] ?? null;
+        }
+        for (const booking of buyerBookings) {
+          booking.chat_summary = chatSummaries[booking.id] ?? null;
+        }
+      } catch {
+        // Non-fatal: Office still renders even if chat summaries are unavailable.
+      }
+    }
+  }
 
   return Response.json(
     { ownerBookings, buyerBookings, services: services ?? [] },
@@ -275,6 +306,14 @@ function formatDateRange(start: string | null, end: string | null): string {
   return `${startStr} – ${endStr}`;
 }
 
+function formatTime(value: string | null) {
+  if (!value) return null;
+  return new Date(value).toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
@@ -301,6 +340,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function BookingCard({ booking }: { booking: Booking }) {
   const venueParts = [booking.venue_city, booking.venue_address, booking.venue_zip, booking.venue_country].filter(Boolean);
+  const unreadCount = Number(booking.chat_summary?.unreadCount ?? 0);
+  const lastReadLabel = formatTime(booking.chat_summary?.lastReadAt ?? null);
   return (
     <a
       href={`/booking/${booking.id}`}
@@ -310,14 +351,39 @@ function BookingCard({ booking }: { booking: Booking }) {
         display: "block",
         width: "100%",
         background: "var(--surface)",
-        border: "1px solid var(--border)",
+        border: unreadCount > 0 ? "1px solid rgba(245,166,35,0.42)" : "1px solid var(--border)",
         borderRadius: 10,
         padding: "12px 14px",
         textDecoration: "none",
         marginBottom: 8,
         cursor: "pointer",
+        boxShadow: unreadCount > 0 ? "0 0 0 1px rgba(245,166,35,0.08), 0 12px 28px rgba(245,166,35,0.08)" : "none",
       }}
     >
+      {unreadCount > 0 && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+            marginBottom: 8,
+            padding: "7px 9px",
+            borderRadius: 8,
+            background: "rgba(245,166,35,0.08)",
+            color: ACCENT,
+          }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.01em" }}>
+            {unreadCount} new {unreadCount === 1 ? "message" : "messages"}
+          </span>
+          {lastReadLabel && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)" }}>
+              Last read {lastReadLabel}
+            </span>
+          )}
+        </div>
+      )}
       <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 2px", lineHeight: 1.35 }}>
         {booking.title ?? booking.service ?? "Untitled"}
       </p>
@@ -352,6 +418,8 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
     : `/booking/${booking.id}`;
 
   const isPendingPayment = booking.status === "pending_payment";
+  const unreadCount = Number(booking.chat_summary?.unreadCount ?? 0);
+  const lastReadLabel = formatTime(booking.chat_summary?.lastReadAt ?? null);
 
   return (
     <div
@@ -361,7 +429,11 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
         gap: 12,
         padding: "12px 16px",
         background: "var(--surface)",
-        border: isPendingPayment ? "1px solid rgba(251,191,36,0.3)" : "1px solid var(--border)",
+        border: unreadCount > 0
+          ? "1px solid rgba(245,166,35,0.42)"
+          : isPendingPayment
+            ? "1px solid rgba(251,191,36,0.3)"
+            : "1px solid var(--border)",
         borderRadius: 10,
         marginBottom: 8,
       }}
@@ -372,6 +444,12 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
         rel="noopener noreferrer"
         style={{ flex: 1, minWidth: 0, textDecoration: "none" }}
       >
+        {unreadCount > 0 && (
+          <p style={{ color: ACCENT, fontSize: 11, fontWeight: 800, margin: "0 0 4px" }}>
+            {unreadCount} new {unreadCount === 1 ? "message" : "messages"}
+            {lastReadLabel ? ` · Last read ${lastReadLabel}` : ""}
+          </p>
+        )}
         <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {booking.title ?? booking.service ?? "Untitled"}
         </p>
