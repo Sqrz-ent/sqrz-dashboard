@@ -18,9 +18,9 @@ export async function resolveMessagingProviderForBooking(input: {
 
   const { data: ownerProfile } = await admin
     .from("profiles")
-    .select("is_beta")
+    .select("plan_id")
     .eq("id", booking.owner_id as string)
     .maybeSingle();
 
-  return ownerProfile?.is_beta ? "stream" : "supabase";
+  return ownerProfile?.plan_id != null && Number(ownerProfile.plan_id) > 0 ? "stream" : "supabase";
 }

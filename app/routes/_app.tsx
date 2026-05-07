@@ -8,6 +8,7 @@ import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
 import PartnerInviteBanner from "~/components/PartnerInviteBanner";
+import InquiryBubble from "~/components/InquiryBubble";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -80,10 +81,20 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   console.log("[loader] subscription:", subscriptionData);
 
+  const servicesResult = profile
+    ? await supabase
+        .from("profile_services")
+        .select("id, title, booking_type")
+        .eq("profile_id", profile.id as string)
+        .eq("is_active", true)
+        .order("sort_order")
+    : { data: [] };
+
   return Response.json(
     {
       user,
       profile,
+      services: servicesResult.data ?? [],
       subscriptionData,
       creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
       creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
@@ -118,7 +129,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, services, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -512,6 +523,8 @@ export default function AppLayout() {
         subscription={subscriptionData}
         onUpgrade={() => openUpgrade()}
       />
+
+      <InquiryBubble isBeta={!!planId && planId > 0} services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []} />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
       {showOnboarding && p && (

@@ -273,7 +273,7 @@ async function createStreamChannel(input: {
     members: memberIds,
     sqrz_booking_id: bookingId,
     sqrz_channel_type: "main",
-  });
+  } as any);
 
   await channel.create();
 }

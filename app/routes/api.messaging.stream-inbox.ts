@@ -48,7 +48,7 @@ export async function loader({ request }: { request: Request }) {
       return Response.json({ error: "Profile not found" }, { status: 404 });
     }
 
-    if (!profile.is_beta) {
+    if (profile.plan_id == null || Number(profile.plan_id) <= 0) {
       return Response.json({ error: "Stream inbox is not enabled for this user" }, { status: 409 });
     }
 
