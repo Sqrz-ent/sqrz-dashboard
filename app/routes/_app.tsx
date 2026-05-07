@@ -137,12 +137,21 @@ export default function AppLayout() {
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
   const upgradeParam = searchParams.get("upgrade");
-  const upgradeOpen = !!upgradeParam;
+  const [upgradeContext, setUpgradeContext] = useState<string | null>(upgradeParam);
+  const upgradeOpen = !!upgradeContext;
   function openUpgrade(context = "1") {
-    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.set("upgrade", context); return n; });
+    setUpgradeContext(context);
   }
   function closeUpgrade() {
-    setSearchParams((prev) => { const n = new URLSearchParams(prev); n.delete("upgrade"); return n; });
+    setUpgradeContext(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("upgrade")) {
+        url.searchParams.delete("upgrade");
+        const next = `${url.pathname}${url.search}${url.hash}`;
+        window.history.replaceState(window.history.state, "", next);
+      }
+    }
   }
 
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -151,6 +160,31 @@ export default function AppLayout() {
       setShowOnboarding(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (upgradeParam) {
+      setUpgradeContext(upgradeParam);
+      if (typeof window !== "undefined") {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("upgrade");
+        const next = `${url.pathname}${url.search}${url.hash}`;
+        window.history.replaceState(window.history.state, "", next);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    function handleOpenUpgrade(event: Event) {
+      const customEvent = event as CustomEvent<{ context?: string }>;
+      setUpgradeContext(customEvent.detail?.context ?? "1");
+    }
+
+    window.addEventListener("sqrz:open-upgrade", handleOpenUpgrade as EventListener);
+    return () => {
+      window.removeEventListener("sqrz:open-upgrade", handleOpenUpgrade as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -539,10 +573,10 @@ export default function AppLayout() {
       )}
 
       {/* ── Upgrade modal ────────────────────────────────────────────────────── */}
-      {upgradeOpen && upgradeParam && (
+      {upgradeOpen && upgradeContext && (
         <UpgradeModal
           onClose={closeUpgrade}
-          upgradeContext={upgradeParam}
+          upgradeContext={upgradeContext}
           monthlyPriceId={creatorMonthlyPriceId}
           yearlyPriceId={creatorYearlyPriceId}
           earlyAccessCouponId={earlyAccessCouponId}

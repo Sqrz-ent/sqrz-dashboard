@@ -1,5 +1,3 @@
-import { useNavigate } from "react-router";
-
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
 export default function UpgradeBanner({
@@ -9,10 +7,15 @@ export default function UpgradeBanner({
   planName: string;
   upgradeParam?: string;
 }) {
-  const navigate = useNavigate();
   return (
     <div
-      onClick={() => navigate(`?upgrade=${upgradeParam}`)}
+      onClick={() => {
+        window.dispatchEvent(
+          new CustomEvent("sqrz:open-upgrade", {
+            detail: { context: upgradeParam },
+          })
+        );
+      }}
       style={{
         display: "flex",
         alignItems: "center",
