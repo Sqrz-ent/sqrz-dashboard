@@ -558,7 +558,10 @@ export default function AppLayout() {
         onUpgrade={() => openUpgrade()}
       />
 
-      <InquiryBubble isBeta={!!planId && planId > 0} services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []} />
+      <InquiryBubble
+        enabled={!!planId && planId > 0 && (p?.inquiry_chat_enabled as boolean | null) !== false}
+        services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
+      />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
       {showOnboarding && p && (

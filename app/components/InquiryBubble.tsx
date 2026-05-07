@@ -69,10 +69,10 @@ function formatTimestamp(value: string) {
 }
 
 export default function InquiryBubble({
-  isBeta,
+  enabled,
   services,
 }: {
-  isBeta: boolean;
+  enabled: boolean;
   services: ServiceOption[];
 }) {
   const [open, setOpen] = useState(false);
@@ -145,7 +145,7 @@ export default function InquiryBubble({
   }
 
   useEffect(() => {
-    if (!isBeta) return;
+    if (!enabled) return;
 
     let cancelled = false;
 
@@ -171,7 +171,7 @@ export default function InquiryBubble({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [isBeta, open, pollKey]);
+  }, [enabled, open, pollKey]);
 
   useEffect(() => {
     if (!session || !activeThread) return;
@@ -244,7 +244,7 @@ export default function InquiryBubble({
     };
   }, []);
 
-  if (!isBeta || !session || !activeThread) return null;
+  if (!enabled) return null;
 
   async function updateThreadStatus(status: "closed" | "converted") {
     if (!activeThread || updatingStatus) return;
@@ -355,7 +355,7 @@ export default function InquiryBubble({
 
   const visitorName = activeThread?.visitorName || activeThread?.visitorEmail || "Visitor";
 
-  if (!isBeta) return null;
+  if (!enabled) return null;
 
   return (
     <>
@@ -372,7 +372,7 @@ export default function InquiryBubble({
             borderRadius: 20,
             boxShadow: "0 24px 80px rgba(0,0,0,0.35)",
             overflow: "hidden",
-            zIndex: 80,
+            zIndex: 120,
             display: "flex",
             flexDirection: "column",
           }}
@@ -607,7 +607,7 @@ export default function InquiryBubble({
           fontWeight: 800,
           boxShadow: "0 18px 40px rgba(0,0,0,0.32)",
           cursor: "pointer",
-          zIndex: 80,
+          zIndex: 120,
         }}
         aria-label="Open inquiry chat"
       >
