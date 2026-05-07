@@ -2,7 +2,7 @@
 // Props: bookingId, currentUserEmail, isOwner
 
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StreamChat } from "stream-chat";
 import { supabase } from "~/lib/supabase.client";
 import type { MessagingProvider } from "~/lib/messaging/types";
@@ -50,7 +50,6 @@ export default function BookingChat({
   participantName,
   onAfterSend,
 }: BookingChatProps) {
-  console.log("[BookingChat] render props:", { bookingId, currentUserEmail, messagingProvider });
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -58,6 +57,8 @@ export default function BookingChat({
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [otherPartyTyping, setOtherPartyTyping] = useState(false);
+  const [otherPartySeen, setOtherPartySeen] = useState(false);
   const [authUser, setAuthUser] = useState<{ id: string; email: string } | null>(null);
   const [currentSenderId, setCurrentSenderId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -123,7 +124,7 @@ export default function BookingChat({
     if (messagingProvider !== "stream" || !bookingId) return;
 
     let active = true;
-    let subscription: { unsubscribe?: () => void } | null = null;
+    const subs: Array<{ unsubscribe?: () => void }> = [];
 
     async function initStream() {
       setLoading(true);
@@ -174,13 +175,33 @@ export default function BookingChat({
           if (active) setUnreadCount(0);
         }
 
-        subscription = channel.on("message.new", async (event: Record<string, any>) => {
+        const myStreamUserId = payload.streamUser?.id ?? "";
+
+        // Derive initial read-receipt state
+        {
+          const readState = (channel.state as any)?.read as Record<string, { last_read: string | Date }> | undefined;
+          if (readState && myStreamUserId) {
+            const msgs = (channel.state.messages ?? []) as Array<Record<string, any>>;
+            const myLastMsg = [...msgs].reverse().find((m) => (m.user as any)?.id === myStreamUserId);
+            if (myLastMsg) {
+              const myLastMsgTime = new Date(myLastMsg.created_at as string).getTime();
+              const seen = Object.entries(readState).some(([userId, r]) => {
+                if (userId === myStreamUserId) return false;
+                const t = r.last_read instanceof Date ? r.last_read.getTime() : new Date(r.last_read as string).getTime();
+                return t >= myLastMsgTime;
+              });
+              if (active) setOtherPartySeen(seen);
+            }
+          }
+        }
+
+        subs.push(channel.on("message.new", async (event: Record<string, any>) => {
           if (!active) return;
 
           setMessages(mapStreamMessages(channel.state.messages as Array<Record<string, any>>, bookingId));
 
           const eventSenderId = event.user?.id as string | undefined;
-          if (!open && eventSenderId && eventSenderId !== payload.streamUser?.id) {
+          if (!open && eventSenderId && eventSenderId !== myStreamUserId) {
             setUnreadCount((count) => count + 1);
           }
 
@@ -192,7 +213,37 @@ export default function BookingChat({
               // Non-fatal — UI can still update from local message state.
             }
           }
-        });
+        }));
+
+        subs.push(channel.on("typing.start", (event: Record<string, any>) => {
+          if (!active) return;
+          if ((event.user?.id as string | undefined) !== myStreamUserId) {
+            setOtherPartyTyping(true);
+          }
+        }));
+
+        subs.push(channel.on("typing.stop", (event: Record<string, any>) => {
+          if (!active) return;
+          if ((event.user?.id as string | undefined) !== myStreamUserId) {
+            setOtherPartyTyping(false);
+          }
+        }));
+
+        subs.push(channel.on("message.read", (_event: Record<string, any>) => {
+          if (!active) return;
+          const readState = (channel.state as any)?.read as Record<string, { last_read: string | Date }> | undefined;
+          if (!readState || !myStreamUserId) return;
+          const msgs = (channel.state.messages ?? []) as Array<Record<string, any>>;
+          const myLastMsg = [...msgs].reverse().find((m) => (m.user as any)?.id === myStreamUserId);
+          if (!myLastMsg) return;
+          const myLastMsgTime = new Date(myLastMsg.created_at as string).getTime();
+          const seen = Object.entries(readState).some(([userId, r]) => {
+            if (userId === myStreamUserId) return false;
+            const t = r.last_read instanceof Date ? r.last_read.getTime() : new Date(r.last_read as string).getTime();
+            return t >= myLastMsgTime;
+          });
+          setOtherPartySeen(seen);
+        }));
       } catch (error) {
         console.error("[BookingChat] Stream init failed:", error);
         if (active) {
@@ -207,7 +258,7 @@ export default function BookingChat({
 
     return () => {
       active = false;
-      subscription?.unsubscribe?.();
+      for (const sub of subs) sub.unsubscribe?.();
       streamChannelRef.current = null;
       if (streamClientRef.current) {
         streamClientRef.current.disconnectUser().catch(() => {});
@@ -247,6 +298,7 @@ export default function BookingChat({
           throw new Error("Stream channel is not ready yet");
         }
 
+        (streamChannelRef.current as any).stopTyping?.()?.catch?.(() => {});
         await streamChannelRef.current.sendMessage({ text: content });
         setMessages(mapStreamMessages(
           streamChannelRef.current.state.messages as Array<Record<string, any>>,
@@ -280,11 +332,14 @@ export default function BookingChat({
   const fontFamily =
     "'DM Sans', ui-sans-serif, system-ui, -apple-system, sans-serif";
 
+  const lastSentMessageId = useMemo(() => {
+    if (!currentSenderId) return null;
+    return [...messages].reverse().find((m) => m.sender_id === currentSenderId)?.id ?? null;
+  }, [messages, currentSenderId]);
+
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
-
-  console.log("[BookingChat] mounted, bookingId:", bookingId);
 
   return createPortal(
     <div style={{
@@ -437,6 +492,19 @@ export default function BookingChat({
                           minute: "2-digit",
                         })}
                       </p>
+                      {isMine && msg.id === lastSentMessageId && otherPartySeen && messagingProvider === "stream" && (
+                        <p
+                          style={{
+                            fontSize: 10,
+                            color: "var(--text-muted)",
+                            margin: "2px 0 0",
+                            textAlign: "right",
+                            opacity: 0.8,
+                          }}
+                        >
+                          Seen
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -468,6 +536,22 @@ export default function BookingChat({
                 {streamError}
               </p>
             )}
+            {otherPartyTyping && messagingProvider === "stream" && (
+              <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 4 }}>
+                <div
+                  style={{
+                    background: "var(--surface-muted)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "14px 14px 14px 4px",
+                    padding: "6px 11px",
+                    color: "var(--text-muted)",
+                    fontSize: 11,
+                  }}
+                >
+                  {participantName ?? "Other party"} is typing…
+                </div>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -483,7 +567,12 @@ export default function BookingChat({
           >
             <input
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => {
+                setText(e.target.value);
+                if (streamChannelRef.current) {
+                  (streamChannelRef.current as any).keystroke?.()?.catch?.(() => {});
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

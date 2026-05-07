@@ -103,6 +103,7 @@ export default function InquiryBubble({
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [visitorTyping, setVisitorTyping] = useState(false);
   const clientRef = useRef<StreamChat | null>(null);
   const channelRef = useRef<StreamChannelLike | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -178,6 +179,8 @@ export default function InquiryBubble({
 
     let active = true;
     let subscription: { unsubscribe?: () => void } | null = null;
+    let typingStartSub: { unsubscribe?: () => void } | null = null;
+    let typingStopSub: { unsubscribe?: () => void } | null = null;
     const activeSession = session;
     const thread = activeThread;
 
@@ -209,6 +212,16 @@ export default function InquiryBubble({
           setUnreadCount((count) => count + 1);
         }
       });
+
+      typingStartSub = (channel as any).on("typing.start", (event: any) => {
+        if (!active) return;
+        if (event.user?.id !== activeSession.streamUser.id) setVisitorTyping(true);
+      });
+
+      typingStopSub = (channel as any).on("typing.stop", (event: any) => {
+        if (!active) return;
+        if (event.user?.id !== activeSession.streamUser.id) setVisitorTyping(false);
+      });
     }
 
     void connect().catch((err) => {
@@ -221,6 +234,8 @@ export default function InquiryBubble({
     return () => {
       active = false;
       subscription?.unsubscribe?.();
+      typingStartSub?.unsubscribe?.();
+      typingStopSub?.unsubscribe?.();
     };
   }, [session, activeThread, open]);
 
@@ -343,6 +358,7 @@ export default function InquiryBubble({
     setSending(true);
     setError(null);
     try {
+      (channelRef.current as any).stopTyping?.()?.catch?.(() => {});
       await channelRef.current.sendMessage({ text });
       setMessages(mapMessages(channelRef.current.state.messages as StreamMessagePayload[]));
       setDraft("");
@@ -491,6 +507,25 @@ export default function InquiryBubble({
                 );
               })
             )}
+            {visitorTyping && session && activeThread && (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+                <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                  {visitorName}
+                </div>
+                <div
+                  style={{
+                    padding: "10px 12px",
+                    borderRadius: "16px 16px 16px 4px",
+                    background: "var(--surface-muted)",
+                    color: "var(--text-muted)",
+                    fontSize: 13,
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  typing…
+                </div>
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
 
@@ -549,7 +584,12 @@ export default function InquiryBubble({
                 <div style={{ display: "flex", gap: 8 }}>
                   <input
                     value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
+                    onChange={(event) => {
+                      setDraft(event.target.value);
+                      if (channelRef.current) {
+                        (channelRef.current as any).keystroke?.()?.catch?.(() => {});
+                      }
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
