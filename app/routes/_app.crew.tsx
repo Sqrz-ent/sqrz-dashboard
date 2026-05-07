@@ -179,7 +179,15 @@ export async function action({ request }: Route.ActionArgs) {
 
 // ─── Profile card ─────────────────────────────────────────────────────────────
 
-function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: boolean }) {
+function ProfileCard({
+  profile,
+  isAdmin,
+  onShowClaimCode,
+}: {
+  profile: CrewProfile;
+  isAdmin: boolean;
+  onShowClaimCode: (payload: { name: string; slug: string; claimUrl: string }) => void;
+}) {
   const skills = profile.profile_skills
     .map((ps) => ps.skills)
     .filter(Boolean) as { name: string; category: string }[];
@@ -346,37 +354,17 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
               paddingTop: 12,
               borderTop: "1px solid var(--border)",
               display: "flex",
-              flexDirection: "column",
-              gap: 8,
             }}
           >
-            <div style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-              Claim link
-            </div>
-            <input
-              readOnly
-              value={claimUrl}
-              onFocus={(event) => event.currentTarget.select()}
-              style={{
-                width: "100%",
-                padding: "9px 10px",
-                background: "rgba(245,166,35,0.06)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                color: "var(--text)",
-                fontSize: 11,
-                boxSizing: "border-box",
-              }}
-            />
             <button
               type="button"
-              onClick={async (event) => {
+              onClick={(event) => {
                 event.preventDefault();
-                try {
-                  await navigator.clipboard.writeText(claimUrl);
-                } catch {
-                  window.prompt("Copy claim link", claimUrl);
-                }
+                onShowClaimCode({
+                  name: profile.name ?? profile.slug ?? "Profile",
+                  slug: profile.slug ?? "",
+                  claimUrl,
+                });
               }}
               style={{
                 background: "#F5A623",
@@ -387,9 +375,10 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
                 fontWeight: 700,
                 padding: "9px 10px",
                 cursor: "pointer",
+                width: "100%",
               }}
             >
-              Copy claim link
+              Show code
             </button>
           </div>
         )}
@@ -409,6 +398,11 @@ export default function Crew() {
 
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
+  const [claimCode, setClaimCode] = useState<{
+    name: string;
+    slug: string;
+    claimUrl: string;
+  } | null>(null);
 
   const profiles = fetcher.data?.profiles ?? initialProfiles;
   const total = fetcher.data?.total ?? initialTotal;
@@ -531,7 +525,12 @@ export default function Crew() {
           }}
         >
           {profiles.map((profile) => (
-            <ProfileCard key={profile.id} profile={profile} isAdmin={isAdmin} />
+            <ProfileCard
+              key={profile.id}
+              profile={profile}
+              isAdmin={isAdmin}
+              onShowClaimCode={setClaimCode}
+            />
           ))}
         </div>
       )}
@@ -582,6 +581,135 @@ export default function Crew() {
           >
             Next →
           </button>
+        </div>
+      )}
+
+      {claimCode && (
+        <div
+          onClick={() => setClaimCode(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            zIndex: 200,
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 460,
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 18,
+              padding: 24,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.26)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
+              <div>
+                <div style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
+                  Claim code
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                  {claimCode.name}{claimCode.slug ? ` · ${claimCode.slug}.sqrz.com` : ""}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setClaimCode(null)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 22,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                }}
+                aria-label="Close claim code"
+              >
+                ×
+              </button>
+            </div>
+
+            <div
+              style={{
+                background: "rgba(245,166,35,0.06)",
+                border: "1px solid var(--border)",
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  color: "var(--text-muted)",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  marginBottom: 8,
+                }}
+              >
+                Claim link
+              </div>
+              <div
+                style={{
+                  color: "var(--text)",
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  wordBreak: "break-all",
+                }}
+              >
+                {claimCode.claimUrl}
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(claimCode.claimUrl);
+                  } catch {
+                    window.prompt("Copy claim link", claimCode.claimUrl);
+                  }
+                }}
+                style={{
+                  background: "#F5A623",
+                  color: "#111111",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: "10px 14px",
+                  cursor: "pointer",
+                }}
+              >
+                Copy link
+              </button>
+              <button
+                type="button"
+                onClick={() => setClaimCode(null)}
+                style={{
+                  background: "transparent",
+                  color: "var(--text)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: "10px 14px",
+                  cursor: "pointer",
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

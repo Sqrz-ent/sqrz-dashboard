@@ -76,32 +76,26 @@ export function Layout({ children }: { children: React.ReactNode }) {
                 text-align: center;
               }
               #sqrz-pwa-boot-logo {
-                width: 108px;
-                height: 108px;
-                border-radius: 28px;
-                background: #171717;
-                box-shadow: 0 18px 44px rgba(23, 23, 23, 0.14);
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                overflow: hidden;
-              }
-              #sqrz-pwa-boot-logo img {
-                width: 100%;
-                height: 100%;
-                display: block;
+                font-family: "Barlow Condensed", Impact, sans-serif;
+                font-size: 54px;
+                font-weight: 800;
+                letter-spacing: 0.18em;
+                color: #171717;
               }
               #sqrz-pwa-boot-copy {
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: 10px;
               }
               #sqrz-pwa-boot-title {
                 font-family: "Barlow Condensed", Impact, sans-serif;
-                font-size: 46px;
+                font-size: 34px;
                 line-height: 0.9;
-                letter-spacing: 0.06em;
-                color: #f5a623;
+                letter-spacing: 0.12em;
+                color: #171717;
               }
               #sqrz-pwa-boot-subtitle {
                 font-family: "DM Sans", sans-serif;
@@ -135,11 +129,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <body>
         <div id="sqrz-pwa-boot" aria-hidden="true">
           <div id="sqrz-pwa-boot-card">
-            <div id="sqrz-pwa-boot-logo">
-              <img src="/app-icon-192.png" alt="" />
-            </div>
+            <div id="sqrz-pwa-boot-logo">[<span style={{ color: "#F5A623", paddingInline: 6 }}>SQRZ</span>]</div>
             <div id="sqrz-pwa-boot-copy">
-              <div id="sqrz-pwa-boot-title">SQRZ</div>
+              <div id="sqrz-pwa-boot-title">DASHBOARD</div>
               <div id="sqrz-pwa-boot-subtitle">Loading your dashboard...</div>
             </div>
             <div id="sqrz-pwa-boot-loader" />
