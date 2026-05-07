@@ -5,6 +5,7 @@ import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/sup
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { getPushPublicKey, isPushConfigured } from "~/lib/push.server";
+import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
@@ -665,32 +666,7 @@ export default function DashboardIndex() {
           )}
         </div>
 
-        {!isPaid && (
-          <Link
-            to="/account"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              textDecoration: "none",
-              border: "1px solid rgba(245,166,35,0.4)",
-              borderRadius: 16,
-              padding: "16px 18px",
-              background: "var(--bg)",
-              marginBottom: 14,
-            }}
-          >
-            <span style={{ fontSize: 24, lineHeight: 1 }}>🔒</span>
-            <div>
-              <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 700, margin: "0 0 4px" }}>
-                This feature requires the Creator plan
-              </p>
-              <p style={{ color: ACCENT, fontSize: 14, fontWeight: 700, margin: 0 }}>
-                Upgrade now →
-              </p>
-            </div>
-          </Link>
-        )}
+        {!isPaid && <UpgradeBanner planName="Creator plan" upgradeParam="creator" />}
 
         <div style={{ display: "grid", gap: 12 }}>
           <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
