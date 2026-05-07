@@ -31,7 +31,9 @@ export type RichProfile = {
   company_name?: string | null;
   company_address?: string | null;
   company_tax_id?: string | null;
+  vat_id?: string | null;
   legal_form?: string | null;
+  responsible_person?: string | null;
   custom_domain?: string | null;
   [key: string]: unknown;
 };
@@ -63,7 +65,17 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
     { key: "videos",     label: "Videos",      done: p.hasVideos },
     { key: "refs",       label: "References",  done: p.hasRefs },
     { key: "services",   label: "Services",    done: p.hasServices },
-    { key: "business",   label: "Business",    done: !!(p.company_name && p.company_address && p.company_tax_id && p.legal_form) },
+    {
+      key: "business",
+      label: "Business",
+      done: !!(
+        p.company_name &&
+        p.company_address &&
+        (p.vat_id || p.company_tax_id) &&
+        p.legal_form &&
+        p.responsible_person
+      ),
+    },
     { key: "domain",     label: "Domain",      done: !!p.custom_domain },
   ];
 
