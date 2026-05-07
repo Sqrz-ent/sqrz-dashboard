@@ -92,6 +92,61 @@ const lbl: React.CSSProperties = {
   display: "block",
 };
 
+function withOfficeReturn(href: string) {
+  const separator = href.includes("?") ? "&" : "?";
+  return `${href}${separator}from=office`;
+}
+
+function useIsStandalonePwa() {
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    const compute = () => {
+      const standalone = typeof window !== "undefined" && (
+        window.matchMedia?.("(display-mode: standalone)")?.matches ||
+        (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+      );
+      setIsStandalone(Boolean(standalone));
+    };
+
+    compute();
+    const media = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(display-mode: standalone)")
+      : null;
+    media?.addEventListener?.("change", compute);
+
+    return () => {
+      media?.removeEventListener?.("change", compute);
+    };
+  }, []);
+
+  return isStandalone;
+}
+
+function OfficeBookingLink({
+  href,
+  children,
+  style,
+}: {
+  href: string;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  const isStandalone = useIsStandalonePwa();
+  const finalHref = withOfficeReturn(href);
+
+  return (
+    <a
+      href={finalHref}
+      target={isStandalone ? undefined : "_blank"}
+      rel={isStandalone ? undefined : "noopener noreferrer"}
+      style={style}
+    >
+      {children}
+    </a>
+  );
+}
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -375,10 +430,8 @@ function BookingCard({ booking }: { booking: Booking }) {
   const unreadCount = Number(booking.chat_summary?.unreadCount ?? 0);
   const lastReadLabel = formatTime(booking.chat_summary?.lastReadAt ?? null);
   return (
-    <a
+    <OfficeBookingLink
       href={`/booking/${booking.id}`}
-      target="_blank"
-      rel="noopener noreferrer"
       style={{
         display: "block",
         width: "100%",
@@ -438,7 +491,7 @@ function BookingCard({ booking }: { booking: Booking }) {
         {formatDateRange(booking.date_start, booking.date_end)}
       </p>
       <StatusBadge status={booking.status} />
-    </a>
+    </OfficeBookingLink>
   );
 }
 
@@ -470,10 +523,8 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
         marginBottom: 8,
       }}
     >
-      <a
+      <OfficeBookingLink
         href={href}
-        target="_blank"
-        rel="noopener noreferrer"
         style={{ flex: 1, minWidth: 0, textDecoration: "none" }}
       >
         {unreadCount > 0 && (
@@ -488,15 +539,13 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "2px 0 0" }}>
           {booking.owner_name}
         </p>
-      </a>
+      </OfficeBookingLink>
       <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
         {formatDate(booking.date_start)}
       </span>
       {isPendingPayment ? (
-        <a
+        <OfficeBookingLink
           href={href}
-          target="_blank"
-          rel="noopener noreferrer"
           style={{
             flexShrink: 0,
             padding: "5px 12px",
@@ -512,7 +561,7 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
           }}
         >
           Complete Payment
-        </a>
+        </OfficeBookingLink>
       ) : (
         <StatusBadge status={booking.status} />
       )}

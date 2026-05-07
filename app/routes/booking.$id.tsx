@@ -3666,7 +3666,9 @@ function MemberView({
 
 export default function BookingAccessPage() {
   const data = useLoaderData<typeof loader>() as Record<string, unknown>;
+  const [searchParams] = useSearchParams();
   console.log('[booking page] loader data proposal:', data.proposal);
+  const fromOffice = searchParams.get("from") === "office";
 
   // ── Dark mode (mirrors _app.tsx — same key, same class) ────────────────────
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -3685,27 +3687,62 @@ export default function BookingAccessPage() {
     document.documentElement.classList.add(next);
   }
   const themeToggle = (
-    <button
-      onClick={toggleTheme}
-      aria-label="Toggle theme"
-      style={{
-        position: "fixed",
-        top: 16,
-        right: 16,
-        zIndex: 9999,
-        background: "none",
-        border: "none",
-        color: "var(--text-muted)",
-        fontSize: 18,
-        cursor: "pointer",
-        lineHeight: 1,
-        display: "flex",
-        alignItems: "center",
-        padding: 6,
-      }}
-    >
-      {theme === "dark" ? "☀️" : "🌙"}
-    </button>
+    <>
+      {fromOffice && (
+        <button
+          onClick={() => {
+            if (window.history.length > 1) {
+              window.history.back();
+              return;
+            }
+            window.location.href = "/office";
+          }}
+          aria-label="Back to Office"
+          style={{
+            position: "fixed",
+            top: 16,
+            left: 16,
+            zIndex: 9999,
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            color: "var(--text)",
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+            lineHeight: 1,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "10px 12px",
+            borderRadius: 999,
+            boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
+          }}
+        >
+          ← Office
+        </button>
+      )}
+      <button
+        onClick={toggleTheme}
+        aria-label="Toggle theme"
+        style={{
+          position: "fixed",
+          top: 16,
+          right: 16,
+          zIndex: 9999,
+          background: "none",
+          border: "none",
+          color: "var(--text-muted)",
+          fontSize: 18,
+          cursor: "pointer",
+          lineHeight: 1,
+          display: "flex",
+          alignItems: "center",
+          padding: 6,
+        }}
+      >
+        {theme === "dark" ? "☀️" : "🌙"}
+      </button>
+    </>
   );
 
   // ── Invalid token ──────────────────────────────────────────────────────────
