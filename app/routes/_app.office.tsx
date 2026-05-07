@@ -1,5 +1,6 @@
-import { redirect, useLoaderData, useRevalidator } from "react-router";
-import { useEffect, useMemo, useState } from "react";
+import { redirect, useLoaderData } from "react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { StreamChat } from "stream-chat";
 import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -278,7 +279,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   return Response.json(
-    { ownerBookings, buyerBookings, services: services ?? [] },
+    { ownerBookings, buyerBookings, services: services ?? [], planId: profile.plan_id ?? null },
     { headers }
   );
 }
@@ -935,61 +936,134 @@ function NewBookingModal({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OfficePage() {
-  const { ownerBookings, buyerBookings, services } = useLoaderData<typeof loader>() as {
+  const { ownerBookings, buyerBookings, services, planId } = useLoaderData<typeof loader>() as {
     ownerBookings: Booking[];
     buyerBookings: BuyerBooking[];
     services: Service[];
+    planId: number | null;
   };
-  const revalidator = useRevalidator();
   const [modalOpen, setModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Local copy of owner bookings — patched in real-time by Stream events for paid users.
+  // For free users this simply mirrors the loader data and stays static.
+  const [streamOwnerBookings, setStreamOwnerBookings] = useState<Booking[]>(ownerBookings);
+
+  // Keep in sync if loader data ever refreshes (e.g. after window.location.reload()).
+  useEffect(() => {
+    setStreamOwnerBookings(ownerBookings);
+  }, [ownerBookings]);
+
   const sortedOwnerBookings = useMemo(
-    () => sortBookingsByUrgency(ownerBookings),
-    [ownerBookings]
+    () => sortBookingsByUrgency(streamOwnerBookings),
+    [streamOwnerBookings]
   );
   const sortedBuyerBookings = useMemo(
     () => sortBookingsByUrgency(buyerBookings),
     [buyerBookings]
   );
 
+  // Stream subscription for paid users — event-driven chat_summary updates, no polling.
+  const streamClientRef = useRef<StreamChat | null>(null);
   useEffect(() => {
-    let cancelled = false;
+    const isPaid = planId != null && planId >= 1;
+    if (!isPaid || ownerBookings.length === 0) return;
 
-    const refresh = () => {
-      if (cancelled) return;
-      if (typeof navigator !== "undefined" && navigator.onLine === false) return;
-      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-      if (revalidator.state !== "idle") return;
-      revalidator.revalidate();
-    };
+    let active = true;
+    const unsubs: Array<() => void> = [];
 
-    const intervalId = window.setInterval(refresh, 20000);
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        refresh();
+    async function initStream() {
+      const firstBookingId = ownerBookings[0].id;
+
+      let apiKey: string;
+      let token: string;
+      let streamUserId: string;
+      try {
+        const res = await fetch(`/api/messaging/stream-token?bookingId=${firstBookingId}`);
+        if (!res.ok) return;
+        const data = await res.json() as {
+          apiKey?: string;
+          token?: string;
+          streamUser?: { id: string };
+        };
+        if (!data.apiKey || !data.token || !data.streamUser?.id) return;
+        apiKey = data.apiKey;
+        token = data.token;
+        streamUserId = data.streamUser.id;
+      } catch {
+        return;
       }
-    };
-    const handleOnline = () => refresh();
 
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", handleVisibilityChange);
+      if (!active) return;
+
+      const client = StreamChat.getInstance(apiKey);
+      if (client.userID && client.userID !== streamUserId) {
+        await client.disconnectUser().catch(() => {});
+      }
+      if (!client.userID) {
+        try {
+          await client.connectUser({ id: streamUserId }, token);
+        } catch {
+          return;
+        }
+      }
+
+      if (!active) return;
+      streamClientRef.current = client;
+
+      function handleMessageEvent(event: Record<string, any>) {
+        if (!active) return;
+        // Skip messages sent by this user
+        if ((event.user?.id as string | undefined) === streamUserId) return;
+
+        const channelId: string = event.channel_id ?? "";
+        const bookingIdMatch = channelId.match(/^booking_(.+)_main$/);
+        const bookingId = bookingIdMatch?.[1] ?? null;
+        if (!bookingId) return;
+
+        const messageAt: string =
+          (event.message as any)?.created_at ?? new Date().toISOString();
+
+        setStreamOwnerBookings((prev) =>
+          prev.map((b) =>
+            b.id === bookingId
+              ? {
+                  ...b,
+                  chat_summary: {
+                    bookingId,
+                    unreadCount: (b.chat_summary?.unreadCount ?? 0) + 1,
+                    lastMessageAt: messageAt,
+                    lastReadAt: b.chat_summary?.lastReadAt ?? null,
+                  },
+                }
+              : b
+          )
+        );
+      }
+
+      // notification.message_new — fires for channels the client is not currently watching
+      const sub1 = client.on("notification.message_new", handleMessageEvent);
+      unsubs.push(() => sub1.unsubscribe());
+
+      // message.new — fires for channels actively watched (e.g. if chat panel is also open)
+      const sub2 = client.on("message.new", handleMessageEvent);
+      unsubs.push(() => sub2.unsubscribe());
     }
-    if (typeof window !== "undefined") {
-      window.addEventListener("online", handleOnline);
-    }
+
+    initStream();
 
     return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", handleVisibilityChange);
-      }
-      if (typeof window !== "undefined") {
-        window.removeEventListener("online", handleOnline);
+      active = false;
+      for (const unsub of unsubs) unsub();
+      if (streamClientRef.current) {
+        streamClientRef.current.disconnectUser().catch(() => {});
+        streamClientRef.current = null;
       }
     };
-  }, [revalidator]);
+  // ownerBookings intentionally omitted — we only need the first booking ID to bootstrap;
+  // re-running on every render would thrash the Stream connection.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planId]);
 
   function handleSuccess(clientEmail: string) {
     setToast(`Booking created — link sent to ${clientEmail}`);
