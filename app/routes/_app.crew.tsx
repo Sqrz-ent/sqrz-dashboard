@@ -16,6 +16,8 @@ type CrewProfile = {
   city: string | null;
   user_type: string | null;
   is_published: boolean | null;
+  is_claimed: boolean | null;
+  claim_token: string | null;
   profile_skills: Array<{
     skills: { name: string; category: string } | null;
   }>;
@@ -25,7 +27,6 @@ type LoaderData = {
   access: "full";
   profiles: CrewProfile[];
   total: number;
-  categories: string[];
   isAdmin: boolean;
 };
 
@@ -76,7 +77,7 @@ async function fetchProfiles(
   let query = supabase
     .from("profiles")
     .select(
-      "id, name, slug, avatar_url, city, user_type, is_published, profile_skills ( skill_id, skills ( name, category ) )",
+      "id, name, slug, avatar_url, city, user_type, is_published, is_claimed, claim_token, profile_skills ( skill_id, skills ( name, category ) )",
       { count: "exact" }
     )
     .eq("user_type", "member")
@@ -107,6 +108,16 @@ async function fetchProfiles(
   return { profiles: (data ?? []) as unknown as CrewProfile[], total: count ?? 0 };
 }
 
+function sanitizeProfilesForViewer(profiles: CrewProfile[], isAdmin: boolean): CrewProfile[] {
+  if (isAdmin) return profiles;
+
+  return profiles.map((profile) => ({
+    ...profile,
+    claim_token: null,
+    is_claimed: null,
+  }));
+}
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -121,20 +132,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   const userProfile = await getCurrentProfile(supabase, user.id);
   const isAdmin = Boolean(userProfile?.is_beta);
 
-  // Full access — load categories and first page in parallel
-  const [{ profiles, total }, categoriesResult] = await Promise.all([
-    fetchProfiles(supabase, { q: "", category: "", city: "", page: 1, includeUnpublished: isAdmin }),
-    supabase.from("skills").select("category").eq("is_visible", true),
-  ]);
-
-  const categories = [
-    ...new Set(
-      (categoriesResult.data ?? []).map((r: { category: string }) => r.category)
-    ),
-  ].sort() as string[];
+  const { profiles, total } = await fetchProfiles(supabase, {
+    q: "",
+    category: "",
+    city: "",
+    page: 1,
+    includeUnpublished: isAdmin,
+  });
 
   return Response.json(
-    { access: "full", profiles, total, categories, isAdmin },
+    { access: "full", profiles: sanitizeProfilesForViewer(profiles, isAdmin), total, isAdmin },
     { headers }
   );
 }
@@ -164,7 +171,10 @@ export async function action({ request }: Route.ActionArgs) {
     page,
     includeUnpublished: isAdmin,
   });
-  return Response.json(result);
+  return Response.json({
+    profiles: sanitizeProfilesForViewer(result.profiles, isAdmin),
+    total: result.total,
+  });
 }
 
 // ─── Profile card ─────────────────────────────────────────────────────────────
@@ -176,6 +186,10 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
 
   const visibleSkills = skills.slice(0, 4);
   const extraCount = skills.length - visibleSkills.length;
+  const claimUrl =
+    !profile.is_published && profile.slug && profile.claim_token
+      ? `https://${profile.slug}.sqrz.com?claim=${encodeURIComponent(profile.claim_token)}`
+      : null;
 
   const initials = (profile.name ?? profile.slug ?? "?")
     .split(/\s+/)
@@ -247,7 +261,7 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
         </div>
 
         {isAdmin && (
-          <div style={{ marginBottom: 8 }}>
+          <div style={{ marginBottom: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
             <span
               style={{
                 fontSize: 10,
@@ -261,6 +275,20 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
               }}
             >
               {profile.is_published ? "Published" : "Draft"}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+                borderRadius: 999,
+                padding: "3px 7px",
+                background: profile.is_claimed ? "rgba(74,222,128,0.14)" : "rgba(96,165,250,0.14)",
+                color: profile.is_claimed ? "#4ade80" : "#60a5fa",
+              }}
+            >
+              {profile.is_claimed ? "Claimed" : "Claim profile"}
             </span>
           </div>
         )}
@@ -309,6 +337,62 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
             )}
           </div>
         )}
+
+        {isAdmin && claimUrl && (
+          <div
+            onClick={(event) => event.preventDefault()}
+            style={{
+              marginTop: 12,
+              paddingTop: 12,
+              borderTop: "1px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
+            <div style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Claim link
+            </div>
+            <input
+              readOnly
+              value={claimUrl}
+              onFocus={(event) => event.currentTarget.select()}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                background: "rgba(245,166,35,0.06)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                color: "var(--text)",
+                fontSize: 11,
+                boxSizing: "border-box",
+              }}
+            />
+            <button
+              type="button"
+              onClick={async (event) => {
+                event.preventDefault();
+                try {
+                  await navigator.clipboard.writeText(claimUrl);
+                } catch {
+                  window.prompt("Copy claim link", claimUrl);
+                }
+              }}
+              style={{
+                background: "#F5A623",
+                color: "#111111",
+                border: "none",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                padding: "9px 10px",
+                cursor: "pointer",
+              }}
+            >
+              Copy claim link
+            </button>
+          </div>
+        )}
       </div>
     </a>
   );
@@ -318,14 +402,12 @@ function ProfileCard({ profile, isAdmin }: { profile: CrewProfile; isAdmin: bool
 
 export default function Crew() {
   const loaderData = useLoaderData<typeof loader>() as LoaderData;
-  const { profiles: initialProfiles, total: initialTotal, categories, isAdmin } = loaderData;
+  const { profiles: initialProfiles, total: initialTotal, isAdmin } = loaderData;
 
   const fetcher = useFetcher<ActionData>();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [q, setQ] = useState("");
-  const [category, setCategory] = useState("");
-  const [city, setCity] = useState("");
   const [page, setPage] = useState(1);
 
   const profiles = fetcher.data?.profiles ?? initialProfiles;
@@ -357,30 +439,15 @@ export default function Crew() {
     clearDebounce();
     debounceRef.current = setTimeout(() => {
       setPage(1);
-      submit({ q, category, city, page: 1 });
+      submit({ q, category: "", city: "", page: 1 });
     }, 300);
     return clearDebounce;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [q]);
 
-  function handleCategoryChange(val: string) {
-    setCategory(val);
-    setPage(1);
-    submit({ q, category: val, city, page: 1 });
-  }
-
-  function handleCityChange(val: string) {
-    setCity(val);
-    clearDebounce();
-    debounceRef.current = setTimeout(() => {
-      setPage(1);
-      submit({ q, category, city: val, page: 1 });
-    }, 300);
-  }
-
   function goToPage(newPage: number) {
     setPage(newPage);
-    submit({ q, category, city, page: newPage });
+    submit({ q, category: "", city: "", page: newPage });
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -419,29 +486,8 @@ export default function Crew() {
           type="text"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name, handle, city…"
+          placeholder="Search by name or handle…"
           style={{ ...inputBase, flex: "1 1 240px", minWidth: 0 }}
-        />
-
-        <select
-          value={category}
-          onChange={(e) => handleCategoryChange(e.target.value)}
-          style={{ ...inputBase, flex: "0 1 180px", cursor: "pointer" }}
-        >
-          <option value="">All categories</option>
-          {categories.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
-            </option>
-          ))}
-        </select>
-
-        <input
-          type="text"
-          value={city}
-          onChange={(e) => handleCityChange(e.target.value)}
-          placeholder="Filter by city"
-          style={{ ...inputBase, flex: "0 1 160px" }}
         />
       </div>
 
