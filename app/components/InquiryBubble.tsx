@@ -110,6 +110,8 @@ export default function InquiryBubble({
   const pollKey = useMemo(() => currentThreadId ?? "none", [currentThreadId]);
   const activeThread = session?.threads.find((thread) => thread.id === currentThreadId) ?? session?.threads[0] ?? null;
   const waitingThreads = session?.threads.filter((thread) => thread.id !== activeThread?.id) ?? [];
+  const launcherBottom = "max(88px, calc(env(safe-area-inset-bottom) + 20px))";
+  const panelBottom = "max(160px, calc(env(safe-area-inset-bottom) + 92px))";
 
   useEffect(() => {
     if (!activeThread || convertOpen) return;
@@ -362,7 +364,7 @@ export default function InquiryBubble({
           style={{
             position: "fixed",
             right: 20,
-            bottom: 92,
+            bottom: panelBottom,
             width: "min(360px, calc(100vw - 32px))",
             height: 480,
             background: "var(--surface)",
@@ -594,7 +596,7 @@ export default function InquiryBubble({
         style={{
           position: "fixed",
           right: 20,
-          bottom: 20,
+          bottom: launcherBottom,
           width: 58,
           height: 58,
           borderRadius: "50%",
