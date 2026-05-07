@@ -842,64 +842,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ ok: true }, { headers });
   }
 
-  if (intent === "invite_team_member") {
-    const name  = ((formData.get("name")  as string) ?? "").trim();
-    const email = ((formData.get("email") as string) ?? "").trim().toLowerCase();
-    const role  = ((formData.get("role")  as string) ?? "").trim();
-    const pay   = parseFloat(formData.get("pay") as string) || null;
-
-    if (!email.includes("@")) return Response.json({ error: "Invalid email" }, { status: 400, headers });
-
-    const { data: existing } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("email", email)
-      .maybeSingle();
-
-    let guestProfileId: string | null = existing?.id ?? null;
-    if (!guestProfileId) {
-      const { data: newProfile } = await supabase
-        .from("profiles")
-        .insert({ email, name, user_type: "guest", is_published: false, created_by: "team_invite" })
-        .select("id")
-        .single();
-      guestProfileId = newProfile?.id ?? null;
-    }
-
-    const inviteToken = crypto.randomUUID();
-    const { data: participant, error: participantError } = await supabase
-      .from("booking_participants")
-      .insert({ booking_id: params.id, user_id: null, name, email, role, pay, is_admin: false, invite_token: inviteToken })
-      .select()
-      .single();
-
-    if (participantError) return Response.json({ error: participantError.message }, { status: 500, headers });
-    console.log("[invite] participant:", participant?.id);
-
-    try {
-      const admin = createSupabaseAdminClient();
-      const next = encodeURIComponent(`/booking/${params.id}?token=${inviteToken}`);
-      const redirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
-      const { data: linkData } = await admin.auth.admin.generateLink({
-        type: "magiclink",
-        email,
-        options: { redirectTo },
-      });
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({
-        from: "SQRZ <bookings@sqrz.com>",
-        to: email,
-        subject: "You've been invited to a booking",
-        html: `<p>Hi ${name},</p><p>You've been invited to collaborate on a booking.</p><p><a href="${linkData?.properties?.action_link}">Click here to access the booking</a></p><p>The SQRZ Team</p>`,
-      });
-    } catch (err) {
-      console.error("[invite] email send failed:", err);
-    }
-
-    return Response.json({ ok: true, invited: email }, { headers });
-  }
-
   if (intent === "mark_as_paid") {
     await supabase
       .from("bookings")
