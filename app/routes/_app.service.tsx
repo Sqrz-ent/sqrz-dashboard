@@ -324,6 +324,16 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  if (intent === "toggle_inquiry_chat_enabled") {
+    const enabled = formData.get("enabled") === "true";
+    const { error } = await supabase
+      .from("profiles")
+      .update({ inquiry_chat_enabled: enabled })
+      .eq("id", profile.id as string);
+
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   if (intent === "update_service") {
     const id = formData.get("id") as string;
     const priceOnRequest = formData.get("price_on_request") === "true";
@@ -794,6 +804,7 @@ export default function ServicePage() {
   const reorderFetcher = useFetcher();
   const businessFetcher = useFetcher();
   const eInvoiceFetcher = useFetcher();
+  const inquiryChatFetcher = useFetcher();
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -802,11 +813,16 @@ export default function ServicePage() {
   });
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [selectedLegalForm, setSelectedLegalForm] = useState<string>((profile.legal_form as string) ?? "");
+  const [inquiryChatEnabled, setInquiryChatEnabled] = useState<boolean>((profile.inquiry_chat_enabled as boolean | null) !== false);
 
   // Keep local state in sync when loader re-runs (after add/delete/edit)
   useEffect(() => {
     setServices(initialServices);
   }, [initialServices]);
+
+  useEffect(() => {
+    setInquiryChatEnabled((profile.inquiry_chat_enabled as boolean | null) !== false);
+  }, [profile.inquiry_chat_enabled]);
 
   // Revert optimistic toggle on error
   useEffect(() => {
@@ -821,6 +837,19 @@ export default function ServicePage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFetcher.state, activeFetcher.data]);
+
+  useEffect(() => {
+    if (inquiryChatFetcher.state !== "idle") return;
+    const data = inquiryChatFetcher.data as { ok?: boolean; error?: string } | undefined;
+    if (!data) return;
+    if (!data.ok) {
+      setInquiryChatEnabled((profile.inquiry_chat_enabled as boolean | null) !== false);
+      setToggleError(data.error ?? "Failed to update");
+      const t = setTimeout(() => setToggleError(null), 2500);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inquiryChatFetcher.state, inquiryChatFetcher.data]);
 
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
@@ -1181,6 +1210,114 @@ export default function ServicePage() {
             {businessFetcher.state !== "idle" ? "Saving…" : "Save"}
           </button>
         </businessFetcher.Form>
+      </div>
+
+      <div style={card}>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Communications</h2>
+
+        <div style={{ ...subtleCard, marginBottom: 0 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+            <div>
+              <p style={{ ...labelStyle, marginBottom: 8 }}>Profile Inquiry Chat</p>
+              <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                Allow new inquiries
+              </p>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY, maxWidth: 620 }}>
+                Show the premium chat bubble on your profile and private link pages. Turn this off if you do not want to receive new inquiries right now.
+              </p>
+            </div>
+            <div style={{ flexShrink: 0, textAlign: "right" }}>
+              {hasPaidPlan ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInquiryChatEnabled((value) => !value);
+                      const fd = new FormData();
+                      fd.append("intent", "toggle_inquiry_chat_enabled");
+                      fd.append("enabled", String(!inquiryChatEnabled));
+                      inquiryChatFetcher.submit(fd, { method: "post" });
+                    }}
+                    disabled={inquiryChatFetcher.state !== "idle"}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "8px 12px",
+                      borderRadius: 999,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      cursor: inquiryChatFetcher.state !== "idle" ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    <span style={{ fontSize: 12, fontWeight: 700, color: inquiryChatEnabled ? ACCENT : "var(--text-muted)", fontFamily: FONT_BODY }}>
+                      {inquiryChatEnabled ? "On" : "Off"}
+                    </span>
+                    <span style={{
+                      width: 36,
+                      height: 20,
+                      borderRadius: 999,
+                      background: inquiryChatEnabled ? ACCENT : "var(--surface-muted)",
+                      position: "relative",
+                      display: "inline-block",
+                    }}>
+                      <span style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: "50%",
+                        background: inquiryChatEnabled ? "#111" : "var(--text-muted)",
+                        position: "absolute",
+                        top: 3,
+                        left: inquiryChatEnabled ? 19 : 3,
+                      }} />
+                    </span>
+                  </button>
+                  <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                    Included in your plan
+                  </p>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "8px 12px",
+                    borderRadius: 999,
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    opacity: 0.75,
+                  }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", fontFamily: FONT_BODY }}>
+                      Off
+                    </span>
+                    <span style={{
+                      width: 36,
+                      height: 20,
+                      borderRadius: 999,
+                      background: "var(--surface-muted)",
+                      position: "relative",
+                      display: "inline-block",
+                    }}>
+                      <span style={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: "50%",
+                        background: "var(--text-muted)",
+                        position: "absolute",
+                        top: 3,
+                        left: 3,
+                      }} />
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                    Upgrade to unlock
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div style={card}>
