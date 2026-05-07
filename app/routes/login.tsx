@@ -100,8 +100,14 @@ export default function Login() {
   }
 
   function handleSubmit() {
-    if (showPassword) loginWithPassword();
-    else sendMagicLink();
+    if (showPassword) {
+      loginWithPassword();
+      return;
+    }
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
+    setError("");
+    setShowPassword(true);
   }
 
   return (
@@ -247,14 +253,15 @@ export default function Login() {
                 style={{ ...primaryButtonStyle, marginBottom: 16, opacity: loading ? 0.6 : 1 }}
               >
                 {loading
-                  ? showPassword ? "Logging in…" : "Sending…"
-                  : showPassword ? "Login" : "Send Magic Link"}
+                  ? showPassword ? "Logging in…" : "Opening…"
+                  : showPassword ? "Login" : "Login with password"}
               </button>
 
               {/* ── Toggle link ─────────────────────────────────────────── */}
               <div style={{ textAlign: "center" }}>
                 <button
-                  onClick={toggleMode}
+                  onClick={showPassword ? toggleMode : sendMagicLink}
+                  disabled={loading}
                   style={{
                     background: "none",
                     border: "none",
@@ -263,9 +270,10 @@ export default function Login() {
                     cursor: "pointer",
                     padding: 0,
                     fontFamily: "inherit",
+                    opacity: loading ? 0.6 : 1,
                   }}
                 >
-                  {showPassword ? "Use magic link instead" : "Login with password"}
+                  {showPassword ? "Use magic link instead" : "Send Magic Link"}
                 </button>
               </div>
             </>
