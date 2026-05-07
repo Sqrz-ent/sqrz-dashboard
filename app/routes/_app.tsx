@@ -124,6 +124,7 @@ const topNavItems = [
 const bottomNavItems = [
   { to: "/", label: "Dashboard", icon: "⊞", end: true },
   { to: "/office", label: "Office", icon: "📋" },
+  { to: "/crew", label: "Crew", icon: "👥" },
 ];
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
