@@ -722,6 +722,26 @@ export default function BookingChat({
               fontFamily={fontFamily}
             />
           )}
+
+          {/* Upgrade prompt — free-tier owner only */}
+          {messagingProvider === "supabase" && isOwner && (
+            <p
+              style={{
+                fontSize: 11,
+                color: "var(--text-muted)",
+                textAlign: "center",
+                margin: 0,
+                padding: "6px 12px 10px",
+                flexShrink: 0,
+                fontFamily,
+              }}
+            >
+              <a href="/account" style={{ color: "var(--text-muted)", fontWeight: 600, textDecoration: "underline" }}>
+                Upgrade
+              </a>
+              {" to unlock image sharing, typing indicators and read receipts"}
+            </p>
+          )}
         </div>
       )}
 
