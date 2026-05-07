@@ -3,6 +3,7 @@ import { redirect, useLoaderData, useFetcher, useSearchParams } from "react-rout
 import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { getPushPublicKey, isPushConfigured } from "~/lib/push.server";
 import Modal from "~/components/Modal";
 import {
   DndContext,
@@ -179,6 +180,19 @@ const COUNTRY_LABEL_BY_CODE: Record<string, string> = {
   ZA: "South Africa",
 };
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
 function normalizeCountryValue(value: string | null | undefined): string {
   if (!value) return "";
   const trimmed = value.trim();
@@ -234,7 +248,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("profile_id", profile.id as string)
     .order("sort_order", { ascending: true });
 
-  return Response.json({ profile, services: services ?? [] }, { headers });
+  return Response.json(
+    {
+      profile,
+      services: services ?? [],
+      webPushPublicKey: isPushConfigured() ? getPushPublicKey() : "",
+    },
+    { headers }
+  );
 }
 
 export async function action({ request }: Route.ActionArgs) {
@@ -792,9 +813,10 @@ function ServiceModal({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ServicePage() {
-  const { profile, services: initialServices } = useLoaderData<typeof loader>() as {
+  const { profile, services: initialServices, webPushPublicKey } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     services: Service[];
+    webPushPublicKey: string;
   };
   const [searchParams] = useSearchParams();
 
@@ -814,6 +836,11 @@ export default function ServicePage() {
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [selectedLegalForm, setSelectedLegalForm] = useState<string>((profile.legal_form as string) ?? "");
   const [inquiryChatEnabled, setInquiryChatEnabled] = useState<boolean>((profile.inquiry_chat_enabled as boolean | null) !== false);
+  const [pushSupported, setPushSupported] = useState(false);
+  const [pushPermission, setPushPermission] = useState<string>("default");
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushFeedback, setPushFeedback] = useState<string | null>(null);
 
   // Keep local state in sync when loader re-runs (after add/delete/edit)
   useEffect(() => {
@@ -823,6 +850,38 @@ export default function ServicePage() {
   useEffect(() => {
     setInquiryChatEnabled((profile.inquiry_chat_enabled as boolean | null) !== false);
   }, [profile.inquiry_chat_enabled]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPushState() {
+      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window) || !webPushPublicKey) {
+        if (!cancelled) {
+          setPushSupported(false);
+        }
+        return;
+      }
+
+      try {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (!cancelled) {
+          setPushSupported(true);
+          setPushPermission(Notification.permission);
+          setPushSubscribed(!!subscription);
+        }
+      } catch {
+        if (!cancelled) {
+          setPushSupported(false);
+        }
+      }
+    }
+
+    void loadPushState();
+    return () => {
+      cancelled = true;
+    };
+  }, [webPushPublicKey]);
 
   // Revert optimistic toggle on error
   useEffect(() => {
@@ -850,6 +909,114 @@ export default function ServicePage() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inquiryChatFetcher.state, inquiryChatFetcher.data]);
+
+  async function refreshPushState() {
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window) || !webPushPublicKey) {
+      setPushSupported(false);
+      return;
+    }
+
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    setPushSupported(true);
+    setPushPermission(Notification.permission);
+    setPushSubscribed(!!subscription);
+  }
+
+  async function enablePushNotifications() {
+    if (!webPushPublicKey || pushBusy) return;
+
+    setPushBusy(true);
+    setPushFeedback(null);
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+      if (permission !== "granted") {
+        throw new Error("Notification permission was not granted");
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(webPushPublicKey),
+        });
+      }
+
+      const response = await fetch("/api/push/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          keys: subscription.toJSON().keys,
+          platform: navigator.platform,
+          userAgent: navigator.userAgent,
+          appScope: registration.scope,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to save push subscription");
+      }
+
+      await refreshPushState();
+      setPushFeedback("Instant alerts enabled.");
+    } catch (error) {
+      setPushFeedback(error instanceof Error ? error.message : "Failed to enable notifications");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function disablePushNotifications() {
+    if (pushBusy) return;
+
+    setPushBusy(true);
+    setPushFeedback(null);
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await fetch("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        await subscription.unsubscribe();
+      }
+      await refreshPushState();
+      setPushFeedback("Instant alerts disabled.");
+    } catch (error) {
+      setPushFeedback(error instanceof Error ? error.message : "Failed to disable notifications");
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
+  async function sendTestPushNotification() {
+    if (pushBusy) return;
+    setPushBusy(true);
+    setPushFeedback(null);
+    try {
+      const response = await fetch("/api/push/test", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to send test notification");
+      }
+
+      if (payload?.sent > 0) {
+        setPushFeedback("Test notification sent.");
+      } else {
+        setPushFeedback("No active push subscription found yet.");
+      }
+    } catch (error) {
+      setPushFeedback(error instanceof Error ? error.message : "Failed to send test notification");
+    } finally {
+      setPushBusy(false);
+    }
+  }
 
   const planId = profile.plan_id as number | null | undefined;
   const isPremium = !!planId && planId > 0;
@@ -1215,7 +1382,7 @@ export default function ServicePage() {
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Communications</h2>
 
-        <div style={{ ...subtleCard, marginBottom: 0 }}>
+        <div style={{ ...subtleCard, marginBottom: 14 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
             <div>
               <p style={{ ...labelStyle, marginBottom: 8 }}>Profile Inquiry Chat</p>
@@ -1312,6 +1479,78 @@ export default function ServicePage() {
                   </div>
                   <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
                     Upgrade to unlock
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div style={subtleCard}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+            <div>
+              <p style={{ ...labelStyle, marginBottom: 8 }}>Instant Alerts</p>
+              <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px", fontFamily: FONT_BODY }}>
+                Push notifications
+              </p>
+              <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, fontFamily: FONT_BODY, maxWidth: 620 }}>
+                Get high-priority inquiry alerts on your installed SQRZ app. Best experience on mobile comes from adding SQRZ to your Home Screen first.
+              </p>
+              {pushFeedback && (
+                <p style={{ color: pushFeedback.includes("Failed") || pushFeedback.includes("not") ? "#f87171" : ACCENT, fontSize: 12, margin: "10px 0 0", fontFamily: FONT_BODY, fontWeight: 700 }}>
+                  {pushFeedback}
+                </p>
+              )}
+            </div>
+            <div style={{ flexShrink: 0, textAlign: "right", display: "grid", gap: 8 }}>
+              {!hasPaidPlan ? (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>Upgrade to unlock</p>
+              ) : !webPushPublicKey ? (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>Push not configured</p>
+              ) : !pushSupported ? (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>This browser does not support push here</p>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => void (pushSubscribed ? disablePushNotifications() : enablePushNotifications())}
+                    disabled={pushBusy}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 10,
+                      border: pushSubscribed ? "1px solid var(--border)" : "none",
+                      background: pushSubscribed ? "var(--surface)" : ACCENT,
+                      color: pushSubscribed ? "var(--text)" : "#111",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: pushBusy ? "not-allowed" : "pointer",
+                      fontFamily: FONT_BODY,
+                      opacity: pushBusy ? 0.65 : 1,
+                    }}
+                  >
+                    {pushSubscribed ? "Disable alerts" : "Enable alerts"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void sendTestPushNotification()}
+                    disabled={pushBusy || !pushSubscribed}
+                    style={{
+                      padding: "10px 14px",
+                      borderRadius: 10,
+                      border: "1px solid var(--border)",
+                      background: "var(--surface)",
+                      color: "var(--text)",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      cursor: pushBusy || !pushSubscribed ? "not-allowed" : "pointer",
+                      fontFamily: FONT_BODY,
+                      opacity: pushBusy || !pushSubscribed ? 0.55 : 1,
+                    }}
+                  >
+                    Send test
+                  </button>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY, fontWeight: 700 }}>
+                    {pushSubscribed ? "Alerts active" : pushPermission === "denied" ? "Permission denied" : "Alerts off"}
                   </p>
                 </>
               )}

@@ -1,4 +1,5 @@
 import { Resend } from "resend";
+import { sendNotificationEvent } from "~/lib/push.server";
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
 
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -34,6 +35,22 @@ export async function action({ request }: { request: Request }) {
     "there";
 
   const senderLabel = buyerEmail || "Your client";
+  const messagePreview = typeof message === "string" ? message.replace(/\s+/g, " ").trim().slice(0, 160) : "";
+
+  try {
+    await sendNotificationEvent({
+      profileId: booking.owner_id as string,
+      recipientProfileId: booking.owner_id as string,
+      actorProfileId: null,
+      type: "booking_message",
+      sourceId: bookingId,
+      title: `New booking message from ${senderLabel}`,
+      body: messagePreview || `New message about ${booking.title ?? "your booking"}`,
+      targetUrl: `/booking/${bookingId}`,
+    });
+  } catch {
+    // Non-fatal — email fallback below still runs.
+  }
 
   try {
     await resend.emails.send({
