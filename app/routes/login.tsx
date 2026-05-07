@@ -32,6 +32,17 @@ const primaryButtonStyle: React.CSSProperties = {
   marginBottom: 0,
 };
 
+const authLoaderOverlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 100,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background:
+    "radial-gradient(circle at 50% 16%, rgba(245, 166, 35, 0.28), transparent 42%), linear-gradient(180deg, #fff5e8 0%, #f7efe1 100%)",
+};
+
 // ─── Loader — redirect to dashboard if already logged in ──────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -57,6 +68,7 @@ export default function Login() {
   const [loading, setLoading]         = useState(false);
   const [error, setError]             = useState("");
   const [magicSent, setMagicSent]     = useState(false);
+  const [authPhase, setAuthPhase]     = useState<"idle" | "password" | "magic">("idle");
 
   function toggleMode() {
     setShowPassword((v) => !v);
@@ -67,6 +79,7 @@ export default function Login() {
     const trimmed = email.trim().toLowerCase();
     if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
     setLoading(true);
+    setAuthPhase("magic");
     setError("");
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
@@ -79,6 +92,7 @@ export default function Login() {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
+      setAuthPhase("idle");
     }
   }
 
@@ -87,15 +101,21 @@ export default function Login() {
     if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
     if (!password)               { setError("Enter your password"); return; }
     setLoading(true);
+    setAuthPhase("password");
     setError("");
+    let didRedirect = false;
     try {
       const { error: err } = await supabase.auth.signInWithPassword({ email: trimmed, password });
       if (err) throw err;
+      didRedirect = true;
       window.location.href = "/";
     } catch {
       setError("Invalid email or password");
+      setAuthPhase("idle");
     } finally {
-      setLoading(false);
+      if (!didRedirect) {
+        setLoading(false);
+      }
     }
   }
 
@@ -122,6 +142,52 @@ export default function Login() {
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
       }}
     >
+      {loading && (
+        <div style={authLoaderOverlayStyle}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 18,
+              textAlign: "center",
+              color: "#171717",
+            }}
+          >
+            <img
+              src="/sqrz-logo-mark.png"
+              alt="SQRZ"
+              style={{ width: 112, height: 112, objectFit: "contain", display: "block" }}
+            />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div
+                style={{
+                  fontFamily: '"Barlow Condensed", Impact, sans-serif',
+                  fontSize: 34,
+                  lineHeight: 0.9,
+                  letterSpacing: "0.12em",
+                  color: "#F5A623",
+                }}
+              >
+                SQRZ
+              </div>
+              <div style={{ fontSize: 15, color: "rgba(23,23,23,0.68)" }}>
+                {authPhase === "password" ? "Logging you in..." : "Sending your magic link..."}
+              </div>
+            </div>
+            <div
+              style={{
+                width: 54,
+                height: 54,
+                borderRadius: 999,
+                border: "3px solid rgba(23,23,23,0.12)",
+                borderTopColor: "#171717",
+                animation: "sqrzAuthSpin 900ms linear infinite",
+              }}
+            />
+          </div>
+        </div>
+      )}
       <div style={{ width: "100%", maxWidth: 420 }}>
 
 
@@ -289,6 +355,13 @@ export default function Login() {
         </p>
 
       </div>
+      <style>{`
+        @keyframes sqrzAuthSpin {
+          to {
+            transform: rotate(360deg);
+          }
+        }
+      `}</style>
     </div>
   );
 }
