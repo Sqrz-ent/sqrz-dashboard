@@ -6,6 +6,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { StreamChat } from "stream-chat";
 import { supabase } from "~/lib/supabase.client";
 import type { MessagingProvider } from "~/lib/messaging/types";
+import AttachmentSheet from "./AttachmentSheet";
+import MessageAttachment from "./MessageAttachment";
+
+interface MessageAttachmentData {
+  type: string;
+  image_url?: string;
+  fallback?: string;
+}
 
 interface Message {
   id: string;
@@ -14,6 +22,7 @@ interface Message {
   sender_name: string | null;
   message: string | null;
   created_at: string;
+  attachments?: MessageAttachmentData[];
 }
 
 function mapStreamMessages(channelMessages: Array<Record<string, any>>, bookingId: string): Message[] {
@@ -24,6 +33,13 @@ function mapStreamMessages(channelMessages: Array<Record<string, any>>, bookingI
     sender_name: (message.user?.name as string | undefined) ?? null,
     message: (message.text as string | undefined) ?? null,
     created_at: (message.created_at as string | undefined) ?? new Date().toISOString(),
+    attachments: Array.isArray(message.attachments)
+      ? (message.attachments as Array<Record<string, unknown>>).map((a) => ({
+          type: String(a.type ?? ""),
+          image_url: a.image_url ? String(a.image_url) : undefined,
+          fallback: a.fallback ? String(a.fallback) : undefined,
+        }))
+      : undefined,
   }));
 }
 
@@ -59,6 +75,9 @@ export default function BookingChat({
   const [streamError, setStreamError] = useState<string | null>(null);
   const [otherPartyTyping, setOtherPartyTyping] = useState(false);
   const [otherPartySeen, setOtherPartySeen] = useState(false);
+  const [attachSheetOpen, setAttachSheetOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [authUser, setAuthUser] = useState<{ id: string; email: string } | null>(null);
   const [currentSenderId, setCurrentSenderId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -325,6 +344,43 @@ export default function BookingChat({
     }
   }
 
+  // ── Attach image (Stream only) ────────────────────────────────────────────────
+  async function handleAttachFile(file: File) {
+    setUploadError(null);
+
+    if (!file.type.startsWith("image/")) {
+      setUploadError("Only image files are supported.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setUploadError("Image must be 5 MB or smaller.");
+      return;
+    }
+    if (!streamChannelRef.current) {
+      setUploadError("Chat is not ready. Please try again.");
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const result = await (streamChannelRef.current as any).sendImage(file) as { file: string };
+      const imageUrl = result.file;
+      (streamChannelRef.current as any).stopTyping?.()?.catch?.(() => {});
+      await streamChannelRef.current.sendMessage({
+        text: "",
+        attachments: [{ type: "image", image_url: imageUrl, fallback: file.name }],
+      });
+      setMessages(mapStreamMessages(
+        streamChannelRef.current.state.messages as Array<Record<string, any>>,
+        bookingId
+      ));
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Failed to upload image.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   // ── Styles ───────────────────────────────────────────────────────────────────
   const accent = "#F5A623";
   const dark = "var(--surface)";
@@ -478,7 +534,12 @@ export default function BookingChat({
                           {senderLabel}
                         </p>
                       )}
-                      <p style={{ margin: 0 }}>{msg.message}</p>
+                      {msg.message && <p style={{ margin: 0 }}>{msg.message}</p>}
+                      {msg.attachments?.map((att, i) =>
+                        att.type === "image" && att.image_url ? (
+                          <MessageAttachment key={i} url={att.image_url} fallback={att.fallback} />
+                        ) : null
+                      )}
                       <p
                         style={{
                           fontSize: 10,
@@ -555,6 +616,21 @@ export default function BookingChat({
             <div ref={bottomRef} />
           </div>
 
+          {/* Upload error */}
+          {uploadError && (
+            <p
+              style={{
+                fontSize: 11,
+                color: "#fca5a5",
+                padding: "0 12px 6px",
+                margin: 0,
+                flexShrink: 0,
+              }}
+            >
+              {uploadError}
+            </p>
+          )}
+
           {/* Input row */}
           <div
             style={{
@@ -565,6 +641,30 @@ export default function BookingChat({
               flexShrink: 0,
             }}
           >
+            {messagingProvider === "stream" && (
+              <button
+                onClick={() => { setUploadError(null); setAttachSheetOpen(true); }}
+                disabled={uploading || loading}
+                aria-label="Attach image"
+                style={{
+                  width: 36,
+                  height: 36,
+                  padding: 0,
+                  background: "var(--surface-muted)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 9,
+                  fontSize: 16,
+                  cursor: uploading || loading ? "default" : "pointer",
+                  opacity: uploading || loading ? 0.5 : 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                {uploading ? "…" : "📎"}
+              </button>
+            )}
             <input
               value={text}
               onChange={(e) => {
@@ -580,7 +680,7 @@ export default function BookingChat({
                 }
               }}
               placeholder="Type a message…"
-              disabled={sending || loading}
+              disabled={sending || loading || uploading}
               style={{
                 flex: 1,
                 background: "var(--surface)",
@@ -591,12 +691,12 @@ export default function BookingChat({
                 fontSize: 16,
                 outline: "none",
                 fontFamily,
-                opacity: sending || loading ? 0.6 : 1,
+                opacity: sending || loading || uploading ? 0.6 : 1,
               }}
             />
             <button
               onClick={handleSend}
-              disabled={!text.trim() || sending || loading}
+              disabled={!text.trim() || sending || loading || uploading}
               style={{
                 padding: "9px 14px",
                 background: accent,
@@ -605,8 +705,8 @@ export default function BookingChat({
                 borderRadius: 9,
                 fontSize: 12,
                 fontWeight: 700,
-                cursor: !text.trim() || sending || loading ? "default" : "pointer",
-                opacity: !text.trim() || sending || loading ? 0.5 : 1,
+                cursor: !text.trim() || sending || loading || uploading ? "default" : "pointer",
+                opacity: !text.trim() || sending || loading || uploading ? 0.5 : 1,
                 fontFamily,
                 flexShrink: 0,
               }}
@@ -614,6 +714,14 @@ export default function BookingChat({
               Send
             </button>
           </div>
+
+          {attachSheetOpen && (
+            <AttachmentSheet
+              onFile={handleAttachFile}
+              onClose={() => setAttachSheetOpen(false)}
+              fontFamily={fontFamily}
+            />
+          )}
         </div>
       )}
 
