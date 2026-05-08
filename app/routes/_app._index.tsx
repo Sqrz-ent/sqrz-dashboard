@@ -746,9 +746,6 @@ export default function DashboardIndex() {
                 <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
                   Push notifications
                 </p>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
-                  Instant alerts are designed for the installed SQRZ app on mobile. Add SQRZ to your Home Screen and enable alerts there for the most reliable experience.
-                </p>
                 {pushFeedback && (
                   <p style={{ color: pushFeedback.includes("Failed") || pushFeedback.includes("not") ? "#f87171" : ACCENT, fontSize: 12, margin: "10px 0 0", fontWeight: 700 }}>
                     {pushFeedback}
