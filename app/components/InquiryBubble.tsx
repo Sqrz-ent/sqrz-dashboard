@@ -541,33 +541,6 @@ export default function InquiryBubble({
             <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
               {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
 
-              {/* Convert CTA */}
-              <button
-                onClick={() => {
-                  setConvertingThreadId(activeThread.id);
-                  setNewBookingPrefill({
-                    client_name: activeThread.visitorName ?? undefined,
-                    client_email: activeThread.visitorEmail ?? undefined,
-                  });
-                  setNewBookingOpen(true);
-                }}
-                disabled={updatingStatus}
-                style={{
-                  width: "100%",
-                  background: "#F5A623",
-                  color: "#111",
-                  border: "none",
-                  borderRadius: 10,
-                  padding: "11px 16px",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: updatingStatus ? "default" : "pointer",
-                  opacity: updatingStatus ? 0.55 : 1,
-                }}
-              >
-                Create Proposal
-              </button>
-
               {/* Reply input */}
               <div style={{ display: "flex", gap: 8 }}>
                 <input
@@ -613,6 +586,33 @@ export default function InquiryBubble({
                   Send
                 </button>
               </div>
+
+              {/* Convert CTA — pinned last */}
+              <button
+                onClick={() => {
+                  setConvertingThreadId(activeThread.id);
+                  setNewBookingPrefill({
+                    client_name: activeThread.visitorName ?? undefined,
+                    client_email: activeThread.visitorEmail ?? undefined,
+                  });
+                  setNewBookingOpen(true);
+                }}
+                disabled={updatingStatus}
+                style={{
+                  width: "100%",
+                  background: "#F5A623",
+                  color: "#111",
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "11px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: updatingStatus ? "default" : "pointer",
+                  opacity: updatingStatus ? 0.55 : 1,
+                }}
+              >
+                Create Proposal
+              </button>
             </div>
           )}
         </div>
