@@ -23,9 +23,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
 
-  console.log("profile loaded:", JSON.stringify(profile));
-  console.log("[loader] profile:", profile?.id, profile?.plan_id);
-
   if (profile?.user_type === 'guest') {
     const url = new URL(request.url);
     const next = url.searchParams.get('next');
@@ -39,7 +36,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect('/dashboard');
   }
 
-  // Fetch subscription + plan for AccountPanel (parallel queries)
+  // Fetch subscription + services in parallel; plan query follows subscription result
   let subscriptionData: {
     planName: string;
     planDescription: string | null;
@@ -47,18 +44,27 @@ export async function loader({ request }: Route.LoaderArgs) {
     currentPeriodEnd: string | null;
   } = { planName: "No plan", planDescription: null, status: null, currentPeriodEnd: null };
 
+  const [subQueryResult, servicesResult] = profile
+    ? await Promise.all([
+        supabase
+          .from("subscriptions")
+          .select("status, current_period_end, stripe_price_id")
+          .eq("profile_id", profile.id as string)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("profile_services")
+          .select("id, title, booking_type")
+          .eq("profile_id", profile.id as string)
+          .eq("is_active", true)
+          .order("sort_order"),
+      ])
+    : [{ data: null }, { data: [] as Array<{ id: string; title: string; booking_type: string }> }];
+
   if (profile) {
     const planId = profile.plan_id as number | null | undefined;
-
-    const subResult = await supabase
-      .from("subscriptions")
-      .select("status, current_period_end, stripe_price_id")
-      .eq("profile_id", profile.id as string)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const sub = subResult.data as Record<string, unknown> | null;
+    const sub = subQueryResult.data as Record<string, unknown> | null;
     const priceId = sub?.stripe_price_id as string | null;
 
     const planResult = priceId
@@ -78,17 +84,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       currentPeriodEnd: sub?.current_period_end as string ?? null,
     };
   }
-
-  console.log("[loader] subscription:", subscriptionData);
-
-  const servicesResult = profile
-    ? await supabase
-        .from("profile_services")
-        .select("id, title, booking_type")
-        .eq("profile_id", profile.id as string)
-        .eq("is_active", true)
-        .order("sort_order")
-    : { data: [] };
 
   return Response.json(
     {
