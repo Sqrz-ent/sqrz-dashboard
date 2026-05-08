@@ -409,7 +409,7 @@ export default function InquiryBubble({
           >
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-                {activeThread ? visitorName : "Live inquiry"}
+                {activeThread ? visitorName : "Proposal Pipeline"}
               </div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
                 <span>
