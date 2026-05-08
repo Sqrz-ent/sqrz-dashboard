@@ -86,6 +86,7 @@ export default function InquiryBubble({
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [visitorTyping, setVisitorTyping] = useState(false);
+  const [otherPartySeen, setOtherPartySeen] = useState(false);
   const [newBookingOpen, setNewBookingOpen] = useState(false);
   const [newBookingPrefill, setNewBookingPrefill] = useState<{ client_name?: string; client_email?: string; description?: string } | undefined>(undefined);
   const [emptyDraft, setEmptyDraft] = useState("");
@@ -95,6 +96,10 @@ export default function InquiryBubble({
   const bottomRef = useRef<HTMLDivElement>(null);
   const currentThreadId = selectedThreadId ?? session?.threads[0]?.id ?? null;
   const pollKey = useMemo(() => currentThreadId ?? "none", [currentThreadId]);
+  const lastSentMessageId = useMemo(() => {
+    if (!session) return null;
+    return [...messages].reverse().find((m) => m.userId === session.streamUser.id)?.id ?? null;
+  }, [messages, session]);
   const activeThread = session?.threads.find((thread) => thread.id === currentThreadId) ?? session?.threads[0] ?? null;
   const waitingThreads = session?.threads.filter((thread) => thread.id !== activeThread?.id) ?? [];
   const launcherBottom = "max(88px, calc(env(safe-area-inset-bottom) + 20px))";
@@ -158,11 +163,13 @@ export default function InquiryBubble({
     let subscription: { unsubscribe?: () => void } | null = null;
     let typingStartSub: { unsubscribe?: () => void } | null = null;
     let typingStopSub: { unsubscribe?: () => void } | null = null;
+    let readSub: { unsubscribe?: () => void } | null = null;
     const activeSession = session;
     const thread = activeThread;
 
     async function connect() {
       setLoading(true);
+      setOtherPartySeen(false);
       const client = StreamChat.getInstance(activeSession.apiKey);
       if (client.userID && client.userID !== activeSession.streamUser.id) {
         await client.disconnectUser();
@@ -183,11 +190,47 @@ export default function InquiryBubble({
       setError(null);
       setLoading(false);
 
+      const myStreamUserId = activeSession.streamUser.id;
+
+      // Derive initial read-receipt state
+      {
+        const readState = (channel as any).state?.read as Record<string, { last_read: string | Date }> | undefined;
+        if (readState && myStreamUserId) {
+          const msgs = channel.state.messages;
+          const myLastMsg = [...msgs].reverse().find((m) => m.user?.id === myStreamUserId);
+          if (myLastMsg) {
+            const myLastMsgTime = new Date(myLastMsg.created_at as string).getTime();
+            const seen = Object.entries(readState).some(([userId, r]) => {
+              if (userId === myStreamUserId) return false;
+              const t = r.last_read instanceof Date ? r.last_read.getTime() : new Date(r.last_read as string).getTime();
+              return t >= myLastMsgTime;
+            });
+            if (active) setOtherPartySeen(seen);
+          }
+        }
+      }
+
       subscription = channel.on("message.new", (event) => {
         setMessages(mapMessages(channel.state.messages));
         if (!open && event.user?.id !== activeSession.streamUser.id) {
           setUnreadCount((count) => count + 1);
         }
+      });
+
+      readSub = channel.on("message.read", (_event) => {
+        if (!active) return;
+        const readState = (channel as any).state?.read as Record<string, { last_read: string | Date }> | undefined;
+        if (!readState || !myStreamUserId) return;
+        const msgs = channel.state.messages;
+        const myLastMsg = [...msgs].reverse().find((m) => m.user?.id === myStreamUserId);
+        if (!myLastMsg) return;
+        const myLastMsgTime = new Date(myLastMsg.created_at as string).getTime();
+        const seen = Object.entries(readState).some(([userId, r]) => {
+          if (userId === myStreamUserId) return false;
+          const t = r.last_read instanceof Date ? r.last_read.getTime() : new Date(r.last_read as string).getTime();
+          return t >= myLastMsgTime;
+        });
+        setOtherPartySeen(seen);
       });
 
       typingStartSub = (channel as any).on("typing.start", (event: any) => {
@@ -211,6 +254,7 @@ export default function InquiryBubble({
     return () => {
       active = false;
       subscription?.unsubscribe?.();
+      readSub?.unsubscribe?.();
       typingStartSub?.unsubscribe?.();
       typingStopSub?.unsubscribe?.();
     };
@@ -467,6 +511,9 @@ export default function InquiryBubble({
                     <div style={{ fontSize: 10, color: "var(--text-muted)", opacity: 0.7 }}>
                       {formatTimestamp(message.createdAt)}
                     </div>
+                    {isOwner && message.id === lastSentMessageId && otherPartySeen && (
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", textAlign: "right", marginTop: 2, opacity: 0.8 }}>Seen</div>
+                    )}
                   </div>
                 );
               })
@@ -533,7 +580,7 @@ export default function InquiryBubble({
                   cursor: "pointer",
                 }}
               >
-                + Create Proposal
+                Create Proposal
               </button>
             </div>
           ) : (
