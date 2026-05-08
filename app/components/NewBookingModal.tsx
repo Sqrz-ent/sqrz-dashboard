@@ -48,12 +48,14 @@ export default function NewBookingModal({
   services,
   onSuccess,
   prefill,
+  requiresPaymentDefault = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
   services: NewBookingService[];
   onSuccess: (clientEmail: string, bookingId: string) => void;
   prefill?: { client_name?: string; client_email?: string };
+  requiresPaymentDefault?: boolean;
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
@@ -73,7 +75,7 @@ export default function NewBookingModal({
     // Step 2
     rate: "",
     currency: "EUR",
-    requires_payment: false,
+    requires_payment: requiresPaymentDefault,
     tax_pct: "",
     require_hotel: false,
     require_travel: false,
@@ -105,7 +107,7 @@ export default function NewBookingModal({
         description: "",
         rate: "",
         currency: "EUR",
-        requires_payment: false,
+        requires_payment: requiresPaymentDefault,
         tax_pct: "",
         require_hotel: false,
         require_travel: false,
@@ -506,32 +508,34 @@ export default function NewBookingModal({
           </div>
 
           {/* Payment method */}
-          <div
-            style={{
-              padding: "12px 14px",
-              background: "var(--bg)",
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              marginBottom: 10,
-            }}
-          >
-            <label style={{ ...checkRow, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={form.requires_payment}
-                onChange={(e) => set("requires_payment", e.target.checked)}
-                style={{ accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, marginTop: 2 }}
-              />
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Request payment via Stripe</p>
-                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
-                  {form.requires_payment
-                    ? "Client receives a Stripe payment link"
-                    : "You'll confirm payment manually outside SQRZ"}
-                </p>
-              </div>
-            </label>
-          </div>
+          {requiresPaymentDefault ? (
+            <div
+              style={{
+                padding: "12px 14px",
+                background: "var(--bg)",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                marginBottom: 10,
+              }}
+            >
+              <label style={{ ...checkRow, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={!form.requires_payment}
+                  onChange={(e) => set("requires_payment", !e.target.checked)}
+                  style={{ accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, marginTop: 2 }}
+                />
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Handle payment manually instead</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
+                    {form.requires_payment
+                      ? "Client will receive a Stripe payment link"
+                      : "Payment handled outside SQRZ — no Stripe link sent"}
+                  </p>
+                </div>
+              </label>
+            </div>
+          ) : null}
 
           {/* Message */}
           <div style={{ marginBottom: 10 }}>

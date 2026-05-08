@@ -69,9 +69,11 @@ function formatTimestamp(value: string) {
 export default function InquiryBubble({
   enabled,
   services,
+  requiresPaymentDefault = false,
 }: {
   enabled: boolean;
   services: ServiceOption[];
+  requiresPaymentDefault?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<InquirySession | null>(null);
@@ -659,6 +661,7 @@ export default function InquiryBubble({
         services={services}
         onSuccess={handleNewBookingSuccess}
         prefill={newBookingPrefill}
+        requiresPaymentDefault={requiresPaymentDefault}
       />
     </>
   );
