@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Modal from "~/components/Modal";
 
 export type NewBookingService = {
@@ -50,19 +50,21 @@ export default function NewBookingModal({
   onClose,
   services,
   onSuccess,
+  prefill,
 }: {
   isOpen: boolean;
   onClose: () => void;
   services: NewBookingService[];
-  onSuccess: (clientEmail: string) => void;
+  onSuccess: (clientEmail: string, bookingId: string) => void;
+  prefill?: { client_name?: string; client_email?: string };
 }) {
   const [submitting, setSubmitting] = useState(false);
   const [includeProposal, setIncludeProposal] = useState(false);
   const [lineItems, setLineItems] = useState<LineItem[]>([{ label: "Artist Fee", amount: 0 }]);
 
   const [form, setForm] = useState({
-    client_name: "",
-    client_email: "",
+    client_name: prefill?.client_name ?? "",
+    client_email: prefill?.client_email ?? "",
     title: "",
     service: "",
     date_start: "",
@@ -74,6 +76,21 @@ export default function NewBookingModal({
     proposal_message: "",
     requires_payment: false,
   });
+
+  useEffect(() => {
+    if (isOpen && prefill) {
+      setForm((f) => ({
+        ...f,
+        client_name: prefill.client_name ?? f.client_name,
+        client_email: prefill.client_email ?? f.client_email,
+      }));
+    }
+    if (!isOpen) {
+      setForm((f) => ({ ...f, client_name: "", client_email: "", title: "", service: "", date_start: "", venue: "", city: "", description: "", rate: "", currency: "EUR", proposal_message: "", requires_payment: false }));
+      setIncludeProposal(false);
+      setLineItems([{ label: "Artist Fee", amount: 0 }]);
+    }
+  }, [isOpen]);
 
   function set(key: keyof typeof form, value: string | boolean) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -106,7 +123,7 @@ export default function NewBookingModal({
       });
       const json = await res.json();
       if (json.success) {
-        onSuccess(form.client_email);
+        onSuccess(form.client_email, json.booking_id ?? "");
         onClose();
       }
     } catch (err) {

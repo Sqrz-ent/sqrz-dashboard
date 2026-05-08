@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StreamChat } from "stream-chat";
-import Modal from "~/components/Modal";
 import NewBookingModal from "~/components/NewBookingModal";
 
 type ServiceOption = {
@@ -8,8 +7,6 @@ type ServiceOption = {
   title: string;
   booking_type: string;
 };
-
-type LineItem = { label: string; amount: number };
 
 type InquirySession = {
   apiKey: string;
@@ -83,29 +80,13 @@ export default function InquiryBubble({
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [convertOpen, setConvertOpen] = useState(false);
-  const [submittingConvert, setSubmittingConvert] = useState(false);
-  const [includeProposal, setIncludeProposal] = useState(false);
-  const [lineItems, setLineItems] = useState<LineItem[]>([{ label: "Artist Fee", amount: 0 }]);
-  const [convertForm, setConvertForm] = useState({
-    client_name: "",
-    client_email: "",
-    title: "",
-    service: "",
-    date_start: "",
-    venue: "",
-    city: "",
-    description: "",
-    rate: "",
-    currency: "EUR",
-    proposal_message: "",
-    requires_payment: false,
-  });
   const [error, setError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [visitorTyping, setVisitorTyping] = useState(false);
   const [newBookingOpen, setNewBookingOpen] = useState(false);
+  const [newBookingPrefill, setNewBookingPrefill] = useState<{ client_name?: string; client_email?: string } | undefined>(undefined);
+  const [convertingThreadId, setConvertingThreadId] = useState<string | null>(null);
   const clientRef = useRef<StreamChat | null>(null);
   const channelRef = useRef<StreamChannelLike | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -115,15 +96,6 @@ export default function InquiryBubble({
   const waitingThreads = session?.threads.filter((thread) => thread.id !== activeThread?.id) ?? [];
   const launcherBottom = "max(88px, calc(env(safe-area-inset-bottom) + 20px))";
   const panelBottom = "max(160px, calc(env(safe-area-inset-bottom) + 92px))";
-
-  useEffect(() => {
-    if (!activeThread || convertOpen) return;
-    setConvertForm((prev) => ({
-      ...prev,
-      client_name: activeThread.visitorName ?? prev.client_name,
-      client_email: activeThread.visitorEmail ?? prev.client_email,
-    }));
-  }, [activeThread, convertOpen]);
 
   async function loadThreads() {
     const response = await fetch("/api/messaging/stream-inquiry");
@@ -290,66 +262,29 @@ export default function InquiryBubble({
     }
   }
 
-  function setConvertField(key: keyof typeof convertForm, value: string | boolean) {
-    setConvertForm((prev) => ({ ...prev, [key]: value }));
-  }
+  async function handleNewBookingSuccess(_clientEmail: string, bookingId: string) {
+    const threadId = convertingThreadId;
+    setConvertingThreadId(null);
+    setNewBookingPrefill(undefined);
 
-  async function handleConvertSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!activeThread || submittingConvert) return;
-    if (!convertForm.client_name || !convertForm.client_email || !convertForm.title) return;
-
-    setSubmittingConvert(true);
-    setError(null);
-
-    try {
-      const bookingResponse = await fetch("/api/booking/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          client_name: convertForm.client_name,
-          client_email: convertForm.client_email,
-          title: convertForm.title,
-          service: convertForm.service || null,
-          date_start: convertForm.date_start || null,
-          venue: convertForm.venue || null,
-          city: convertForm.city || null,
-          description: convertForm.description || null,
-          include_proposal: includeProposal,
-          rate: includeProposal ? parseFloat(convertForm.rate) || null : null,
-          currency: convertForm.currency,
-          line_items: includeProposal ? lineItems.filter((item) => item.label && item.amount > 0) : [],
-          proposal_message: includeProposal ? convertForm.proposal_message : null,
-          requires_payment: includeProposal ? convertForm.requires_payment : false,
-        }),
-      });
-      const bookingPayload = await bookingResponse.json();
-      if (!bookingResponse.ok || !bookingPayload?.success || !bookingPayload?.booking_id) {
-        throw new Error(bookingPayload?.error ?? "Failed to create booking");
+    if (threadId && bookingId) {
+      try {
+        const convertResponse = await fetch("/api/messaging/stream-inquiry-convert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ threadId, bookingId }),
+        });
+        const convertPayload = await convertResponse.json();
+        if (!convertResponse.ok) {
+          throw new Error(convertPayload?.error ?? "Failed to convert inquiry");
+        }
+        await loadThreads();
+        window.open(`/booking/${bookingId}`, "_blank");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to convert inquiry");
       }
-
-      const convertResponse = await fetch("/api/messaging/stream-inquiry-convert", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          threadId: activeThread.id,
-          bookingId: bookingPayload.booking_id,
-        }),
-      });
-      const convertPayload = await convertResponse.json();
-      if (!convertResponse.ok) {
-        throw new Error(convertPayload?.error ?? "Failed to convert inquiry");
-      }
-
-      setConvertOpen(false);
-      setIncludeProposal(false);
-      setLineItems([{ label: "Artist Fee", amount: 0 }]);
-      await loadThreads();
-      window.open(`/booking/${bookingPayload.booking_id}`, "_blank");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to convert inquiry");
-    } finally {
-      setSubmittingConvert(false);
+    } else {
+      window.location.reload();
     }
   }
 
@@ -555,12 +490,12 @@ export default function InquiryBubble({
               </button>
               <button
                 onClick={() => {
-                  setConvertForm((prev) => ({
-                    ...prev,
-                    client_name: activeThread?.visitorName ?? prev.client_name,
-                    client_email: activeThread?.visitorEmail ?? prev.client_email,
-                  }));
-                  setConvertOpen(true);
+                  setConvertingThreadId(activeThread?.id ?? null);
+                  setNewBookingPrefill({
+                    client_name: activeThread?.visitorName ?? undefined,
+                    client_email: activeThread?.visitorEmail ?? undefined,
+                  });
+                  setNewBookingOpen(true);
                 }}
                 disabled={updatingStatus || !activeThread}
                 style={{
@@ -579,7 +514,11 @@ export default function InquiryBubble({
                 Convert
               </button>
               <button
-                onClick={() => setNewBookingOpen(true)}
+                onClick={() => {
+                  setConvertingThreadId(null);
+                  setNewBookingPrefill(undefined);
+                  setNewBookingOpen(true);
+                }}
                 style={{
                   flex: 1,
                   background: "transparent",
@@ -712,227 +651,15 @@ export default function InquiryBubble({
 
       <NewBookingModal
         isOpen={newBookingOpen}
-        onClose={() => setNewBookingOpen(false)}
-        services={services}
-        onSuccess={() => {
+        onClose={() => {
           setNewBookingOpen(false);
-          window.location.reload();
+          setConvertingThreadId(null);
+          setNewBookingPrefill(undefined);
         }}
+        services={services}
+        onSuccess={handleNewBookingSuccess}
+        prefill={newBookingPrefill}
       />
-
-      <Modal isOpen={convertOpen} onClose={() => setConvertOpen(false)} title="Create Booking">
-        <form onSubmit={handleConvertSubmit} style={{ display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <input
-              value={convertForm.client_name}
-              onChange={(event) => setConvertField("client_name", event.target.value)}
-              placeholder="Client name"
-              style={modalInput}
-              required
-            />
-            <input
-              value={convertForm.client_email}
-              onChange={(event) => setConvertField("client_email", event.target.value)}
-              placeholder="Client email"
-              type="email"
-              style={modalInput}
-              required
-            />
-          </div>
-          <input
-            value={convertForm.title}
-            onChange={(event) => setConvertField("title", event.target.value)}
-            placeholder="Project name"
-            style={modalInput}
-            required
-          />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <select
-              value={convertForm.service}
-              onChange={(event) => setConvertField("service", event.target.value)}
-              style={modalInput}
-            >
-              <option value="">Select service</option>
-              {services.map((service) => (
-                <option key={service.id} value={service.title}>{service.title}</option>
-              ))}
-            </select>
-            <input
-              value={convertForm.date_start}
-              onChange={(event) => setConvertField("date_start", event.target.value)}
-              type="date"
-              style={modalInput}
-            />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <input
-              value={convertForm.venue}
-              onChange={(event) => setConvertField("venue", event.target.value)}
-              placeholder="Venue"
-              style={modalInput}
-            />
-            <input
-              value={convertForm.city}
-              onChange={(event) => setConvertField("city", event.target.value)}
-              placeholder="City"
-              style={modalInput}
-            />
-          </div>
-          <textarea
-            value={convertForm.description}
-            onChange={(event) => setConvertField("description", event.target.value)}
-            placeholder="Notes / message"
-            rows={3}
-            style={{ ...modalInput, resize: "vertical" }}
-          />
-          <label style={modalToggle}>
-            <input
-              type="checkbox"
-              checked={includeProposal}
-              onChange={(event) => setIncludeProposal(event.target.checked)}
-            />
-            <span>Include proposal now</span>
-          </label>
-          {includeProposal && (
-            <div style={{ display: "grid", gap: 10, padding: 12, border: "1px solid var(--border)", borderRadius: 12 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: 10 }}>
-                <input
-                  value={convertForm.rate}
-                  onChange={(event) => setConvertField("rate", event.target.value)}
-                  type="number"
-                  placeholder="Total budget"
-                  style={modalInput}
-                />
-                <select
-                  value={convertForm.currency}
-                  onChange={(event) => setConvertField("currency", event.target.value)}
-                  style={modalInput}
-                >
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </div>
-              {lineItems.map((item, index) => (
-                <div key={index} style={{ display: "grid", gridTemplateColumns: "1fr 100px 32px", gap: 8 }}>
-                  <input
-                    value={item.label}
-                    onChange={(event) => {
-                      const next = [...lineItems];
-                      next[index] = { ...item, label: event.target.value };
-                      setLineItems(next);
-                    }}
-                    placeholder="Line item"
-                    style={modalInput}
-                  />
-                  <input
-                    value={item.amount || ""}
-                    onChange={(event) => {
-                      const next = [...lineItems];
-                      next[index] = { ...item, amount: parseFloat(event.target.value) || 0 };
-                      setLineItems(next);
-                    }}
-                    type="number"
-                    placeholder="0"
-                    style={modalInput}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setLineItems(lineItems.filter((_, itemIndex) => itemIndex !== index))}
-                    style={modalSmallButton}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setLineItems([...lineItems, { label: "", amount: 0 }])}
-                style={modalSecondaryButton}
-              >
-                + Add line item
-              </button>
-              <textarea
-                value={convertForm.proposal_message}
-                onChange={(event) => setConvertField("proposal_message", event.target.value)}
-                placeholder="Proposal message"
-                rows={2}
-                style={{ ...modalInput, resize: "vertical" }}
-              />
-              <label style={modalToggle}>
-                <input
-                  type="checkbox"
-                  checked={convertForm.requires_payment}
-                  onChange={(event) => setConvertField("requires_payment", event.target.checked)}
-                />
-                <span>Request payment via Stripe</span>
-              </label>
-            </div>
-          )}
-          <button
-            type="submit"
-            disabled={submittingConvert}
-            style={modalPrimaryButton}
-          >
-            {submittingConvert ? "Creating…" : "Create Booking & Send Link"}
-          </button>
-        </form>
-      </Modal>
     </>
   );
 }
-
-const modalInput: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  background: "var(--surface)",
-  border: "1px solid var(--border)",
-  borderRadius: 9,
-  color: "var(--text)",
-  fontSize: 13,
-  outline: "none",
-  boxSizing: "border-box",
-  fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
-};
-
-const modalToggle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  fontSize: 13,
-  color: "var(--text)",
-  cursor: "pointer",
-};
-
-const modalPrimaryButton: React.CSSProperties = {
-  width: "100%",
-  padding: "13px",
-  background: "#F5A623",
-  color: "#111",
-  border: "none",
-  borderRadius: 10,
-  fontSize: 14,
-  fontWeight: 700,
-  cursor: "pointer",
-};
-
-const modalSecondaryButton: React.CSSProperties = {
-  background: "none",
-  border: "1px dashed var(--border)",
-  borderRadius: 8,
-  color: "var(--text-muted)",
-  fontSize: 12,
-  cursor: "pointer",
-  padding: "8px 12px",
-};
-
-const modalSmallButton: React.CSSProperties = {
-  background: "none",
-  border: "1px solid var(--border)",
-  borderRadius: 6,
-  color: "var(--text-muted)",
-  fontSize: 13,
-  cursor: "pointer",
-  padding: "5px 7px",
-  lineHeight: 1,
-};
