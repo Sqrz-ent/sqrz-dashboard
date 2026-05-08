@@ -269,6 +269,7 @@ export default function DashboardIndex() {
   const [pushSubscribed, setPushSubscribed] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
+  const [showMobilePushActions, setShowMobilePushActions] = useState(false);
 
   // Availability
   const gigHistoryFetcher = useFetcher();
@@ -314,6 +315,19 @@ export default function DashboardIndex() {
       cancelled = true;
     };
   }, [webPushPublicKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setShowMobilePushActions(media.matches);
+
+    update();
+    media.addEventListener?.("change", update);
+    return () => {
+      media.removeEventListener?.("change", update);
+    };
+  }, []);
 
   useEffect(() => {
     if (inquiryChatFetcher.state !== "idle") return;
@@ -733,7 +747,7 @@ export default function DashboardIndex() {
                   Push notifications
                 </p>
                 <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
-                  Get high-priority inquiry alerts on your installed SQRZ app. Best experience on mobile comes from adding SQRZ to your Home Screen first.
+                  Instant alerts are designed for the installed SQRZ app on mobile. Add SQRZ to your Home Screen and enable alerts there for the most reliable experience.
                 </p>
                 {pushFeedback && (
                   <p style={{ color: pushFeedback.includes("Failed") || pushFeedback.includes("not") ? "#f87171" : ACCENT, fontSize: 12, margin: "10px 0 0", fontWeight: 700 }}>
@@ -744,6 +758,10 @@ export default function DashboardIndex() {
               <div style={{ flexShrink: 0, textAlign: "right", display: "grid", gap: 8 }}>
                 {!isPaid ? (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Upgrade to unlock</p>
+                ) : !showMobilePushActions ? (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, maxWidth: 180, lineHeight: 1.5 }}>
+                    Enable alerts from your phone in the installed SQRZ app.
+                  </p>
                 ) : !webPushPublicKey ? (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Push not configured</p>
                 ) : !pushSupported ? (
