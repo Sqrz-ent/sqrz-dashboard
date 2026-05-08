@@ -67,6 +67,13 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const ACCENT = "#F5A623";
 
+const COLUMN_EMPTY_TEXT: Record<string, string> = {
+  requested: "New booking requests will appear here. Share your profile to get started.",
+  pending: "When you send a proposal it lands here, waiting for the client to respond.",
+  confirmed: "Accepted proposals move here. This is your active work.",
+  completed: "Finished bookings live here. Your track record.",
+};
+
 function withOfficeReturn(href: string) {
   const separator = href.includes("?") ? "&" : "?";
   return `${href}${separator}from=office`;
@@ -697,8 +704,8 @@ export default function OfficePage() {
             <div
               key={col.key}
               style={{
-                minWidth: 232,
-                flex: "0 0 232px",
+                minWidth: 200,
+                flex: "1 1 0",
                 background: "var(--surface-muted)",
                 border: "1px solid var(--border)",
                 borderRadius: 14,
@@ -743,17 +750,25 @@ export default function OfficePage() {
 
               {/* Cards */}
               {colBookings.length === 0 ? (
-                <p
+                <div
                   style={{
-                    color: "var(--text-muted)",
-                    fontSize: 12,
-                    textAlign: "center",
-                    padding: "20px 0",
-                    margin: 0,
+                    background: "var(--surface)",
+                    border: "1px dashed var(--border)",
+                    borderRadius: 10,
+                    padding: "12px 14px",
                   }}
                 >
-                  Empty
-                </p>
+                  <p
+                    style={{
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      margin: 0,
+                      lineHeight: 1.55,
+                    }}
+                  >
+                    {COLUMN_EMPTY_TEXT[col.key]}
+                  </p>
+                </div>
               ) : (
                 colBookings.map((booking) => (
                   <BookingCard key={booking.id} booking={booking} />
