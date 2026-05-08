@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StreamChat } from "stream-chat";
 import Modal from "~/components/Modal";
+import NewBookingModal from "~/components/NewBookingModal";
 
 type ServiceOption = {
   id: string;
@@ -104,6 +105,7 @@ export default function InquiryBubble({
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [visitorTyping, setVisitorTyping] = useState(false);
+  const [newBookingOpen, setNewBookingOpen] = useState(false);
   const clientRef = useRef<StreamChat | null>(null);
   const channelRef = useRef<StreamChannelLike | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -690,6 +692,40 @@ export default function InquiryBubble({
           {session?.threads.length ? (session.threads.length > 1 ? `${session.threads.length} active` : "1 active") : "ready"}
         </span>
       </button>
+
+      {/* + New Booking button — fixed pill to the left of the inquiry launcher */}
+      <button
+        onClick={() => setNewBookingOpen(true)}
+        style={{
+          position: "fixed",
+          right: 88,
+          bottom: launcherBottom,
+          height: 36,
+          padding: "0 14px",
+          background: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: 18,
+          color: "var(--text)",
+          fontSize: 12,
+          fontWeight: 700,
+          cursor: "pointer",
+          zIndex: 120,
+          whiteSpace: "nowrap",
+          boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+        }}
+      >
+        + New Booking
+      </button>
+
+      <NewBookingModal
+        isOpen={newBookingOpen}
+        onClose={() => setNewBookingOpen(false)}
+        services={services}
+        onSuccess={() => {
+          setNewBookingOpen(false);
+          window.location.reload();
+        }}
+      />
 
       <Modal isOpen={convertOpen} onClose={() => setConvertOpen(false)} title="Create Booking">
         <form onSubmit={handleConvertSubmit} style={{ display: "grid", gap: 12 }}>
