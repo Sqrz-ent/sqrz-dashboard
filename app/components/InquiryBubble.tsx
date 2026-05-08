@@ -428,7 +428,7 @@ export default function InquiryBubble({
                   padding: "0 10px",
                 }}
               >
-                Nobody is writing right now. This bubble stays here so you can answer instantly as soon as a new inquiry comes in.
+                Draft your proposal and send it directly to your client.
               </div>
             ) : loading ? (
               <div style={{ margin: "auto 0", color: "var(--text-muted)", fontSize: 13 }}>Connecting…</div>
@@ -533,7 +533,7 @@ export default function InquiryBubble({
                   cursor: "pointer",
                 }}
               >
-                + New Booking
+                + Create Proposal
               </button>
             </div>
           ) : (
@@ -565,7 +565,7 @@ export default function InquiryBubble({
                   opacity: updatingStatus ? 0.55 : 1,
                 }}
               >
-                Convert to Booking
+                Create Proposal
               </button>
 
               {/* Reply input */}
