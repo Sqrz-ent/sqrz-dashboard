@@ -8,7 +8,12 @@ function sanitizeSlug(raw: string): string {
     .replace(/[^a-z0-9-]/g, "");
 }
 
+export function loader() {
+  return Response.json({ error: "Method not allowed" }, { status: 405 });
+}
+
 export async function action({ request }: { request: Request }) {
+  console.log("[create-profile] action hit:", request.method, request.url);
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
