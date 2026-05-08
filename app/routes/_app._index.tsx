@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { getPushPublicKey, isPushConfigured } from "~/lib/push.server";
@@ -53,11 +53,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profileId = profile.id as string;
 
-  const adminClient = createSupabaseAdminClient();
-
   const [analyticsRes, activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
-      adminClient
+      supabase
         .from("profile_analytics")
         .select("*")
         .eq("profile_id", profile.id as string)

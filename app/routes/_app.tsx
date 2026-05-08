@@ -292,7 +292,7 @@ export default function AppLayout() {
           style={{
             height: "100%",
             background: "var(--accent, #F5A623)",
-            animation: isNavigating ? "sqrzProgress 1.2s ease-in-out infinite" : "none",
+            animation: isNavigating ? "sqrzProgress 2s ease-out forwards" : "none",
             transformOrigin: "left center",
           }}
         />
@@ -663,8 +663,7 @@ export default function AppLayout() {
       <style>{`
         @keyframes sqrzProgress {
           0%   { transform: scaleX(0.05); opacity: 1; }
-          50%  { transform: scaleX(0.75); opacity: 1; }
-          100% { transform: scaleX(0.95); opacity: 0.6; }
+          100% { transform: scaleX(0.9);  opacity: 1; }
         }
       `}</style>
     </div>
