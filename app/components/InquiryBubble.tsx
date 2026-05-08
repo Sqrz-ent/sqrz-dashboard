@@ -533,101 +533,118 @@ export default function InquiryBubble({
 
           <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
             {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
-            {!session || !activeThread ? (
+
+            {/* Action row — always visible */}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => void updateThreadStatus("closed")}
+                disabled={updatingStatus || !activeThread}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  padding: "9px 12px",
+                  fontSize: 12,
+                  cursor: updatingStatus || !activeThread ? "default" : "pointer",
+                  opacity: updatingStatus || !activeThread ? 0.55 : 1,
+                }}
+              >
+                Close inquiry
+              </button>
+              <button
+                onClick={() => {
+                  setConvertForm((prev) => ({
+                    ...prev,
+                    client_name: activeThread?.visitorName ?? prev.client_name,
+                    client_email: activeThread?.visitorEmail ?? prev.client_email,
+                  }));
+                  setConvertOpen(true);
+                }}
+                disabled={updatingStatus || !activeThread}
+                style={{
+                  flex: 1,
+                  background: "rgba(245,166,35,0.12)",
+                  color: "#F5A623",
+                  border: "1px solid rgba(245,166,35,0.28)",
+                  borderRadius: 10,
+                  padding: "9px 12px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: updatingStatus || !activeThread ? "default" : "pointer",
+                  opacity: updatingStatus || !activeThread ? 0.55 : 1,
+                }}
+              >
+                Convert
+              </button>
+              <button
+                onClick={() => setNewBookingOpen(true)}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  padding: "9px 12px",
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                + New Booking
+              </button>
+            </div>
+
+            {/* Input row */}
+            {activeThread ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  value={draft}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    if (channelRef.current) {
+                      (channelRef.current as any).keystroke?.()?.catch?.(() => {});
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void handleSend();
+                    }
+                  }}
+                  placeholder={`Reply to ${visitorName}…`}
+                  style={{
+                    flex: 1,
+                    background: "var(--surface-muted)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 12,
+                    color: "var(--text)",
+                    padding: "12px 14px",
+                    fontSize: 14,
+                  }}
+                />
+                <button
+                  onClick={() => void handleSend()}
+                  disabled={sending || !draft.trim()}
+                  style={{
+                    background: "#F5A623",
+                    color: "#111",
+                    border: "none",
+                    borderRadius: 12,
+                    padding: "0 16px",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    opacity: sending || !draft.trim() ? 0.55 : 1,
+                    cursor: sending || !draft.trim() ? "default" : "pointer",
+                  }}
+                >
+                  Send
+                </button>
+              </div>
+            ) : (
               <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
                 The moment someone writes through your profile bubble, their conversation will appear here.
               </div>
-            ) : (
-              <>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button
-                    onClick={() => void updateThreadStatus("closed")}
-                    disabled={updatingStatus}
-                    style={{
-                      flex: 1,
-                      background: "transparent",
-                      color: "var(--text-muted)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 10,
-                      padding: "9px 12px",
-                      fontSize: 12,
-                      cursor: updatingStatus ? "default" : "pointer",
-                      opacity: updatingStatus ? 0.55 : 1,
-                    }}
-                  >
-                    Close inquiry
-                  </button>
-                  <button
-                    onClick={() => {
-                      setConvertForm((prev) => ({
-                        ...prev,
-                        client_name: activeThread.visitorName ?? prev.client_name,
-                        client_email: activeThread.visitorEmail ?? prev.client_email,
-                      }));
-                      setConvertOpen(true);
-                    }}
-                    disabled={updatingStatus}
-                    style={{
-                      flex: 1,
-                      background: "rgba(245,166,35,0.12)",
-                      color: "#F5A623",
-                      border: "1px solid rgba(245,166,35,0.28)",
-                      borderRadius: 10,
-                      padding: "9px 12px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: updatingStatus ? "default" : "pointer",
-                      opacity: updatingStatus ? 0.55 : 1,
-                    }}
-                  >
-                    Convert
-                  </button>
-                </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <input
-                    value={draft}
-                    onChange={(event) => {
-                      setDraft(event.target.value);
-                      if (channelRef.current) {
-                        (channelRef.current as any).keystroke?.()?.catch?.(() => {});
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        void handleSend();
-                      }
-                    }}
-                    placeholder={`Reply to ${visitorName}…`}
-                    style={{
-                      flex: 1,
-                      background: "var(--surface-muted)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 12,
-                      color: "var(--text)",
-                      padding: "12px 14px",
-                      fontSize: 14,
-                    }}
-                  />
-                  <button
-                    onClick={() => void handleSend()}
-                    disabled={sending || !draft.trim()}
-                    style={{
-                      background: "#F5A623",
-                      color: "#111",
-                      border: "none",
-                      borderRadius: 12,
-                      padding: "0 16px",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      opacity: sending || !draft.trim() ? 0.55 : 1,
-                      cursor: sending || !draft.trim() ? "default" : "pointer",
-                    }}
-                  >
-                    Send
-                  </button>
-                </div>
-              </>
             )}
           </div>
         </div>
@@ -691,30 +708,6 @@ export default function InquiryBubble({
         >
           {session?.threads.length ? (session.threads.length > 1 ? `${session.threads.length} active` : "1 active") : "ready"}
         </span>
-      </button>
-
-      {/* + New Booking button — fixed pill to the left of the inquiry launcher */}
-      <button
-        onClick={() => setNewBookingOpen(true)}
-        style={{
-          position: "fixed",
-          right: 88,
-          bottom: launcherBottom,
-          height: 36,
-          padding: "0 14px",
-          background: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: 18,
-          color: "var(--text)",
-          fontSize: 12,
-          fontWeight: 700,
-          cursor: "pointer",
-          zIndex: 120,
-          whiteSpace: "nowrap",
-          boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
-        }}
-      >
-        + New Booking
       </button>
 
       <NewBookingModal
