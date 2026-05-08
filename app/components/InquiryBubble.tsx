@@ -267,6 +267,26 @@ export default function InquiryBubble({
     }
   }, [open]);
 
+  // ── markRead on visibility + focus ───────────────────────────────────────────
+  useEffect(() => {
+    function doMarkRead() {
+      if (!open || !channelRef.current) return;
+      channelRef.current.markRead?.().catch(() => {});
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") doMarkRead();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", doMarkRead);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", doMarkRead);
+    };
+  }, [open]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, open]);
@@ -460,7 +480,10 @@ export default function InquiryBubble({
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+          <div
+            onClick={() => { channelRef.current?.markRead?.().catch(() => {}); }}
+            style={{ flex: 1, overflowY: "auto", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}
+          >
             {!session || !activeThread ? (
               <div
                 style={{
@@ -596,6 +619,7 @@ export default function InquiryBubble({
                     setDraft(event.target.value);
                     if (channelRef.current) {
                       (channelRef.current as any).keystroke?.()?.catch?.(() => {});
+                      channelRef.current.markRead?.().catch(() => {});
                     }
                   }}
                   onKeyDown={(event) => {

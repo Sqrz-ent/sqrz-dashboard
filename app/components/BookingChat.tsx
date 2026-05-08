@@ -294,6 +294,28 @@ export default function BookingChat({
       .catch(() => {});
   }, [open, messagingProvider]);
 
+  // ── markRead on visibility + focus ───────────────────────────────────────────
+  useEffect(() => {
+    if (messagingProvider !== "stream") return;
+
+    function doMarkRead() {
+      if (!open || !streamChannelRef.current) return;
+      (streamChannelRef.current as any).markRead?.()?.catch?.(() => {});
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") doMarkRead();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", doMarkRead);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", doMarkRead);
+    };
+  }, [open, messagingProvider]);
+
   // ── Auto-scroll to bottom ────────────────────────────────────────────────────
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -466,6 +488,11 @@ export default function BookingChat({
 
           {/* Message list */}
           <div
+            onClick={() => {
+              if (messagingProvider === "stream" && streamChannelRef.current) {
+                (streamChannelRef.current as any).markRead?.()?.catch?.(() => {});
+              }
+            }}
             style={{
               flex: 1,
               overflowY: "auto",
@@ -671,6 +698,7 @@ export default function BookingChat({
                 setText(e.target.value);
                 if (streamChannelRef.current) {
                   (streamChannelRef.current as any).keystroke?.()?.catch?.(() => {});
+                  (streamChannelRef.current as any).markRead?.()?.catch?.(() => {});
                 }
               }}
               onKeyDown={(e) => {
