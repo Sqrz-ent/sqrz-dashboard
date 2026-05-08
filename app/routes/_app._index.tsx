@@ -264,9 +264,7 @@ export default function DashboardIndex() {
   );
   const [inquiryChatEnabled, setInquiryChatEnabled] = useState<boolean>((p.inquiry_chat_enabled as boolean | null) !== false);
   const [toggleError, setToggleError] = useState<string | null>(null);
-  const [pushSupported, setPushSupported] = useState(false);
-  const [pushPermission, setPushPermission] = useState<string>("default");
-  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushState, setPushState] = useState({ supported: false, permission: "default" as string, subscribed: false });
   const [pushBusy, setPushBusy] = useState(false);
   const [pushFeedback, setPushFeedback] = useState<string | null>(null);
   const [showMobilePushActions, setShowMobilePushActions] = useState(false);
@@ -293,7 +291,7 @@ export default function DashboardIndex() {
 
     async function loadPushState() {
       if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window) || !webPushPublicKey) {
-        if (!cancelled) setPushSupported(false);
+        if (!cancelled) setPushState({ supported: false, permission: "default", subscribed: false });
         return;
       }
 
@@ -301,12 +299,10 @@ export default function DashboardIndex() {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         if (!cancelled) {
-          setPushSupported(true);
-          setPushPermission(Notification.permission);
-          setPushSubscribed(!!subscription);
+          setPushState({ supported: true, permission: Notification.permission, subscribed: !!subscription });
         }
       } catch {
-        if (!cancelled) setPushSupported(false);
+        if (!cancelled) setPushState({ supported: false, permission: "default", subscribed: false });
       }
     }
 
@@ -344,15 +340,13 @@ export default function DashboardIndex() {
 
   async function refreshPushState() {
     if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window) || !webPushPublicKey) {
-      setPushSupported(false);
+      setPushState({ supported: false, permission: "default", subscribed: false });
       return;
     }
 
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
-    setPushSupported(true);
-    setPushPermission(Notification.permission);
-    setPushSubscribed(!!subscription);
+    setPushState({ supported: true, permission: Notification.permission, subscribed: !!subscription });
   }
 
   async function enablePushNotifications() {
@@ -362,7 +356,7 @@ export default function DashboardIndex() {
     setPushFeedback(null);
     try {
       const permission = await Notification.requestPermission();
-      setPushPermission(permission);
+      setPushState((s) => ({ ...s, permission }));
       if (permission !== "granted") {
         throw new Error("Notification permission was not granted");
       }
@@ -761,32 +755,32 @@ export default function DashboardIndex() {
                   </p>
                 ) : !webPushPublicKey ? (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Push not configured</p>
-                ) : !pushSupported ? (
+                ) : !pushState.supported ? (
                   <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>This browser does not support push here</p>
                 ) : (
                   <>
                     <button
                       type="button"
-                      onClick={() => void (pushSubscribed ? disablePushNotifications() : enablePushNotifications())}
+                      onClick={() => void (pushState.subscribed ? disablePushNotifications() : enablePushNotifications())}
                       disabled={pushBusy}
                       style={{
                         padding: "10px 14px",
                         borderRadius: 10,
-                        border: pushSubscribed ? "1px solid var(--border)" : "none",
-                        background: pushSubscribed ? "var(--surface)" : ACCENT,
-                        color: pushSubscribed ? "var(--text)" : "#111",
+                        border: pushState.subscribed ? "1px solid var(--border)" : "none",
+                        background: pushState.subscribed ? "var(--surface)" : ACCENT,
+                        color: pushState.subscribed ? "var(--text)" : "#111",
                         fontSize: 13,
                         fontWeight: 700,
                         cursor: pushBusy ? "not-allowed" : "pointer",
                         opacity: pushBusy ? 0.65 : 1,
                       }}
                     >
-                      {pushSubscribed ? "Disable alerts" : "Enable alerts"}
+                      {pushState.subscribed ? "Disable alerts" : "Enable alerts"}
                     </button>
                     <button
                       type="button"
                       onClick={() => void sendTestPushNotification()}
-                      disabled={pushBusy || !pushSubscribed}
+                      disabled={pushBusy || !pushState.subscribed}
                       style={{
                         padding: "9px 14px",
                         borderRadius: 10,
@@ -795,8 +789,8 @@ export default function DashboardIndex() {
                         color: "var(--text)",
                         fontSize: 12,
                         fontWeight: 700,
-                        cursor: pushBusy || !pushSubscribed ? "not-allowed" : "pointer",
-                        opacity: pushBusy || !pushSubscribed ? 0.5 : 1,
+                        cursor: pushBusy || !pushState.subscribed ? "not-allowed" : "pointer",
+                        opacity: pushBusy || !pushState.subscribed ? 0.5 : 1,
                       }}
                     >
                       Send test
