@@ -803,17 +803,25 @@ export default function DashboardIndex() {
       {/* Theme picker */}
       <div style={{ ...card, marginBottom: 16 }}>
         <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+            gap: 10,
+          }}
+        >
           {([
-            { key: "midnight", label: "Midnight", accent: "#F3B130" },
-            { key: "neon",     label: "Neon",     accent: "#A855F7" },
-            { key: "studio",   label: "Studio",   accent: "#38BDF8" },
-          ] as const).map(({ key, label, accent }) => {
+            { key: "midnight", label: "Midnight", accent: "#F3B130", live: true },
+            { key: "neon",     label: "Neon",     accent: "#A855F7", live: true },
+            { key: "studio",   label: "Studio",   accent: "#38BDF8", live: true },
+            { key: "noir",     label: "Noir",     accent: "#22C55E", live: false },
+          ] as const).map(({ key, label, accent, live }) => {
             const active = selectedTemplate === key;
             return (
               <button
                 key={key}
                 onClick={() => {
+                  if (!live) return;
                   setSelectedTemplate(key);
                   const fd = new FormData();
                   fd.append("intent", "update_template");
@@ -821,38 +829,78 @@ export default function DashboardIndex() {
                   templateFetcher.submit(fd, { method: "post" });
                 }}
                 style={{
-                  flex: "1 1 80px",
-                  minWidth: 80,
-                  padding: "16px 10px 14px",
+                  minWidth: 0,
+                  padding: "14px 12px",
                   background: active ? "var(--surface-muted)" : "var(--bg)",
-                  border: active ? `2px solid ${accent}` : "2px solid var(--border)",
+                  border: active ? `2px solid ${accent}` : live ? "2px solid var(--border)" : "2px dashed var(--border)",
                   borderRadius: 14,
-                  cursor: "pointer",
+                  cursor: live ? "pointer" : "default",
                   display: "flex",
-                  flexDirection: "column",
                   alignItems: "center",
-                  gap: 10,
+                  justifyContent: "space-between",
+                  gap: 12,
                   transition: "border-color 0.15s, background 0.15s",
                   fontFamily: FONT,
+                  aspectRatio: "1 / 1",
+                  opacity: live ? 1 : 0.72,
                 }}
+                disabled={!live}
               >
-                <div style={{
-                  width: 60,
-                  height: 60,
-                  borderRadius: "50%",
-                  background: accent,
-                  boxShadow: active ? `0 0 16px ${accent}60` : "none",
-                  transition: "box-shadow 0.15s",
-                }} />
-                <span style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: active ? accent : "var(--text)",
-                  letterSpacing: "0.04em",
-                }}>
-                  {label}
-                </span>
-                {active && <span style={{ fontSize: 10, color: accent }}>✓</span>}
+                <div
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: 8,
+                      background: accent,
+                      boxShadow: active ? `0 0 16px ${accent}60` : "none",
+                      transition: "box-shadow 0.15s",
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 800,
+                      color: active ? accent : "var(--text-muted)",
+                      letterSpacing: "0.08em",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    {active ? "Selected" : live ? "Theme" : "Soon"}
+                  </span>
+                </div>
+                <div
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    gap: 6,
+                    marginTop: "auto",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 800,
+                      color: active ? accent : "var(--text)",
+                      letterSpacing: "0.02em",
+                      textAlign: "left",
+                    }}
+                  >
+                    {label}
+                  </span>
+                  {active && <span style={{ fontSize: 11, color: accent, fontWeight: 700 }}>✓ Active</span>}
+                </div>
               </button>
             );
           })}
