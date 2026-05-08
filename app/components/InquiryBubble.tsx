@@ -87,7 +87,8 @@ export default function InquiryBubble({
   const [loading, setLoading] = useState(false);
   const [visitorTyping, setVisitorTyping] = useState(false);
   const [newBookingOpen, setNewBookingOpen] = useState(false);
-  const [newBookingPrefill, setNewBookingPrefill] = useState<{ client_name?: string; client_email?: string } | undefined>(undefined);
+  const [newBookingPrefill, setNewBookingPrefill] = useState<{ client_name?: string; client_email?: string; description?: string } | undefined>(undefined);
+  const [emptyDraft, setEmptyDraft] = useState("");
   const [convertingThreadId, setConvertingThreadId] = useState<string | null>(null);
   const clientRef = useRef<StreamChat | null>(null);
   const channelRef = useRef<StreamChannelLike | null>(null);
@@ -468,76 +469,120 @@ export default function InquiryBubble({
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
-            {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
-
-            {/* Action row — always visible */}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => void updateThreadStatus("closed")}
-                disabled={updatingStatus || !activeThread}
+          {/* ── Empty state: no active inquiry ───────────────────────────── */}
+          {!activeThread ? (
+            <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
+              <textarea
+                value={emptyDraft}
+                onChange={(event) => setEmptyDraft(event.target.value)}
+                placeholder="Message to buyer…"
+                rows={3}
                 style={{
-                  flex: 1,
-                  background: "transparent",
-                  color: "var(--text-muted)",
+                  width: "100%",
+                  background: "var(--surface-muted)",
                   border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  padding: "9px 12px",
-                  fontSize: 12,
-                  cursor: updatingStatus || !activeThread ? "default" : "pointer",
-                  opacity: updatingStatus || !activeThread ? 0.55 : 1,
+                  borderRadius: 12,
+                  color: "var(--text)",
+                  padding: "12px 14px",
+                  fontSize: 16,
+                  resize: "none",
+                  boxSizing: "border-box",
+                  fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
+                  outline: "none",
                 }}
-              >
-                Close inquiry
-              </button>
-              <button
-                onClick={() => {
-                  setConvertingThreadId(activeThread?.id ?? null);
-                  setNewBookingPrefill({
-                    client_name: activeThread?.visitorName ?? undefined,
-                    client_email: activeThread?.visitorEmail ?? undefined,
-                  });
-                  setNewBookingOpen(true);
-                }}
-                disabled={updatingStatus || !activeThread}
-                style={{
-                  flex: 1,
-                  background: "rgba(245,166,35,0.12)",
-                  color: "#F5A623",
-                  border: "1px solid rgba(245,166,35,0.28)",
-                  borderRadius: 10,
-                  padding: "9px 12px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: updatingStatus || !activeThread ? "default" : "pointer",
-                  opacity: updatingStatus || !activeThread ? 0.55 : 1,
-                }}
-              >
-                Convert
-              </button>
+              />
               <button
                 onClick={() => {
                   setConvertingThreadId(null);
-                  setNewBookingPrefill(undefined);
+                  setNewBookingPrefill({ description: emptyDraft || undefined });
                   setNewBookingOpen(true);
                 }}
                 style={{
-                  flex: 1,
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  border: "1px solid var(--border)",
+                  width: "100%",
+                  background: "#F5A623",
+                  color: "#111",
+                  border: "none",
                   borderRadius: 10,
-                  padding: "9px 12px",
-                  fontSize: 12,
+                  padding: "11px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
                   cursor: "pointer",
                 }}
               >
                 + New Booking
               </button>
             </div>
+          ) : (
+            /* ── Active inquiry: three-button row + reply input ──────────── */
+            <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
+              {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
 
-            {/* Input row */}
-            {activeThread ? (
+              {/* Action row */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => void updateThreadStatus("closed")}
+                  disabled={updatingStatus}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    color: "var(--text-muted)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "9px 12px",
+                    fontSize: 12,
+                    cursor: updatingStatus ? "default" : "pointer",
+                    opacity: updatingStatus ? 0.55 : 1,
+                  }}
+                >
+                  Close inquiry
+                </button>
+                <button
+                  onClick={() => {
+                    setConvertingThreadId(activeThread.id);
+                    setNewBookingPrefill({
+                      client_name: activeThread.visitorName ?? undefined,
+                      client_email: activeThread.visitorEmail ?? undefined,
+                    });
+                    setNewBookingOpen(true);
+                  }}
+                  disabled={updatingStatus}
+                  style={{
+                    flex: 1,
+                    background: "rgba(245,166,35,0.12)",
+                    color: "#F5A623",
+                    border: "1px solid rgba(245,166,35,0.28)",
+                    borderRadius: 10,
+                    padding: "9px 12px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: updatingStatus ? "default" : "pointer",
+                    opacity: updatingStatus ? 0.55 : 1,
+                  }}
+                >
+                  Convert
+                </button>
+                <button
+                  onClick={() => {
+                    setConvertingThreadId(null);
+                    setNewBookingPrefill(undefined);
+                    setNewBookingOpen(true);
+                  }}
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    color: "var(--text-muted)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 10,
+                    padding: "9px 12px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  + New Booking
+                </button>
+              </div>
+
+              {/* Reply input */}
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   value={draft}
@@ -561,7 +606,7 @@ export default function InquiryBubble({
                     borderRadius: 12,
                     color: "var(--text)",
                     padding: "12px 14px",
-                    fontSize: 14,
+                    fontSize: 16,
                   }}
                 />
                 <button
@@ -582,12 +627,8 @@ export default function InquiryBubble({
                   Send
                 </button>
               </div>
-            ) : (
-              <div style={{ color: "var(--text-muted)", fontSize: 12, lineHeight: 1.6 }}>
-                The moment someone writes through your profile bubble, their conversation will appear here.
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 

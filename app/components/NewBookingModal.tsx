@@ -54,7 +54,7 @@ export default function NewBookingModal({
   onClose: () => void;
   services: NewBookingService[];
   onSuccess: (clientEmail: string, bookingId: string) => void;
-  prefill?: { client_name?: string; client_email?: string };
+  prefill?: { client_name?: string; client_email?: string; description?: string };
   requiresPaymentDefault?: boolean;
 }) {
   const [step, setStep] = useState<1 | 2>(1);
@@ -90,6 +90,7 @@ export default function NewBookingModal({
         ...f,
         client_name: prefill.client_name ?? f.client_name,
         client_email: prefill.client_email ?? f.client_email,
+        description: prefill.description ?? f.description,
       }));
     }
     if (!isOpen) {
