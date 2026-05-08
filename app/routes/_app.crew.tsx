@@ -402,7 +402,49 @@ export default function Crew() {
     name: string;
     slug: string;
     claimUrl: string;
+    fromCreate?: boolean;
   } | null>(null);
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createSlug, setCreateSlug] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
+  const createFetcher = useFetcher<{ slug: string; claim_token: string; claim_url: string; error?: string }>();
+
+  const isCreating = createFetcher.state !== "idle";
+
+  useEffect(() => {
+    if (createFetcher.state === "idle" && createFetcher.data) {
+      if (createFetcher.data.error) {
+        setCreateError(createFetcher.data.error);
+      } else if (createFetcher.data.claim_url) {
+        setShowCreateModal(false);
+        setCreateSlug("");
+        setCreateError(null);
+        setClaimCode({
+          name: createFetcher.data.slug,
+          slug: createFetcher.data.slug,
+          claimUrl: createFetcher.data.claim_url,
+          fromCreate: true,
+        });
+      }
+    }
+  }, [createFetcher.state, createFetcher.data]);
+
+  function sanitizeSlugInput(value: string): string {
+    return value
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+  }
+
+  function handleCreate() {
+    if (!createSlug.trim()) return;
+    setCreateError(null);
+    createFetcher.submit(
+      { slug: createSlug },
+      { method: "POST", action: "/api/crew/create-profile" }
+    );
+  }
 
   const profiles = fetcher.data?.profiles ?? initialProfiles;
   const total = fetcher.data?.total ?? initialTotal;
@@ -458,9 +500,31 @@ export default function Crew() {
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
       {/* Header */}
-      <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, marginBottom: 6 }}>
-        Crew
-      </h1>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
+        <h1 style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
+          Crew
+        </h1>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => { setShowCreateModal(true); setCreateError(null); setCreateSlug(""); }}
+            style={{
+              background: "#F5A623",
+              color: "#111111",
+              border: "none",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 700,
+              padding: "9px 14px",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+          >
+            + Create Profile
+          </button>
+        )}
+      </div>
       <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
         {isAdmin
           ? "Search across all member profiles, including drafts and unpublished profiles."
@@ -584,6 +648,131 @@ export default function Crew() {
         </div>
       )}
 
+      {/* ── Create Profile Modal ─────────────────────────────────────────────── */}
+      {showCreateModal && (
+        <div
+          onClick={() => setShowCreateModal(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+            zIndex: 200,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              maxWidth: 400,
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 18,
+              padding: 24,
+              boxShadow: "0 24px 60px rgba(0,0,0,0.26)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+              <div>
+                <div style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, marginBottom: 4 }}>
+                  Create profile
+                </div>
+                <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                  Creates a draft profile with a claim link.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: 22,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 6 }}>
+              <label style={{ color: "var(--text-muted)", fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", display: "block", marginBottom: 6 }}>
+                Slug
+              </label>
+              <div style={{ display: "flex", alignItems: "center", background: "var(--surface-muted)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+                <span style={{ color: "var(--text-muted)", fontSize: 13, padding: "10px 0 10px 12px", whiteSpace: "nowrap" }}>sqrz.com/</span>
+                <input
+                  type="text"
+                  value={createSlug}
+                  onChange={(e) => { setCreateSlug(sanitizeSlugInput(e.target.value)); setCreateError(null); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && createSlug.trim()) handleCreate(); }}
+                  placeholder="handle"
+                  autoFocus
+                  style={{
+                    flex: 1,
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--text)",
+                    fontSize: 14,
+                    padding: "10px 12px 10px 4px",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            {createError && (
+              <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12 }}>
+                {createError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={!createSlug.trim() || isCreating}
+                style={{
+                  background: !createSlug.trim() || isCreating ? "rgba(245,166,35,0.4)" : "#F5A623",
+                  color: "#111111",
+                  border: "none",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: "10px 18px",
+                  cursor: !createSlug.trim() || isCreating ? "default" : "pointer",
+                  flex: 1,
+                }}
+              >
+                {isCreating ? "Creating…" : "Create"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                style={{
+                  background: "transparent",
+                  color: "var(--text)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: "10px 14px",
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {claimCode && (
         <div
           onClick={() => setClaimCode(null)}
@@ -616,7 +805,9 @@ export default function Crew() {
                   Claim code
                 </div>
                 <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                  {claimCode.name}{claimCode.slug ? ` · ${claimCode.slug}.sqrz.com` : ""}
+                  {claimCode.fromCreate
+                    ? `Share this link with @${claimCode.slug} to claim their profile.`
+                    : `${claimCode.name}${claimCode.slug ? ` · ${claimCode.slug}.sqrz.com` : ""}`}
                 </div>
               </div>
               <button
