@@ -634,13 +634,6 @@ export default function DashboardIndex() {
         </div>
 
         <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
-          <p style={metaLabel}>Organic Visits</p>
-          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
-            {((a.organic_views ?? 0) as number).toLocaleString()}
-          </p>
-        </div>
-
-        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
           <p style={metaLabel}>Active Bookings</p>
           <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
             {String(activeBookingsCount)}
