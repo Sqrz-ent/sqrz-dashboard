@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -201,6 +201,17 @@ export default function AppLayout() {
 
   const navigation = useNavigation();
   const isNavigating = navigation.state === "loading";
+  const [isCompleting, setIsCompleting] = useState(false);
+  const wasNavigating = useRef(false);
+
+  useEffect(() => {
+    if (wasNavigating.current && !isNavigating) {
+      setIsCompleting(true);
+      const t = setTimeout(() => setIsCompleting(false), 400);
+      return () => clearTimeout(t);
+    }
+    wasNavigating.current = isNavigating;
+  }, [isNavigating]);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -284,16 +295,18 @@ export default function AppLayout() {
           height: 2,
           zIndex: 9999,
           pointerEvents: "none",
-          opacity: isNavigating ? 1 : 0,
-          transition: "opacity 150ms ease",
+          opacity: isNavigating || isCompleting ? 1 : 0,
+          transition: isCompleting ? "opacity 300ms ease 100ms" : "opacity 150ms ease",
         }}
       >
         <div
           style={{
             height: "100%",
             background: "var(--accent, #F5A623)",
-            animation: isNavigating ? "sqrzProgress 2s ease-out forwards" : "none",
             transformOrigin: "left center",
+            transform: isCompleting ? "scaleX(1)" : undefined,
+            transition: isCompleting ? "transform 100ms ease-out" : undefined,
+            animation: isNavigating ? "sqrzProgress 2s ease-out forwards" : "none",
           }}
         />
       </div>
