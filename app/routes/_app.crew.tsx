@@ -706,7 +706,6 @@ export default function Crew() {
                 Slug
               </label>
               <div style={{ display: "flex", alignItems: "center", background: "var(--surface-muted)", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 13, padding: "10px 0 10px 12px", whiteSpace: "nowrap" }}>sqrz.com/</span>
                 <input
                   type="text"
                   value={createSlug}
@@ -720,11 +719,17 @@ export default function Crew() {
                     border: "none",
                     color: "var(--text)",
                     fontSize: 14,
-                    padding: "10px 12px 10px 4px",
+                    padding: "10px 12px",
                     outline: "none",
                   }}
                 />
+                <span style={{ color: "var(--text-muted)", fontSize: 13, padding: "10px 12px 10px 0", whiteSpace: "nowrap" }}>.sqrz.com</span>
               </div>
+              {createSlug && (
+                <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 5 }}>
+                  {createSlug}.sqrz.com?claim=…
+                </div>
+              )}
             </div>
 
             {createError && (
