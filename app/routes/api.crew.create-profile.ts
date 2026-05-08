@@ -41,7 +41,10 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: `@${slug} is already taken` }, { status: 409 });
   }
 
+  const profileId = crypto.randomUUID();
+
   const { error: insertError } = await admin.from("profiles").insert({
+    id: profileId,
     slug,
     user_type: "member",
     is_published: false,
@@ -50,7 +53,10 @@ export async function action({ request }: { request: Request }) {
   });
 
   if (insertError) {
-    return Response.json({ error: "Failed to create profile" }, { status: 500 });
+    return Response.json(
+      { error: "Failed to create profile", detail: insertError.message },
+      { status: 500 }
+    );
   }
 
   const { data: tokenData, error: tokenError } = await admin.rpc("generate_claim_token", {
@@ -58,12 +64,25 @@ export async function action({ request }: { request: Request }) {
   });
 
   if (tokenError || !tokenData) {
-    return Response.json({ error: "Failed to generate claim token" }, { status: 500 });
+    return Response.json(
+      { error: "Failed to generate claim token", detail: tokenError?.message ?? "no data returned" },
+      { status: 500 }
+    );
   }
 
   const claim_token = tokenData as string;
 
-  await admin.from("profiles").update({ claim_token }).eq("slug", slug);
+  const { error: updateError } = await admin
+    .from("profiles")
+    .update({ claim_token })
+    .eq("id", profileId);
+
+  if (updateError) {
+    return Response.json(
+      { error: "Failed to save claim token", detail: updateError.message },
+      { status: 500 }
+    );
+  }
 
   return Response.json({
     slug,
