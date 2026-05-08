@@ -874,22 +874,9 @@ export default function DashboardIndex() {
                     alignItems: "center",
                     justifyContent: "center",
                     flex: 1,
-                    padding: "12px 14px 16px",
-                    background: active ? `${accent}18` : "rgba(255,255,255,0.02)",
+                    background: accent,
                   }}
-                >
-                  <div
-                    style={{
-                      width: "72%",
-                      maxWidth: 108,
-                      aspectRatio: "1 / 1",
-                      borderRadius: 10,
-                      background: accent,
-                      boxShadow: active ? `0 0 18px ${accent}55` : "none",
-                      transition: "box-shadow 0.15s",
-                    }}
-                  />
-                </div>
+                />
               </button>
             );
           })}
