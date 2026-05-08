@@ -967,19 +967,17 @@ export default function OfficePage() {
   const streamClientRef = useRef<StreamChat | null>(null);
   useEffect(() => {
     const isPaid = planId != null && planId >= 1;
-    if (!isPaid || ownerBookings.length === 0) return;
+    if (!isPaid) return;
 
     let active = true;
     const unsubs: Array<() => void> = [];
 
     async function initStream() {
-      const firstBookingId = ownerBookings[0].id;
-
       let apiKey: string;
       let token: string;
       let streamUserId: string;
       try {
-        const res = await fetch(`/api/messaging/stream-token?bookingId=${firstBookingId}`);
+        const res = await fetch("/api/messaging/stream-token");
         if (!res.ok) return;
         const data = await res.json() as {
           apiKey?: string;

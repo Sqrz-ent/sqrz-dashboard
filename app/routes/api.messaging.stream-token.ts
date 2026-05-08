@@ -40,8 +40,24 @@ export async function loader({ request }: { request: Request }) {
     const bookingId = url.searchParams.get("bookingId");
     const inviteToken = url.searchParams.get("token");
 
+    // No bookingId — return a user-level token only (used by Office for client-level subscriptions).
     if (!bookingId) {
-      return Response.json({ error: "Missing bookingId" }, { status: 400 });
+      const { supabase } = createSupabaseServerClient(request);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+      const profile = await getCurrentProfile(supabase, user.id);
+      if (!profile?.id) return Response.json({ error: "Profile not found" }, { status: 404 });
+
+      const streamUserId = toStreamUserIdForProfile(profile.id as string);
+      return Response.json({
+        apiKey: process.env.STREAM_API_KEY,
+        streamUser: {
+          id: streamUserId,
+          name: displayNameFromProfile(profile as Record<string, unknown>) ?? "SQRZ User",
+        },
+        token: createStreamUserToken(streamUserId),
+      });
     }
 
     const admin = createSupabaseAdminClient();
