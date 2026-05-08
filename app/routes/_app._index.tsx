@@ -55,14 +55,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const adminClient = createSupabaseAdminClient();
 
-  const { data: analyticsRaw } = await adminClient
-    .from("profile_analytics")
-    .select("*")
-    .eq("profile_id", profile.id as string)
-    .maybeSingle();
-
-  const [activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
+  const [analyticsRes, activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
     await Promise.all([
+      adminClient
+        .from("profile_analytics")
+        .select("*")
+        .eq("profile_id", profile.id as string)
+        .maybeSingle(),
       supabase
         .from("bookings")
         .select("id", { count: "exact", head: true })
@@ -114,7 +113,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json(
     {
       profile,
-      analytics: analyticsRaw ?? null,
+      analytics: analyticsRes.data ?? null,
       activeBookingsCount: activeBookingsRes.count ?? 0,
       upcomingBookings: upcomingBookingsRes.data ?? [],
       hasSkills: (skillsRes.count ?? 0) > 0,
