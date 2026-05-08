@@ -347,10 +347,34 @@ export default function InquiryBubble({
               <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
                 {activeThread ? visitorName : "Live inquiry"}
               </div>
-              <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                {activeThread
-                  ? `Live inquiry${waitingThreads.length > 0 ? ` · +${waitingThreads.length} waiting` : ""}`
-                  : "No active conversation yet"}
+              <div style={{ fontSize: 11, color: "var(--text-muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                <span>
+                  {activeThread
+                    ? `Live inquiry${waitingThreads.length > 0 ? ` · +${waitingThreads.length} waiting` : ""}`
+                    : "No active conversation yet"}
+                </span>
+                {activeThread && (
+                  <>
+                    <span style={{ opacity: 0.4 }}>·</span>
+                    <button
+                      onClick={() => void updateThreadStatus("closed")}
+                      disabled={updatingStatus}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        padding: 0,
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        cursor: updatingStatus ? "default" : "pointer",
+                        opacity: updatingStatus ? 0.4 : 1,
+                        textDecoration: "underline",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      Close inquiry
+                    </button>
+                  </>
+                )}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -513,74 +537,36 @@ export default function InquiryBubble({
               </button>
             </div>
           ) : (
-            /* ── Active inquiry: three-button row + reply input ──────────── */
+            /* ── Active inquiry: Convert CTA + reply input ───────────────── */
             <div style={{ borderTop: "1px solid var(--border)", padding: 12, display: "grid", gap: 8 }}>
               {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
 
-              {/* Action row */}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={() => void updateThreadStatus("closed")}
-                  disabled={updatingStatus}
-                  style={{
-                    flex: 1,
-                    background: "transparent",
-                    color: "var(--text-muted)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 10,
-                    padding: "9px 12px",
-                    fontSize: 12,
-                    cursor: updatingStatus ? "default" : "pointer",
-                    opacity: updatingStatus ? 0.55 : 1,
-                  }}
-                >
-                  Close inquiry
-                </button>
-                <button
-                  onClick={() => {
-                    setConvertingThreadId(activeThread.id);
-                    setNewBookingPrefill({
-                      client_name: activeThread.visitorName ?? undefined,
-                      client_email: activeThread.visitorEmail ?? undefined,
-                    });
-                    setNewBookingOpen(true);
-                  }}
-                  disabled={updatingStatus}
-                  style={{
-                    flex: 1,
-                    background: "rgba(245,166,35,0.12)",
-                    color: "#F5A623",
-                    border: "1px solid rgba(245,166,35,0.28)",
-                    borderRadius: 10,
-                    padding: "9px 12px",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: updatingStatus ? "default" : "pointer",
-                    opacity: updatingStatus ? 0.55 : 1,
-                  }}
-                >
-                  Convert
-                </button>
-                <button
-                  onClick={() => {
-                    setConvertingThreadId(null);
-                    setNewBookingPrefill(undefined);
-                    setNewBookingOpen(true);
-                  }}
-                  style={{
-                    flex: 1,
-                    background: "transparent",
-                    color: "var(--text-muted)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 10,
-                    padding: "9px 12px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                  }}
-                >
-                  + New Booking
-                </button>
-              </div>
+              {/* Convert CTA */}
+              <button
+                onClick={() => {
+                  setConvertingThreadId(activeThread.id);
+                  setNewBookingPrefill({
+                    client_name: activeThread.visitorName ?? undefined,
+                    client_email: activeThread.visitorEmail ?? undefined,
+                  });
+                  setNewBookingOpen(true);
+                }}
+                disabled={updatingStatus}
+                style={{
+                  width: "100%",
+                  background: "#F5A623",
+                  color: "#111",
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "11px 16px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: updatingStatus ? "default" : "pointer",
+                  opacity: updatingStatus ? 0.55 : 1,
+                }}
+              >
+                Convert to Booking
+              </button>
 
               {/* Reply input */}
               <div style={{ display: "flex", gap: 8 }}>
