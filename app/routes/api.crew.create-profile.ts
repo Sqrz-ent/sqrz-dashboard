@@ -59,34 +59,23 @@ export async function action({ request }: { request: Request }) {
     );
   }
 
-  const { data: tokenData, error: tokenError } = await admin.rpc("generate_claim_token", {
-    p_slug: slug,
-  });
-
-  if (tokenError || !tokenData) {
-    return Response.json(
-      { error: "Failed to generate claim token", detail: tokenError?.message ?? "no data returned" },
-      { status: 500 }
-    );
-  }
-
-  const claim_token = tokenData as string;
-
-  const { error: updateError } = await admin
+  // claim_token is set by the set_claim_token DB trigger on INSERT — read it back
+  const { data: row, error: selectError } = await admin
     .from("profiles")
-    .update({ claim_token })
-    .eq("id", profileId);
+    .select("claim_token")
+    .eq("id", profileId)
+    .single();
 
-  if (updateError) {
+  if (selectError || !row?.claim_token) {
     return Response.json(
-      { error: "Failed to save claim token", detail: updateError.message },
+      { error: "Profile created but claim token not found", detail: selectError?.message ?? "claim_token is null" },
       { status: 500 }
     );
   }
 
   return Response.json({
     slug,
-    claim_token,
-    claim_url: `https://${slug}.sqrz.com?claim=${claim_token}`,
+    claim_token: row.claim_token,
+    claim_url: `https://${slug}.sqrz.com?claim=${row.claim_token}`,
   });
 }
