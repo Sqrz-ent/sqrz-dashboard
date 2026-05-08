@@ -830,19 +830,18 @@ export default function DashboardIndex() {
                 }}
                 style={{
                   minWidth: 0,
-                  padding: "14px 12px",
+                  padding: 0,
                   background: active ? "var(--surface-muted)" : "var(--bg)",
                   border: active ? `2px solid ${accent}` : live ? "2px solid var(--border)" : "2px dashed var(--border)",
                   borderRadius: 14,
                   cursor: live ? "pointer" : "default",
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
+                  flexDirection: "column",
                   transition: "border-color 0.15s, background 0.15s",
                   fontFamily: FONT,
                   aspectRatio: "1 / 1",
                   opacity: live ? 1 : 0.72,
+                  overflow: "hidden",
                 }}
                 disabled={!live}
               >
@@ -850,56 +849,46 @@ export default function DashboardIndex() {
                   style={{
                     width: "100%",
                     display: "flex",
-                    alignItems: "flex-start",
-                    justifyContent: "space-between",
-                    gap: 8,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flex: 1,
+                    padding: "16px 14px 12px",
                   }}
                 >
-                  <div
-                    style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 8,
-                      background: accent,
-                      boxShadow: active ? `0 0 16px ${accent}60` : "none",
-                      transition: "box-shadow 0.15s",
-                      flexShrink: 0,
-                    }}
-                  />
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 20,
                       fontWeight: 800,
-                      color: active ? accent : "var(--text-muted)",
-                      letterSpacing: "0.08em",
-                      textTransform: "uppercase",
+                      color: active ? accent : "var(--text)",
+                      letterSpacing: "0.02em",
+                      textAlign: "center",
                     }}
                   >
-                    {active ? "Selected" : live ? "Theme" : "Soon"}
+                    {label}
                   </span>
                 </div>
                 <div
                   style={{
                     width: "100%",
                     display: "flex",
-                    flexDirection: "column",
-                    alignItems: "flex-start",
-                    gap: 6,
-                    marginTop: "auto",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flex: 1,
+                    padding: "12px 14px 16px",
+                    background: active ? `${accent}18` : "rgba(255,255,255,0.02)",
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      fontSize: 18,
-                      fontWeight: 800,
-                      color: active ? accent : "var(--text)",
-                      letterSpacing: "0.02em",
-                      textAlign: "left",
+                      width: "72%",
+                      maxWidth: 108,
+                      aspectRatio: "1 / 1",
+                      borderRadius: 10,
+                      background: accent,
+                      boxShadow: active ? `0 0 18px ${accent}55` : "none",
+                      transition: "box-shadow 0.15s",
                     }}
-                  >
-                    {label}
-                  </span>
-                  {active && <span style={{ fontSize: 11, color: accent, fontWeight: 700 }}>✓ Active</span>}
+                  />
                 </div>
               </button>
             );
