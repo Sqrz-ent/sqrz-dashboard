@@ -27,7 +27,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // Verify the claim token matches an unclaimed profile
   const { data: profile } = await admin
     .from("profiles")
-    .select("id, slug, claim_token, is_claimed, user_id, referred_by_code")
+    .select("id, slug, claim_token, is_claimed, user_id")
     .eq("slug", slug)
     .eq("claim_token", claimToken)
     .eq("is_claimed", false)
@@ -46,8 +46,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       claimed_at: new Date().toISOString(),
       is_published: true,
       claim_token: null,
-      // Only set if no referral already applied — grants Early Access discount at checkout
-      ...(profile.referred_by_code == null ? { referred_by_code: "claim" } : {}),
     })
     .eq("id", profile.id);
 
