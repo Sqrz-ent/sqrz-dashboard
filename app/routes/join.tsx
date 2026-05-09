@@ -362,6 +362,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       initialSlug: url.searchParams.get("slug") ?? "",
       templates: (templates ?? []) as Template[],
+      refCode: refValid ? refParam : "",
       refValid,
     },
     { headers }
@@ -371,7 +372,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Join() {
-  const { initialSlug, refValid } = useLoaderData<typeof loader>();
+  const { initialSlug, refCode, refValid } = useLoaderData<typeof loader>();
 
   const [step, setStep] = useState<Step>("username");
   const [phase, setPhase] = useState<"in" | "out">("in");
@@ -469,7 +470,7 @@ export default function Join() {
       <div style={{ width: "100%", maxWidth: 420 }}>
 
         {/* Referral notice */}
-        {refValid && (
+        {refValid && refCode && (
           <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center", marginBottom: 16, marginTop: 0 }}>
             You were invited by a SQRZ partner.
           </p>
