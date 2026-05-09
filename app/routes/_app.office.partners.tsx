@@ -247,14 +247,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function PartnersPage() {
   const {
     refCode,
-    commissionPct,
-    tier,
     referrals,
     stats,
     earnings,
     activeCount,
-    nextTierCount,
-    commissionWindowMonths,
     bookingTotal,
     bookingCount,
     bookingRows,
@@ -289,8 +285,6 @@ export default function PartnersPage() {
     });
   }
 
-  const progress = nextTierCount ? Math.min(1, activeCount / nextTierCount) : 1;
-
   const filteredReferrals = tab === "booked"
     ? []
     : referrals.filter((r) => r.status === (tab as ReferralStatus));
@@ -317,10 +311,10 @@ export default function PartnersPage() {
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 6px", color: "var(--text)" }}>Partner Program</h1>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 2px" }}>
-            You're a SQRZ Partner. Earn commission on every subscription you refer.
+            Earn 70% commission on every subscription you refer — for 18 months from their first payment.
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 2px" }}>
-            50% for 12 months · 75% for 24 months — depending on your tier.
+            Average earning: $90–$130 per referred user.
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
             Booking commissions activate once your referrals connect Stripe on their profile.
@@ -329,14 +323,14 @@ export default function PartnersPage() {
         <span style={{
           padding: "4px 12px",
           borderRadius: 20,
-          background: tier === "Elite" ? "rgba(139,92,246,0.12)" : ACCENT_BG,
-          color: tier === "Elite" ? PURPLE : ACCENT,
+          background: ACCENT_BG,
+          color: ACCENT,
           fontSize: 12,
           fontWeight: 700,
           letterSpacing: "0.04em",
           whiteSpace: "nowrap",
         }}>
-          {tier} · {commissionPct}%
+          Partner
         </span>
       </div>
 
@@ -552,58 +546,7 @@ export default function PartnersPage() {
         </div>
       </div>
 
-      {/* ── Section 4: Tier progress ─────────────────────────────────────── */}
-      <div style={{ ...card, marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
-          <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>
-            {tier === "Elite"
-              ? "Elite tier — 75% commission for 24 months"
-              : `${activeCount} of 25 active referrals to Elite (75% · 24 months)`}
-          </span>
-          <div style={{ display: "flex", gap: 6 }}>
-            {(["Partner", "Elite"] as const).map((t) => {
-              const isCurrent = t === tier;
-              const isNext = t === "Elite" && tier === "Partner";
-              const tColor = t === "Elite" ? PURPLE : ACCENT;
-              return (
-                <span key={t} style={{
-                  padding: "3px 10px",
-                  borderRadius: 20,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  background: isCurrent ? (t === "Elite" ? "rgba(139,92,246,0.12)" : ACCENT_BG) : "transparent",
-                  color: isCurrent ? tColor : isNext ? tColor : "var(--text-muted)",
-                  border: isCurrent
-                    ? `1px solid ${tColor}`
-                    : isNext
-                      ? `1px solid ${t === "Elite" ? "rgba(139,92,246,0.4)" : "rgba(245,166,35,0.4)"}`
-                      : "1px solid var(--border)",
-                }}>
-                  {t} {t === "Elite" ? "75%" : "50%"}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-
-        {tier !== "Elite" && (
-          <>
-            <div style={{ height: 6, borderRadius: 6, background: "var(--surface-muted)", overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${progress * 100}%`, background: ACCENT, borderRadius: 6, transition: "width 0.4s ease" }} />
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{activeCount} active now</span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-                {25 - activeCount > 0
-                  ? `${25 - activeCount} more to Elite`
-                  : "Qualifying for Elite"}
-              </span>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* ── Section 5: Tab cards ──────────────────────────────────────────── */}
+      {/* ── Section 4: Tab cards ──────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
         {tabDefs.map(({ key, label, count }) => {
           const isSelected = tab === key;
