@@ -66,11 +66,21 @@ export async function loader({ request }: Route.LoaderArgs) {
       }
 
       if (pendingRef) {
-        await admin
-          .from("profiles")
-          .update({ referred_by_code: pendingRef })
-          .eq("user_id", sessionData.user.id)
-          .is("referred_by_code", null); // only set if not already set
+        // Validate the ref code is active before writing
+        const { data: activeRef } = await admin
+          .from("referral_codes")
+          .select("id")
+          .eq("code", pendingRef)
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (activeRef) {
+          await admin
+            .from("profiles")
+            .update({ referred_by_code: pendingRef })
+            .eq("user_id", sessionData.user.id)
+            .is("referred_by_code", null); // only set if not already set
+        }
       }
 
       // Clear the pending cookies
