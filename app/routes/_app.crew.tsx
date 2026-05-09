@@ -85,7 +85,7 @@ async function fetchProfiles(
     .range(offset, offset + PAGE_SIZE - 1);
 
   if (!includeUnpublished) {
-    query = query.eq("is_published", true);
+    query = query.or("is_claimed.eq.true,claim_token.is.null");
   }
 
   if (q) {

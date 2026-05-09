@@ -1074,19 +1074,6 @@ export default function ProfilePage() {
         </button>
       </div>
 
-      {/* Section 9: Publish */}
-      <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Publish</h2>
-        <a
-          href={`https://${slug}.sqrz.com`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: 13, color: ACCENT, fontFamily: FONT_BODY, display: "block", marginBottom: 16 }}
-        >
-          {slug}.sqrz.com ↗
-        </a>
-
-      </div>
 
       {/* Skills Modal */}
       <Modal isOpen={skillsModalOpen} onClose={() => setSkillsModalOpen(false)} title="Edit Skills">
