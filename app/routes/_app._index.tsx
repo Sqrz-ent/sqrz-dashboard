@@ -1197,60 +1197,6 @@ export default function DashboardIndex() {
           </button>
         )}
       </div>
-
-      {/* Quick actions */}
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {slug && (
-          <a
-            href={`https://${slug}.sqrz.com`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              padding: "10px 20px",
-              background: ACCENT,
-              color: "#111",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              textDecoration: "none",
-            }}
-          >
-            View my profile →
-          </a>
-        )}
-        <button
-          onClick={copyLink}
-          disabled={!slug}
-          style={{
-            padding: "10px 20px",
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 600,
-            color: copied ? "#4ade80" : "var(--text)",
-            cursor: slug ? "pointer" : "default",
-            fontFamily: FONT,
-          }}
-        >
-          {copied ? "✓ Copied!" : "Share profile"}
-        </button>
-        <Link
-          to="/office"
-          style={{
-            padding: "10px 20px",
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--text)",
-            textDecoration: "none",
-          }}
-        >
-          New booking request
-        </Link>
-      </div>
     </div>
   );
 }
