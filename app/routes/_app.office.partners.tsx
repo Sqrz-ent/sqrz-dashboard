@@ -317,7 +317,7 @@ export default function PartnersPage() {
             Average earning: $90–$130 per referred user.
           </p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-            Booking commissions activate once your referrals connect Stripe on their profile.
+            You can earn additional commissions if you recommend your referrals to job opportunities.
           </p>
         </div>
         <span style={{
@@ -334,7 +334,50 @@ export default function PartnersPage() {
         </span>
       </div>
 
-      {/* ── Section 2: Referral link ───────────────────────────────────────── */}
+      {/* ── Section 2: Earnings cards ─────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
+        <div style={card}>
+          <span style={lbl}>Lifetime earned</span>
+          <p style={{ fontSize: 22, fontWeight: 700, margin: 0, color: "var(--text)" }}>{fmtMoney(earnings.lifetime)}</p>
+        </div>
+        <div style={{ ...card, borderColor: earnings.pending > 0 ? "rgba(251,191,36,0.3)" : "var(--border)" }}>
+          <span style={lbl}>Pending payout</span>
+          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: earnings.pending > 0 ? AMBER : "var(--text)" }}>
+            {fmtMoney(earnings.pending)}
+          </p>
+          <div style={{ marginTop: 6, marginBottom: 6, display: "flex", flexDirection: "column", gap: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
+              <span>Subscriptions</span>
+              <span>{fmtMoney(earnings.pendingSubTotal)}</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
+              <span>Bookings</span>
+              <span>{fmtMoney(earnings.pendingBookingTotal)}</span>
+            </div>
+          </div>
+          {earnings.pending >= 25 ? (
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>Next batch {nextMonth()}</p>
+          ) : (
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>€25 minimum</p>
+          )}
+        </div>
+        <div style={{ ...card, borderColor: earnings.paid > 0 ? "rgba(74,222,128,0.3)" : "var(--border)" }}>
+          <span style={lbl}>Subscriptions paid</span>
+          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: earnings.paid > 0 ? GREEN : "var(--text)" }}>{fmtMoney(earnings.paid)}</p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>from subscription commissions</p>
+        </div>
+        <div style={{ ...card, borderColor: bookingTotal > 0 ? "rgba(24,95,165,0.3)" : "var(--border)" }}>
+          <span style={lbl}>Lifetime bookings</span>
+          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: bookingTotal > 0 ? BLUE : "var(--text)" }}>
+            {fmtMoney(bookingTotal)}
+          </p>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
+            from {bookingCount} completed booking{bookingCount === 1 ? "" : "s"}
+          </p>
+        </div>
+      </div>
+
+      {/* ── Section 3: Referral link ───────────────────────────────────────── */}
       {refUrl && (
         <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
           <span style={{ fontSize: 16, flexShrink: 0 }}>🔗</span>
@@ -361,7 +404,7 @@ export default function PartnersPage() {
         </div>
       )}
 
-      {/* ── Section: Client Payments (Connect) ─────────────────────────────── */}
+      {/* ── Section 4: Client Payments (Connect) ────────────────────────────── */}
       <div style={{
         background: "var(--surface)",
         border: "1px solid var(--border)",
@@ -503,50 +546,7 @@ export default function PartnersPage() {
         )}
       </div>
 
-      {/* ── Section 3: Earnings cards ─────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
-        <div style={card}>
-          <span style={lbl}>Lifetime earned</span>
-          <p style={{ fontSize: 22, fontWeight: 700, margin: 0, color: "var(--text)" }}>{fmtMoney(earnings.lifetime)}</p>
-        </div>
-        <div style={{ ...card, borderColor: earnings.pending > 0 ? "rgba(251,191,36,0.3)" : "var(--border)" }}>
-          <span style={lbl}>Pending payout</span>
-          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: earnings.pending > 0 ? AMBER : "var(--text)" }}>
-            {fmtMoney(earnings.pending)}
-          </p>
-          <div style={{ marginTop: 6, marginBottom: 6, display: "flex", flexDirection: "column", gap: 3 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
-              <span>Subscriptions</span>
-              <span>{fmtMoney(earnings.pendingSubTotal)}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-muted)" }}>
-              <span>Bookings</span>
-              <span>{fmtMoney(earnings.pendingBookingTotal)}</span>
-            </div>
-          </div>
-          {earnings.pending >= 25 ? (
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>Next batch {nextMonth()}</p>
-          ) : (
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>€25 minimum</p>
-          )}
-        </div>
-        <div style={{ ...card, borderColor: earnings.paid > 0 ? "rgba(74,222,128,0.3)" : "var(--border)" }}>
-          <span style={lbl}>Subscriptions paid</span>
-          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: earnings.paid > 0 ? GREEN : "var(--text)" }}>{fmtMoney(earnings.paid)}</p>
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>from subscription commissions</p>
-        </div>
-        <div style={{ ...card, borderColor: bookingTotal > 0 ? "rgba(24,95,165,0.3)" : "var(--border)" }}>
-          <span style={lbl}>Lifetime bookings</span>
-          <p style={{ fontSize: 22, fontWeight: 700, margin: "0 0 2px", color: bookingTotal > 0 ? BLUE : "var(--text)" }}>
-            {fmtMoney(bookingTotal)}
-          </p>
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0 }}>
-            from {bookingCount} completed booking{bookingCount === 1 ? "" : "s"}
-          </p>
-        </div>
-      </div>
-
-      {/* ── Section 4: Tab cards ──────────────────────────────────────────── */}
+      {/* ── Section 5: Tab cards ──────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 20 }}>
         {tabDefs.map(({ key, label, count }) => {
           const isSelected = tab === key;
