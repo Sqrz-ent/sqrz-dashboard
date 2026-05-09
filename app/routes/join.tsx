@@ -287,6 +287,14 @@ function SentStep({
   );
 }
 
+// ─── Headers — forward loader Set-Cookie headers onto the document response ───
+// Required in React Router v7 Single Fetch mode: loader headers are not
+// automatically merged into the HTML response without this export.
+
+export function headers({ loaderHeaders }: { loaderHeaders: Headers }) {
+  return loaderHeaders;
+}
+
 // ─── Action — slug availability check (fires on every keystroke via useFetcher) ──
 
 export async function action({ request }: Route.ActionArgs) {
