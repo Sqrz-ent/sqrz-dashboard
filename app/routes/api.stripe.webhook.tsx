@@ -1,7 +1,120 @@
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ActionFunctionArgs } from "react-router";
 import { handleBookingReferral } from "~/lib/booking-referral.server";
+
+// ─── Referral commission handler ─────────────────────────────────────────────
+// Called on first subscription payment (checkout.session.completed) and every
+// renewal (invoice.payment_succeeded). Idempotent via stripe_invoice_id.
+// Commission window: 18 months from first_paid_at.
+// Yearly renewals pro-rated when fewer than 12 months remain in window.
+async function handleReferralCommission(
+  supabase: SupabaseClient,
+  profileId: string,
+  stripeInvoiceId: string,
+  amountPaidCents: number,
+  isFirstPayment: boolean,
+) {
+  const { data: profileRow } = await supabase
+    .from("profiles")
+    .select("referred_by_code")
+    .eq("id", profileId)
+    .maybeSingle();
+
+  const code = profileRow?.referred_by_code as string | null;
+  // "claim" is a sentinel meaning Early Access discount but no partner referral
+  if (!code || code === "claim") return;
+
+  const { data: refCodeRow } = await supabase
+    .from("referral_codes")
+    .select("id, owner_id, commission_pct")
+    .eq("code", code)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!refCodeRow) return;
+
+  // Fetch existing referral_uses row — present on recurring, absent on true first payment
+  const { data: existingUse } = await supabase
+    .from("referral_uses")
+    .select("id, commission_ends_at, first_paid_at")
+    .eq("referral_code_id", refCodeRow.id)
+    .eq("referred_profile_id", profileId)
+    .maybeSingle();
+
+  if (isFirstPayment && !existingUse) {
+    // First payment — create referral_uses with 18-month commission window
+    const firstPaidAt = new Date();
+    const commissionEndsAt = new Date(firstPaidAt);
+    commissionEndsAt.setMonth(commissionEndsAt.getMonth() + 18);
+
+    await supabase.from("referral_uses").insert({
+      referral_code_id: refCodeRow.id,
+      referred_profile_id: profileId,
+      converted: true,
+      first_paid_at: firstPaidAt.toISOString(),
+      commission_ends_at: commissionEndsAt.toISOString(),
+    });
+    await supabase.rpc("increment_referral_use_count", { p_code: code });
+    console.log("[webhook] referral_uses created for code:", code, "profile:", profileId, "window_ends:", commissionEndsAt.toISOString());
+
+    // Simple commission for first payment (no pro-rata)
+    const commissionAmount = parseFloat(((amountPaidCents / 100) * (refCodeRow.commission_pct / 100)).toFixed(2));
+    const { error: earningsError } = await supabase.from("partner_earnings").insert({
+      partner_id: refCodeRow.owner_id,
+      commission_amount: commissionAmount,
+      payout_status: "pending",
+      stripe_invoice_id: stripeInvoiceId,
+    });
+    if (earningsError && earningsError.code !== "23505") {
+      console.error("[webhook] partner_earnings insert failed:", earningsError);
+    } else if (!earningsError) {
+      console.log("[webhook] partner_earnings recorded — partner:", refCodeRow.owner_id, "amount:", commissionAmount);
+    }
+    return;
+  }
+
+  // Recurring payment — check window and apply pro-rata for yearly invoices
+  if (!existingUse?.commission_ends_at) return;
+
+  const windowEnd = new Date(existingUse.commission_ends_at);
+  const now = new Date();
+  if (windowEnd < now) {
+    console.log("[webhook] commission window expired for profile:", profileId);
+    return;
+  }
+
+  const monthsRemaining = Math.max(0,
+    (windowEnd.getFullYear() - now.getFullYear()) * 12 +
+    (windowEnd.getMonth() - now.getMonth())
+  );
+
+  // Yearly invoice if amount > $50 (5000 cents)
+  const isYearly = amountPaidCents > 5000;
+  let commissionableAmount = amountPaidCents / 100;
+  if (isYearly && monthsRemaining < 12) {
+    // Pro-rate: only commission the months remaining in the window
+    commissionableAmount = (amountPaidCents / 100) * (monthsRemaining / 12);
+  }
+
+  const commissionAmount = parseFloat(((commissionableAmount * refCodeRow.commission_pct) / 100).toFixed(2));
+
+  const { error: earningsError } = await supabase.from("partner_earnings").insert({
+    partner_id: refCodeRow.owner_id,
+    commission_amount: commissionAmount,
+    payout_status: "pending",
+    stripe_invoice_id: stripeInvoiceId,
+  });
+
+  if (earningsError) {
+    if (earningsError.code !== "23505") {
+      console.error("[webhook] partner_earnings insert failed:", earningsError);
+    }
+  } else {
+    console.log("[webhook] partner_earnings recorded — partner:", refCodeRow.owner_id, "months_remaining:", monthsRemaining, "commissionable:", commissionableAmount, "amount:", commissionAmount);
+  }
+}
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -492,30 +605,10 @@ export async function action({ request }: ActionFunctionArgs) {
       console.log("[webhook] plan updated to:", planId);
     }
 
-    // Referral tracking — record conversion and increment use_count
-    const { data: profileRow } = await supabase
-      .from("profiles")
-      .select("referred_by_code")
-      .eq("id", profileId)
-      .maybeSingle();
-
-    if (profileRow?.referred_by_code) {
-      const code = profileRow.referred_by_code as string;
-      const { data: refCodeRow } = await supabase
-        .from("referral_codes")
-        .select("id")
-        .eq("code", code)
-        .maybeSingle();
-
-      if (refCodeRow) {
-        await supabase.from("referral_uses").insert({
-          referral_code_id: refCodeRow.id,
-          referred_profile_id: profileId,
-          converted: true,
-        });
-        await supabase.rpc("increment_referral_use_count", { p_code: code });
-        console.log("[webhook] referral tracked for code:", code);
-      }
+    // Referral commission tracking
+    const invoiceId = (session as any).invoice as string | null;
+    if (invoiceId && session.amount_total) {
+      await handleReferralCommission(supabase, profileId, invoiceId, session.amount_total, true);
     }
   }
 
@@ -557,6 +650,37 @@ export async function action({ request }: ActionFunctionArgs) {
       console.log("[webhook] plan reset to Creator for profile:", subRow.profile_id);
     }
     console.log("[webhook] subscription deleted:", sub.id);
+  }
+
+  // Recurring subscription payment — credit partner commission each renewal
+  if (event.type === "invoice.payment_succeeded") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const invoiceAny = invoice as any;
+
+    // Only process subscription renewals (not the first payment — that's handled by checkout.session.completed)
+    const billingReason = invoiceAny.billing_reason as string | null;
+    if (billingReason !== "subscription_cycle" && billingReason !== "subscription_update") {
+      // Skip: first-payment invoices are covered by checkout.session.completed
+      return Response.json({ received: true });
+    }
+
+    const customerId = invoice.customer as string | null;
+    if (!customerId || !invoice.amount_paid) {
+      return Response.json({ received: true });
+    }
+
+    const { data: profileRow } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("stripe_customer_id", customerId)
+      .maybeSingle();
+
+    if (!profileRow?.id) {
+      console.error("[webhook] invoice.payment_succeeded — no profile for customer:", customerId);
+      return Response.json({ received: true });
+    }
+
+    await handleReferralCommission(supabase, profileRow.id, invoice.id, invoice.amount_paid, false);
   }
 
   if (event.type === "account.updated") {
