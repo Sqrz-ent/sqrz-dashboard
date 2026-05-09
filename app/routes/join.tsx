@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, data, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/join";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
@@ -310,7 +310,7 @@ export async function action({ request }: Route.ActionArgs) {
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
-  const { supabase: supabaseServer } = createSupabaseServerClient(request);
+  const { supabase: supabaseServer, headers } = createSupabaseServerClient(request);
   const {
     data: { user },
   } = await supabaseServer.auth.getUser();
@@ -325,7 +325,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
-  // Validate optional referral code from URL
+  // Validate optional referral code from URL and set server-side cookie if valid
   const refParam = url.searchParams.get("ref") ?? "";
   let refValid = false;
   if (refParam) {
@@ -343,18 +343,27 @@ export async function loader({ request }: Route.LoaderArgs) {
     }
   }
 
-  return {
-    initialSlug: url.searchParams.get("slug") ?? "",
-    templates: (templates ?? []) as Template[],
-    refCode: refValid ? refParam : "",
-    refValid,
-  };
+  if (refValid) {
+    headers.append(
+      "Set-Cookie",
+      `sqrz_pending_ref=${encodeURIComponent(refParam)}; Path=/; Max-Age=3600; SameSite=Lax`
+    );
+  }
+
+  return data(
+    {
+      initialSlug: url.searchParams.get("slug") ?? "",
+      templates: (templates ?? []) as Template[],
+      refValid,
+    },
+    { headers }
+  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Join() {
-  const { initialSlug, refCode, refValid } = useLoaderData<typeof loader>();
+  const { initialSlug, refValid } = useLoaderData<typeof loader>();
 
   const [step, setStep] = useState<Step>("username");
   const [phase, setPhase] = useState<"in" | "out">("in");
@@ -414,12 +423,10 @@ export default function Join() {
     setLoading(true);
     setError("");
     try {
-      // Persist handle and ref in cookies before the user leaves the site via magic link
+      // Persist handle in cookie before the user leaves the site via magic link
+      // (sqrz_pending_ref is set server-side in the loader when ?ref= is present)
       const expires = new Date(Date.now() + 3600 * 1000).toUTCString();
       document.cookie = `sqrz_pending_handle=${encodeURIComponent(slug)}; path=/; expires=${expires}; SameSite=Lax`;
-      if (refCode) {
-        document.cookie = `sqrz_pending_ref=${encodeURIComponent(refCode)}; path=/; expires=${expires}; SameSite=Lax`;
-      }
 
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: normalized,
@@ -453,23 +460,11 @@ export default function Join() {
     >
       <div style={{ width: "100%", maxWidth: 420 }}>
 
-        {/* Referral banner */}
+        {/* Referral notice */}
         {refValid && (
-          <div
-            style={{
-              background: "rgba(74,222,128,0.08)",
-              border: "1px solid rgba(74,222,128,0.25)",
-              borderRadius: 10,
-              padding: "10px 16px",
-              marginBottom: 24,
-              textAlign: "center",
-              fontSize: 13,
-              color: "#4ade80",
-              fontWeight: 500,
-            }}
-          >
-            🎉 Early Access invite applied
-          </div>
+          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center", marginBottom: 16, marginTop: 0 }}>
+            You were invited by a SQRZ partner.
+          </p>
         )}
 
         {/* Logo */}
