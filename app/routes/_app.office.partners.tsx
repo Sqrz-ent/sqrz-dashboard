@@ -334,7 +334,34 @@ export default function PartnersPage() {
         </span>
       </div>
 
-      {/* ── Section 2: Earnings cards ─────────────────────────────────────── */}
+      {/* ── Section 2: Referral link ───────────────────────────────────────── */}
+      {refUrl && (
+        <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+          <span style={{ fontSize: 16, flexShrink: 0 }}>🔗</span>
+          <span style={{ flex: 1, color: ACCENT, fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>
+            {refUrl}
+          </span>
+          <button
+            onClick={copyLink}
+            style={{
+              flexShrink: 0,
+              padding: "7px 16px",
+              borderRadius: 20,
+              border: "none",
+              background: copied ? "rgba(74,222,128,0.15)" : "var(--surface-muted)",
+              color: copied ? GREEN : "var(--text)",
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            {copied ? "Copied!" : "Copy link"}
+          </button>
+        </div>
+      )}
+
+      {/* ── Section 3: Earnings cards ─────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4" style={{ gap: 12, marginBottom: 20 }}>
         <div style={card}>
           <span style={lbl}>Lifetime earned</span>
@@ -376,33 +403,6 @@ export default function PartnersPage() {
           </p>
         </div>
       </div>
-
-      {/* ── Section 3: Referral link ───────────────────────────────────────── */}
-      {refUrl && (
-        <div style={{ ...card, display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
-          <span style={{ fontSize: 16, flexShrink: 0 }}>🔗</span>
-          <span style={{ flex: 1, color: ACCENT, fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>
-            {refUrl}
-          </span>
-          <button
-            onClick={copyLink}
-            style={{
-              flexShrink: 0,
-              padding: "7px 16px",
-              borderRadius: 20,
-              border: "none",
-              background: copied ? "rgba(74,222,128,0.15)" : "var(--surface-muted)",
-              color: copied ? GREEN : "var(--text)",
-              fontWeight: 600,
-              fontSize: 13,
-              cursor: "pointer",
-              transition: "all 0.15s",
-            }}
-          >
-            {copied ? "Copied!" : "Copy link"}
-          </button>
-        </div>
-      )}
 
       {/* ── Section 4: Client Payments (Connect) ────────────────────────────── */}
       <div style={{
