@@ -568,9 +568,9 @@ export default function AppLayout() {
       />
 
       <InquiryBubble
-        enabled={!!planId && planId > 0 && (p?.inquiry_chat_enabled as boolean | null) !== false}
-        services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
-        requiresPaymentDefault={isPaid && !!(p?.stripe_connect_id as string | null)}
+      enabled={(p?.inquiry_chat_enabled as boolean | null) !== false}
+      services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
+      requiresPaymentDefault={isPaid && !!(p?.stripe_connect_id as string | null)}
       />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}

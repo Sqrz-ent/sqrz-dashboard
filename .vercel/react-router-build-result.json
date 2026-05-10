@@ -1,0 +1,966 @@
+{
+  "buildManifest": {
+    "serverBundles": {
+      "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0": {
+        "id": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+        "file": "build/server/nodejs_eyJydW50aW1lIjoibm9kZWpzIn0/index.js",
+        "config": {
+          "runtime": "nodejs"
+        }
+      }
+    },
+    "routeIdToServerBundleId": {
+      "root": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/join": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/reset-password": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/auth.callback": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/claim": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/claim.confirm": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/booking.$id": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.office": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.office.partners": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.partner-onboarding": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.office.admin.payouts": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.crew": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.profile": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.service": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.payments": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.boost": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.domain": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.links": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.account": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.notify-member": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.messaging.stream-token": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.messaging.stream-inbox": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.messaging.stream-inquiry": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.messaging.stream-inquiry-convert": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.messaging.stream-inquiry-status": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.push.subscribe": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.push.unsubscribe": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.push.test": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.booking.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.proposal.accept": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.proposal.counter": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.proposal.decline": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.payout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoices.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoices.upload": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoices.download": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoices.void": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoicing.activate": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.links.$linkId.leads-csv": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.campaigns.checkout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.stripe.checkout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.stripe.connect": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.stripe.connect.login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.stripe.billing-portal": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.stripe.cancel-subscription": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.stripe.webhook": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/home": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/.well-known.$": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0"
+    },
+    "routes": {
+      "root": {
+        "id": "root",
+        "file": "app/root.tsx",
+        "path": "",
+        "config": {
+          "runtime": "nodejs"
+        }
+      },
+      "routes/join": {
+        "id": "routes/join",
+        "parentId": "root",
+        "file": "app/routes/join.tsx",
+        "path": "join",
+        "config": {}
+      },
+      "routes/login": {
+        "id": "routes/login",
+        "parentId": "root",
+        "file": "app/routes/login.tsx",
+        "path": "login",
+        "config": {}
+      },
+      "routes/reset-password": {
+        "id": "routes/reset-password",
+        "parentId": "root",
+        "file": "app/routes/reset-password.tsx",
+        "path": "reset-password",
+        "config": {}
+      },
+      "routes/auth.callback": {
+        "id": "routes/auth.callback",
+        "parentId": "root",
+        "file": "app/routes/auth.callback.tsx",
+        "path": "auth/callback",
+        "config": {}
+      },
+      "routes/claim": {
+        "id": "routes/claim",
+        "parentId": "root",
+        "file": "app/routes/claim.tsx",
+        "path": "claim",
+        "config": {}
+      },
+      "routes/claim.confirm": {
+        "id": "routes/claim.confirm",
+        "parentId": "root",
+        "file": "app/routes/claim.confirm.tsx",
+        "path": "claim/confirm",
+        "config": {}
+      },
+      "routes/booking.$id": {
+        "id": "routes/booking.$id",
+        "parentId": "root",
+        "file": "app/routes/booking.$id.tsx",
+        "path": "booking/:id",
+        "config": {}
+      },
+      "routes/_app": {
+        "id": "routes/_app",
+        "parentId": "root",
+        "file": "app/routes/_app.tsx",
+        "config": {}
+      },
+      "routes/_app._index": {
+        "id": "routes/_app._index",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app._index.tsx",
+        "index": true,
+        "config": {}
+      },
+      "routes/_app.office": {
+        "id": "routes/_app.office",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.office.tsx",
+        "path": "office",
+        "config": {}
+      },
+      "routes/_app.office.partners": {
+        "id": "routes/_app.office.partners",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.office.partners.tsx",
+        "path": "office/partners",
+        "config": {}
+      },
+      "routes/_app.partner-onboarding": {
+        "id": "routes/_app.partner-onboarding",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.partner-onboarding.tsx",
+        "path": "partner-onboarding",
+        "config": {}
+      },
+      "routes/_app.office.admin.payouts": {
+        "id": "routes/_app.office.admin.payouts",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.office.admin.payouts.tsx",
+        "path": "office/admin/payouts",
+        "config": {}
+      },
+      "routes/_app.crew": {
+        "id": "routes/_app.crew",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.crew.tsx",
+        "path": "crew",
+        "config": {}
+      },
+      "routes/_app.profile": {
+        "id": "routes/_app.profile",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.profile.tsx",
+        "path": "profile",
+        "config": {}
+      },
+      "routes/_app.service": {
+        "id": "routes/_app.service",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.service.tsx",
+        "path": "service",
+        "config": {}
+      },
+      "routes/_app.payments": {
+        "id": "routes/_app.payments",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.payments.tsx",
+        "path": "payments",
+        "config": {}
+      },
+      "routes/_app.boost": {
+        "id": "routes/_app.boost",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.boost.tsx",
+        "path": "boost",
+        "config": {}
+      },
+      "routes/_app.domain": {
+        "id": "routes/_app.domain",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.domain.tsx",
+        "path": "domain",
+        "config": {}
+      },
+      "routes/_app.links": {
+        "id": "routes/_app.links",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.links.tsx",
+        "path": "links",
+        "config": {}
+      },
+      "routes/_app.account": {
+        "id": "routes/_app.account",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.account.tsx",
+        "path": "account",
+        "config": {}
+      },
+      "routes/api.notify-member": {
+        "id": "routes/api.notify-member",
+        "parentId": "root",
+        "file": "app/routes/api.notify-member.tsx",
+        "path": "api/notify-member",
+        "config": {}
+      },
+      "routes/api.messaging.stream-token": {
+        "id": "routes/api.messaging.stream-token",
+        "parentId": "root",
+        "file": "app/routes/api.messaging.stream-token.ts",
+        "path": "api/messaging/stream-token",
+        "config": {}
+      },
+      "routes/api.messaging.stream-inbox": {
+        "id": "routes/api.messaging.stream-inbox",
+        "parentId": "root",
+        "file": "app/routes/api.messaging.stream-inbox.ts",
+        "path": "api/messaging/stream-inbox",
+        "config": {}
+      },
+      "routes/api.messaging.stream-inquiry": {
+        "id": "routes/api.messaging.stream-inquiry",
+        "parentId": "root",
+        "file": "app/routes/api.messaging.stream-inquiry.ts",
+        "path": "api/messaging/stream-inquiry",
+        "config": {}
+      },
+      "routes/api.messaging.stream-inquiry-convert": {
+        "id": "routes/api.messaging.stream-inquiry-convert",
+        "parentId": "root",
+        "file": "app/routes/api.messaging.stream-inquiry-convert.ts",
+        "path": "api/messaging/stream-inquiry-convert",
+        "config": {}
+      },
+      "routes/api.messaging.stream-inquiry-status": {
+        "id": "routes/api.messaging.stream-inquiry-status",
+        "parentId": "root",
+        "file": "app/routes/api.messaging.stream-inquiry-status.ts",
+        "path": "api/messaging/stream-inquiry-status",
+        "config": {}
+      },
+      "routes/api.push.subscribe": {
+        "id": "routes/api.push.subscribe",
+        "parentId": "root",
+        "file": "app/routes/api.push.subscribe.ts",
+        "path": "api/push/subscribe",
+        "config": {}
+      },
+      "routes/api.push.unsubscribe": {
+        "id": "routes/api.push.unsubscribe",
+        "parentId": "root",
+        "file": "app/routes/api.push.unsubscribe.ts",
+        "path": "api/push/unsubscribe",
+        "config": {}
+      },
+      "routes/api.push.test": {
+        "id": "routes/api.push.test",
+        "parentId": "root",
+        "file": "app/routes/api.push.test.ts",
+        "path": "api/push/test",
+        "config": {}
+      },
+      "routes/api.booking.create": {
+        "id": "routes/api.booking.create",
+        "parentId": "root",
+        "file": "app/routes/api.booking.create.tsx",
+        "path": "api/booking/create",
+        "config": {}
+      },
+      "routes/api.proposal.accept": {
+        "id": "routes/api.proposal.accept",
+        "parentId": "root",
+        "file": "app/routes/api.proposal.accept.tsx",
+        "path": "api/proposal/accept",
+        "config": {}
+      },
+      "routes/api.proposal.counter": {
+        "id": "routes/api.proposal.counter",
+        "parentId": "root",
+        "file": "app/routes/api.proposal.counter.tsx",
+        "path": "api/proposal/counter",
+        "config": {}
+      },
+      "routes/api.proposal.decline": {
+        "id": "routes/api.proposal.decline",
+        "parentId": "root",
+        "file": "app/routes/api.proposal.decline.tsx",
+        "path": "api/proposal/decline",
+        "config": {}
+      },
+      "routes/api.payout": {
+        "id": "routes/api.payout",
+        "parentId": "root",
+        "file": "app/routes/api.payout.tsx",
+        "path": "api/payout",
+        "config": {}
+      },
+      "routes/api.invoices.create": {
+        "id": "routes/api.invoices.create",
+        "parentId": "root",
+        "file": "app/routes/api.invoices.create.ts",
+        "path": "api/invoices/create",
+        "config": {}
+      },
+      "routes/api.invoices.upload": {
+        "id": "routes/api.invoices.upload",
+        "parentId": "root",
+        "file": "app/routes/api.invoices.upload.ts",
+        "path": "api/invoices/upload",
+        "config": {}
+      },
+      "routes/api.invoices.download": {
+        "id": "routes/api.invoices.download",
+        "parentId": "root",
+        "file": "app/routes/api.invoices.download.ts",
+        "path": "api/invoices/download",
+        "config": {}
+      },
+      "routes/api.invoices.void": {
+        "id": "routes/api.invoices.void",
+        "parentId": "root",
+        "file": "app/routes/api.invoices.void.ts",
+        "path": "api/invoices/void",
+        "config": {}
+      },
+      "routes/api.invoicing.activate": {
+        "id": "routes/api.invoicing.activate",
+        "parentId": "root",
+        "file": "app/routes/api.invoicing.activate.tsx",
+        "path": "api/invoicing/activate",
+        "config": {}
+      },
+      "routes/api.links.$linkId.leads-csv": {
+        "id": "routes/api.links.$linkId.leads-csv",
+        "parentId": "root",
+        "file": "app/routes/api.links.$linkId.leads-csv.tsx",
+        "path": "api/links/:linkId/leads-csv",
+        "config": {}
+      },
+      "routes/api.campaigns.checkout": {
+        "id": "routes/api.campaigns.checkout",
+        "parentId": "root",
+        "file": "app/routes/api.campaigns.checkout.tsx",
+        "path": "api/campaigns/checkout",
+        "config": {}
+      },
+      "routes/api.stripe.checkout": {
+        "id": "routes/api.stripe.checkout",
+        "parentId": "root",
+        "file": "app/routes/api.stripe.checkout.tsx",
+        "path": "api/stripe/checkout",
+        "config": {}
+      },
+      "routes/api.stripe.connect": {
+        "id": "routes/api.stripe.connect",
+        "parentId": "root",
+        "file": "app/routes/api.stripe.connect.tsx",
+        "path": "api/stripe/connect",
+        "config": {}
+      },
+      "routes/api.stripe.connect.login": {
+        "id": "routes/api.stripe.connect.login",
+        "parentId": "root",
+        "file": "app/routes/api.stripe.connect.login.tsx",
+        "path": "api/stripe/connect/login",
+        "config": {}
+      },
+      "routes/api.stripe.billing-portal": {
+        "id": "routes/api.stripe.billing-portal",
+        "parentId": "root",
+        "file": "app/routes/api.stripe.billing-portal.tsx",
+        "path": "api/stripe/billing-portal",
+        "config": {}
+      },
+      "routes/api.stripe.cancel-subscription": {
+        "id": "routes/api.stripe.cancel-subscription",
+        "parentId": "root",
+        "file": "app/routes/api.stripe.cancel-subscription.tsx",
+        "path": "api/stripe/cancel-subscription",
+        "config": {}
+      },
+      "routes/api.stripe.webhook": {
+        "id": "routes/api.stripe.webhook",
+        "parentId": "root",
+        "file": "app/routes/api.stripe.webhook.tsx",
+        "path": "api/stripe/webhook",
+        "config": {}
+      },
+      "routes/home": {
+        "id": "routes/home",
+        "parentId": "root",
+        "file": "app/routes/home.tsx",
+        "path": "home",
+        "config": {}
+      },
+      "routes/.well-known.$": {
+        "id": "routes/.well-known.$",
+        "parentId": "root",
+        "file": "app/routes/.well-known.$.tsx",
+        "path": ".well-known/*",
+        "config": {}
+      }
+    }
+  },
+  "reactRouterConfig": {
+    "appDirectory": "/Users/patrickwilhelm/SQRZ_HD/_Dev_Ops/_SQRZ_Repos/sqrz-dashboard/app",
+    "basename": "/",
+    "buildDirectory": "/Users/patrickwilhelm/SQRZ_HD/_Dev_Ops/_SQRZ_Repos/sqrz-dashboard/build",
+    "future": {
+      "unstable_optimizeDeps": false,
+      "unstable_subResourceIntegrity": false,
+      "unstable_trailingSlashAwareDataRequests": false,
+      "v8_middleware": false,
+      "v8_splitRouteModules": false,
+      "v8_viteEnvironmentApi": false
+    },
+    "routes": {
+      "root": {
+        "id": "root",
+        "file": "root.tsx",
+        "path": ""
+      },
+      "routes/join": {
+        "id": "routes/join",
+        "parentId": "root",
+        "file": "routes/join.tsx",
+        "path": "join"
+      },
+      "routes/login": {
+        "id": "routes/login",
+        "parentId": "root",
+        "file": "routes/login.tsx",
+        "path": "login"
+      },
+      "routes/reset-password": {
+        "id": "routes/reset-password",
+        "parentId": "root",
+        "file": "routes/reset-password.tsx",
+        "path": "reset-password"
+      },
+      "routes/auth.callback": {
+        "id": "routes/auth.callback",
+        "parentId": "root",
+        "file": "routes/auth.callback.tsx",
+        "path": "auth/callback"
+      },
+      "routes/claim": {
+        "id": "routes/claim",
+        "parentId": "root",
+        "file": "routes/claim.tsx",
+        "path": "claim"
+      },
+      "routes/claim.confirm": {
+        "id": "routes/claim.confirm",
+        "parentId": "root",
+        "file": "routes/claim.confirm.tsx",
+        "path": "claim/confirm"
+      },
+      "routes/booking.$id": {
+        "id": "routes/booking.$id",
+        "parentId": "root",
+        "file": "routes/booking.$id.tsx",
+        "path": "booking/:id"
+      },
+      "routes/_app": {
+        "id": "routes/_app",
+        "parentId": "root",
+        "file": "routes/_app.tsx"
+      },
+      "routes/_app._index": {
+        "id": "routes/_app._index",
+        "parentId": "routes/_app",
+        "file": "routes/_app._index.tsx",
+        "index": true
+      },
+      "routes/_app.office": {
+        "id": "routes/_app.office",
+        "parentId": "routes/_app",
+        "file": "routes/_app.office.tsx",
+        "path": "office"
+      },
+      "routes/_app.office.partners": {
+        "id": "routes/_app.office.partners",
+        "parentId": "routes/_app",
+        "file": "routes/_app.office.partners.tsx",
+        "path": "office/partners"
+      },
+      "routes/_app.partner-onboarding": {
+        "id": "routes/_app.partner-onboarding",
+        "parentId": "routes/_app",
+        "file": "routes/_app.partner-onboarding.tsx",
+        "path": "partner-onboarding"
+      },
+      "routes/_app.office.admin.payouts": {
+        "id": "routes/_app.office.admin.payouts",
+        "parentId": "routes/_app",
+        "file": "routes/_app.office.admin.payouts.tsx",
+        "path": "office/admin/payouts"
+      },
+      "routes/_app.crew": {
+        "id": "routes/_app.crew",
+        "parentId": "routes/_app",
+        "file": "routes/_app.crew.tsx",
+        "path": "crew"
+      },
+      "routes/_app.profile": {
+        "id": "routes/_app.profile",
+        "parentId": "routes/_app",
+        "file": "routes/_app.profile.tsx",
+        "path": "profile"
+      },
+      "routes/_app.service": {
+        "id": "routes/_app.service",
+        "parentId": "routes/_app",
+        "file": "routes/_app.service.tsx",
+        "path": "service"
+      },
+      "routes/_app.payments": {
+        "id": "routes/_app.payments",
+        "parentId": "routes/_app",
+        "file": "routes/_app.payments.tsx",
+        "path": "payments"
+      },
+      "routes/_app.boost": {
+        "id": "routes/_app.boost",
+        "parentId": "routes/_app",
+        "file": "routes/_app.boost.tsx",
+        "path": "boost"
+      },
+      "routes/_app.domain": {
+        "id": "routes/_app.domain",
+        "parentId": "routes/_app",
+        "file": "routes/_app.domain.tsx",
+        "path": "domain"
+      },
+      "routes/_app.links": {
+        "id": "routes/_app.links",
+        "parentId": "routes/_app",
+        "file": "routes/_app.links.tsx",
+        "path": "links"
+      },
+      "routes/_app.account": {
+        "id": "routes/_app.account",
+        "parentId": "routes/_app",
+        "file": "routes/_app.account.tsx",
+        "path": "account"
+      },
+      "routes/api.notify-member": {
+        "id": "routes/api.notify-member",
+        "parentId": "root",
+        "file": "routes/api.notify-member.tsx",
+        "path": "api/notify-member"
+      },
+      "routes/api.messaging.stream-token": {
+        "id": "routes/api.messaging.stream-token",
+        "parentId": "root",
+        "file": "routes/api.messaging.stream-token.ts",
+        "path": "api/messaging/stream-token"
+      },
+      "routes/api.messaging.stream-inbox": {
+        "id": "routes/api.messaging.stream-inbox",
+        "parentId": "root",
+        "file": "routes/api.messaging.stream-inbox.ts",
+        "path": "api/messaging/stream-inbox"
+      },
+      "routes/api.messaging.stream-inquiry": {
+        "id": "routes/api.messaging.stream-inquiry",
+        "parentId": "root",
+        "file": "routes/api.messaging.stream-inquiry.ts",
+        "path": "api/messaging/stream-inquiry"
+      },
+      "routes/api.messaging.stream-inquiry-convert": {
+        "id": "routes/api.messaging.stream-inquiry-convert",
+        "parentId": "root",
+        "file": "routes/api.messaging.stream-inquiry-convert.ts",
+        "path": "api/messaging/stream-inquiry-convert"
+      },
+      "routes/api.messaging.stream-inquiry-status": {
+        "id": "routes/api.messaging.stream-inquiry-status",
+        "parentId": "root",
+        "file": "routes/api.messaging.stream-inquiry-status.ts",
+        "path": "api/messaging/stream-inquiry-status"
+      },
+      "routes/api.push.subscribe": {
+        "id": "routes/api.push.subscribe",
+        "parentId": "root",
+        "file": "routes/api.push.subscribe.ts",
+        "path": "api/push/subscribe"
+      },
+      "routes/api.push.unsubscribe": {
+        "id": "routes/api.push.unsubscribe",
+        "parentId": "root",
+        "file": "routes/api.push.unsubscribe.ts",
+        "path": "api/push/unsubscribe"
+      },
+      "routes/api.push.test": {
+        "id": "routes/api.push.test",
+        "parentId": "root",
+        "file": "routes/api.push.test.ts",
+        "path": "api/push/test"
+      },
+      "routes/api.booking.create": {
+        "id": "routes/api.booking.create",
+        "parentId": "root",
+        "file": "routes/api.booking.create.tsx",
+        "path": "api/booking/create"
+      },
+      "routes/api.proposal.accept": {
+        "id": "routes/api.proposal.accept",
+        "parentId": "root",
+        "file": "routes/api.proposal.accept.tsx",
+        "path": "api/proposal/accept"
+      },
+      "routes/api.proposal.counter": {
+        "id": "routes/api.proposal.counter",
+        "parentId": "root",
+        "file": "routes/api.proposal.counter.tsx",
+        "path": "api/proposal/counter"
+      },
+      "routes/api.proposal.decline": {
+        "id": "routes/api.proposal.decline",
+        "parentId": "root",
+        "file": "routes/api.proposal.decline.tsx",
+        "path": "api/proposal/decline"
+      },
+      "routes/api.payout": {
+        "id": "routes/api.payout",
+        "parentId": "root",
+        "file": "routes/api.payout.tsx",
+        "path": "api/payout"
+      },
+      "routes/api.invoices.create": {
+        "id": "routes/api.invoices.create",
+        "parentId": "root",
+        "file": "routes/api.invoices.create.ts",
+        "path": "api/invoices/create"
+      },
+      "routes/api.invoices.upload": {
+        "id": "routes/api.invoices.upload",
+        "parentId": "root",
+        "file": "routes/api.invoices.upload.ts",
+        "path": "api/invoices/upload"
+      },
+      "routes/api.invoices.download": {
+        "id": "routes/api.invoices.download",
+        "parentId": "root",
+        "file": "routes/api.invoices.download.ts",
+        "path": "api/invoices/download"
+      },
+      "routes/api.invoices.void": {
+        "id": "routes/api.invoices.void",
+        "parentId": "root",
+        "file": "routes/api.invoices.void.ts",
+        "path": "api/invoices/void"
+      },
+      "routes/api.invoicing.activate": {
+        "id": "routes/api.invoicing.activate",
+        "parentId": "root",
+        "file": "routes/api.invoicing.activate.tsx",
+        "path": "api/invoicing/activate"
+      },
+      "routes/api.links.$linkId.leads-csv": {
+        "id": "routes/api.links.$linkId.leads-csv",
+        "parentId": "root",
+        "file": "routes/api.links.$linkId.leads-csv.tsx",
+        "path": "api/links/:linkId/leads-csv"
+      },
+      "routes/api.campaigns.checkout": {
+        "id": "routes/api.campaigns.checkout",
+        "parentId": "root",
+        "file": "routes/api.campaigns.checkout.tsx",
+        "path": "api/campaigns/checkout"
+      },
+      "routes/api.stripe.checkout": {
+        "id": "routes/api.stripe.checkout",
+        "parentId": "root",
+        "file": "routes/api.stripe.checkout.tsx",
+        "path": "api/stripe/checkout"
+      },
+      "routes/api.stripe.connect": {
+        "id": "routes/api.stripe.connect",
+        "parentId": "root",
+        "file": "routes/api.stripe.connect.tsx",
+        "path": "api/stripe/connect"
+      },
+      "routes/api.stripe.connect.login": {
+        "id": "routes/api.stripe.connect.login",
+        "parentId": "root",
+        "file": "routes/api.stripe.connect.login.tsx",
+        "path": "api/stripe/connect/login"
+      },
+      "routes/api.stripe.billing-portal": {
+        "id": "routes/api.stripe.billing-portal",
+        "parentId": "root",
+        "file": "routes/api.stripe.billing-portal.tsx",
+        "path": "api/stripe/billing-portal"
+      },
+      "routes/api.stripe.cancel-subscription": {
+        "id": "routes/api.stripe.cancel-subscription",
+        "parentId": "root",
+        "file": "routes/api.stripe.cancel-subscription.tsx",
+        "path": "api/stripe/cancel-subscription"
+      },
+      "routes/api.stripe.webhook": {
+        "id": "routes/api.stripe.webhook",
+        "parentId": "root",
+        "file": "routes/api.stripe.webhook.tsx",
+        "path": "api/stripe/webhook"
+      },
+      "routes/home": {
+        "id": "routes/home",
+        "parentId": "root",
+        "file": "routes/home.tsx",
+        "path": "home"
+      },
+      "routes/.well-known.$": {
+        "id": "routes/.well-known.$",
+        "parentId": "root",
+        "file": "routes/.well-known.$.tsx",
+        "path": ".well-known/*"
+      }
+    },
+    "routeDiscovery": {
+      "mode": "lazy",
+      "manifestPath": "/__manifest"
+    },
+    "serverBuildFile": "index.js",
+    "serverModuleFormat": "esm",
+    "ssr": true,
+    "allowedActionOrigins": false,
+    "unstable_routeConfig": [
+      {
+        "id": "root",
+        "path": "",
+        "file": "root.tsx",
+        "children": [
+          {
+            "file": "routes/join.tsx",
+            "path": "join"
+          },
+          {
+            "file": "routes/login.tsx",
+            "path": "login"
+          },
+          {
+            "file": "routes/reset-password.tsx",
+            "path": "reset-password"
+          },
+          {
+            "file": "routes/auth.callback.tsx",
+            "path": "auth/callback"
+          },
+          {
+            "file": "routes/claim.tsx",
+            "path": "claim"
+          },
+          {
+            "file": "routes/claim.confirm.tsx",
+            "path": "claim/confirm"
+          },
+          {
+            "file": "routes/booking.$id.tsx",
+            "path": "booking/:id"
+          },
+          {
+            "file": "routes/_app.tsx",
+            "children": [
+              {
+                "file": "routes/_app._index.tsx",
+                "index": true
+              },
+              {
+                "file": "routes/_app.office.tsx",
+                "path": "office"
+              },
+              {
+                "file": "routes/_app.office.partners.tsx",
+                "path": "office/partners"
+              },
+              {
+                "file": "routes/_app.partner-onboarding.tsx",
+                "path": "partner-onboarding"
+              },
+              {
+                "file": "routes/_app.office.admin.payouts.tsx",
+                "path": "office/admin/payouts"
+              },
+              {
+                "file": "routes/_app.crew.tsx",
+                "path": "crew"
+              },
+              {
+                "file": "routes/_app.profile.tsx",
+                "path": "profile"
+              },
+              {
+                "file": "routes/_app.service.tsx",
+                "path": "service"
+              },
+              {
+                "file": "routes/_app.payments.tsx",
+                "path": "payments"
+              },
+              {
+                "file": "routes/_app.boost.tsx",
+                "path": "boost"
+              },
+              {
+                "file": "routes/_app.domain.tsx",
+                "path": "domain"
+              },
+              {
+                "file": "routes/_app.links.tsx",
+                "path": "links"
+              },
+              {
+                "file": "routes/_app.account.tsx",
+                "path": "account"
+              }
+            ]
+          },
+          {
+            "file": "routes/api.notify-member.tsx",
+            "path": "api/notify-member"
+          },
+          {
+            "file": "routes/api.messaging.stream-token.ts",
+            "path": "api/messaging/stream-token"
+          },
+          {
+            "file": "routes/api.messaging.stream-inbox.ts",
+            "path": "api/messaging/stream-inbox"
+          },
+          {
+            "file": "routes/api.messaging.stream-inquiry.ts",
+            "path": "api/messaging/stream-inquiry"
+          },
+          {
+            "file": "routes/api.messaging.stream-inquiry-convert.ts",
+            "path": "api/messaging/stream-inquiry-convert"
+          },
+          {
+            "file": "routes/api.messaging.stream-inquiry-status.ts",
+            "path": "api/messaging/stream-inquiry-status"
+          },
+          {
+            "file": "routes/api.push.subscribe.ts",
+            "path": "api/push/subscribe"
+          },
+          {
+            "file": "routes/api.push.unsubscribe.ts",
+            "path": "api/push/unsubscribe"
+          },
+          {
+            "file": "routes/api.push.test.ts",
+            "path": "api/push/test"
+          },
+          {
+            "file": "routes/api.booking.create.tsx",
+            "path": "api/booking/create"
+          },
+          {
+            "file": "routes/api.proposal.accept.tsx",
+            "path": "api/proposal/accept"
+          },
+          {
+            "file": "routes/api.proposal.counter.tsx",
+            "path": "api/proposal/counter"
+          },
+          {
+            "file": "routes/api.proposal.decline.tsx",
+            "path": "api/proposal/decline"
+          },
+          {
+            "file": "routes/api.payout.tsx",
+            "path": "api/payout"
+          },
+          {
+            "file": "routes/api.invoices.create.ts",
+            "path": "api/invoices/create"
+          },
+          {
+            "file": "routes/api.invoices.upload.ts",
+            "path": "api/invoices/upload"
+          },
+          {
+            "file": "routes/api.invoices.download.ts",
+            "path": "api/invoices/download"
+          },
+          {
+            "file": "routes/api.invoices.void.ts",
+            "path": "api/invoices/void"
+          },
+          {
+            "file": "routes/api.invoicing.activate.tsx",
+            "path": "api/invoicing/activate"
+          },
+          {
+            "file": "routes/api.links.$linkId.leads-csv.tsx",
+            "path": "api/links/:linkId/leads-csv"
+          },
+          {
+            "file": "routes/api.campaigns.checkout.tsx",
+            "path": "api/campaigns/checkout"
+          },
+          {
+            "file": "routes/api.stripe.checkout.tsx",
+            "path": "api/stripe/checkout"
+          },
+          {
+            "file": "routes/api.stripe.connect.tsx",
+            "path": "api/stripe/connect"
+          },
+          {
+            "file": "routes/api.stripe.connect.login.tsx",
+            "path": "api/stripe/connect/login"
+          },
+          {
+            "file": "routes/api.stripe.billing-portal.tsx",
+            "path": "api/stripe/billing-portal"
+          },
+          {
+            "file": "routes/api.stripe.cancel-subscription.tsx",
+            "path": "api/stripe/cancel-subscription"
+          },
+          {
+            "file": "routes/api.stripe.webhook.tsx",
+            "path": "api/stripe/webhook"
+          },
+          {
+            "file": "routes/home.tsx",
+            "path": "home"
+          },
+          {
+            "file": "routes/.well-known.$.tsx",
+            "path": ".well-known/*"
+          }
+        ]
+      }
+    ]
+  },
+  "viteConfig": {
+    "build": {
+      "assetsDir": "assets"
+    }
+  }
+}
