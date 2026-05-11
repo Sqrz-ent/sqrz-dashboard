@@ -135,8 +135,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               <img src="/sqrz-logo-mark.png" alt="SQRZ" />
             </div>
             <div id="sqrz-pwa-boot-copy">
-              <div id="sqrz-pwa-boot-title">SQRZ</div>
-              <div id="sqrz-pwa-boot-subtitle">Loading your dashboard...</div>
+              <div id="sqrz-pwa-boot-subtitle">Loading...</div>
             </div>
             <div id="sqrz-pwa-boot-loader" />
           </div>
