@@ -160,19 +160,8 @@ export default function Login() {
               style={{ width: 112, height: 112, objectFit: "contain", display: "block" }}
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div
-                style={{
-                  fontFamily: '"Barlow Condensed", Impact, sans-serif',
-                  fontSize: 34,
-                  lineHeight: 0.9,
-                  letterSpacing: "0.12em",
-                  color: "#F5A623",
-                }}
-              >
-                SQRZ
-              </div>
               <div style={{ fontSize: 15, color: "rgba(23,23,23,0.68)" }}>
-                {authPhase === "password" ? "Logging you in..." : "Sending your magic link..."}
+                {authPhase === "password" ? "Loading..." : "Sending your magic link..."}
               </div>
             </div>
             <div
