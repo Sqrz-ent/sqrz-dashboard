@@ -682,15 +682,14 @@ export async function action({ request, params }: Route.ActionArgs) {
     const admin = createSupabaseAdminClient();
     const { data: ownerPlan } = await admin
       .from("profiles")
-      .select("plan_id, stripe_connect_id, stripe_connect_id_test, stripe_connect_status_test, plans(booking_fee_pct)")
+      .select("plan_id, stripe_connect_id, stripe_connect_id_test, plans(booking_fee_pct)")
       .eq("id", profile.id as string)
       .maybeSingle();
     const livePlanLevel = getPlanLevel((ownerPlan?.plan_id as number | null) ?? null);
     const canUseLiveStripe = livePlanLevel >= 1 && !!(ownerPlan?.stripe_connect_id as string | null);
     const canUseTestStripe =
       !!(profile.is_beta as boolean | null) &&
-      !!(ownerPlan?.stripe_connect_id_test as string | null) &&
-      (ownerPlan?.stripe_connect_status_test as string | null) === "active";
+      !!(ownerPlan?.stripe_connect_id_test as string | null);
     const stripeMode: ProposalStripeMode = !requiresPayment
       ? "live"
       : requestedStripeMode === "test"
@@ -1327,7 +1326,7 @@ function ProposalSection({
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
   const hasLiveConnect = !!stripeConnectId;
-  const hasTestConnect = !!stripeConnectIdTest && stripeConnectStatusTest === "active";
+  const hasTestConnect = !!stripeConnectIdTest;
   const canUseLiveStripe = planLevel >= 1 && hasLiveConnect;
   const canUseTestStripe = isBeta && hasTestConnect;
   const availableStripeModes: ProposalStripeMode[] = [
@@ -1864,6 +1863,11 @@ function ProposalSection({
                       </div>
                     </label>
                   </div>
+                  {stripeConnectStatusTest && stripeConnectStatusTest !== "active" && (
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
+                      Test Connect is linked. If Stripe still flags setup details internally, checkout will show that during the test flow.
+                    </p>
+                  )}
                 </div>
               )}
 

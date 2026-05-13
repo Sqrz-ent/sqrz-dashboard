@@ -40,7 +40,7 @@ export async function action({ request }: { request: Request }) {
   // 3. Fetch member's Connect account + plan fee percentage
   const { data: ownerProfile } = await adminClient
     .from("profiles")
-    .select("stripe_connect_id, stripe_connect_id_test, stripe_connect_status_test, plan_id, plans(booking_fee_pct)")
+    .select("stripe_connect_id, stripe_connect_id_test, plan_id, plans(booking_fee_pct)")
     .eq("id", bk.owner_id)
     .single();
 
@@ -76,10 +76,6 @@ export async function action({ request }: { request: Request }) {
     const stripe = getStripeClient(stripeMode);
     if (!stripe) {
       return Response.json({ error: `Stripe ${stripeMode} mode is not configured.` }, { status: 500 });
-    }
-
-    if (stripeMode === "test" && ownerProfile?.stripe_connect_status_test !== "active") {
-      return Response.json({ error: "Seller test Stripe setup is not active yet." }, { status: 400 });
     }
 
     const session = await stripe.checkout.sessions.create({
