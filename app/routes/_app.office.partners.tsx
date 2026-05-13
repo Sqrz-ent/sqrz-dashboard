@@ -47,6 +47,7 @@ type Referral = {
 type BookingRow = {
   referred_slug: string;
   commission_amount: number;
+  stripe_mode: "live" | "test";
 };
 
 type LoaderData = {
@@ -188,7 +189,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // 5. Booking referral earnings
   const { data: rawBookingEarnings } = await supabase
     .from("booking_referral_earnings")
-    .select("commission_amount, payout_status, referred_id")
+    .select("commission_amount, payout_status, referred_id, stripe_mode")
     .eq("referrer_id", profile.id as string);
 
   const bookingTotal = (rawBookingEarnings ?? []).reduce(
@@ -219,6 +220,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const bookingRows: BookingRow[] = (rawBookingEarnings ?? []).map((r) => ({
     referred_slug: bookingSlugMap[r.referred_id as string] ?? "unknown",
     commission_amount: Number(r.commission_amount ?? 0),
+    stripe_mode: ((r.stripe_mode as string | null) === "test" ? "test" : "live"),
   }));
 
   return Response.json(
@@ -615,7 +617,7 @@ export default function PartnersPage() {
                         background: "rgba(24,95,165,0.12)",
                         color: BLUE,
                       }}>
-                        Booking
+                        {r.stripe_mode === "test" ? "Booking · Test" : "Booking"}
                       </span>
                     </td>
                     <td style={{ padding: "11px 14px", fontWeight: 700 }}>

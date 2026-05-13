@@ -1,6 +1,6 @@
-import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
+import { getStripeClient } from "~/lib/stripe-mode.server";
 
 export async function action({ request }: { request: Request }) {
   const { booking_id, proposal_id, invite_token } = await request.json();
@@ -26,7 +26,7 @@ export async function action({ request }: { request: Request }) {
   // 2. Get proposal details including line_items and tax_pct
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("rate, currency, requires_payment, sqrz_fee_pct, booking_id, line_items, tax_pct, bookings(title, owner_id, profiles(name))")
+    .select("rate, currency, requires_payment, sqrz_fee_pct, stripe_mode, booking_id, line_items, tax_pct, bookings(title, owner_id, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -40,7 +40,7 @@ export async function action({ request }: { request: Request }) {
   // 3. Fetch member's Connect account + plan fee percentage
   const { data: ownerProfile } = await adminClient
     .from("profiles")
-    .select("stripe_connect_id, plan_id, plans(booking_fee_pct)")
+    .select("stripe_connect_id, stripe_connect_id_test, stripe_connect_status_test, plan_id, plans(booking_fee_pct)")
     .eq("id", bk.owner_id)
     .single();
 
@@ -51,7 +51,12 @@ export async function action({ request }: { request: Request }) {
     proposalFeePct: (proposal as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,
     fallbackFeePct: planId === null ? 0 : planFeePct,
   });
-  const connectId: string | null = ownerProfile?.stripe_connect_id ?? null;
+  const stripeMode =
+    (proposal as { stripe_mode?: string | null }).stripe_mode === "test" ? "test" : "live";
+  const connectId: string | null =
+    stripeMode === "test"
+      ? (ownerProfile?.stripe_connect_id_test ?? null)
+      : (ownerProfile?.stripe_connect_id ?? null);
 
   // Amount calculations (in cents)
   // net = what member quoted; SQRZ fee on net only; tax added on top
@@ -68,7 +73,15 @@ export async function action({ request }: { request: Request }) {
 
   if (proposal.requires_payment === true) {
     // Stripe destination charge — fee stays on platform, net goes directly to member's Connect account
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const stripe = getStripeClient(stripeMode);
+    if (!stripe) {
+      return Response.json({ error: `Stripe ${stripeMode} mode is not configured.` }, { status: 500 });
+    }
+
+    if (stripeMode === "test" && ownerProfile?.stripe_connect_status_test !== "active") {
+      return Response.json({ error: "Seller test Stripe setup is not active yet." }, { status: 400 });
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: [
@@ -96,6 +109,7 @@ export async function action({ request }: { request: Request }) {
         booking_id,
         invite_token,
         proposal_id,
+        stripe_mode: stripeMode,
         booking_type: "quote_accepted",
         owner_profile_id: bk.owner_id,
         rate: rate.toString(),
@@ -141,6 +155,7 @@ export async function action({ request }: { request: Request }) {
             total_budget: totalAmountMajor,
             secured_amount: proposal.rate ?? 0,
             currency: proposal.currency ?? "EUR",
+            stripe_mode: stripeMode,
             sqrz_fee_pct: feePct,
             tax_pct: taxPct || null,
             tax_amount: taxAmountMajor || null,
@@ -158,6 +173,7 @@ export async function action({ request }: { request: Request }) {
             total_budget: totalAmountMajor,
             secured_amount: proposal.rate ?? 0,
             currency: proposal.currency ?? "EUR",
+            stripe_mode: stripeMode,
             sqrz_fee_pct: feePct,
             tax_pct: taxPct || null,
             tax_amount: taxAmountMajor || null,

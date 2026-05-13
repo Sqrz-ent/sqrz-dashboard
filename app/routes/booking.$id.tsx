@@ -21,6 +21,7 @@ import BookingChat from "~/components/BookingChat";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Booking = Record<string, unknown>;
+type ProposalStripeMode = "live" | "test";
 
 export type LineItem = {
   label: string;
@@ -54,6 +55,7 @@ type Proposal = {
   line_items?: LineItem[] | null;
   tax_pct?: number | null;
   sqrz_fee_pct?: number | null;
+  stripe_mode?: ProposalStripeMode | null;
 } | null;
 
 type MemberInfo = {
@@ -99,6 +101,7 @@ async function syncWalletFromProposal(input: {
       secured_amount: proposalNet,
       total_budget: proposalTotal,
       currency: proposal.currency ?? "EUR",
+      stripe_mode: proposal.requires_payment && proposal.stripe_mode === "test" ? "test" : "live",
       sqrz_fee_pct: proposalFeePct,
       tax_pct: proposalTaxPct || null,
       tax_amount: proposalTaxAmount || null,
@@ -314,6 +317,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposalFeePct,
         memberInfo,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
+        stripeConnectIdTest: (profile?.stripe_connect_id_test as string | null) ?? null,
+        stripeConnectStatusTest: (profile?.stripe_connect_status_test as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
         memberEmail: (ownerPlan?.email as string | null) ?? null,
         invoice: tokenInvoice,
@@ -563,6 +568,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         memberInfo: sessionMemberInfo,
         memberEmail: sessionMemberEmail,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
+        stripeConnectIdTest: (profile?.stripe_connect_id_test as string | null) ?? null,
+        stripeConnectStatusTest: (profile?.stripe_connect_status_test as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
         invoice: sessionInvoice,
         buyerParticipant: sessionBuyerParticipant,
@@ -662,6 +669,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const lineItemsRaw = (formData.get("line_items") as string) || null;
     const taxPctRaw = formData.get("tax_pct") as string | null;
     const taxPct = taxPctRaw ? (parseFloat(taxPctRaw) || null) : null;
+    const requestedStripeMode = formData.get("stripe_mode") === "test" ? "test" : "live";
 
     let lineItems: LineItem[] | null = null;
     const rate = rateRaw;
@@ -674,9 +682,29 @@ export async function action({ request, params }: Route.ActionArgs) {
     const admin = createSupabaseAdminClient();
     const { data: ownerPlan } = await admin
       .from("profiles")
-      .select("plans(booking_fee_pct)")
+      .select("plan_id, stripe_connect_id, stripe_connect_id_test, stripe_connect_status_test, plans(booking_fee_pct)")
       .eq("id", profile.id as string)
       .maybeSingle();
+    const livePlanLevel = getPlanLevel((ownerPlan?.plan_id as number | null) ?? null);
+    const canUseLiveStripe = livePlanLevel >= 1 && !!(ownerPlan?.stripe_connect_id as string | null);
+    const canUseTestStripe =
+      !!(profile.is_beta as boolean | null) &&
+      !!(ownerPlan?.stripe_connect_id_test as string | null) &&
+      (ownerPlan?.stripe_connect_status_test as string | null) === "active";
+    const stripeMode: ProposalStripeMode = !requiresPayment
+      ? "live"
+      : requestedStripeMode === "test"
+        ? "test"
+        : "live";
+
+    if (requiresPayment && stripeMode === "live" && !canUseLiveStripe) {
+      return Response.json({ error: "Live Stripe payments are not available for this account yet." }, { status: 400, headers });
+    }
+
+    if (requiresPayment && stripeMode === "test" && !canUseTestStripe) {
+      return Response.json({ error: "Stripe test mode is not active for this account yet." }, { status: 400, headers });
+    }
+
     const fallbackFeePct = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
     const lockedFeePct = resolveLockedSqrzFeePct({
       requiresPayment,
@@ -732,6 +760,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         line_items: lineItems ?? null,
         tax_pct: taxPct,
         sqrz_fee_pct: lockedFeePct,
+        stripe_mode: stripeMode,
       })
       .select();
 
@@ -744,6 +773,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         secured_amount: normalizedRate,
         total_budget: roundCurrency(normalizedRate + normalizedTaxAmount + normalizedFeeAmount),
         currency,
+        stripe_mode: requiresPayment ? stripeMode : "live",
         sqrz_fee_pct: lockedFeePct,
         tax_pct: normalizedTaxPct || null,
         tax_amount: normalizedTaxAmount || null,
@@ -852,14 +882,15 @@ export async function action({ request, params }: Route.ActionArgs) {
       const adminForReferral = createSupabaseAdminClient();
       const { data: wallet } = await adminForReferral
         .from("booking_wallets")
-        .select("total_budget")
+        .select("secured_amount, stripe_mode")
         .eq("booking_id", params.id)
         .maybeSingle();
-      if (wallet?.total_budget) {
+      if (wallet?.secured_amount) {
         await handleBookingReferral({
           supabase: adminForReferral,
           bookingId: params.id!,
-          bookingValue: Number(wallet.total_budget),
+          bookingValue: Number(wallet.secured_amount),
+          stripeMode: (wallet.stripe_mode as ProposalStripeMode | null) ?? "live",
         });
       }
     } catch (err) {
@@ -886,14 +917,15 @@ export async function action({ request, params }: Route.ActionArgs) {
     try {
       const { data: wallet } = await admin
         .from("booking_wallets")
-        .select("total_budget")
+        .select("secured_amount, stripe_mode")
         .eq("booking_id", params.id)
         .maybeSingle();
-      if (wallet?.total_budget) {
+      if (wallet?.secured_amount) {
         await handleBookingReferral({
           supabase: admin,
           bookingId: params.id!,
-          bookingValue: Number(wallet.total_budget),
+          bookingValue: Number(wallet.secured_amount),
+          stripeMode: (wallet.stripe_mode as ProposalStripeMode | null) ?? "live",
         });
       }
     } catch (err) {
@@ -1237,11 +1269,17 @@ function ProposalSection({
   booking,
   planLevel,
   stripeConnectId,
+  stripeConnectIdTest,
+  stripeConnectStatusTest,
+  isBeta,
   proposalFeePct,
 }: {
   booking: Booking;
   planLevel: number;
   stripeConnectId: string | null;
+  stripeConnectIdTest: string | null;
+  stripeConnectStatusTest: string | null;
+  isBeta: boolean;
   proposalFeePct?: number | null;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
@@ -1267,7 +1305,15 @@ function ProposalSection({
     require_travel: latestProposal?.require_travel ?? false,
     require_hotel: latestProposal?.require_hotel ?? false,
     require_food: latestProposal?.require_food ?? false,
-    requires_payment: latestProposal?.requires_payment ?? (planLevel >= 1 && !!stripeConnectId),
+    requires_payment:
+      latestProposal?.requires_payment ??
+      ((planLevel >= 1 && !!stripeConnectId) ||
+        (isBeta && stripeConnectStatusTest === "active" && !!stripeConnectIdTest)),
+    stripe_mode:
+      latestProposal?.stripe_mode ??
+      ((planLevel < 1 || !stripeConnectId) && isBeta && stripeConnectStatusTest === "active" && !!stripeConnectIdTest
+        ? "test"
+        : "live"),
   });
 
   const [taxEnabled, setTaxEnabled] = useState(!!(latestProposal?.tax_pct));
@@ -1280,8 +1326,20 @@ function ProposalSection({
   });
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
-  const canUseStripe = planLevel >= 1;
-  const hasConnect = !!stripeConnectId;
+  const hasLiveConnect = !!stripeConnectId;
+  const hasTestConnect = !!stripeConnectIdTest && stripeConnectStatusTest === "active";
+  const canUseLiveStripe = planLevel >= 1 && hasLiveConnect;
+  const canUseTestStripe = isBeta && hasTestConnect;
+  const availableStripeModes: ProposalStripeMode[] = [
+    ...(canUseLiveStripe ? ["live" as const] : []),
+    ...(canUseTestStripe ? ["test" as const] : []),
+  ];
+  const canUseStripe = availableStripeModes.length > 0;
+  const effectiveStripeMode: ProposalStripeMode = form.requires_payment
+    ? (availableStripeModes.includes(form.stripe_mode as ProposalStripeMode)
+        ? (form.stripe_mode as ProposalStripeMode)
+        : (availableStripeModes[0] ?? "live"))
+    : "live";
   const sym = currencySym(latestProposal?.currency ?? "EUR");
 
   return (
@@ -1367,6 +1425,14 @@ function ProposalSection({
                             <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{(item.amount || 0).toLocaleString()}</span>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {p.requires_payment && p.stripe_mode === "test" && (
+                      <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)" }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: ACCENT, margin: "0 0 3px" }}>Stripe Test Mode</p>
+                        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                          This proposal will generate a Stripe sandbox payment link for rehearsal only.
+                        </p>
                       </div>
                     )}
                     {p.message && (
@@ -1657,6 +1723,14 @@ function ProposalSection({
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{feeAmt.toLocaleString()}</span>
                           </div>
                         )}
+                        {form.requires_payment && canUseStripe && (
+                          <div style={{ display: "flex", justifyContent: "space-between" }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Stripe mode</span>
+                            <span style={{ fontSize: 12, color: effectiveStripeMode === "test" ? ACCENT : "var(--text-muted)", fontWeight: effectiveStripeMode === "test" ? 700 : 500 }}>
+                              {effectiveStripeMode === "test" ? "Test" : "Live"}
+                            </span>
+                          </div>
+                        )}
                         <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 5 }}>
                           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
                           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{bookerPays.toLocaleString()}</span>
@@ -1724,7 +1798,7 @@ function ProposalSection({
               </div>
 
               {/* Payment toggle */}
-              {canUseStripe && hasConnect ? (
+              {canUseStripe ? (
                 <div style={{ marginBottom: 20 }}>
                   <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
                     <input
@@ -1757,6 +1831,51 @@ function ProposalSection({
                 </>
               ) : null}
 
+              {form.requires_payment && canUseStripe && canUseTestStripe && (
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ ...lbl, marginBottom: 8 }}>Stripe mode</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {canUseLiveStripe && (
+                      <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                        <input
+                          type="radio"
+                          name="proposal_stripe_mode"
+                          checked={effectiveStripeMode === "live"}
+                          onChange={() => setForm((f) => ({ ...f, stripe_mode: "live" }))}
+                          style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
+                        />
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Live Stripe</p>
+                          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Real checkout and real payout flow</p>
+                        </div>
+                      </label>
+                    )}
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="proposal_stripe_mode"
+                        checked={effectiveStripeMode === "test"}
+                        onChange={() => setForm((f) => ({ ...f, stripe_mode: "test" }))}
+                        style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
+                      />
+                      <div>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: ACCENT, margin: 0 }}>Stripe Test Mode</p>
+                        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Sandbox checkout for beta rehearsal. No real funds move.</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {form.requires_payment && canUseStripe && !canUseLiveStripe && canUseTestStripe && (
+                <div style={{ marginBottom: 20, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)", borderRadius: 10, padding: "10px 12px" }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: ACCENT, margin: "0 0 3px" }}>Beta test payment link</p>
+                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                    This account can rehearse Stripe payments in test mode even though live proposal payments are not enabled.
+                  </p>
+                </div>
+              )}
+
               {fetcher.data?.error && (
                 <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
               )}
@@ -1773,6 +1892,7 @@ function ProposalSection({
                     fd.append("require_travel", String(form.require_travel));
                     fd.append("require_food", String(form.require_food));
                     fd.append("requires_payment", String(form.requires_payment));
+                    fd.append("stripe_mode", effectiveStripeMode);
                     fd.append("line_items", JSON.stringify(lineItems.filter((i) => i.label && i.amount > 0)));
                     if (taxEnabled && taxPct) fd.append("tax_pct", taxPct);
                     if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
@@ -2507,6 +2627,14 @@ function GuestBuyerProposalCard({
         <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "12px 0 0" }}>
           Proposal v{version}
         </p>
+        {proposal.requires_payment && proposal.stripe_mode === "test" && (
+          <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)" }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: ACCENT, margin: "0 0 3px" }}>Stripe Test Payment</p>
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+              This acceptance button opens a Stripe sandbox checkout for rehearsal only. Use Stripe test card details.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Waiting banner — buyer's own counter is pending */}
@@ -2542,8 +2670,10 @@ function GuestBuyerProposalCard({
               ? "Processing…"
               : proposal.requires_payment
                 ? totalCharged != null
-                  ? `Accept & Pay ${sym}${totalCharged.toLocaleString()}`
-                  : "Accept & Pay"
+                  ? `Accept & Pay${proposal.stripe_mode === "test" ? " (Test)" : ""} ${sym}${totalCharged.toLocaleString()}`
+                  : proposal.stripe_mode === "test"
+                    ? "Accept & Pay (Test)"
+                    : "Accept & Pay"
                 : net > 0
                   ? `Accept — ${sym}${net.toLocaleString()} ${proposal.currency ?? "EUR"}`
                   : "Accept"}
@@ -3488,6 +3618,9 @@ function MemberView({
   messagingProvider,
   bookingToken,
   stripeConnectId,
+  stripeConnectIdTest,
+  stripeConnectStatusTest,
+  isBeta,
   memberInfo,
   proposalFeePct,
   proposal,
@@ -3502,6 +3635,9 @@ function MemberView({
   messagingProvider: BookingMessagingProvider;
   bookingToken?: string | null;
   stripeConnectId: string | null;
+  stripeConnectIdTest: string | null;
+  stripeConnectStatusTest: string | null;
+  isBeta: boolean;
   memberInfo?: MemberInfo;
   proposalFeePct?: number | null;
   proposal: Proposal | null;
@@ -3611,7 +3747,17 @@ function MemberView({
           </div>
         )}
 
-        {showProposal && <ProposalSection booking={b} planLevel={planLevel} stripeConnectId={stripeConnectId} proposalFeePct={proposalFeePct} />}
+        {showProposal && (
+          <ProposalSection
+            booking={b}
+            planLevel={planLevel}
+            stripeConnectId={stripeConnectId}
+            stripeConnectIdTest={stripeConnectIdTest}
+            stripeConnectStatusTest={stripeConnectStatusTest}
+            isBeta={isBeta}
+            proposalFeePct={proposalFeePct}
+          />
+        )}
 
         {showPayments && wallet && (
           <BookingWallet
@@ -3838,6 +3984,8 @@ export default function BookingAccessPage() {
     proposalFeePct?: number | null;
     memberInfo?: MemberInfo;
     stripeConnectId?: string | null;
+    stripeConnectIdTest?: string | null;
+    stripeConnectStatusTest?: string | null;
     senderName: string | null;
     memberEmail?: string | null;
     invoice?: InvoiceRecord | null;
@@ -3863,6 +4011,9 @@ export default function BookingAccessPage() {
           messagingProvider={messagingProvider}
           bookingToken={bookingToken}
           stripeConnectId={stripeConnectId ?? null}
+          stripeConnectIdTest={stripeConnectIdTest ?? null}
+          stripeConnectStatusTest={stripeConnectStatusTest ?? null}
+          isBeta={isBeta}
           memberInfo={memberInfo}
           proposalFeePct={proposalFeePct}
           proposal={proposal ?? null}

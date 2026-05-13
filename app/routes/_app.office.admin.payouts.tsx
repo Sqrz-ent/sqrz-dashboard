@@ -24,6 +24,7 @@ type BookingEarning = {
   booking_value: number;
   commission_pct: number;
   commission_amount: number;
+  stripe_mode: "live" | "test";
   payout_status: string;
   created_at: string;
 };
@@ -60,7 +61,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // ── 1. Booking referral earnings ──────────────────────────────────────────
   const { data: rawBookingEarnings } = await admin
     .from("booking_referral_earnings")
-    .select("id, booking_id, referrer_id, referred_id, booking_value, commission_pct, commission_amount, payout_status, created_at")
+    .select("id, booking_id, referrer_id, referred_id, booking_value, commission_pct, commission_amount, stripe_mode, payout_status, created_at")
     .eq("payout_status", "pending")
     .order("created_at", { ascending: false });
 
@@ -90,6 +91,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     booking_value: Number(r.booking_value ?? 0),
     commission_pct: Number(r.commission_pct ?? 2.5),
     commission_amount: Number(r.commission_amount ?? 0),
+    stripe_mode: ((r.stripe_mode as string | null) === "test" ? "test" : "live"),
     payout_status: r.payout_status as string,
     created_at: r.created_at as string,
   }));
@@ -264,7 +266,14 @@ export default function AdminPayoutsPage() {
                 <tr key={r.id}>
                   <td style={{ ...td, fontFamily: "monospace", fontWeight: 600 }}>{r.referrer_slug}</td>
                   <td style={{ ...td, fontFamily: "monospace", color: "var(--text-muted)" }}>{r.referred_slug}</td>
-                  <td style={td}>{fmtMoney(r.booking_value)}</td>
+                  <td style={td}>
+                    {fmtMoney(r.booking_value)}
+                    {r.stripe_mode === "test" && (
+                      <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, color: ACCENT }}>
+                        TEST
+                      </span>
+                    )}
+                  </td>
                   <td style={{ ...td, fontWeight: 600 }}>{fmtMoney(r.commission_amount)}</td>
                   <td style={td}>
                     <span style={{

@@ -300,10 +300,17 @@ export async function action({ request }: ActionFunctionArgs) {
 
       console.log("[webhook] instant_booking confirmed:", bookingId);
 
+      const sessionStripeMode = session.livemode ? "live" : "test";
+
       // Booking referral commission
       try {
-        const totalCharged = (session.amount_total ?? 0) / 100;
-        await handleBookingReferral({ supabase, bookingId, bookingValue: totalCharged });
+        const commissionBaseAmount = meta.rate ? Number(meta.rate) : (session.amount_total ?? 0) / 100;
+        await handleBookingReferral({
+          supabase,
+          bookingId,
+          bookingValue: commissionBaseAmount,
+          stripeMode: sessionStripeMode,
+        });
       } catch (refErr) {
         console.error("[webhook] instant_booking referral commission failed:", refErr);
       }
@@ -326,6 +333,7 @@ export async function action({ request }: ActionFunctionArgs) {
         owner_profile_id: bk?.owner_id ?? null,
         total_budget: totalCharged,
         secured_amount: net ?? totalCharged,
+        stripe_mode: sessionStripeMode,
         client_paid: true,
         payout_status: "pending",
         sqrz_fee_pct: feePct,
@@ -364,6 +372,8 @@ export async function action({ request }: ActionFunctionArgs) {
     // ── Legacy instant booking payment ───────────────────────────────────────
     if ((session.metadata?.booking_type === "instant" || session.metadata?.booking_type === "quote_accepted") && session.metadata?.booking_id) {
       const bookingId = session.metadata.booking_id;
+      const sessionStripeMode =
+        session.metadata?.stripe_mode === "test" || !session.livemode ? "test" : "live";
       console.log("[webhook] legacy instant/quote booking payment received:", bookingId);
 
       await supabase
@@ -377,8 +387,15 @@ export async function action({ request }: ActionFunctionArgs) {
 
       // Booking referral commission
       try {
-        const totalCharged = (session.amount_total ?? 0) / 100;
-        await handleBookingReferral({ supabase, bookingId, bookingValue: totalCharged });
+        const commissionBaseAmount = session.metadata?.rate
+          ? Number(session.metadata.rate)
+          : (session.amount_total ?? 0) / 100;
+        await handleBookingReferral({
+          supabase,
+          bookingId,
+          bookingValue: commissionBaseAmount,
+          stripeMode: sessionStripeMode,
+        });
       } catch (refErr) {
         console.error("[webhook] legacy booking referral commission failed:", refErr);
       }
@@ -417,6 +434,7 @@ export async function action({ request }: ActionFunctionArgs) {
           client_paid: true,
           payout_status: "pending",
           total_budget: totalCharged,
+          stripe_mode: sessionStripeMode,
           tax_pct: metaTaxPct,
           tax_amount: metaTaxAmount,
         };
@@ -451,6 +469,7 @@ export async function action({ request }: ActionFunctionArgs) {
           owner_profile_id: bk?.owner_id ?? null,
           total_budget: totalCharged,
           secured_amount: securedAmount,
+          stripe_mode: sessionStripeMode,
           client_paid: true,
           payout_status: "pending",
           sqrz_fee_pct: feePct,
