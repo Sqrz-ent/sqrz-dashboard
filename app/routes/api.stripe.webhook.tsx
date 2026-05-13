@@ -686,11 +686,16 @@ export async function action({ request }: ActionFunctionArgs) {
   if (event.type === "account.updated") {
     const account = event.data.object as Stripe.Account;
     const status = (account.charges_enabled && account.payouts_enabled) ? "active" : "pending";
+    const connectIdField = account.livemode ? "stripe_connect_id" : "stripe_connect_id_test";
+    const connectStatusField = account.livemode ? "stripe_connect_status" : "stripe_connect_status_test";
     await supabase
       .from("profiles")
-      .update({ stripe_connect_status: status })
-      .eq("stripe_connect_id", account.id);
-    console.log("[webhook] connect account", account.id, "→", status);
+      .update({
+        [connectStatusField]: status,
+        ...(account.livemode ? {} : { stripe_beta_test_mode: true }),
+      })
+      .eq(connectIdField, account.id);
+    console.log("[webhook] connect account", account.id, "livemode:", account.livemode, "→", status);
   }
 
   return Response.json({ received: true });
