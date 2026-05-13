@@ -83,6 +83,14 @@ type WalletRow = {
   client_email: string | null;
 };
 
+type ConnectDiagnostics = {
+  detailsSubmitted: boolean | null;
+  payoutsEnabled: boolean | null;
+  chargesEnabled: boolean | null;
+  currentlyDue: string[];
+  disabledReason: string | null;
+};
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -112,15 +120,24 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const connectResult = url.searchParams.get("connect");
   const returnedMode = url.searchParams.get("mode");
+  let connectDiagnostics: ConnectDiagnostics | null = null;
+  let connectDiagnosticsTest: ConnectDiagnostics | null = null;
 
   async function syncConnectStatus(mode: "live" | "test") {
     const stripeClient = mode === "test" ? stripeConnectTest : stripeConnect;
     const accountId = mode === "test" ? connectIdTest : connectId;
-    if (!stripeClient || !accountId) return;
+    if (!stripeClient || !accountId) return null;
 
     const account = await stripeClient.accounts.retrieve(accountId);
     const nextStatus = account.charges_enabled && account.payouts_enabled ? "active" : "pending";
     const statusField = mode === "test" ? "stripe_connect_status_test" : "stripe_connect_status";
+    const diagnostics = {
+      detailsSubmitted: account.details_submitted ?? null,
+      payoutsEnabled: account.payouts_enabled ?? null,
+      chargesEnabled: account.charges_enabled ?? null,
+      currentlyDue: account.requirements?.currently_due ?? [],
+      disabledReason: account.requirements?.disabled_reason ?? null,
+    };
 
     await admin
       .from("profiles")
@@ -132,9 +149,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     if (mode === "test") {
       connectStatusTest = nextStatus;
+      connectDiagnosticsTest = diagnostics;
     } else {
       connectStatus = nextStatus;
+      connectDiagnostics = diagnostics;
     }
+
+    return diagnostics;
   }
 
   if (connectResult === "success" || connectResult === "refresh") {
@@ -143,6 +164,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     } else if (returnedMode !== "test") {
       await syncConnectStatus("live");
     }
+  }
+
+  if (!connectDiagnostics && stripeConnect && connectId && (connectStatus === "pending" || connectStatus === "active")) {
+    connectDiagnostics = await syncConnectStatus("live");
+  }
+  if (!connectDiagnosticsTest && stripeConnectTest && connectIdTest && (connectStatusTest === "pending" || connectStatusTest === "active")) {
+    connectDiagnosticsTest = await syncConnectStatus("test");
   }
 
   // ── Booking wallets ───────────────────────────────────────────────────────
@@ -218,6 +246,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       stripeBetaTestMode,
       isBeta,
       testModeAvailable: isStripeModeAvailable("test"),
+      connectDiagnostics,
+      connectDiagnosticsTest,
       walletRows,
     },
     { headers }
@@ -255,6 +285,8 @@ export default function PaymentsPage() {
     stripeBetaTestMode,
     isBeta,
     testModeAvailable,
+    connectDiagnostics,
+    connectDiagnosticsTest,
     walletRows,
   } =
     useLoaderData<typeof loader>() as {
@@ -266,6 +298,8 @@ export default function PaymentsPage() {
       stripeBetaTestMode: boolean;
       isBeta: boolean;
       testModeAvailable: boolean;
+      connectDiagnostics: ConnectDiagnostics | null;
+      connectDiagnosticsTest: ConnectDiagnostics | null;
       walletRows: WalletRow[];
     };
 
@@ -595,9 +629,24 @@ export default function PaymentsPage() {
             </div>
           ) : isPendingTest ? (
             <div style={{ paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px" }}>
-                Test onboarding started — finish setup in Stripe test mode to keep it separate from your live account.
-              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                  {connectDiagnosticsTest?.detailsSubmitted
+                    ? "Stripe received your test account, but payouts are not enabled yet."
+                    : "Test onboarding started — Stripe is still waiting for more information before it can enable payouts."}
+                </p>
+                {(connectDiagnosticsTest?.currentlyDue?.length ?? 0) > 0 && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                    Still required by Stripe: {connectDiagnosticsTest!.currentlyDue.slice(0, 2).join(", ")}
+                    {(connectDiagnosticsTest!.currentlyDue.length > 2) ? "…" : ""}
+                  </p>
+                )}
+                {connectDiagnosticsTest?.disabledReason && (
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
+                    Stripe reason: {connectDiagnosticsTest.disabledReason.replaceAll("_", " ")}
+                  </p>
+                )}
+              </div>
               <connectFetcher.Form method="post" action="/api/stripe/connect?mode=test">
                 <input type="hidden" name="mode" value="test" />
                 <button
