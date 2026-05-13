@@ -44,6 +44,7 @@ export default [
   route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
   route("api/proposal/counter", "routes/api.proposal.counter.tsx"),
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
+  route("api/billing/confirm", "routes/api.billing.confirm.ts"),
   route("api/payout", "routes/api.payout.tsx"),
 
   // Invoice API routes

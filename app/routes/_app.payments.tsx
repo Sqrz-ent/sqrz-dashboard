@@ -77,6 +77,7 @@ type WalletRow = {
   created_at: string;
   released_amount: number | null;
   currency: string | null;
+  stripe_mode: "live" | "test" | null;
   booking_title: string;
   booking_status: string | null;
   client_name: string | null;
@@ -181,7 +182,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   ] = await Promise.allSettled([
     admin
       .from("booking_wallets")
-      .select("id, booking_id, total_budget, secured_amount, sqrz_fee_pct, client_paid, payout_status, status, created_at, released_amount, currency")
+      .select("id, booking_id, total_budget, secured_amount, sqrz_fee_pct, client_paid, payout_status, status, created_at, released_amount, currency, stripe_mode")
       .eq("owner_profile_id", profile.id)
       .order("created_at", { ascending: false }),
 
@@ -420,6 +421,23 @@ export default function PaymentsPage() {
                         >
                           {w.booking_title}
                         </a>
+                        {w.stripe_mode === "test" && (
+                          <span style={{
+                            display: "inline-flex",
+                            marginTop: 5,
+                            padding: "2px 7px",
+                            borderRadius: 999,
+                            background: "rgba(245,166,35,0.12)",
+                            border: "1px solid rgba(245,166,35,0.28)",
+                            color: ACCENT,
+                            fontSize: 10,
+                            fontWeight: 800,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                          }}>
+                            Test
+                          </span>
+                        )}
                       </td>
 
                       {/* Client */}
@@ -488,21 +506,6 @@ export default function PaymentsPage() {
           {isActive ? (
             stripeExpressUrl ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                <div style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  background: "rgba(243,177,48,0.1)",
-                  border: "1px solid rgba(243,177,48,0.3)",
-                  borderRadius: 6,
-                  padding: "4px 10px",
-                  fontSize: 11,
-                  color: "#F3B130",
-                  letterSpacing: "0.05em",
-                  textTransform: "uppercase" as const,
-                }}>
-                  ⚠ Test mode — real payouts not yet active
-                </div>
                 <a
                   href={stripeExpressUrl}
                   target="_blank"

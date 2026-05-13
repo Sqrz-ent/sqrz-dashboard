@@ -14,6 +14,7 @@ import {
   resolveLockedSqrzFeePct,
   roundCurrency,
 } from "~/lib/proposal-pricing";
+import { getStripeClient } from "~/lib/stripe-mode.server";
 import { supabase as browserClient } from "~/lib/supabase.client";
 import BookingWallet, { type WalletData } from "~/components/BookingWallet";
 import BookingChat from "~/components/BookingChat";
@@ -1011,8 +1012,25 @@ export async function action({ request, params }: Route.ActionArgs) {
       .eq("id", params.id)
       .maybeSingle();
 
-    const Stripe = (await import("stripe")).default;
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    const { data: allocation } = await admin
+      .from("wallet_allocations")
+      .select("wallet_id")
+      .eq("id", allocationId)
+      .maybeSingle();
+
+    const { data: wallet } = allocation?.wallet_id
+      ? await admin
+          .from("booking_wallets")
+          .select("stripe_mode")
+          .eq("id", allocation.wallet_id)
+          .maybeSingle()
+      : { data: null };
+
+    const stripeMode: ProposalStripeMode = wallet?.stripe_mode === "test" ? "test" : "live";
+    const stripe = getStripeClient(stripeMode);
+    if (!stripe) {
+      return Response.json({ error: `Stripe ${stripeMode} mode is not configured.` }, { status: 500, headers });
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -1024,13 +1042,14 @@ export async function action({ request, params }: Route.ActionArgs) {
         },
         quantity: 1,
       }],
-      success_url: `https://dashboard.sqrz.com/booking/${params.id}?payment=success`,
+      success_url: `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token ?? ""}&payment=success`,
       cancel_url: `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token ?? ""}`,
       customer_email: buyer.email,
       metadata: {
         booking_id: params.id,
         wallet_allocation_id: allocationId,
         booking_type: "allocation_payment",
+        stripe_mode: stripeMode,
       },
     });
 
