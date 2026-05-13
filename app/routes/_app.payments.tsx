@@ -92,10 +92,11 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
+  const url = new URL(request.url);
 
-  const connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
+  let connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
   const connectId = (profile.stripe_connect_id as string | null) ?? null;
-  const connectStatusTest = (profile.stripe_connect_status_test as string | null) ?? "not_connected";
+  let connectStatusTest = (profile.stripe_connect_status_test as string | null) ?? "not_connected";
   const connectIdTest = (profile.stripe_connect_id_test as string | null) ?? null;
   const stripeBetaTestMode = (profile.stripe_beta_test_mode as boolean | null) ?? false;
   const isBeta = (profile.is_beta as boolean | null) ?? false;
@@ -108,6 +109,41 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const stripeConnect = getStripeClient("live");
   const stripeConnectTest = getStripeClient("test");
+
+  const connectResult = url.searchParams.get("connect");
+  const returnedMode = url.searchParams.get("mode");
+
+  async function syncConnectStatus(mode: "live" | "test") {
+    const stripeClient = mode === "test" ? stripeConnectTest : stripeConnect;
+    const accountId = mode === "test" ? connectIdTest : connectId;
+    if (!stripeClient || !accountId) return;
+
+    const account = await stripeClient.accounts.retrieve(accountId);
+    const nextStatus = account.charges_enabled && account.payouts_enabled ? "active" : "pending";
+    const statusField = mode === "test" ? "stripe_connect_status_test" : "stripe_connect_status";
+
+    await admin
+      .from("profiles")
+      .update({
+        [statusField]: nextStatus,
+        ...(mode === "test" ? { stripe_beta_test_mode: true } : {}),
+      })
+      .eq("id", profile.id as string);
+
+    if (mode === "test") {
+      connectStatusTest = nextStatus;
+    } else {
+      connectStatus = nextStatus;
+    }
+  }
+
+  if (connectResult === "success" || connectResult === "refresh") {
+    if (returnedMode === "test" && isBeta) {
+      await syncConnectStatus("test");
+    } else if (returnedMode !== "test") {
+      await syncConnectStatus("live");
+    }
+  }
 
   // ── Booking wallets ───────────────────────────────────────────────────────
   const [
