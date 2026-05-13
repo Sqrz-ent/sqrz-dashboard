@@ -3988,6 +3988,8 @@ export default function BookingAccessPage() {
     proposalFeePct,
     memberInfo,
     stripeConnectId,
+    stripeConnectIdTest,
+    stripeConnectStatusTest,
     senderName,
     memberEmail,
     invoice,
