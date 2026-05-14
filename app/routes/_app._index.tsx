@@ -48,80 +48,31 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/join");
 
-  const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/join");
+  const { data: homeData, error: homeError } = await supabase.rpc("get_dashboard_home");
+  if (homeError) throw homeError;
+  if (!homeData?.profile) return redirect("/join");
 
-  const profileId = profile.id as string;
-
-  const [analyticsRes, activeBookingsRes, upcomingBookingsRes, skillsRes, servicesRes, videosRes, refsRes, planRes, blocksRes, refCodeRes, photosRes] =
-    await Promise.all([
-      supabase
-        .from("profile_analytics")
-        .select("*")
-        .eq("profile_id", profile.id as string)
-        .maybeSingle(),
-      supabase
-        .from("bookings")
-        .select("id", { count: "exact", head: true })
-        .eq("owner_id", profileId)
-        .in("status", ["requested", "pending", "confirmed"]),
-      supabase
-        .from("bookings")
-        .select("id, title, service, date_start, city")
-        .eq("owner_id", profileId)
-        .eq("status", "confirmed")
-        .gt("date_start", new Date().toISOString())
-        .order("date_start", { ascending: true })
-        .limit(3),
-      supabase
-        .from("profile_skills")
-        .select("skill_id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
-      supabase
-        .from("profile_services")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
-      supabase
-        .from("profile_videos")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
-      supabase
-        .from("profile_references")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
-      profile.plan_id
-        ? supabase.from("plans").select("name").eq("id", profile.plan_id as number).maybeSingle()
-        : Promise.resolve({ data: null }),
-      supabase
-        .from("availability_blocks")
-        .select("id, start_date, end_date, label, show_label")
-        .eq("profile_id", profileId)
-        .order("start_date", { ascending: true }),
-      supabase
-        .from("referral_codes")
-        .select("code, use_count, commission_pct, discount_pct")
-        .eq("owner_id", profileId)
-        .maybeSingle(),
-      supabase
-        .from("profile_photos")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
-    ]);
+  const profile = homeData.profile as Record<string, unknown>;
+  const { data: analytics } = await supabase
+    .from("profile_analytics")
+    .select("*")
+    .eq("profile_id", profile.id as string)
+    .maybeSingle();
 
   return Response.json(
     {
       profile,
-      analytics: analyticsRes.data ?? null,
-      activeBookingsCount: activeBookingsRes.count ?? 0,
-      upcomingBookings: upcomingBookingsRes.data ?? [],
-      hasSkills: (skillsRes.count ?? 0) > 0,
-      hasServices: (servicesRes.count ?? 0) > 0,
-      hasVideos: (videosRes.count ?? 0) > 0,
-      hasRefs: (refsRes.count ?? 0) > 0,
-      hasGallery: (photosRes.count ?? 0) > 0,
-      planName: ((planRes as { data: Record<string, unknown> | null }).data?.name as string) ?? null,
-      availabilityBlocks: blocksRes.data ?? [],
-      refCode: refCodeRes.data ?? null,
+      analytics: analytics ?? null,
+      activeBookingsCount: homeData.activeBookingsCount ?? 0,
+      upcomingBookings: homeData.upcomingBookings ?? [],
+      hasSkills: !!homeData.hasSkills,
+      hasServices: !!homeData.hasServices,
+      hasVideos: !!homeData.hasVideos,
+      hasRefs: !!homeData.hasRefs,
+      hasGallery: !!homeData.hasGallery,
+      planName: homeData.planName ?? null,
+      availabilityBlocks: homeData.availabilityBlocks ?? [],
+      refCode: homeData.refCode ?? null,
       webPushPublicKey: isPushConfigured() ? getPushPublicKey() : "",
     },
     { headers }
