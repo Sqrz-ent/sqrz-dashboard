@@ -3649,6 +3649,8 @@ function MemberView({
   proposal,
   invoice,
   buyerParticipant,
+  showMobileOfficeBack = false,
+  onMobileOfficeBack,
 }: {
   booking: Booking;
   wallet: WalletData | null;
@@ -3666,6 +3668,8 @@ function MemberView({
   proposal: Proposal | null;
   invoice: InvoiceRecord | null;
   buyerParticipant: BuyerParticipant;
+  showMobileOfficeBack?: boolean;
+  onMobileOfficeBack?: () => void;
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
@@ -3715,6 +3719,32 @@ function MemberView({
         gap: 8,
         padding: "0 24px",
       }}>
+        {showMobileOfficeBack && (
+          <button
+            onClick={onMobileOfficeBack}
+            aria-label="Back to Office"
+            style={{
+              position: "absolute",
+              left: 18,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "none",
+              border: "none",
+              color: "var(--text)",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              lineHeight: "22px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "14px 0",
+              fontFamily: FONT_BODY,
+            }}
+          >
+            ← Office
+          </button>
+        )}
         {sections.map(({ id, label }) => (
           <button
             key={id}
@@ -3839,6 +3869,7 @@ export default function BookingAccessPage() {
   console.log('[booking page] loader data proposal:', data.proposal);
   const fromOffice = searchParams.get("from") === "office";
   const [isStandalonePwa, setIsStandalonePwa] = useState(false);
+  const [isMobileBookingNav, setIsMobileBookingNav] = useState(false);
 
   useEffect(() => {
     const compute = () => {
@@ -3860,6 +3891,28 @@ export default function BookingAccessPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const media = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(max-width: 767px)")
+      : null;
+    const compute = () => setIsMobileBookingNav(Boolean(media?.matches));
+
+    compute();
+    media?.addEventListener?.("change", compute);
+
+    return () => {
+      media?.removeEventListener?.("change", compute);
+    };
+  }, []);
+
+  function goBackToOffice() {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = "/office";
+  }
+
   // ── Dark mode (mirrors _app.tsx — same key, same class) ────────────────────
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   useEffect(() => {
@@ -3878,15 +3931,9 @@ export default function BookingAccessPage() {
   }
   const themeToggle = (
     <>
-      {fromOffice && isStandalonePwa && (
+      {fromOffice && isStandalonePwa && !isMobileBookingNav && (
         <button
-          onClick={() => {
-            if (window.history.length > 1) {
-              window.history.back();
-              return;
-            }
-            window.location.href = "/office";
-          }}
+          onClick={goBackToOffice}
           aria-label="Back to Office"
           style={{
             position: "fixed",
@@ -4044,6 +4091,8 @@ export default function BookingAccessPage() {
           proposal={proposal ?? null}
           invoice={invoice ?? null}
           buyerParticipant={buyerParticipant ?? null}
+          showMobileOfficeBack={fromOffice && isStandalonePwa && isMobileBookingNav}
+          onMobileOfficeBack={goBackToOffice}
         />
       </div>
     );

@@ -1,4 +1,4 @@
-import { redirect, useLoaderData } from "react-router";
+import { Link, redirect, useLoaderData } from "react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StreamChat } from "stream-chat";
 import type { Route } from "./+types/_app.office";
@@ -66,6 +66,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const ACCENT = "#F5A623";
+const OFFICE_BOOKING_NAV_EVENT = "sqrz:office-booking-navigation";
 
 const COLUMN_EMPTY_TEXT: Record<string, string> = {
   requested: "New booking requests will appear here. Share your profile to get started.",
@@ -118,14 +119,28 @@ function OfficeBookingLink({
   const finalHref = withOfficeReturn(href);
 
   return (
-    <a
-      href={finalHref}
+    <Link
+      to={finalHref}
       target={isStandalone ? undefined : "_blank"}
       rel={isStandalone ? undefined : "noopener noreferrer"}
+      onClick={(event) => {
+        if (
+          !isStandalone ||
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.altKey ||
+          event.ctrlKey ||
+          event.shiftKey
+        ) {
+          return;
+        }
+        window.dispatchEvent(new CustomEvent(OFFICE_BOOKING_NAV_EVENT));
+      }}
       style={style}
     >
       {children}
-    </a>
+    </Link>
   );
 }
 
@@ -563,11 +578,27 @@ export default function OfficePage() {
   // Local copy of owner bookings — patched in real-time by Stream events for paid users.
   // For free users this simply mirrors the loader data and stays static.
   const [streamOwnerBookings, setStreamOwnerBookings] = useState<Booking[]>(ownerBookings);
+  const [openingBooking, setOpeningBooking] = useState(false);
 
   // Keep in sync if loader data ever refreshes (e.g. after window.location.reload()).
   useEffect(() => {
     setStreamOwnerBookings(ownerBookings);
   }, [ownerBookings]);
+
+  useEffect(() => {
+    function handleBookingNavigation() {
+      setOpeningBooking(true);
+    }
+
+    window.addEventListener(OFFICE_BOOKING_NAV_EVENT, handleBookingNavigation);
+    return () => window.removeEventListener(OFFICE_BOOKING_NAV_EVENT, handleBookingNavigation);
+  }, []);
+
+  useEffect(() => {
+    if (!openingBooking) return;
+    const timeout = setTimeout(() => setOpeningBooking(false), 8000);
+    return () => clearTimeout(timeout);
+  }, [openingBooking]);
 
   const sortedOwnerBookings = useMemo(
     () => sortBookingsByUrgency(streamOwnerBookings),
@@ -678,6 +709,52 @@ export default function OfficePage() {
 
   return (
     <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
+      {openingBooking && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            background:
+              "radial-gradient(circle at 50% 16%, rgba(245, 166, 35, 0.22), transparent 42%), color-mix(in srgb, var(--bg) 92%, transparent)",
+            backdropFilter: "blur(6px)",
+            WebkitBackdropFilter: "blur(6px)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 16,
+              textAlign: "center",
+              color: "var(--text)",
+            }}
+          >
+            <img
+              src="/sqrz-logo-mark.png"
+              alt="SQRZ"
+              style={{ width: 88, height: 88, objectFit: "contain", display: "block" }}
+            />
+            <div style={{ color: "var(--text-muted)", fontSize: 14, fontWeight: 600 }}>
+              Opening booking...
+            </div>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: 999,
+                border: "3px solid rgba(245,166,35,0.22)",
+                borderTopColor: ACCENT,
+                animation: "sqrz-pwa-spin 900ms linear infinite",
+              }}
+            />
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
