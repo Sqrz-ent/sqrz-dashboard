@@ -95,7 +95,6 @@ export default function InquiryBubble({
   const channelRef = useRef<StreamChannelLike | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const currentThreadId = selectedThreadId ?? session?.threads[0]?.id ?? null;
-  const pollKey = useMemo(() => currentThreadId ?? "none", [currentThreadId]);
   const lastSentMessageId = useMemo(() => {
     if (!session) return null;
     return [...messages].reverse().find((m) => m.userId === session.streamUser.id)?.id ?? null;
@@ -144,17 +143,11 @@ export default function InquiryBubble({
     }
 
     void refreshThreads();
-    const intervalId = window.setInterval(() => {
-      if (!open) {
-        void refreshThreads();
-      }
-    }, 10000);
 
     return () => {
       cancelled = true;
-      window.clearInterval(intervalId);
     };
-  }, [enabled, open, pollKey]);
+  }, [enabled, open]);
 
   useEffect(() => {
     if (!session || !activeThread) return;
