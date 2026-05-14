@@ -41,6 +41,71 @@ type AvailabilityBlock = {
   show_label: boolean | null;
 };
 
+async function getDashboardAnalytics(profileId: string) {
+  const admin = createSupabaseAdminClient();
+  const now = Date.now();
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const fourteenDaysAgo = new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [
+    totalViewsRes,
+    views7dRes,
+    viewsPrev7dRes,
+    uniqueVisitorsRes,
+    bookingModalOpensRes,
+    chatOpensRes,
+  ] = await Promise.all([
+    admin
+      .from("profile_views")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profileId),
+    admin
+      .from("profile_views")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profileId)
+      .gte("created_at", sevenDaysAgo),
+    admin
+      .from("profile_views")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profileId)
+      .gte("created_at", fourteenDaysAgo)
+      .lt("created_at", sevenDaysAgo),
+    admin
+      .from("profile_views")
+      .select("visitor_fingerprint")
+      .eq("profile_id", profileId)
+      .gte("created_at", sevenDaysAgo)
+      .limit(10000),
+    admin
+      .from("jitsu_events")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profileId)
+      .eq("event_type", "booking_modal_open")
+      .gte("created_at", sevenDaysAgo),
+    admin
+      .from("jitsu_events")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profileId)
+      .eq("event_type", "chat_opened")
+      .gte("created_at", sevenDaysAgo),
+  ]);
+
+  const uniqueVisitors = new Set(
+    (uniqueVisitorsRes.data ?? [])
+      .map((row) => row.visitor_fingerprint as string | null)
+      .filter(Boolean)
+  ).size;
+
+  return {
+    total_views: totalViewsRes.count ?? 0,
+    views_7d: views7dRes.count ?? 0,
+    views_prev_7d: viewsPrev7dRes.count ?? 0,
+    unique_visitors_7d: uniqueVisitors,
+    booking_modal_opens_7d: bookingModalOpensRes.count ?? 0,
+    chat_opens_7d: chatOpensRes.count ?? 0,
+  };
+}
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -56,12 +121,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .single();
   const analyticsPromise = profileIdPromise.then(async ({ data: profileRow, error }) => {
     if (error || !profileRow?.id) return null;
-    const { data } = await createSupabaseAdminClient()
-      .from("profile_analytics")
-      .select("*")
-      .eq("profile_id", profileRow.id as string)
-      .maybeSingle();
-    return data;
+    return getDashboardAnalytics(profileRow.id as string);
   });
 
   const [{ data: homeData, error: homeError }, analytics] = await Promise.all([
