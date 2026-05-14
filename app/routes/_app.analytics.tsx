@@ -1,4 +1,4 @@
-import { redirect, useLoaderData, useSearchParams, useNavigate } from "react-router";
+import { redirect, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -29,7 +29,7 @@ type AnalyticsData = {
   download_clicks: number;
   requests_sent: number;
   leads: LeadRow[];
-} | null;
+};
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -49,8 +49,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     p_days: days,
   });
 
+  const analytics = (data as unknown as AnalyticsData) ?? null;
+
   return Response.json(
-    { analytics: (data as AnalyticsData) ?? null, days },
+    { analytics, days },
     { headers }
   );
 }
@@ -252,8 +254,7 @@ function InlineStat({ label, value }: { label: string; value: number }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, days } = useLoaderData<typeof loader>();
-  const [, setSearchParams] = useSearchParams();
+  const { analytics, days } = useLoaderData() as { analytics: AnalyticsData | null; days: number };
   const navigate = useNavigate();
 
   function setDays(d: number) {
