@@ -86,6 +86,44 @@ type PrivateLink = {
 
 type ProfileService = { id: string; title: string };
 
+function normalizeImageUrl(url: string | null | undefined): string | null {
+  const raw = url?.trim();
+  if (!raw) return null;
+
+  let value = raw.startsWith("//") ? `https:${raw}` : raw;
+  if (!/^https?:\/\//i.test(value)) value = `https://${value}`;
+
+  try {
+    const parsed = new URL(value);
+    if (!["http:", "https:"].includes(parsed.protocol)) return null;
+
+    if (parsed.hostname.includes("dropbox.com")) {
+      parsed.hostname = "dl.dropboxusercontent.com";
+      parsed.searchParams.delete("dl");
+      parsed.searchParams.set("raw", "1");
+      return parsed.toString();
+    }
+
+    if (parsed.pathname.includes("/storage/v1/object/sign/")) {
+      parsed.pathname = parsed.pathname.replace("/storage/v1/object/sign/", "/storage/v1/object/public/");
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString();
+    }
+
+    if (parsed.pathname.includes("/storage/v1/render/image/public/")) {
+      parsed.pathname = parsed.pathname.replace("/storage/v1/render/image/public/", "/storage/v1/object/public/");
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString();
+    }
+
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -239,6 +277,7 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "create") {
     const pageType = (fd.get("page_type") as string) || "download";
     const titleVal = (fd.get("title") as string) || null;
+    const coverImageUrl = normalizeImageUrl(fd.get("cover_image_url") as string);
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
@@ -247,7 +286,7 @@ export async function action({ request }: Route.ActionArgs) {
       title: titleVal,
       label: titleVal,
       description: (fd.get("description") as string) || null,
-      cover_image_url: (fd.get("cover_image_url") as string) || null,
+      cover_image_url: coverImageUrl,
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
       external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
@@ -286,13 +325,14 @@ export async function action({ request }: Route.ActionArgs) {
     const id = fd.get("id") as string;
     const pageType = (fd.get("page_type") as string) || "download";
     const titleVal = (fd.get("title") as string) || null;
+    const coverImageUrl = normalizeImageUrl(fd.get("cover_image_url") as string);
     const { error } = await admin.from("private_booking_links").update({
       link_slug: fd.get("link_slug") as string,
       page_type: pageType,
       title: titleVal,
       label: titleVal,
       description: (fd.get("description") as string) || null,
-      cover_image_url: (fd.get("cover_image_url") as string) || null,
+      cover_image_url: coverImageUrl,
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
       external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
