@@ -732,21 +732,6 @@ export default function InquiryBubble({
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
-        <span
-          style={{
-            position: "absolute",
-            top: 62,
-            left: "50%",
-            transform: "translateX(-50%)",
-            fontSize: 10,
-            fontWeight: 700,
-            color: "#111",
-            opacity: 0.72,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {session?.threads.length ? (session.threads.length > 1 ? `${session.threads.length} active` : "1 active") : "ready"}
-        </span>
       </button>
 
       <NewBookingModal
