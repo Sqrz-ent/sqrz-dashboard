@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { getPushPublicKey, isPushConfigured } from "~/lib/push.server";
@@ -48,16 +48,30 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/join");
 
-  const { data: homeData, error: homeError } = await supabase.rpc("get_dashboard_home");
+  const homeDataPromise = supabase.rpc("get_dashboard_home");
+  const profileIdPromise = supabase
+    .from("profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .single();
+  const analyticsPromise = profileIdPromise.then(async ({ data: profileRow, error }) => {
+    if (error || !profileRow?.id) return null;
+    const { data } = await createSupabaseAdminClient()
+      .from("profile_analytics")
+      .select("*")
+      .eq("profile_id", profileRow.id as string)
+      .maybeSingle();
+    return data;
+  });
+
+  const [{ data: homeData, error: homeError }, analytics] = await Promise.all([
+    homeDataPromise,
+    analyticsPromise,
+  ]);
   if (homeError) throw homeError;
   if (!homeData?.profile) return redirect("/join");
 
   const profile = homeData.profile as Record<string, unknown>;
-  const { data: analytics } = await supabase
-    .from("profile_analytics")
-    .select("*")
-    .eq("profile_id", profile.id as string)
-    .maybeSingle();
 
   return Response.json(
     {
