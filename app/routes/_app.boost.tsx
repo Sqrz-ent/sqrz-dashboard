@@ -1215,131 +1215,31 @@ export default function BoostPage() {
                     </div>
                   )}
 
-                  {/* View Stats toggle */}
+                  {/* Campaign destination */}
                   <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 10 }}>
-                    <button
-                      type="button"
-                      onClick={() => toggleStats(c.id)}
-                      style={{
-                        background: "none",
-                        border: "none",
-                        cursor: "pointer",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        color: "var(--text-muted)",
-                        fontFamily: FONT_BODY,
-                        padding: 0,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                      }}
-                    >
-                      <span style={{ fontSize: 10, display: "inline-block", transform: isStatsOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>▶</span>
-                      {isStatsOpen ? "Hide Stats" : "View Stats"}
-                    </button>
-
-                    {isStatsOpen && (
-                      <div style={{ marginTop: 14 }}>
-                        {!hasStats ? (
-                          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                            Your campaign stats will appear here once it goes live.
-                          </p>
-                        ) : allStatsEmpty ? (
-                          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                            Your campaign stats will appear here once it goes live.
-                          </p>
-                        ) : (
-                          <>
-                            {/* Stats grid — 2 columns */}
-                            <div style={{
-                              display: "grid",
-                              gridTemplateColumns: "1fr 1fr",
-                              gap: 8,
-                              marginBottom: 14,
-                            }}>
-                              {STATS_ROWS.map(({ label, value, format, sublabel }: { label: string; value: number | null; format: string; sublabel?: string }) => (
-                                <div
-                                  key={label}
-                                  style={{
-                                    background: "var(--surface)",
-                                    border: "1px solid var(--border)",
-                                    borderRadius: 10,
-                                    padding: "10px 12px",
-                                  }}
-                                >
-                                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4 }}>
-                                    {label}
-                                  </div>
-                                  <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)", fontFamily: FONT_DISPLAY }}>
-                                    {value == null
-                                      ? "—"
-                                      : format === "currency"
-                                        ? `$${Number(value).toFixed(2)}`
-                                        : Number(value).toLocaleString()}
-                                  </div>
-                                  {sublabel && (
-                                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, lineHeight: 1.3 }}>
-                                      {sublabel}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-
-                            {/* Funnel */}
-                            {(c.live_profile_visits ?? 0) > 0 && c.data_source === "live" && (
-                              <div style={{ fontSize: 12, color: "var(--text-muted)", display: "flex", gap: 8, alignItems: "center", marginTop: 8, marginBottom: 10, flexWrap: "wrap" as const }}>
-                                <span>{c.live_profile_visits} visited</span>
-                                <span>→</span>
-                                <span>{c.live_engaged ?? 0} engaged</span>
-                                {(c.live_booking_modal_opens ?? 0) > 0 && (
-                                  <>
-                                    <span>→</span>
-                                    <span>{c.live_booking_modal_opens} considered booking</span>
-                                  </>
-                                )}
-                              </div>
-                            )}
-
-                            {/* Campaign progress */}
-                            {c.campaign_days_elapsed != null && c.campaign_duration_days != null && (
-                              <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 8px", lineHeight: 1.5 }}>
-                                {(c.campaign_days_remaining ?? 0) === 0
-                                  ? "Campaign ended"
-                                  : `Day ${c.campaign_days_elapsed} of ${c.campaign_duration_days}`}
-                              </p>
-                            )}
-
-
-                          </>
-                        )}
-
-                        {/* Campaign destination */}
-                        {(() => {
-                          let destination: string;
-                          if (c.promote_type === "link" && c.promote_link_id) {
-                            const pl = privateLinks.find((l) => l.id === c.promote_link_id);
-                            destination = pl
-                              ? `${profile_slug}.sqrz.com/${pl.link_slug}`
-                              : `${profile_slug}.sqrz.com`;
-                          } else if (c.utm_url) {
-                            destination = c.utm_url.split("?")[0].replace(/^https?:\/\//, "");
-                          } else {
-                            destination = `${profile_slug}.sqrz.com`;
-                          }
-                          return (
-                            <div>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>
-                                Campaign Destination
-                              </div>
-                              <div style={{ fontSize: 13, color: "var(--text)" }}>
-                                {destination}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
+                    {(() => {
+                      let destination: string;
+                      if (c.promote_type === "link" && c.promote_link_id) {
+                        const pl = privateLinks.find((l) => l.id === c.promote_link_id);
+                        destination = pl
+                          ? `${profile_slug}.sqrz.com/${pl.link_slug}`
+                          : `${profile_slug}.sqrz.com`;
+                      } else if (c.utm_url) {
+                        destination = c.utm_url.split("?")[0].replace(/^https?:\/\//, "");
+                      } else {
+                        destination = `${profile_slug}.sqrz.com`;
+                      }
+                      return (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>
+                            Campaign Destination
+                          </div>
+                          <div style={{ fontSize: 13, color: "var(--text)" }}>
+                            {destination}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {c.status === "completed" && (
