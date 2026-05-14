@@ -31,6 +31,7 @@
       "routes/_app.domain": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.links": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.account": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.crew.create-profile": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.notify-member": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-token": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inbox": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -40,10 +41,12 @@
       "routes/api.push.subscribe": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.push.unsubscribe": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.push.test": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.dashboard.home-summary": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.booking.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.accept": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.counter": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.decline": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.billing.confirm": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.payout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.invoices.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.invoices.upload": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -216,6 +219,13 @@
         "path": "account",
         "config": {}
       },
+      "routes/api.crew.create-profile": {
+        "id": "routes/api.crew.create-profile",
+        "parentId": "root",
+        "file": "app/routes/api.crew.create-profile.ts",
+        "path": "api/crew/create-profile",
+        "config": {}
+      },
       "routes/api.notify-member": {
         "id": "routes/api.notify-member",
         "parentId": "root",
@@ -279,6 +289,13 @@
         "path": "api/push/test",
         "config": {}
       },
+      "routes/api.dashboard.home-summary": {
+        "id": "routes/api.dashboard.home-summary",
+        "parentId": "root",
+        "file": "app/routes/api.dashboard.home-summary.ts",
+        "path": "api/dashboard/home-summary",
+        "config": {}
+      },
       "routes/api.booking.create": {
         "id": "routes/api.booking.create",
         "parentId": "root",
@@ -305,6 +322,13 @@
         "parentId": "root",
         "file": "app/routes/api.proposal.decline.tsx",
         "path": "api/proposal/decline",
+        "config": {}
+      },
+      "routes/api.billing.confirm": {
+        "id": "routes/api.billing.confirm",
+        "parentId": "root",
+        "file": "app/routes/api.billing.confirm.ts",
+        "path": "api/billing/confirm",
         "config": {}
       },
       "routes/api.payout": {
@@ -564,6 +588,12 @@
         "file": "routes/_app.account.tsx",
         "path": "account"
       },
+      "routes/api.crew.create-profile": {
+        "id": "routes/api.crew.create-profile",
+        "parentId": "root",
+        "file": "routes/api.crew.create-profile.ts",
+        "path": "api/crew/create-profile"
+      },
       "routes/api.notify-member": {
         "id": "routes/api.notify-member",
         "parentId": "root",
@@ -618,6 +648,12 @@
         "file": "routes/api.push.test.ts",
         "path": "api/push/test"
       },
+      "routes/api.dashboard.home-summary": {
+        "id": "routes/api.dashboard.home-summary",
+        "parentId": "root",
+        "file": "routes/api.dashboard.home-summary.ts",
+        "path": "api/dashboard/home-summary"
+      },
       "routes/api.booking.create": {
         "id": "routes/api.booking.create",
         "parentId": "root",
@@ -641,6 +677,12 @@
         "parentId": "root",
         "file": "routes/api.proposal.decline.tsx",
         "path": "api/proposal/decline"
+      },
+      "routes/api.billing.confirm": {
+        "id": "routes/api.billing.confirm",
+        "parentId": "root",
+        "file": "routes/api.billing.confirm.ts",
+        "path": "api/billing/confirm"
       },
       "routes/api.payout": {
         "id": "routes/api.payout",
@@ -839,6 +881,10 @@
             ]
           },
           {
+            "file": "routes/api.crew.create-profile.ts",
+            "path": "api/crew/create-profile"
+          },
+          {
             "file": "routes/api.notify-member.tsx",
             "path": "api/notify-member"
           },
@@ -875,6 +921,10 @@
             "path": "api/push/test"
           },
           {
+            "file": "routes/api.dashboard.home-summary.ts",
+            "path": "api/dashboard/home-summary"
+          },
+          {
             "file": "routes/api.booking.create.tsx",
             "path": "api/booking/create"
           },
@@ -889,6 +939,10 @@
           {
             "file": "routes/api.proposal.decline.tsx",
             "path": "api/proposal/decline"
+          },
+          {
+            "file": "routes/api.billing.confirm.ts",
+            "path": "api/billing/confirm"
           },
           {
             "file": "routes/api.payout.tsx",

@@ -1,5 +1,5 @@
-// Bottom sheet for attaching images to a booking chat message.
-// Two options: "Choose from library" and "Take photo".
+// Bottom sheet for attaching files to a booking chat message.
+// Current MVP supports images only; the structure leaves room for richer files later.
 // Rendered via React Portal on document.body.
 
 import { createPortal } from "react-dom";
@@ -51,16 +51,17 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Add image"
+        aria-label="Add attachment"
         style={{
           position: "fixed",
           bottom: 0,
-          left: 0,
-          right: 0,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "min(100%, 460px)",
           zIndex: 2147483647,
           background: "var(--surface)",
           borderRadius: "20px 20px 0 0",
-          padding: "8px 0 max(24px, env(safe-area-inset-bottom))",
+          padding: "8px 0 max(18px, env(safe-area-inset-bottom))",
           fontFamily,
           boxShadow: "0 -8px 40px rgba(0,0,0,0.4)",
         }}
@@ -72,23 +73,24 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
             height: 4,
             borderRadius: 2,
             background: "var(--border)",
-            margin: "0 auto 16px",
+            margin: "0 auto 14px",
           }}
         />
 
-        <p
-          style={{
-            fontSize: 12,
-            fontWeight: 700,
-            color: "var(--text-muted)",
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            margin: "0 0 4px",
-            padding: "0 20px",
-          }}
-        >
-          Add image
-        </p>
+        <div style={{ padding: "0 20px 8px" }}>
+          <p
+            style={{
+              fontSize: 12,
+              fontWeight: 800,
+              color: "var(--text-muted)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              margin: "0 0 4px",
+            }}
+          >
+            Add attachment
+          </p>
+        </div>
 
         {/* Choose from library */}
         <button
@@ -96,9 +98,9 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 14,
+            gap: 12,
             width: "100%",
-            padding: "14px 20px",
+            padding: "11px 20px",
             background: "none",
             border: "none",
             cursor: "pointer",
@@ -107,15 +109,15 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
         >
           <span
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
+              width: 34,
+              height: 34,
+              borderRadius: 10,
               background: "var(--surface-muted)",
               border: "1px solid var(--border)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              fontSize: 17,
               flexShrink: 0,
             }}
           >
@@ -132,9 +134,9 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 14,
+            gap: 12,
             width: "100%",
-            padding: "14px 20px",
+            padding: "11px 20px",
             background: "none",
             border: "none",
             cursor: "pointer",
@@ -143,15 +145,15 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
         >
           <span
             style={{
-              width: 40,
-              height: 40,
-              borderRadius: 12,
+              width: 34,
+              height: 34,
+              borderRadius: 10,
               background: "var(--surface-muted)",
               border: "1px solid var(--border)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              fontSize: 17,
               flexShrink: 0,
             }}
           >
@@ -168,7 +170,7 @@ export default function AttachmentSheet({ onFile, onClose, fontFamily }: Attachm
             onClick={onClose}
             style={{
               width: "100%",
-              padding: "13px",
+              padding: "11px",
               background: "var(--surface-muted)",
               border: "1px solid var(--border)",
               borderRadius: 12,

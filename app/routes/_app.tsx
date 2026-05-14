@@ -202,7 +202,18 @@ export default function AppLayout() {
   const navigation = useNavigation();
   const isNavigating = navigation.state === "loading";
   const [isCompleting, setIsCompleting] = useState(false);
+  const [showProgress, setShowProgress] = useState(false);
   const wasNavigating = useRef(false);
+
+  useEffect(() => {
+    if (!isNavigating) {
+      setShowProgress(false);
+      return;
+    }
+
+    const t = setTimeout(() => setShowProgress(true), 220);
+    return () => clearTimeout(t);
+  }, [isNavigating]);
 
   useEffect(() => {
     if (wasNavigating.current && !isNavigating) {
@@ -295,7 +306,7 @@ export default function AppLayout() {
           height: 2,
           zIndex: 9999,
           pointerEvents: "none",
-          opacity: isNavigating || isCompleting ? 1 : 0,
+          opacity: showProgress || isCompleting ? 1 : 0,
           transition: isCompleting ? "opacity 300ms ease 100ms" : "opacity 150ms ease",
         }}
       >
@@ -304,9 +315,9 @@ export default function AppLayout() {
             height: "100%",
             background: "var(--accent, #F5A623)",
             transformOrigin: "left center",
-            transform: isCompleting ? "scaleX(1)" : undefined,
+            transform: isCompleting ? "scaleX(1)" : "scaleX(0.72)",
             transition: isCompleting ? "transform 100ms ease-out" : undefined,
-            animation: isNavigating ? "sqrzProgress 2s ease-out forwards" : "none",
+            animation: showProgress ? "sqrzProgressPulse 900ms ease-in-out infinite alternate" : "none",
           }}
         />
       </div>
@@ -674,9 +685,9 @@ export default function AppLayout() {
       </nav>
 
       <style>{`
-        @keyframes sqrzProgress {
-          0%   { transform: scaleX(0.05); opacity: 1; }
-          100% { transform: scaleX(0.9);  opacity: 1; }
+        @keyframes sqrzProgressPulse {
+          0%   { opacity: 0.55; }
+          100% { opacity: 1; }
         }
       `}</style>
     </div>

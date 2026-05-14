@@ -419,11 +419,15 @@ export default function BookingChat({
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
+  const launcherOffset = "max(18px, calc(env(safe-area-inset-bottom) + 14px))";
+  const panelBottom = "max(86px, calc(env(safe-area-inset-bottom) + 82px))";
+  const sideOffset = "max(16px, env(safe-area-inset-right))";
+
   return createPortal(
     <div style={{
       position: "fixed",
-      bottom: "80px",
-      right: "16px",
+      bottom: launcherOffset,
+      right: sideOffset,
       zIndex: 2147483647,
       isolation: "isolate",
       pointerEvents: "auto",
@@ -433,8 +437,8 @@ export default function BookingChat({
         <div
           style={{
             position: "fixed",
-            bottom: 156,
-            right: 24,
+            bottom: panelBottom,
+            right: sideOffset,
             width: 320,
             height: 480,
             background: panelBg,
@@ -661,78 +665,97 @@ export default function BookingChat({
           {/* Input row */}
           <div
             style={{
-              padding: "10px 12px",
+              padding: "10px",
               borderTop: "1px solid var(--border)",
               display: "flex",
-              gap: 8,
+              gap: 10,
+              alignItems: "center",
               flexShrink: 0,
             }}
           >
-            {messagingProvider === "stream" && (
-              <button
-                onClick={() => { setUploadError(null); setAttachSheetOpen(true); }}
-                disabled={uploading || loading}
-                aria-label="Attach image"
-                style={{
-                  width: 36,
-                  height: 36,
-                  padding: 0,
-                  background: "var(--surface-muted)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 9,
-                  fontSize: 16,
-                  cursor: uploading || loading ? "default" : "pointer",
-                  opacity: uploading || loading ? 0.5 : 1,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                }}
-              >
-                {uploading ? "…" : "📎"}
-              </button>
-            )}
-            <input
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                if (streamChannelRef.current) {
-                  (streamChannelRef.current as any).keystroke?.()?.catch?.(() => {});
-                  (streamChannelRef.current as any).markRead?.()?.catch?.(() => {});
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder="Type a message…"
-              disabled={sending || loading || uploading}
+            <div
               style={{
                 flex: 1,
+                minWidth: 0,
+                height: 44,
                 background: "var(--surface)",
                 border: "1px solid var(--border)",
-                borderRadius: 9,
-                padding: "9px 11px",
-                color: "var(--text)",
-                fontSize: 16,
-                outline: "none",
-                fontFamily,
+                borderRadius: 12,
+                display: "flex",
+                alignItems: "center",
+                overflow: "hidden",
                 opacity: sending || loading || uploading ? 0.6 : 1,
               }}
-            />
+            >
+              {messagingProvider === "stream" && (
+                <button
+                  onClick={() => { setUploadError(null); setAttachSheetOpen(true); }}
+                  disabled={uploading || loading}
+                  aria-label="Attach image"
+                  style={{
+                    width: 42,
+                    height: "100%",
+                    padding: 0,
+                    background: "transparent",
+                    border: "none",
+                    borderRight: "1px solid var(--border)",
+                    color: "var(--text-muted)",
+                    fontSize: 17,
+                    cursor: uploading || loading ? "default" : "pointer",
+                    opacity: uploading || loading ? 0.5 : 1,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  {uploading ? "…" : "📎"}
+                </button>
+              )}
+              <input
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  if (streamChannelRef.current) {
+                    (streamChannelRef.current as any).keystroke?.()?.catch?.(() => {});
+                    (streamChannelRef.current as any).markRead?.()?.catch?.(() => {});
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder="Type a message…"
+                disabled={sending || loading || uploading}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  height: "100%",
+                  background: "transparent",
+                  border: "none",
+                  padding: "0 12px",
+                  color: "var(--text)",
+                  fontSize: 14,
+                  outline: "none",
+                  fontFamily,
+                }}
+              />
+            </div>
             <button
               onClick={handleSend}
               disabled={!text.trim() || sending || loading || uploading}
               style={{
-                padding: "9px 14px",
+                width: 74,
+                height: 44,
+                padding: 0,
                 background: accent,
                 color: "#111",
                 border: "none",
-                borderRadius: 9,
-                fontSize: 12,
-                fontWeight: 700,
+                borderRadius: 12,
+                fontSize: 13,
+                fontWeight: 800,
                 cursor: !text.trim() || sending || loading || uploading ? "default" : "pointer",
                 opacity: !text.trim() || sending || loading || uploading ? 0.5 : 1,
                 fontFamily,
@@ -779,8 +802,8 @@ export default function BookingChat({
         aria-label={open ? "Close chat" : "Open chat"}
         style={{
           position: "fixed",
-          bottom: 80,
-          right: 16,
+          bottom: launcherOffset,
+          right: sideOffset,
           width: "56px",
           height: "56px",
           minWidth: "56px",
