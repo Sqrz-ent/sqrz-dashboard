@@ -664,23 +664,21 @@ export default function AppLayout() {
             <span>Partners</span>
           </NavLink>
         ) : (
-          <a
-            href={`https://${p?.slug ?? ""}.sqrz.com`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
+          <NavLink
+            to="/crew"
+            style={({ isActive }) => ({
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               gap: 3,
               textDecoration: "none",
               fontSize: 11,
-              color: "var(--text-muted)",
-            }}
+              color: isActive ? "#F5A623" : "var(--text-muted)",
+            })}
           >
-            <span style={{ fontSize: 18 }}>🌐</span>
-            <span>Profile</span>
-          </a>
+            <span style={{ fontSize: 18 }}>👥</span>
+            <span>Crew</span>
+          </NavLink>
         )}
       </nav>
 
