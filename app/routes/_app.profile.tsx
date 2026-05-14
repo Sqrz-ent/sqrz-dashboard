@@ -593,9 +593,15 @@ export default function ProfilePage() {
     setAvatarStatus("Uploading…");
     const { data: { user: authUser } } = await browserSupabase.auth.getUser();
     if (!authUser) { setAvatarStatus("Upload failed."); setAvatarUploading(false); return; }
-    const ext = file.name.split(".").pop();
-    const path = `${authUser.id}/avatar.${ext}`;
-    const { error: uploadError } = await browserSupabase.storage.from("profile-pictures").upload(path, file, { upsert: true });
+    const rawExt = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+    const ext = rawExt.replace(/[^a-z0-9]/g, "") || "jpg";
+    const avatarId = crypto.randomUUID();
+    const path = `${authUser.id}/avatar-${avatarId}.${ext}`;
+    const { error: uploadError } = await browserSupabase.storage.from("profile-pictures").upload(path, file, {
+      cacheControl: "3600",
+      contentType: file.type || undefined,
+      upsert: false,
+    });
     if (uploadError) {
       console.log("avatar upload error:", uploadError);
       setAvatarStatus("Upload failed.");
