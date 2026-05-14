@@ -292,11 +292,6 @@ export default function AnalyticsPage() {
 
   const a = analytics;
 
-  const conversionRate =
-    a && a.booking_requests > 0
-      ? Math.round((a.confirmed_bookings / a.booking_requests) * 100)
-      : 0;
-
   const viewsTrend = a ? trendLabel(a.views_total, a.views_prev_period) : null;
 
   const maxCountry = a?.top_countries?.[0]?.count ?? 1;
@@ -338,7 +333,7 @@ export default function AnalyticsPage() {
         </h1>
 
         <div style={{ display: "flex", gap: 6 }}>
-          {[7, 30, 90].map((d) => (
+          {[1, 7, 30, 90].map((d) => (
             <button
               key={d}
               onClick={() => setDays(d)}
@@ -379,7 +374,6 @@ export default function AnalyticsPage() {
           <StatCard label="Unique Visitors" value={a?.unique_visitors ?? 0} />
           <StatCard label="Booking Requests" value={a?.booking_requests ?? 0} />
           <StatCard label="Confirmed Bookings" value={a?.confirmed_bookings ?? 0} />
-          <StatCard label="Conversion Rate" value={conversionRate} />
         </div>
       </section>
 
