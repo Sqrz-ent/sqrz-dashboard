@@ -8,6 +8,7 @@ import type { Route } from "./+types/_app.profile";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
+import { normalizeImageUrl } from "~/lib/image-url";
 import Modal from "~/components/Modal";
 
 const ACCENT = "#F5A623";
@@ -216,7 +217,9 @@ export async function loader({ request }: Route.LoaderArgs) {
       allLanguages: allLangsRes.data ?? [],
       videos: videosRes.data ?? [],
       references: refsRes.data ?? [],
-      galleryUrls: (photosRes.data ?? []).map((r) => (r as { url: string }).url),
+      galleryUrls: (photosRes.data ?? [])
+        .map((r) => normalizeImageUrl((r as { url: string }).url))
+        .filter((url): url is string => !!url),
     },
     { headers }
   );
@@ -272,17 +275,12 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "update_gallery") {
-    const transformUrl = (url: string) => {
-      if (url.includes("dropbox.com")) {
-        return url
-          .replace("?dl=0", "?raw=1")
-          .replace("?dl=1", "?raw=1")
-          .replace("www.dropbox.com", "dl.dropboxusercontent.com");
-      }
-      return url;
-    };
     let urls: string[] = [];
-    try { urls = (JSON.parse(formData.get("urls") as string) as string[]).map(transformUrl); } catch { urls = []; }
+    try {
+      urls = (JSON.parse(formData.get("urls") as string) as string[])
+        .map((url) => normalizeImageUrl(url))
+        .filter((url): url is string => !!url);
+    } catch { urls = []; }
     const admin = createSupabaseAdminClient();
     await admin.from("profile_photos").delete().eq("profile_id", profile.id as string);
     if (urls.length > 0) {
@@ -983,7 +981,9 @@ export default function ProfilePage() {
               onClick={() => {
                 const updated = galleryUrls.filter((_, j) => j !== i);
                 setGalleryUrls(updated);
-                const validUrls = updated.filter(u => u.startsWith("http"));
+                const validUrls = updated
+                  .map((u) => normalizeImageUrl(u))
+                  .filter((u): u is string => !!u);
                 const fd = new FormData();
                 fd.append("intent", "update_gallery");
                 fd.append("urls", JSON.stringify(validUrls));
@@ -1000,7 +1000,9 @@ export default function ProfilePage() {
             disabled={galleryFetcher.state !== "idle"}
             style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px", opacity: galleryFetcher.state !== "idle" ? 0.6 : 1 }}
             onClick={() => {
-              const validUrls = galleryUrls.filter(u => u.startsWith("http"));
+              const validUrls = galleryUrls
+                .map((u) => normalizeImageUrl(u))
+                .filter((u): u is string => !!u);
               const fd = new FormData();
               fd.append("intent", "update_gallery");
               fd.append("urls", JSON.stringify(validUrls));
