@@ -762,7 +762,7 @@ function LinkCard({
           href={`https://${url}`}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ fontSize: 12, color: ACCENT, textDecoration: "none", fontFamily: FONT_BODY, wordBreak: "break-all" }}
+          style={{ display: "block", fontSize: 12, color: ACCENT, textDecoration: "none", fontFamily: FONT_BODY, wordBreak: "break-all" }}
         >
           {url}
         </a>

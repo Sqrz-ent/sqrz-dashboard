@@ -17,6 +17,7 @@ type CrewProfile = {
   user_type: string | null;
   is_published: boolean | null;
   is_claimed: boolean | null;
+  onboarding_completed: boolean | null;
   claim_token: string | null;
   profile_skills: Array<{
     skills: { name: string; category: string } | null;
@@ -77,7 +78,7 @@ async function fetchProfiles(
   let query = supabase
     .from("profiles")
     .select(
-      "id, name, slug, avatar_url, city, user_type, is_published, is_claimed, claim_token, profile_skills ( skill_id, skills ( name, category ) )",
+      "id, name, slug, avatar_url, city, user_type, is_published, is_claimed, onboarding_completed, claim_token, profile_skills ( skill_id, skills ( name, category ) )",
       { count: "exact" }
     )
     .eq("user_type", "member")
@@ -85,7 +86,10 @@ async function fetchProfiles(
     .range(offset, offset + PAGE_SIZE - 1);
 
   if (!includeUnpublished) {
+    query = query.eq("onboarding_completed", true);
     query = query.or("is_claimed.eq.true,claim_token.is.null");
+  } else {
+    query = query.or("onboarding_completed.eq.true,is_claimed.eq.false");
   }
 
   if (q) {
@@ -527,7 +531,7 @@ export default function Crew() {
       </div>
       <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
         {isAdmin
-          ? "Search across all member profiles, including drafts and unpublished profiles."
+          ? "Search completed member profiles and Crew-created drafts."
           : "Search and hire published creatives for your next gig."}
       </p>
 

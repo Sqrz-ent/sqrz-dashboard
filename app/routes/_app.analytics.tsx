@@ -362,7 +362,7 @@ export default function AnalyticsPage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
             gap: 12,
           }}
         >
@@ -515,9 +515,14 @@ export default function AnalyticsPage() {
       {/* ── Engagement ─────────────────────────────────────────────────────── */}
       <section style={{ marginBottom: 40 }}>
         <span style={sectionLabel}>Engagement</span>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: 10,
+          }}
+        >
           <InlineStat label="Chat Opens" value={a?.chat_opens ?? 0} />
-          <InlineStat label="Service Clicks" value={a?.service_clicks ?? 0} />
           <InlineStat label="Booking Modal Opens" value={a?.booking_modal_opens ?? 0} />
           <InlineStat label="Download Clicks" value={a?.download_clicks ?? 0} />
           <InlineStat label="Requests Sent" value={a?.requests_sent ?? 0} />
