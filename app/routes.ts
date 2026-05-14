@@ -27,6 +27,7 @@ export default [
     route("domain", "routes/_app.domain.tsx"),
     route("links", "routes/_app.links.tsx"),
     route("account", "routes/_app.account.tsx"),
+    route("analytics", "routes/_app.analytics.tsx"),
   ]),
 
   // API routes (server-only, action handlers)
