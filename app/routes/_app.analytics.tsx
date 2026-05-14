@@ -1,6 +1,6 @@
 import { redirect, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.analytics";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
 const ACCENT = "#F5A623";
@@ -44,7 +44,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   const url = new URL(request.url);
   const days = parseInt(url.searchParams.get("days") ?? "30");
 
-  const { data } = await supabase.rpc("get_analytics_page", {
+  const admin = createSupabaseAdminClient();
+  const { data } = await admin.rpc("get_analytics_page", {
     p_profile_id: profile.id,
     p_days: days,
   });
