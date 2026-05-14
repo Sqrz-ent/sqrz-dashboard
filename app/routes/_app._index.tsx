@@ -711,44 +711,11 @@ export default function DashboardIndex() {
             </div>
           );
         })()}
-      </div>
 
-      {/* Quick stats */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-          gap: 8,
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
-          <p style={metaLabel}>Total Views</p>
-          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
-            {((a.total_views ?? 0) as number).toLocaleString()}
-          </p>
-        </div>
-
-        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
-          <p style={metaLabel}>Booking Inquiries</p>
-          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
-            {((a.booking_modal_opens_7d ?? 0) as number).toLocaleString()}
-          </p>
-          <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "4px 0 0" }}>Last 7 days</p>
-        </div>
-
-        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
-          <p style={metaLabel}>Chat Opens</p>
-          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
-            {((a.chat_opens_7d ?? 0) as number).toLocaleString()}
-          </p>
-        </div>
-
-        <div style={{ ...card, textAlign: "center", padding: "12px 14px" }}>
-          <p style={metaLabel}>Active Bookings</p>
-          <p style={{ color: "var(--text)", fontSize: 24, fontWeight: 700, margin: 0 }}>
-            {String(activeBookingsCount)}
-          </p>
+        <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
+          <Link to="/analytics" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+            View full analytics →
+          </Link>
         </div>
       </div>
 
