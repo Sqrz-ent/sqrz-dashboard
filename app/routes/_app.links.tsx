@@ -766,51 +766,6 @@ function LinkCard({
         >
           {url}
         </a>
-        {/* Row 1 — primary stats */}
-        <div style={{ fontSize: 12, color: "var(--text)", marginTop: 4 }}>
-          {link.use_count} view{link.use_count !== 1 ? "s" : ""}
-          {link.unique_visitors > 0 ? ` · ${link.unique_visitors} unique visitor${link.unique_visitors !== 1 ? "s" : ""}` : ""}
-          {link.page_type === "book" && (
-            <>
-              {link.booking_modal_opens > 0 ? ` · ${link.booking_modal_opens} modal open${link.booking_modal_opens !== 1 ? "s" : ""}` : ""}
-              {link.booking_requests > 0 ? ` · ${link.booking_requests} booking request${link.booking_requests !== 1 ? "s" : ""}` : ""}
-            </>
-          )}
-          {link.page_type === "download" && (
-            link.download_clicks > 0
-              ? ` · ${link.download_clicks} link click${link.download_clicks !== 1 ? "s" : ""}`
-              : ""
-          )}
-        </div>
-        {/* Row 2 — secondary stats */}
-        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-          {`Last 7 days: ${link.views_7d}`}
-          {link.expires_at && new Date(link.expires_at) > new Date()
-            ? ` · Expires: ${new Date(link.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-            : ""}
-          {link.page_type === "download" && link.download_clicks === 0 && (
-            <span style={{ fontStyle: "italic" }}>
-              {" · "}Link clicks tracked — file delivery handled externally
-            </span>
-          )}
-        </div>
-        {/* Row 3 — lead gate stats */}
-        {link.lead_gate && (
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-            {link.lead_count} lead{link.lead_count !== 1 ? "s" : ""}
-            {link.lead_count > 0 && (
-              <>
-                {" · "}
-                <a
-                  href={`/api/links/${link.id}/leads-csv`}
-                  style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}
-                >
-                  Download CSV
-                </a>
-              </>
-            )}
-          </div>
-        )}
         <button
           onClick={toggleShowOnProfile}
           style={{
