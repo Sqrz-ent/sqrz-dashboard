@@ -719,6 +719,88 @@ export default function DashboardIndex() {
         </div>
       </div>
 
+      {/* Upcoming bookings */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 14,
+          }}
+        >
+          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>
+            Upcoming
+          </p>
+          <Link
+            to="/office"
+            style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none" }}
+          >
+            View all →
+          </Link>
+        </div>
+
+        {(upcomingBookings as UpcomingBooking[]).length === 0 ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+            No upcoming confirmed bookings.{" "}
+            <Link to="/office" style={{ color: ACCENT, textDecoration: "none" }}>
+              Go to pipeline →
+            </Link>
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(upcomingBookings as UpcomingBooking[]).map((b) => (
+              <Link key={b.id} to={`/office/${b.id}`} style={{ textDecoration: "none" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "12px 14px",
+                    background: "var(--surface-muted)",
+                    borderRadius: 10,
+                    gap: 12,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <p
+                      style={{
+                        color: "var(--text)",
+                        fontSize: 14,
+                        fontWeight: 600,
+                        margin: "0 0 2px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {b.title ?? b.service ?? "Booking"}
+                    </p>
+                    {b.city && (
+                      <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
+                        📍 {b.city}
+                      </p>
+                    )}
+                  </div>
+                  <p
+                    style={{
+                      color: ACCENT,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      margin: 0,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {formatDate(b.date_start)}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div style={{ ...card, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14 }}>
           <div>
@@ -960,88 +1042,6 @@ export default function DashboardIndex() {
             );
           })}
         </div>
-      </div>
-
-      {/* Upcoming bookings */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
-          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>
-            Upcoming
-          </p>
-          <Link
-            to="/office"
-            style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none" }}
-          >
-            View all →
-          </Link>
-        </div>
-
-        {(upcomingBookings as UpcomingBooking[]).length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-            No upcoming confirmed bookings.{" "}
-            <Link to="/office" style={{ color: ACCENT, textDecoration: "none" }}>
-              Go to pipeline →
-            </Link>
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {(upcomingBookings as UpcomingBooking[]).map((b) => (
-              <Link key={b.id} to={`/office/${b.id}`} style={{ textDecoration: "none" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "12px 14px",
-                    background: "var(--surface-muted)",
-                    borderRadius: 10,
-                    gap: 12,
-                    transition: "opacity 0.15s",
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <p
-                      style={{
-                        color: "var(--text)",
-                        fontSize: 14,
-                        fontWeight: 600,
-                        margin: "0 0 2px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {b.title ?? b.service ?? "Booking"}
-                    </p>
-                    {b.city && (
-                      <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
-                        📍 {b.city}
-                      </p>
-                    )}
-                  </div>
-                  <p
-                    style={{
-                      color: ACCENT,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      margin: 0,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {formatDate(b.date_start)}
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Availability widget */}

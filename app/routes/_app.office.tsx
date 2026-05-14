@@ -106,6 +106,26 @@ function useIsStandalonePwa() {
   return isStandalone;
 }
 
+function useIsMobileOfficeViewport() {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const media = typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(max-width: 767px)")
+      : null;
+    const compute = () => setIsMobile(Boolean(media?.matches));
+
+    compute();
+    media?.addEventListener?.("change", compute);
+
+    return () => {
+      media?.removeEventListener?.("change", compute);
+    };
+  }, []);
+
+  return isMobile;
+}
+
 function OfficeBookingLink({
   href,
   children,
@@ -579,6 +599,7 @@ export default function OfficePage() {
   // For free users this simply mirrors the loader data and stays static.
   const [streamOwnerBookings, setStreamOwnerBookings] = useState<Booking[]>(ownerBookings);
   const [openingBooking, setOpeningBooking] = useState(false);
+  const isMobileOfficeViewport = useIsMobileOfficeViewport();
 
   // Keep in sync if loader data ever refreshes (e.g. after window.location.reload()).
   useEffect(() => {
@@ -708,7 +729,7 @@ export default function OfficePage() {
   }, [planId]);
 
   return (
-    <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
+    <div style={{ padding: isMobileOfficeViewport ? "28px 0" : "28px 24px", fontFamily: FONT_BODY }}>
       {openingBooking && (
         <div
           style={{
@@ -756,7 +777,7 @@ export default function OfficePage() {
         </div>
       )}
       {/* Header */}
-      <div style={{ marginBottom: 28 }}>
+      <div style={{ marginBottom: 28, padding: isMobileOfficeViewport ? "0 24px" : 0 }}>
         <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
           Office
         </h1>
@@ -771,8 +792,11 @@ export default function OfficePage() {
           display: "flex",
           gap: 14,
           overflowX: "auto",
-          paddingBottom: 16,
+          padding: isMobileOfficeViewport ? "0 16px 16px" : "0 0 16px",
           alignItems: "flex-start",
+          width: "100%",
+          WebkitOverflowScrolling: "touch",
+          scrollPaddingInline: isMobileOfficeViewport ? 16 : 0,
         }}
       >
         {COLUMNS.map((col) => {
