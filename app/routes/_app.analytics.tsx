@@ -555,43 +555,16 @@ export default function AnalyticsPage() {
                       display: "flex",
                       alignItems: "flex-start",
                       justifyContent: "space-between",
-                      gap: 12,
-                      padding: "12px 0",
+                      gap: 20,
+                      padding: "14px 0",
                       borderBottom: i < (a?.private_links?.length ?? 0) - 1 ? "1px solid var(--border)" : "none",
                     }}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, minWidth: 0 }}>
                         <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
                           {pageTypeIcon} {link.title}
                         </span>
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.07em",
-                          padding: "2px 7px",
-                          borderRadius: 999,
-                          background: link.page_type === "book" ? "rgba(34,197,94,0.1)" : link.page_type === "event" ? "rgba(245,166,35,0.12)" : "rgba(136,136,136,0.12)",
-                          color: link.page_type === "book" ? "#22c55e" : link.page_type === "event" ? ACCENT : "var(--text-muted)",
-                        }}>
-                          {link.page_type}
-                        </span>
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.07em",
-                          padding: "2px 7px",
-                          borderRadius: 999,
-                          background: link.is_active ? "rgba(34,197,94,0.1)" : "rgba(136,136,136,0.1)",
-                          color: link.is_active ? "#22c55e" : "var(--text-muted)",
-                        }}>
-                          {link.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 3 }}>
-                        {statParts}
                       </div>
                       <a
                         href={`https://${link.profile_slug}.sqrz.com/${link.link_slug}`}
@@ -601,6 +574,50 @@ export default function AnalyticsPage() {
                       >
                         {link.profile_slug}.sqrz.com/{link.link_slug}
                       </a>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 7,
+                        flexShrink: 0,
+                        textAlign: "right",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, flexWrap: "wrap" }}>
+                        <span
+                          style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.07em",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: link.page_type === "book" ? "rgba(34,197,94,0.1)" : link.page_type === "event" ? "rgba(245,166,35,0.12)" : "rgba(136,136,136,0.12)",
+                          color: link.page_type === "book" ? "#22c55e" : link.page_type === "event" ? ACCENT : "var(--text-muted)",
+                          }}
+                        >
+                          {link.page_type}
+                        </span>
+                        <span
+                          style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.07em",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: link.is_active ? "rgba(34,197,94,0.1)" : "rgba(136,136,136,0.1)",
+                          color: link.is_active ? "#22c55e" : "var(--text-muted)",
+                          }}
+                        >
+                          {link.is_active ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                        {statParts}
+                      </div>
                     </div>
                   </div>
                 );
@@ -644,33 +661,44 @@ export default function AnalyticsPage() {
                       display: "flex",
                       alignItems: "flex-start",
                       justifyContent: "space-between",
-                      gap: 12,
-                      padding: "12px 0",
+                      gap: 20,
+                      padding: "14px 0",
                       borderBottom: i < (a?.boost_campaigns?.length ?? 0) - 1 ? "1px solid var(--border)" : "none",
                     }}
                   >
                     <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, minWidth: 0 }}>
                         <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", textTransform: "capitalize" }}>
                           {c.promote_type} Campaign
                         </span>
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.07em",
-                          padding: "2px 7px",
-                          borderRadius: 999,
-                          background: sc.bg,
-                          color: sc.color,
-                        }}>
-                          {c.status}
-                        </span>
                       </div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 2 }}>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
                         {c.budget_amount.toLocaleString()} {c.budget_currency.toUpperCase()} budget
                         {dateRange && <span style={{ marginLeft: 8 }}>{dateRange}</span>}
                       </div>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-end",
+                        gap: 7,
+                        flexShrink: 0,
+                        textAlign: "right",
+                      }}
+                    >
+                      <span style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.07em",
+                        padding: "2px 7px",
+                        borderRadius: 999,
+                        background: sc.bg,
+                        color: sc.color,
+                      }}>
+                        {c.status}
+                      </span>
                       {statParts && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{statParts}</div>
                       )}
