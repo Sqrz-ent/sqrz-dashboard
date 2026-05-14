@@ -14,6 +14,32 @@ type SourceRow = { source: string; count: number };
 type CityRow = { city: string; country_code: string | null; count: number };
 type LeadRow = { email: string; link_slug: string | null; created_at: string };
 
+type PrivateLinkStat = {
+  id: string;
+  title: string;
+  link_slug: string;
+  page_type: string;
+  is_active: boolean;
+  profile_slug: string;
+  views: number;
+  unique_visitors: number;
+  clicks: number;
+  leads: number;
+};
+
+type BoostCampaignStat = {
+  id: string;
+  promote_type: string;
+  status: string;
+  budget_amount: number;
+  budget_currency: string;
+  starts_at: string | null;
+  ends_at: string | null;
+  live_profile_visits: number | null;
+  live_booking_modal_opens: number | null;
+  live_chat_opens: number | null;
+};
+
 type AnalyticsData = {
   views_total: number;
   views_prev_period: number;
@@ -29,6 +55,8 @@ type AnalyticsData = {
   download_clicks: number;
   requests_sent: number;
   leads: LeadRow[];
+  private_links: PrivateLinkStat[];
+  boost_campaigns: BoostCampaignStat[];
 };
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
@@ -499,6 +527,159 @@ export default function AnalyticsPage() {
           <InlineStat label="Booking Modal Opens" value={a?.booking_modal_opens ?? 0} />
           <InlineStat label="Download Clicks" value={a?.download_clicks ?? 0} />
           <InlineStat label="Requests Sent" value={a?.requests_sent ?? 0} />
+        </div>
+      </section>
+
+      {/* ── Private Links ──────────────────────────────────────────────────── */}
+      <section style={{ marginBottom: 40 }}>
+        <span style={sectionLabel}>Private Links</span>
+        <div style={card}>
+          {(a?.private_links?.length ?? 0) === 0 ? (
+            <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "24px 0" }}>
+              No private links yet
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {(a?.private_links ?? []).map((link, i) => {
+                const pageTypeIcon = link.page_type === "book" ? "📅" : link.page_type === "event" ? "🎤" : "📥";
+                const statParts = [
+                  `${link.views.toLocaleString()} views`,
+                  `${link.unique_visitors.toLocaleString()} unique`,
+                  link.clicks > 0 ? `${link.clicks.toLocaleString()} clicks` : null,
+                  link.leads > 0 ? `${link.leads.toLocaleString()} leads` : null,
+                ].filter(Boolean).join(" · ");
+                return (
+                  <div
+                    key={link.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      padding: "12px 0",
+                      borderBottom: i < (a?.private_links?.length ?? 0) - 1 ? "1px solid var(--border)" : "none",
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
+                          {pageTypeIcon} {link.title}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.07em",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: link.page_type === "book" ? "rgba(34,197,94,0.1)" : link.page_type === "event" ? "rgba(245,166,35,0.12)" : "rgba(136,136,136,0.12)",
+                          color: link.page_type === "book" ? "#22c55e" : link.page_type === "event" ? ACCENT : "var(--text-muted)",
+                        }}>
+                          {link.page_type}
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.07em",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: link.is_active ? "rgba(34,197,94,0.1)" : "rgba(136,136,136,0.1)",
+                          color: link.is_active ? "#22c55e" : "var(--text-muted)",
+                        }}>
+                          {link.is_active ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 3 }}>
+                        {statParts}
+                      </div>
+                      <a
+                        href={`https://${link.profile_slug}.sqrz.com/${link.link_slug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ fontSize: 12, color: ACCENT, textDecoration: "none" }}
+                      >
+                        {link.profile_slug}.sqrz.com/{link.link_slug}
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Boost Campaigns ────────────────────────────────────────────────── */}
+      <section style={{ marginBottom: 40 }}>
+        <span style={sectionLabel}>Boost Campaigns</span>
+        <div style={card}>
+          {(a?.boost_campaigns?.length ?? 0) === 0 ? (
+            <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "24px 0" }}>
+              No campaigns yet — start a Boost campaign to track performance
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {(a?.boost_campaigns ?? []).map((c, i) => {
+                const statusColors: Record<string, { color: string; bg: string }> = {
+                  pending:   { color: ACCENT,      bg: "rgba(245,166,35,0.12)" },
+                  preparing: { color: ACCENT,      bg: "rgba(245,166,35,0.12)" },
+                  live:      { color: "#22c55e",   bg: "rgba(34,197,94,0.1)"  },
+                  completed: { color: "var(--text-muted)", bg: "rgba(136,136,136,0.12)" },
+                  cancelled: { color: "#ef4444",   bg: "rgba(239,68,68,0.1)"  },
+                };
+                const sc = statusColors[c.status] ?? statusColors.pending;
+                const statParts = [
+                  (c.live_profile_visits ?? 0) > 0 ? `${(c.live_profile_visits ?? 0).toLocaleString()} views driven` : null,
+                  (c.live_booking_modal_opens ?? 0) > 0 ? `${(c.live_booking_modal_opens ?? 0).toLocaleString()} modal opens` : null,
+                  (c.live_chat_opens ?? 0) > 0 ? `${(c.live_chat_opens ?? 0).toLocaleString()} chat opens` : null,
+                ].filter(Boolean).join(" · ");
+                const dateRange = c.starts_at
+                  ? `${fmtDate(c.starts_at)}${c.ends_at ? ` – ${fmtDate(c.ends_at)}` : ""}`
+                  : null;
+                return (
+                  <div
+                    key={c.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      padding: "12px 0",
+                      borderBottom: i < (a?.boost_campaigns?.length ?? 0) - 1 ? "1px solid var(--border)" : "none",
+                    }}
+                  >
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", textTransform: "capitalize" }}>
+                          {c.promote_type} Campaign
+                        </span>
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.07em",
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: sc.bg,
+                          color: sc.color,
+                        }}>
+                          {c.status}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 2 }}>
+                        {c.budget_amount.toLocaleString()} {c.budget_currency.toUpperCase()} budget
+                        {dateRange && <span style={{ marginLeft: 8 }}>{dateRange}</span>}
+                      </div>
+                      {statParts && (
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{statParts}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </section>
 
