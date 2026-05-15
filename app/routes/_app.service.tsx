@@ -87,6 +87,73 @@ const subtleCard: React.CSSProperties = {
   padding: "14px 16px",
 };
 
+// ── Credentials ───────────────────────────────────────────────────────────────
+
+const CREDENTIAL_TYPES = [
+  { value: "passport", label: "Passport" },
+  { value: "seafarer_id", label: "Seafarer ID" },
+  { value: "stcw_certificate", label: "STCW Certificate" },
+  { value: "work_permit", label: "Work Permit" },
+  { value: "insurance", label: "Insurance" },
+  { value: "driving_license", label: "Driving License" },
+  { value: "health_certificate", label: "Health Certificate" },
+  { value: "certification", label: "Certifications" },
+  { value: "other", label: "Other" },
+] as const;
+
+type Credential = {
+  id: string;
+  profile_id: string;
+  type: string;
+  status: "self_declared" | "upload_requested" | "uploaded" | "verified" | "expired";
+  summary_text: string | null;
+  issuer: string | null;
+  issuer_country: string | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  notes: string | null;
+  visibility: "private" | "shared";
+  upload_enabled: boolean;
+  upload_context: string | null;
+  file_url: string | null;
+  file_name: string | null;
+  file_size_bytes: number | null;
+  created_at: string;
+};
+
+const CRED_STATUS_MAP: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  self_declared:    { label: "Declared",         color: "#F5A623",  bg: "rgba(245,166,35,0.15)",  border: "#F5A623" },
+  upload_requested: { label: "Upload Requested",  color: "#60a5fa",  bg: "rgba(59,130,246,0.12)",  border: "#60a5fa" },
+  uploaded:         { label: "Uploaded",          color: "#ca8a04",  bg: "rgba(234,179,8,0.12)",   border: "#eab308" },
+  verified:         { label: "Verified",          color: "#22c55e",  bg: "rgba(34,197,94,0.12)",   border: "#22c55e" },
+  expired:          { label: "Expired",           color: "#f87171",  bg: "rgba(239,68,68,0.12)",   border: "#ef4444" },
+};
+
+function credPillStyle(cred: Credential | undefined): React.CSSProperties {
+  const base: React.CSSProperties = {
+    padding: "5px 12px",
+    borderRadius: 20,
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontFamily: "'DM Sans', ui-sans-serif, sans-serif",
+  };
+  if (!cred) {
+    return { ...base, border: "1.5px dashed var(--border)", background: "transparent", color: "var(--text-muted)" };
+  }
+  const s = CRED_STATUS_MAP[cred.status] ?? CRED_STATUS_MAP.self_declared;
+  return { ...base, border: `1.5px solid ${s.border}`, background: s.bg, color: s.color };
+}
+
+function CredStatusBadge({ status }: { status: string }) {
+  const s = CRED_STATUS_MAP[status] ?? CRED_STATUS_MAP.self_declared;
+  return (
+    <span style={{ fontSize: 11, fontWeight: 700, color: s.color, background: s.bg, padding: "3px 9px", borderRadius: 20, fontFamily: "'DM Sans', ui-sans-serif, sans-serif" }}>
+      {s.label}
+    </span>
+  );
+}
+
 const COUNTRY_OPTIONS = [
   "Argentina",
   "Australia",
@@ -234,10 +301,16 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("profile_id", profile.id as string)
     .order("sort_order", { ascending: true });
 
+  const isBeta = !!(profile.is_beta as boolean | null);
+  const { data: credentialRows } = isBeta
+    ? await adminClient.from("credential_declarations").select("*").eq("profile_id", profile.id as string).order("created_at", { ascending: false })
+    : { data: [] };
+
   return Response.json(
     {
       profile,
       services: services ?? [],
+      credentials: credentialRows ?? [],
     },
     { headers }
   );
@@ -354,6 +427,60 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "delete_service") {
     const id = formData.get("id") as string;
     const { error } = await adminClient.from("profile_services").delete().eq("id", id);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "add_credential") {
+    const validUntil = (formData.get("valid_until") as string) || null;
+    const status = validUntil && new Date(validUntil) < new Date() ? "expired" : "self_declared";
+    const { error } = await adminClient.from("credential_declarations").insert({
+      profile_id: profile.id as string,
+      type: formData.get("type") as string,
+      summary_text: (formData.get("summary_text") as string) || null,
+      issuer: (formData.get("issuer") as string) || null,
+      issuer_country: (formData.get("issuer_country") as string) || null,
+      valid_from: (formData.get("valid_from") as string) || null,
+      valid_until: validUntil,
+      notes: (formData.get("notes") as string) || null,
+      visibility: (formData.get("visibility") as string) || "private",
+      status,
+      upload_enabled: false,
+    });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_credential") {
+    const id = formData.get("id") as string;
+    const validUntil = (formData.get("valid_until") as string) || null;
+    const status = validUntil && new Date(validUntil) < new Date() ? "expired" : "self_declared";
+    const { error } = await adminClient.from("credential_declarations").update({
+      type: formData.get("type") as string,
+      summary_text: (formData.get("summary_text") as string) || null,
+      issuer: (formData.get("issuer") as string) || null,
+      issuer_country: (formData.get("issuer_country") as string) || null,
+      valid_from: (formData.get("valid_from") as string) || null,
+      valid_until: validUntil,
+      notes: (formData.get("notes") as string) || null,
+      visibility: (formData.get("visibility") as string) || "private",
+      status,
+    }).eq("id", id).eq("profile_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "delete_credential") {
+    const id = formData.get("id") as string;
+    const { error } = await adminClient.from("credential_declarations").delete().eq("id", id).eq("profile_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_credential_file") {
+    const id = formData.get("id") as string;
+    const { error } = await adminClient.from("credential_declarations").update({
+      file_url: formData.get("file_url") as string,
+      file_name: formData.get("file_name") as string,
+      file_size_bytes: parseInt(formData.get("file_size_bytes") as string, 10) || null,
+      status: "uploaded",
+    }).eq("id", id).eq("profile_id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -788,9 +915,10 @@ function ServiceModal({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ServicePage() {
-  const { profile, services: initialServices } = useLoaderData<typeof loader>() as {
+  const { profile, services: initialServices, credentials: initialCredentials } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     services: Service[];
+    credentials: Credential[];
   };
   const [searchParams] = useSearchParams();
 
@@ -800,6 +928,8 @@ export default function ServicePage() {
   const reorderFetcher = useFetcher();
   const businessFetcher = useFetcher();
   const eInvoiceFetcher = useFetcher();
+  const credFetcher = useFetcher();
+  const credDeleteFetcher = useFetcher();
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -809,10 +939,106 @@ export default function ServicePage() {
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [selectedLegalForm, setSelectedLegalForm] = useState<string>((profile.legal_form as string) ?? "");
 
+  // Credentials state
+  const [credentials, setCredentials] = useState<Credential[]>(initialCredentials);
+  const [credFormOpen, setCredFormOpen] = useState(false);
+  const [credEditing, setCredEditing] = useState<Credential | null>(null);
+  const [credForm, setCredForm] = useState({
+    type: "passport",
+    summary_text: "",
+    issuer: "",
+    issuer_country: "",
+    valid_from: "",
+    valid_until: "",
+    notes: "",
+    visibility: "private",
+  });
+  const [uploadingCredId, setUploadingCredId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   // Keep local state in sync when loader re-runs (after add/delete/edit)
   useEffect(() => {
     setServices(initialServices);
   }, [initialServices]);
+
+  useEffect(() => {
+    setCredentials(initialCredentials);
+  }, [initialCredentials]);
+
+  function openCredForm(cred: Credential | null, typeOverride?: string) {
+    if (cred) {
+      setCredEditing(cred);
+      setCredForm({
+        type: cred.type,
+        summary_text: cred.summary_text ?? "",
+        issuer: cred.issuer ?? "",
+        issuer_country: cred.issuer_country ?? "",
+        valid_from: cred.valid_from ?? "",
+        valid_until: cred.valid_until ?? "",
+        notes: cred.notes ?? "",
+        visibility: cred.visibility,
+      });
+    } else {
+      setCredEditing(null);
+      setCredForm({
+        type: typeOverride ?? "passport",
+        summary_text: "",
+        issuer: "",
+        issuer_country: "",
+        valid_from: "",
+        valid_until: "",
+        notes: "",
+        visibility: "private",
+      });
+    }
+    setCredFormOpen(true);
+  }
+
+  function handleCredSubmit() {
+    const fd = new FormData();
+    fd.append("intent", credEditing ? "update_credential" : "add_credential");
+    if (credEditing) fd.append("id", credEditing.id);
+    fd.append("type", credForm.type);
+    fd.append("summary_text", credForm.summary_text);
+    fd.append("issuer", credForm.issuer);
+    fd.append("issuer_country", credForm.issuer_country);
+    fd.append("valid_from", credForm.valid_from);
+    fd.append("valid_until", credForm.valid_until);
+    fd.append("notes", credForm.notes);
+    fd.append("visibility", credForm.visibility);
+    credFetcher.submit(fd, { method: "post" });
+    setCredFormOpen(false);
+    setCredEditing(null);
+  }
+
+  async function handleFileUpload(credId: string, file: File) {
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("File must be under 10MB");
+      return;
+    }
+    setUploadingCredId(credId);
+    setUploadError(null);
+    try {
+      const { supabase: sbClient } = await import("~/lib/supabase.client");
+      const { data: { user } } = await sbClient.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+      const path = `${user.id}/${credId}/${file.name}`;
+      const { error: storageError } = await sbClient.storage.from("credentials").upload(path, file, { upsert: true });
+      if (storageError) throw storageError;
+      const { data: { publicUrl } } = sbClient.storage.from("credentials").getPublicUrl(path);
+      const fd = new FormData();
+      fd.append("intent", "update_credential_file");
+      fd.append("id", credId);
+      fd.append("file_url", publicUrl);
+      fd.append("file_name", file.name);
+      fd.append("file_size_bytes", String(file.size));
+      credFetcher.submit(fd, { method: "post" });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploadingCredId(null);
+    }
+  }
 
   // Revert optimistic toggle on error
   useEffect(() => {
@@ -1362,6 +1588,192 @@ export default function ServicePage() {
           </div>
         </div>
       </div>
+
+      {/* ── CREDENTIALS (beta only) ──────────────────────────────────────── */}
+      {!!(profile.is_beta as boolean | null) && (
+        <div style={card}>
+          <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Credentials</h2>
+
+          {/* Pill checklist */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+            {CREDENTIAL_TYPES.map(({ value, label }) => {
+              const cred = credentials.find((c) => c.type === value);
+              return (
+                <button key={value} onClick={() => openCredForm(cred ?? null, value)} style={credPillStyle(cred)}>
+                  {label}
+                  {cred && <span style={{ marginLeft: 5, fontSize: 10, opacity: 0.8 }}>· {CRED_STATUS_MAP[cred.status]?.label ?? cred.status}</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Add/Edit form */}
+          {credFormOpen && (
+            <div style={{ ...subtleCard, marginBottom: 16, border: "1px solid rgba(245,166,35,0.3)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <p style={{ ...labelStyle, margin: 0 }}>{credEditing ? "Edit Credential" : "Add Credential"}</p>
+                <button onClick={() => { setCredFormOpen(false); setCredEditing(null); }} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: "0 4px" }}>×</button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div>
+                  <label style={labelStyle}>Type</label>
+                  <select style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }} value={credForm.type} onChange={(e) => setCredForm((f) => ({ ...f, type: e.target.value }))}>
+                    {CREDENTIAL_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Summary</label>
+                  <input style={inputStyle} value={credForm.summary_text} onChange={(e) => setCredForm((f) => ({ ...f, summary_text: e.target.value }))} placeholder='e.g. "Seafarer ID valid until 2029"' />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={labelStyle}>Issuer</label>
+                    <input style={inputStyle} value={credForm.issuer} onChange={(e) => setCredForm((f) => ({ ...f, issuer: e.target.value }))} placeholder="e.g. DMCA" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Issuer Country</label>
+                    <input style={inputStyle} value={credForm.issuer_country} onChange={(e) => setCredForm((f) => ({ ...f, issuer_country: e.target.value }))} placeholder="e.g. Germany" />
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  <div>
+                    <label style={labelStyle}>Valid From</label>
+                    <input type="date" style={inputStyle} value={credForm.valid_from} onChange={(e) => setCredForm((f) => ({ ...f, valid_from: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Valid Until</label>
+                    <input type="date" style={inputStyle} value={credForm.valid_until} onChange={(e) => setCredForm((f) => ({ ...f, valid_until: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <label style={labelStyle}>Notes (private)</label>
+                  <textarea rows={2} style={{ ...inputStyle, resize: "vertical" }} value={credForm.notes} onChange={(e) => setCredForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Private notes…" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Visibility</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(["private", "shared"] as const).map((v) => (
+                      <button key={v} type="button" onClick={() => setCredForm((f) => ({ ...f, visibility: v }))} style={{ padding: "5px 14px", borderRadius: 20, border: credForm.visibility === v ? `1.5px solid ${ACCENT}` : "1px solid var(--border)", background: credForm.visibility === v ? "rgba(245,166,35,0.1)" : "transparent", color: credForm.visibility === v ? ACCENT : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}>
+                        {v === "private" ? "Private" : "Share in negotiations"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={handleCredSubmit} disabled={credFetcher.state !== "idle"} style={{ ...saveBtn, marginTop: 4, alignSelf: "flex-start" }}>
+                  {credFetcher.state !== "idle" ? "Saving…" : credEditing ? "Save Changes" : "Add Credential"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Credential cards */}
+          {credentials.length === 0 && !credFormOpen && (
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", fontFamily: FONT_BODY }}>
+              No credentials added yet. Click a pill above to get started.
+            </p>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {credentials.map((cred) => {
+              const typeLabel = CREDENTIAL_TYPES.find((t) => t.value === cred.type)?.label ?? cred.type;
+              const expiryDaysLeft = cred.valid_until
+                ? Math.ceil((new Date(cred.valid_until).getTime() - Date.now()) / 86400000)
+                : null;
+              const nearExpiry = expiryDaysLeft !== null && expiryDaysLeft >= 0 && expiryDaysLeft <= 90;
+              return (
+                <div key={cred.id} style={{ ...subtleCard, position: "relative" }}>
+                  {/* Header */}
+                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY }}>{typeLabel}</span>
+                      <CredStatusBadge status={cred.status} />
+                      {cred.visibility === "shared" && (
+                        <span style={{ fontSize: 11, color: "var(--text-muted)", background: "var(--surface-muted)", padding: "2px 8px", borderRadius: 20, fontFamily: FONT_BODY }}>Shared</span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button onClick={() => openCredForm(cred)} style={{ background: "none", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>Edit</button>
+                      <button
+                        onClick={() => {
+                          const fd = new FormData();
+                          fd.append("intent", "delete_credential");
+                          fd.append("id", cred.id);
+                          credDeleteFetcher.submit(fd, { method: "post" });
+                        }}
+                        style={{ background: "none", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 8, padding: "4px 10px", fontSize: 12, color: "#f87171", cursor: "pointer", fontFamily: FONT_BODY }}
+                      >Delete</button>
+                    </div>
+                  </div>
+
+                  {cred.summary_text && (
+                    <p style={{ fontSize: 13, color: "var(--text)", margin: "0 0 6px", fontFamily: FONT_BODY }}>{cred.summary_text}</p>
+                  )}
+                  {(cred.issuer || cred.issuer_country) && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 4px", fontFamily: FONT_BODY }}>
+                      {[cred.issuer, cred.issuer_country].filter(Boolean).join(" · ")}
+                    </p>
+                  )}
+                  {(cred.valid_from || cred.valid_until) && (
+                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 4px", fontFamily: FONT_BODY }}>
+                      {cred.valid_from && new Date(cred.valid_from).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                      {cred.valid_from && cred.valid_until && " → "}
+                      {cred.valid_until && new Date(cred.valid_until).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}
+                    </p>
+                  )}
+                  {nearExpiry && expiryDaysLeft !== null && (
+                    <p style={{ fontSize: 12, color: ACCENT, fontWeight: 700, margin: "4px 0 0", fontFamily: FONT_BODY }}>
+                      ⚠️ Expires in {expiryDaysLeft} day{expiryDaysLeft !== 1 ? "s" : ""}
+                    </p>
+                  )}
+
+                  {/* Upload section — only when upload_enabled */}
+                  {cred.upload_enabled && (
+                    <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(59,130,246,0.07)", border: "1px solid rgba(59,130,246,0.2)" }}>
+                      {cred.upload_context && (
+                        <p style={{ fontSize: 12, color: "#60a5fa", fontWeight: 600, margin: "0 0 8px", fontFamily: FONT_BODY }}>
+                          Document requested: {cred.upload_context}
+                        </p>
+                      )}
+                      {cred.file_name && (
+                        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 8px", fontFamily: FONT_BODY }}>
+                          📎 {cred.file_name}
+                          {cred.file_url && (
+                            <a href={cred.file_url} target="_blank" rel="noopener noreferrer" style={{ marginLeft: 8, color: ACCENT, fontSize: 11 }}>View</a>
+                          )}
+                        </p>
+                      )}
+                      <label style={{ display: "inline-block", cursor: "pointer" }}>
+                        <input
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          style={{ display: "none" }}
+                          disabled={uploadingCredId === cred.id}
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) await handleFileUpload(cred.id, file);
+                            e.target.value = "";
+                          }}
+                        />
+                        <span style={{ display: "inline-block", padding: "6px 14px", borderRadius: 8, background: "rgba(59,130,246,0.15)", color: "#60a5fa", fontSize: 12, fontWeight: 600, cursor: uploadingCredId === cred.id ? "not-allowed" : "pointer", fontFamily: FONT_BODY, opacity: uploadingCredId === cred.id ? 0.6 : 1 }}>
+                          {uploadingCredId === cred.id ? "Uploading…" : cred.file_name ? "Replace file" : "Upload document"}
+                        </span>
+                      </label>
+                      {uploadError && uploadingCredId === null && (
+                        <p style={{ fontSize: 11, color: "#f87171", margin: "6px 0 0", fontFamily: FONT_BODY }}>{uploadError}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {!credFormOpen && (
+            <button onClick={() => openCredForm(null)} style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, marginTop: 12 }}>
+              + Add Credential
+            </button>
+          )}
+        </div>
+      )}
 
       <ServiceModal
         isOpen={serviceModal.open}
