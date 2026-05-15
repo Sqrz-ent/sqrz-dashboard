@@ -54,7 +54,6 @@ async function getDashboardAnalytics(profileId: string) {
     uniqueVisitorsRes,
     bookingModalOpensRes,
     chatOpensRes,
-    geoRes,
   ] = await Promise.all([
     admin
       .from("profile_views")
@@ -89,13 +88,6 @@ async function getDashboardAnalytics(profileId: string) {
       .eq("profile_id", profileId)
       .eq("event_type", "chat_opened")
       .gte("created_at", sevenDaysAgo),
-    admin
-      .from("profile_views")
-      .select("country_code, city")
-      .eq("profile_id", profileId)
-      .gte("created_at", sevenDaysAgo)
-      .not("country_code", "is", null)
-      .limit(10000),
   ]);
 
   const uniqueVisitors = new Set(
@@ -104,23 +96,6 @@ async function getDashboardAnalytics(profileId: string) {
       .filter(Boolean)
   ).size;
 
-  const countryCounts = new Map<string, number>();
-  const cityCounts = new Map<string, number>();
-  for (const row of geoRes.data ?? []) {
-    const cc = row.country_code as string | null;
-    const ct = row.city as string | null;
-    if (cc) countryCounts.set(cc, (countryCounts.get(cc) ?? 0) + 1);
-    if (ct) cityCounts.set(ct, (cityCounts.get(ct) ?? 0) + 1);
-  }
-  const top_countries = [...countryCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([code, count]) => ({ code, count }));
-  const top_cities = [...cityCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, count]) => ({ name, count }));
-
   return {
     total_views: totalViewsRes.count ?? 0,
     views_7d: views7dRes.count ?? 0,
@@ -128,8 +103,6 @@ async function getDashboardAnalytics(profileId: string) {
     unique_visitors_7d: uniqueVisitors,
     booking_modal_opens_7d: bookingModalOpensRes.count ?? 0,
     chat_opens_7d: chatOpensRes.count ?? 0,
-    top_countries,
-    top_cities,
   };
 }
 
@@ -291,8 +264,6 @@ export default function DashboardIndex() {
     ? Math.round(((views - (a.views_prev_7d as number)) / (a.views_prev_7d as number)) * 100)
     : null;
   const trendUp = trend !== null && trend >= 0;
-  const topCountries = (a.top_countries ?? []) as { code: string; count: number }[];
-  const topCities    = (a.top_cities    ?? []) as { name: string; count: number }[];
   const isPaid = !!planId && planId > 0;
 
   // Profile completion
@@ -332,7 +303,6 @@ export default function DashboardIndex() {
 
   // Share button
   const [copied, setCopied] = useState(false);
-  const [geoExpanded, setGeoExpanded] = useState(false);
 
   useEffect(() => {
     setInquiryChatEnabled((p.inquiry_chat_enabled as boolean | null) !== false);
@@ -660,57 +630,6 @@ export default function DashboardIndex() {
             </div>
           </>
         )}
-
-        {topCountries.length > 0 && (() => {
-          const toFlag = (cc: string) =>
-            cc.toUpperCase().split("").map((c) =>
-              String.fromCodePoint(c.charCodeAt(0) + 127397)
-            ).join("");
-
-          return (
-            <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-              <div
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", userSelect: "none" }}
-                onClick={() => setGeoExpanded((v) => !v)}
-              >
-                <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                  {topCountries.slice(0, 3).map((c, i) => (
-                    <span key={c.code}>
-                      {i > 0 && <span style={{ margin: "0 6px", opacity: 0.4 }}>·</span>}
-                      {toFlag(c.code)} {c.code} {c.count.toLocaleString()}
-                    </span>
-                  ))}
-                </span>
-                <span style={{ color: "var(--text-muted)", fontSize: 11, marginLeft: 8 }}>{geoExpanded ? "▴" : "▾"}</span>
-              </div>
-
-              {geoExpanded && (
-                <div style={{ marginTop: 10, background: "var(--surface-muted)", borderRadius: 8, padding: "10px 12px", display: "flex", gap: 20 }}>
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 8px" }}>Countries</p>
-                    {topCountries.map((c) => (
-                      <div key={c.code} style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", fontSize: 13, marginBottom: 4 }}>
-                        <span>{toFlag(c.code)} {c.code}</span>
-                        <span>{c.count.toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                  {topCities.length > 0 && (
-                    <div style={{ flex: 1 }}>
-                      <p style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", margin: "0 0 8px" }}>Cities</p>
-                      {topCities.map((c) => (
-                        <div key={c.name} style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", fontSize: 13, marginBottom: 4 }}>
-                          <span>{c.name}</span>
-                          <span>{c.count.toLocaleString()}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })()}
 
         <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
           <Link to="/analytics" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
