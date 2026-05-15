@@ -736,7 +736,7 @@ export default function AnalyticsPage() {
             >
               <thead>
                 <tr>
-                  {["Email", "Link", "Date"].map((h) => (
+                  {["Email", "Link"].map((h) => (
                     <th
                       key={h}
                       style={{
@@ -776,16 +776,6 @@ export default function AnalyticsPage() {
                       }}
                     >
                       {row.link_slug ?? "—"}
-                    </td>
-                    <td
-                      style={{
-                        padding: "10px 0",
-                        borderBottom: "1px solid var(--border)",
-                        color: "var(--text-muted)",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {fmtDate(row.created_at)}
                     </td>
                   </tr>
                 ))}
