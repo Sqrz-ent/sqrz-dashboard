@@ -81,7 +81,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const analytics = (data as unknown as AnalyticsData) ?? null;
 
   return Response.json(
-    { analytics, days },
+    { analytics, days, profile },
     { headers }
   );
 }
@@ -283,7 +283,8 @@ function InlineStat({ label, value }: { label: string; value: number }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, days } = useLoaderData() as { analytics: AnalyticsData | null; days: number };
+  const { analytics, days, profile } = useLoaderData() as { analytics: AnalyticsData | null; days: number; profile: Record<string, unknown> };
+  const slug = profile.slug as string;
   const navigate = useNavigate();
 
   function setDays(d: number) {
@@ -566,12 +567,12 @@ export default function AnalyticsPage() {
                         </span>
                       </div>
                       <a
-                        href={`https://${link.profile_slug}.sqrz.com/${link.link_slug}`}
+                        href={`https://${slug}.sqrz.com/${link.link_slug}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{ fontSize: 12, color: ACCENT, textDecoration: "none" }}
                       >
-                        {link.profile_slug}.sqrz.com/{link.link_slug}
+                        {slug}.sqrz.com/{link.link_slug}
                       </a>
                     </div>
                     <div
