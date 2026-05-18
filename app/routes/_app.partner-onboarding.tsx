@@ -64,7 +64,7 @@ export async function action({ request }: Route.ActionArgs) {
       })
       .eq("id", profile.id as string);
 
-    return redirect("/office/partners", { headers });
+    return redirect("/partners", { headers });
   }
 
   if (intent === "decline") {

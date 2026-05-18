@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
-import type { Route } from "./+types/_app.office.partners";
+import type { Route } from "./+types/_app.partners";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 

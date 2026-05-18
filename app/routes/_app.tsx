@@ -233,7 +233,7 @@ export default function AppLayout() {
 
   // Derive work mode title + breadcrumb from pathname
   function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
-    if (pathname === "/office/partners") return { title: "Partners", breadcrumb: "Office" };
+    if (pathname === "/partners") return { title: "Partners", breadcrumb: null };
     if (pathname === "/partner-onboarding") return { title: "Partner Program", breadcrumb: null };
     if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
     if (pathname === "/office") return { title: "Office", breadcrumb: null };
@@ -649,7 +649,7 @@ export default function AppLayout() {
         ))}
         {isPartner ? (
           <NavLink
-            to="/office/partners"
+            to="/partners"
             style={({ isActive }) => ({
               display: "flex",
               flexDirection: "column",

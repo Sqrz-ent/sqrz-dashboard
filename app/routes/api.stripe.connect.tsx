@@ -29,7 +29,7 @@ export async function action({ request }: Route.ActionArgs) {
 
   const publicUrl = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
   const returnTo = url.searchParams.get("returnTo") ?? "payments";
-  const returnPath = returnTo === "partners" ? "/office/partners" : "/payments";
+  const returnPath = returnTo === "partners" ? "/partners" : "/payments";
   const returnModeParam = mode === "test" ? "&mode=test" : "";
 
   const connectIdField = mode === "test" ? "stripe_connect_id_test" : "stripe_connect_id";
