@@ -627,8 +627,83 @@ export default function AnalyticsPage() {
         </div>
       </section>
 
-      {/* ── Boost Campaigns ────────────────────────────────────────────────── */}
+      {/* ── Leads ──────────────────────────────────────────────────────────── */}
       <section style={{ marginBottom: 40 }}>
+        <span style={sectionLabel}>Leads</span>
+        <div style={card}>
+          {(a?.leads?.length ?? 0) === 0 ? (
+            <div
+              style={{
+                color: "var(--text-muted)",
+                fontSize: 14,
+                textAlign: "center",
+                padding: "24px 0",
+              }}
+            >
+              No leads captured yet — add a lead gate to your private links
+            </div>
+          ) : (
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                fontSize: 13,
+                fontFamily: FONT_BODY,
+              }}
+            >
+              <thead>
+                <tr>
+                  {["Email", "Link"].map((h) => (
+                    <th
+                      key={h}
+                      style={{
+                        textAlign: "left",
+                        padding: "0 0 10px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: "var(--text-muted)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.07em",
+                        borderBottom: "1px solid var(--border)",
+                      }}
+                    >
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {(a?.leads ?? []).slice(0, 50).map((row, i) => (
+                  <tr key={i}>
+                    <td
+                      style={{
+                        padding: "10px 0",
+                        borderBottom: "1px solid var(--border)",
+                        color: "var(--text)",
+                      }}
+                    >
+                      {row.email}
+                    </td>
+                    <td
+                      style={{
+                        padding: "10px 0",
+                        borderBottom: "1px solid var(--border)",
+                        color: "var(--text-muted)",
+                        paddingRight: 12,
+                      }}
+                    >
+                      {row.link_slug ?? "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      {/* ── Boost Campaigns ────────────────────────────────────────────────── */}
+      <section>
         <span style={sectionLabel}>Boost Campaigns</span>
         <div style={card}>
           {(a?.boost_campaigns?.length ?? 0) === 0 ? (
@@ -707,81 +782,6 @@ export default function AnalyticsPage() {
                 );
               })}
             </div>
-          )}
-        </div>
-      </section>
-
-      {/* ── Leads ──────────────────────────────────────────────────────────── */}
-      <section>
-        <span style={sectionLabel}>Leads</span>
-        <div style={card}>
-          {(a?.leads?.length ?? 0) === 0 ? (
-            <div
-              style={{
-                color: "var(--text-muted)",
-                fontSize: 14,
-                textAlign: "center",
-                padding: "24px 0",
-              }}
-            >
-              No leads captured yet — add a lead gate to your private links
-            </div>
-          ) : (
-            <table
-              style={{
-                width: "100%",
-                borderCollapse: "collapse",
-                fontSize: 13,
-                fontFamily: FONT_BODY,
-              }}
-            >
-              <thead>
-                <tr>
-                  {["Email", "Link"].map((h) => (
-                    <th
-                      key={h}
-                      style={{
-                        textAlign: "left",
-                        padding: "0 0 10px",
-                        fontSize: 11,
-                        fontWeight: 700,
-                        color: "var(--text-muted)",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.07em",
-                        borderBottom: "1px solid var(--border)",
-                      }}
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(a?.leads ?? []).slice(0, 50).map((row, i) => (
-                  <tr key={i}>
-                    <td
-                      style={{
-                        padding: "10px 0",
-                        borderBottom: "1px solid var(--border)",
-                        color: "var(--text)",
-                      }}
-                    >
-                      {row.email}
-                    </td>
-                    <td
-                      style={{
-                        padding: "10px 0",
-                        borderBottom: "1px solid var(--border)",
-                        color: "var(--text-muted)",
-                        paddingRight: 12,
-                      }}
-                    >
-                      {row.link_slug ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
           )}
         </div>
       </section>
