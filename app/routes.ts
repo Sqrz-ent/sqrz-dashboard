@@ -16,7 +16,7 @@ export default [
   layout("routes/_app.tsx", [
     index("routes/_app._index.tsx"),
     route("office", "routes/_app.office.tsx"),
-    route("office/partners", "routes/_app.office.partners.tsx"),
+    route("partners", "routes/_app.partners.tsx"),
     route("partner-onboarding", "routes/_app.partner-onboarding.tsx"),
     route("office/admin/payouts", "routes/_app.office.admin.payouts.tsx"),
     route("crew", "routes/_app.crew.tsx"),
