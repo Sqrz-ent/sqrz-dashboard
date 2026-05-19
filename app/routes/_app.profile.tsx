@@ -10,6 +10,7 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 import { normalizeImageUrl } from "~/lib/image-url";
 import Modal from "~/components/Modal";
+import GalleryUploader from "~/components/GalleryUploader";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -203,7 +204,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .eq("profile_id", profile.id as string),
     supabase
       .from("profile_photos")
-      .select("url")
+      .select("id, url, sort_order")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
   ]);
@@ -217,9 +218,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       allLanguages: allLangsRes.data ?? [],
       videos: videosRes.data ?? [],
       references: refsRes.data ?? [],
-      galleryUrls: (photosRes.data ?? [])
-        .map((r) => normalizeImageUrl((r as { url: string }).url))
-        .filter((url): url is string => !!url),
+      photos: (photosRes.data ?? []) as { id: string; url: string; sort_order: number }[],
     },
     { headers }
   );
@@ -422,7 +421,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function ProfilePage() {
-  const { profile, skillIds, allSkills, languageIds, allLanguages, videos, references, galleryUrls: initialGalleryUrls } = useLoaderData<typeof loader>() as {
+  const { profile, skillIds, allSkills, languageIds, allLanguages, videos, references, photos } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     skillIds: number[];
     allSkills: { id: number; name: string; category: string }[];
@@ -430,13 +429,12 @@ export default function ProfilePage() {
     allLanguages: { id: number; name: string }[];
     videos: Record<string, unknown>[];
     references: Record<string, unknown>[];
-    galleryUrls: string[];
+    photos: { id: string; url: string; sort_order: number }[];
   };
 
   const basicFetcher = useFetcher();
   const socialsFetcher = useFetcher();
   const widgetsFetcher = useFetcher();
-  const galleryFetcher = useFetcher();
   const videoFetcher = useFetcher();
   const videoReorderFetcher = useFetcher();
   const refFetcher = useFetcher();
@@ -521,8 +519,6 @@ export default function ProfilePage() {
     widget_muso: (profile.widget_muso as string) ?? "",
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
-  const [galleryUrls, setGalleryUrls] = useState<string[]>(initialGalleryUrls);
-
   // Modal state
   const [skillsModalOpen, setSkillsModalOpen] = useState(false);
   const [langsModalOpen, setLangsModalOpen] = useState(false);
@@ -959,68 +955,9 @@ export default function ProfilePage() {
 
       {/* Section 4b: Photo Gallery */}
       <div style={card}>
-        <CompletionBadge filled={galleryUrls.length > 0 ? 1 : 0} total={1} />
+        <CompletionBadge filled={photos.length > 0 ? 1 : 0} total={1} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Photo Gallery</h2>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
-            {galleryUrls.length}/12 photos
-          </span>
-          {galleryUrls.length < 12 && (
-            <button
-              style={{ fontSize: 12, padding: "4px 12px", background: "none", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", color: "var(--text-muted)", fontFamily: FONT_BODY }}
-              onClick={() => setGalleryUrls(u => [...u, ""])}
-            >
-              + Add photo URL
-            </button>
-          )}
-        </div>
-        {galleryUrls.map((url, i) => (
-          <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-            <input
-              style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-              value={url}
-              placeholder="https://example.com/photo.jpg"
-              onChange={e => setGalleryUrls(u => u.map((x, j) => j === i ? e.target.value : x))}
-            />
-            <button
-              style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: 16, padding: "4px 6px", flexShrink: 0 }}
-              onClick={() => {
-                const updated = galleryUrls.filter((_, j) => j !== i);
-                setGalleryUrls(updated);
-                const validUrls = updated
-                  .map((u) => normalizeImageUrl(u))
-                  .filter((u): u is string => !!u);
-                const fd = new FormData();
-                fd.append("intent", "update_gallery");
-                fd.append("urls", JSON.stringify(validUrls));
-                galleryFetcher.submit(fd, { method: "post" });
-              }}
-              title="Remove"
-            >
-              🗑️
-            </button>
-          </div>
-        ))}
-        {galleryUrls.length > 0 && (
-          <button
-            disabled={galleryFetcher.state !== "idle"}
-            style={{ ...saveBtn, marginTop: 8, fontSize: 13, padding: "8px 16px", opacity: galleryFetcher.state !== "idle" ? 0.6 : 1 }}
-            onClick={() => {
-              const validUrls = galleryUrls
-                .map((u) => normalizeImageUrl(u))
-                .filter((u): u is string => !!u);
-              const fd = new FormData();
-              fd.append("intent", "update_gallery");
-              fd.append("urls", JSON.stringify(validUrls));
-              galleryFetcher.submit(fd, { method: "post" });
-            }}
-          >
-            {galleryFetcher.state !== "idle" ? "Saving…" : "Save Gallery"}
-          </button>
-        )}
-        <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
-          Make sure your images are publicly accessible and under 2MB. Right-click any image online and copy the image address, or use Google Photos, Dropbox, or any image host with a direct image URL.
-        </p>
+        <GalleryUploader profileId={profileId} photos={photos} />
       </div>
 
       {/* Section 5: Videos */}
