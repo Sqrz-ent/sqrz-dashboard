@@ -8,6 +8,7 @@ import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import { normalizeImageUrl } from "~/lib/image-url";
 import Modal from "~/components/Modal";
 import UpgradeBanner from "~/components/UpgradeBanner";
+import LinkCoverUploader from "~/components/LinkCoverUploader";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -216,6 +217,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       is_beta: (profile.is_beta as boolean) ?? false,
       grow_qualified: (profile.grow_qualified as boolean) ?? false,
       username: profile.slug as string,
+      profileId: profile.id as string,
       links,
       services: servicesRes.data ?? [],
     },
@@ -364,6 +366,7 @@ function CreateLinkModal({
   onClose,
   fetcher,
   username,
+  profileId,
   existingSlugs,
   services,
   editingLink,
@@ -372,6 +375,7 @@ function CreateLinkModal({
   onClose: () => void;
   fetcher: ReturnType<typeof useFetcher>;
   username: string;
+  profileId: string;
   existingSlugs: string[];
   services: ProfileService[];
   editingLink: PrivateLink | null;
@@ -599,8 +603,19 @@ function CreateLinkModal({
           <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown on the page…" />
         </div>
         <div>
-          <label style={labelStyle}>Cover Image URL</label>
-          <input style={inputStyle} value={coverImageUrl} onChange={e => setCoverImageUrl(e.target.value)} placeholder="https://... paste an image link (flyer, album cover, photo)" />
+          <label style={labelStyle}>Cover Image</label>
+          {isEditing && editingLink ? (
+            <LinkCoverUploader
+              profileId={profileId}
+              linkId={editingLink.id}
+              currentUrl={coverImageUrl || null}
+              onSaved={(url) => setCoverImageUrl(url ?? "")}
+            />
+          ) : (
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+              Save the link first, then re-open it to upload a cover image.
+            </p>
+          )}
         </div>
 
         {/* DOWNLOAD — external URL + label */}
@@ -905,11 +920,12 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, is_beta, grow_qualified, username: usernameRaw, links, services } = useLoaderData<typeof loader>() as {
+  const { plan_id, is_beta, grow_qualified, username: usernameRaw, profileId, links, services } = useLoaderData<typeof loader>() as {
     plan_id: number | null;
     is_beta: boolean;
     grow_qualified: boolean;
     username: string;
+    profileId: string;
     links: PrivateLink[];
     services: ProfileService[];
   };
@@ -1031,6 +1047,7 @@ export default function LinksPage() {
         onClose={closeModal}
         fetcher={createFetcher}
         username={username}
+        profileId={profileId}
         existingSlugs={existingSlugs}
         services={services}
         editingLink={editingLink}
