@@ -580,8 +580,8 @@ function CreateLinkModal({
           <input
             style={{ ...inputStyle, ...(slugError ? { border: "1px solid #ef4444" } : {}) }}
             value={slug}
-            onChange={e => { setSlug(e.target.value); setSlugEdited(true); setSlugError(null); }}
-            onBlur={validateSlug}
+            onChange={e => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); setSlugError(null); }}
+            onBlur={() => { setSlug(s => s.toLowerCase()); validateSlug(); }}
             placeholder="asia-tour-2026"
           />
           {slugError ? (
