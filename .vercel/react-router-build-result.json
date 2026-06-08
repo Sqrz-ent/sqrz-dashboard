@@ -20,7 +20,7 @@
       "routes/booking.$id": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.office": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/_app.office.partners": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.partners": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.partner-onboarding": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.office.admin.payouts": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.crew": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -31,6 +31,7 @@
       "routes/_app.domain": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.links": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.account": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.analytics": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.crew.create-profile": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.notify-member": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-token": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -142,11 +143,11 @@
         "path": "office",
         "config": {}
       },
-      "routes/_app.office.partners": {
-        "id": "routes/_app.office.partners",
+      "routes/_app.partners": {
+        "id": "routes/_app.partners",
         "parentId": "routes/_app",
-        "file": "app/routes/_app.office.partners.tsx",
-        "path": "office/partners",
+        "file": "app/routes/_app.partners.tsx",
+        "path": "partners",
         "config": {}
       },
       "routes/_app.partner-onboarding": {
@@ -217,6 +218,13 @@
         "parentId": "routes/_app",
         "file": "app/routes/_app.account.tsx",
         "path": "account",
+        "config": {}
+      },
+      "routes/_app.analytics": {
+        "id": "routes/_app.analytics",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.analytics.tsx",
+        "path": "analytics",
         "config": {}
       },
       "routes/api.crew.create-profile": {
@@ -522,11 +530,11 @@
         "file": "routes/_app.office.tsx",
         "path": "office"
       },
-      "routes/_app.office.partners": {
-        "id": "routes/_app.office.partners",
+      "routes/_app.partners": {
+        "id": "routes/_app.partners",
         "parentId": "routes/_app",
-        "file": "routes/_app.office.partners.tsx",
-        "path": "office/partners"
+        "file": "routes/_app.partners.tsx",
+        "path": "partners"
       },
       "routes/_app.partner-onboarding": {
         "id": "routes/_app.partner-onboarding",
@@ -587,6 +595,12 @@
         "parentId": "routes/_app",
         "file": "routes/_app.account.tsx",
         "path": "account"
+      },
+      "routes/_app.analytics": {
+        "id": "routes/_app.analytics",
+        "parentId": "routes/_app",
+        "file": "routes/_app.analytics.tsx",
+        "path": "analytics"
       },
       "routes/api.crew.create-profile": {
         "id": "routes/api.crew.create-profile",
@@ -835,8 +849,8 @@
                 "path": "office"
               },
               {
-                "file": "routes/_app.office.partners.tsx",
-                "path": "office/partners"
+                "file": "routes/_app.partners.tsx",
+                "path": "partners"
               },
               {
                 "file": "routes/_app.partner-onboarding.tsx",
@@ -877,6 +891,10 @@
               {
                 "file": "routes/_app.account.tsx",
                 "path": "account"
+              },
+              {
+                "file": "routes/_app.analytics.tsx",
+                "path": "analytics"
               }
             ]
           },

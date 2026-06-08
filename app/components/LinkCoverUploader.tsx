@@ -10,16 +10,20 @@ const ACCENT = "#F5A623";
 
 interface LinkCoverUploaderProps {
   profileId: string;
-  linkId: string;
+  linkId?: string | null;
+  pendingKey?: string;
   currentUrl: string | null;
   onSaved?: (url: string | null) => void;
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 export default function LinkCoverUploader({
   profileId,
   linkId,
+  pendingKey,
   currentUrl,
   onSaved,
+  onUploadingChange,
 }: LinkCoverUploaderProps) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,7 +32,9 @@ export default function LinkCoverUploader({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const blobUrlRef = useRef<string | null>(null);
 
-  const storagePath = `${profileId}/links/${linkId}.webp`;
+  const storagePath = linkId
+    ? `${profileId}/links/${linkId}.webp`
+    : `${profileId}/links/pending-${pendingKey ?? "cover"}.webp`;
 
   function isSupabaseStorageUrl(url: string) {
     return url.includes("/storage/v1/object/public/profile-media/");
@@ -46,6 +52,7 @@ export default function LinkCoverUploader({
 
     setError(null);
     setUploading(true);
+    onUploadingChange?.(true);
 
     // Show local preview immediately
     if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -62,45 +69,54 @@ export default function LinkCoverUploader({
       setPreviewUrl(null);
       setError(storageError.message);
       setUploading(false);
+      onUploadingChange?.(false);
       return;
     }
 
     const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
 
-    const { error: dbError } = await supabase
-      .from("private_booking_links")
-      .update({ cover_image_url: publicUrl })
-      .eq("id", linkId);
+    if (linkId) {
+      const { error: dbError } = await supabase
+        .from("private_booking_links")
+        .update({ cover_image_url: publicUrl })
+        .eq("id", linkId);
 
-    if (dbError) {
-      // Rollback storage
-      await supabase.storage.from(BUCKET).remove([storagePath]);
-      setPreviewUrl(null);
-      setError(dbError.message);
-      setUploading(false);
-      return;
+      if (dbError) {
+        // Rollback storage
+        await supabase.storage.from(BUCKET).remove([storagePath]);
+        setPreviewUrl(null);
+        setError(dbError.message);
+        setUploading(false);
+        onUploadingChange?.(false);
+        return;
+      }
     }
 
     // Clear blob preview — the real URL is now active
     if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
     setPreviewUrl(null);
     setUploading(false);
+    onUploadingChange?.(false);
     onSaved?.(publicUrl);
   }
 
   async function removeImage() {
     setError(null);
     setUploading(true);
+    onUploadingChange?.(true);
 
-    const { error: dbError } = await supabase
-      .from("private_booking_links")
-      .update({ cover_image_url: null })
-      .eq("id", linkId);
+    if (linkId) {
+      const { error: dbError } = await supabase
+        .from("private_booking_links")
+        .update({ cover_image_url: null })
+        .eq("id", linkId);
 
-    if (dbError) {
-      setError(dbError.message);
-      setUploading(false);
-      return;
+      if (dbError) {
+        setError(dbError.message);
+        setUploading(false);
+        onUploadingChange?.(false);
+        return;
+      }
     }
 
     // Delete from storage only if the current URL is a Supabase URL (i.e. was uploaded, not a pasted URL)
@@ -109,6 +125,7 @@ export default function LinkCoverUploader({
     }
 
     setUploading(false);
+    onUploadingChange?.(false);
     onSaved?.(null);
   }
 

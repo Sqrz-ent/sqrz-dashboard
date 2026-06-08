@@ -254,11 +254,11 @@ export async function action({ request }: Route.ActionArgs) {
       cover_image_url: coverImageUrl,
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
-      external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
+      external_url_label: pageType !== "book" ? defaultExternalUrlLabel(pageType) : null,
       event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
       event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
-      expires_at: (fd.get("expires_at") as string) || null,
+      expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -300,11 +300,11 @@ export async function action({ request }: Route.ActionArgs) {
       cover_image_url: coverImageUrl,
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
-      external_url_label: pageType !== "book" ? ((fd.get("external_url_label") as string) || null) : null,
+      external_url_label: pageType !== "book" ? defaultExternalUrlLabel(pageType) : null,
       event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
       event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
-      expires_at: (fd.get("expires_at") as string) || null,
+      expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
     })
     .eq("id", id)
@@ -348,9 +348,12 @@ function toDatetimeLocal(iso: string | null | undefined): string {
   }
 }
 
-function toDateInput(iso: string | null | undefined): string {
-  if (!iso) return "";
-  return iso.split("T")[0];
+function defaultExternalUrlLabel(pageType: string) {
+  return pageType === "event" ? "Get Tickets" : "Download";
+}
+
+function createPendingCoverKey() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 // ─── Create / Edit Link Modal ─────────────────────────────────────────────────
@@ -392,12 +395,12 @@ function CreateLinkModal({
   const [prefillService, setPrefillService] = useState("");
   const [serviceError, setServiceError] = useState<string | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
-  const [externalUrlLabel, setExternalUrlLabel] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [eventVenue, setEventVenue] = useState("");
   const [eventCity, setEventCity] = useState("");
-  const [expiresAt, setExpiresAt] = useState("");
   const [leadGate, setLeadGate] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [pendingCoverKey, setPendingCoverKey] = useState(createPendingCoverKey);
   const [toast, setToast] = useState<string | null>(null);
 
   // Pre-fill when editing link changes
@@ -411,11 +414,9 @@ function CreateLinkModal({
       setCoverImageUrl(editingLink.cover_image_url || "");
       setPrefillService(editingLink.prefill_service || "");
       setExternalUrl(editingLink.external_url || "");
-      setExternalUrlLabel(editingLink.external_url_label || "");
       setEventDate(toDatetimeLocal(editingLink.event_date));
       setEventVenue(editingLink.event_venue || "");
       setEventCity(editingLink.event_city || "");
-      setExpiresAt(toDateInput(editingLink.expires_at));
       setLeadGate(editingLink.lead_gate ?? false);
       setSlugError(null);
     }
@@ -441,10 +442,11 @@ function CreateLinkModal({
     setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription(""); setCoverImageUrl("");
     setPrefillService(""); setServiceError(null);
-    setExternalUrl(""); setExternalUrlLabel("");
+    setExternalUrl("");
     setEventDate(""); setEventVenue(""); setEventCity("");
-    setExpiresAt("");
     setLeadGate(false);
+    setCoverUploading(false);
+    setPendingCoverKey(createPendingCoverKey());
   }
 
   function validateSlug() {
@@ -462,6 +464,7 @@ function CreateLinkModal({
       setServiceError("Please select a service for this booking link.");
       return;
     }
+    if (coverUploading) return;
     const fd = new FormData();
     if (isEditing) {
       fd.append("intent", "update");
@@ -475,9 +478,12 @@ function CreateLinkModal({
     fd.append("description", description);
     fd.append("cover_image_url", coverImageUrl);
     if (pageType === "book") fd.append("prefill_service", prefillService);
-    if (pageType !== "book") { fd.append("external_url", externalUrl); fd.append("external_url_label", externalUrlLabel); fd.append("lead_gate", String(leadGate)); }
+    if (pageType !== "book") {
+      fd.append("external_url", externalUrl);
+      fd.append("external_url_label", defaultExternalUrlLabel(pageType));
+      fd.append("lead_gate", String(leadGate));
+    }
     if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
-    if (expiresAt) fd.append("expires_at", expiresAt);
     fetcher.submit(fd, { method: "post" });
   }
 
@@ -604,18 +610,14 @@ function CreateLinkModal({
         </div>
         <div>
           <label style={labelStyle}>Cover Image</label>
-          {isEditing && editingLink ? (
-            <LinkCoverUploader
-              profileId={profileId}
-              linkId={editingLink.id}
-              currentUrl={coverImageUrl || null}
-              onSaved={(url) => setCoverImageUrl(url ?? "")}
-            />
-          ) : (
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-              Save the link first, then re-open it to upload a cover image.
-            </p>
-          )}
+          <LinkCoverUploader
+            profileId={profileId}
+            linkId={editingLink?.id ?? null}
+            pendingKey={pendingCoverKey}
+            currentUrl={coverImageUrl || null}
+            onSaved={(url) => setCoverImageUrl(url ?? "")}
+            onUploadingChange={setCoverUploading}
+          />
         </div>
 
         {/* DOWNLOAD — external URL + label */}
@@ -624,10 +626,6 @@ function CreateLinkModal({
             <div>
               <label style={labelStyle}>External URL</label>
               <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://dropbox.com/... or any link" />
-            </div>
-            <div>
-              <label style={labelStyle}>Button Label</label>
-              <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Download, Get Press Kit, Listen Now" />
             </div>
           </div>
         )}
@@ -655,18 +653,8 @@ function CreateLinkModal({
               <label style={labelStyle}>Ticket / External URL</label>
               <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://eventim.de/..." />
             </div>
-            <div>
-              <label style={labelStyle}>Button Label</label>
-              <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Get Tickets →" />
-            </div>
           </div>
         )}
-
-        {/* Expiry */}
-        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-          <label style={labelStyle}>Expires (optional)</label>
-          <input type="date" style={inputStyle} value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
-        </div>
 
         {(fetcher.data as { error?: string } | undefined)?.error && (
           <p style={{ fontSize: 13, color: "#ef4444" }}>{(fetcher.data as { error: string }).error}</p>
@@ -675,20 +663,20 @@ function CreateLinkModal({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={fetcher.state !== "idle" || !slug || !!slugError}
+          disabled={fetcher.state !== "idle" || coverUploading || !slug || !!slugError}
           style={{
             padding: "11px 22px",
-            background: (!slug || !!slugError) ? "var(--surface-muted)" : ACCENT,
-            color: (!slug || !!slugError) ? "var(--text-muted)" : "#111",
+            background: (!slug || !!slugError || coverUploading) ? "var(--surface-muted)" : ACCENT,
+            color: (!slug || !!slugError || coverUploading) ? "var(--text-muted)" : "#111",
             border: "none",
             borderRadius: 10,
             fontSize: 14,
             fontWeight: 700,
-            cursor: (!slug || !!slugError || fetcher.state !== "idle") ? "not-allowed" : "pointer",
+            cursor: (!slug || !!slugError || coverUploading || fetcher.state !== "idle") ? "not-allowed" : "pointer",
             fontFamily: FONT_BODY,
           }}
         >
-          {fetcher.state !== "idle" ? "Saving…" : isEditing ? "Save Changes" : "Create Link"}
+          {coverUploading ? "Uploading…" : fetcher.state !== "idle" ? "Saving…" : isEditing ? "Save Changes" : "Create Link"}
         </button>
       </div>
     </Modal>
