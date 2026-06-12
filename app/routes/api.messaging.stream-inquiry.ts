@@ -1,11 +1,39 @@
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { listOpenInquiryThreadsForProfile } from "~/lib/messaging/inquiry.server";
 
+// Native app clients (sqrz-ios) authenticate with Authorization: Bearer {access_token}
+// instead of cookies. The user's JWT is forwarded to PostgREST so RLS applies as usual.
+function createSupabaseBearerClient(accessToken: string) {
+  return createClient(
+    import.meta.env.VITE_SUPABASE_URL as string,
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+    {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    }
+  );
+}
+
 export async function loader({ request }: { request: Request }) {
-  const { supabase, headers } = createSupabaseServerClient(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const authHeader = request.headers.get("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  let supabase;
+  let headers = new Headers();
+  let user;
+
+  if (bearerToken) {
+    supabase = createSupabaseBearerClient(bearerToken);
+    ({
+      data: { user },
+    } = await supabase.auth.getUser(bearerToken));
+  } else {
+    ({ supabase, headers } = createSupabaseServerClient(request));
+    ({
+      data: { user },
+    } = await supabase.auth.getUser());
+  }
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401, headers });
