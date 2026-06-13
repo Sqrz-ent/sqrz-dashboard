@@ -160,13 +160,21 @@ export async function listOpenInquiryThreadsForProfile(profileId: string) {
     owner_stream_user_id: ownerStreamUserId,
   }));
 
+  // Channel sync is best-effort: the inquiry channel was already created at
+  // inquiry-start time, so re-ensuring it is belt-and-suspenders. A Stream API
+  // failure here must NOT block the token response — the client only needs the
+  // token to connect, and Stream will surface any real channel issue on watch.
   await Promise.all(
-    resolvedThreads.map((thread) =>
-      ensureInquiryChannel({
-        thread,
-        ownerName,
-      })
-    )
+    resolvedThreads.map(async (thread) => {
+      try {
+        await ensureInquiryChannel({ thread, ownerName });
+      } catch (error) {
+        console.error(
+          `[inquiry] ensureInquiryChannel failed for thread ${thread.id} (channel ${thread.provider_channel_id}):`,
+          error
+        );
+      }
+    })
   );
 
   return {
