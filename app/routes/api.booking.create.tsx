@@ -43,6 +43,10 @@ export async function action({ request }: ActionFunctionArgs) {
     line_items,
     proposal_message,
     requires_payment,
+    tax_pct,
+    require_hotel,
+    require_travel,
+    require_food,
   } = body;
 
   if (!client_name || !client_email || !title) {
@@ -127,6 +131,10 @@ export async function action({ request }: ActionFunctionArgs) {
       message: proposal_message || null,
       line_items: line_items?.length ? line_items : null,
       requires_payment: requires_payment ?? false,
+      tax_pct: tax_pct ? (parseFloat(String(tax_pct)) || null) : null,
+      require_hotel: require_hotel ?? false,
+      require_travel: require_travel ?? false,
+      require_food: require_food ?? false,
       sqrz_fee_pct: resolveLockedSqrzFeePct({
         requiresPayment: requires_payment ?? false,
         fallbackFeePct,
