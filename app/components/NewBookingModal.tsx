@@ -49,6 +49,7 @@ export default function NewBookingModal({
   onSuccess,
   prefill,
   requiresPaymentDefault = false,
+  connectPending = false,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -56,6 +57,7 @@ export default function NewBookingModal({
   onSuccess: (clientEmail: string, bookingId: string) => void;
   prefill?: { client_name?: string; client_email?: string; description?: string };
   requiresPaymentDefault?: boolean;
+  connectPending?: boolean;
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
@@ -535,6 +537,32 @@ export default function NewBookingModal({
                   </p>
                 </div>
               </label>
+            </div>
+          ) : connectPending ? (
+            <div
+              style={{
+                padding: "11px 14px",
+                background: "var(--bg)",
+                borderRadius: 10,
+                border: "1px solid var(--border)",
+                marginBottom: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>
+                  Finish your Stripe onboarding to unlock payments
+                </p>
+                <a
+                  href="/payments"
+                  style={{ fontSize: 11, color: ACCENT, textDecoration: "none", fontWeight: 600 }}
+                >
+                  Complete setup →
+                </a>
+              </div>
             </div>
           ) : null}
 

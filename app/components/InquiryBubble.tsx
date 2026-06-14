@@ -70,10 +70,12 @@ export default function InquiryBubble({
   enabled,
   services,
   requiresPaymentDefault = false,
+  connectPending = false,
 }: {
   enabled: boolean;
   services: ServiceOption[];
   requiresPaymentDefault?: boolean;
+  connectPending?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<InquirySession | null>(null);
@@ -738,6 +740,7 @@ export default function InquiryBubble({
         onSuccess={handleNewBookingSuccess}
         prefill={newBookingPrefill}
         requiresPaymentDefault={requiresPaymentDefault}
+        connectPending={connectPending}
       />
     </>
   );
