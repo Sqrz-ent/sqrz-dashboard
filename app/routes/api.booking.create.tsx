@@ -1,14 +1,26 @@
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import type { ActionFunctionArgs } from "react-router";
 import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
 import { persistMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
 
 export async function action({ request }: ActionFunctionArgs) {
-  const { supabase, headers } = createSupabaseServerClient(request);
+  const authHeader = request.headers.get("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
 
-  const { data: { user } } = await supabase.auth.getUser();
+  let headers = new Headers();
+  let supabase;
+  let user;
+
+  if (bearerToken) {
+    supabase = createSupabaseBearerClient(bearerToken);
+    ({ data: { user } } = await supabase.auth.getUser(bearerToken));
+  } else {
+    ({ supabase, headers } = createSupabaseServerClient(request));
+    ({ data: { user } } = await supabase.auth.getUser());
+  }
+
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
   const profile = await getCurrentProfile(supabase, user.id);

@@ -1,11 +1,21 @@
-import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseAdminClient, createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { finalizeInquiryConversion } from "~/lib/messaging/inquiry.server";
 
 export async function action({ request }: { request: Request }) {
-  const { supabase, headers } = createSupabaseServerClient(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const authHeader = request.headers.get("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  let headers = new Headers();
+  let user;
+
+  if (bearerToken) {
+    const supabase = createSupabaseBearerClient(bearerToken);
+    ({ data: { user } } = await supabase.auth.getUser(bearerToken));
+  } else {
+    const { supabase: cookieClient, headers: cookieHeaders } = createSupabaseServerClient(request);
+    headers = cookieHeaders;
+    ({ data: { user } } = await cookieClient.auth.getUser());
+  }
 
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401, headers });
@@ -19,7 +29,9 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Missing threadId or bookingId" }, { status: 400, headers });
   }
 
-  const { data: profile } = await supabase
+  const admin = createSupabaseAdminClient();
+
+  const { data: profile } = await admin
     .from("profiles")
     .select("id, plan_id")
     .eq("user_id", user.id)
@@ -32,8 +44,6 @@ export async function action({ request }: { request: Request }) {
   if (profile.plan_id == null || Number(profile.plan_id) <= 0) {
     return Response.json({ error: "Premium plan required" }, { status: 403, headers });
   }
-
-  const admin = createSupabaseAdminClient();
   const { data: thread } = await admin
     .from("profile_inquiry_threads")
     .select("id, profile_id")

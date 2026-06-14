@@ -60,6 +60,22 @@ export function createSupabaseServerClient(request: Request) {
 }
 
 /**
+ * Bearer-token client for native app callers (e.g. sqrz-ios).
+ * Forwards the JWT to PostgREST so RLS applies as usual.
+ * Use createSupabaseServerClient for cookie-based web sessions.
+ */
+export function createSupabaseBearerClient(accessToken: string) {
+  return createClient(
+    import.meta.env.VITE_SUPABASE_URL as string,
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+    {
+      global: { headers: { Authorization: `Bearer ${accessToken}` } },
+      auth: { autoRefreshToken: false, persistSession: false },
+    }
+  );
+}
+
+/**
  * Admin client using the service role key — bypasses RLS.
  * Only use server-side for trusted operations.
  */
