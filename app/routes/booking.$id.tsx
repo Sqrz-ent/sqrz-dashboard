@@ -2311,7 +2311,7 @@ function BillingModal({
     setSaving(true);
     setError(null);
     try {
-      await fetch("/api/billing/confirm", {
+      const res = await fetch("/api/billing/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -2320,6 +2320,12 @@ function BillingModal({
           ...form,
         }),
       });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setError((json as { error?: string }).error ?? "Could not save billing details. Please try again.");
+        setSaving(false);
+        return;
+      }
       onConfirm();
     } catch {
       setError("Could not save billing details. Please try again.");
@@ -2424,6 +2430,7 @@ function GuestBuyerProposalCard({
   participantEmail?: string | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
   const [billingOpen, setBillingOpen] = useState(false);
   const [counterOpen, setCounterOpen] = useState(false);
   const [counterRate, setCounterRate] = useState(String(proposal?.rate ?? ""));
@@ -2475,6 +2482,7 @@ function GuestBuyerProposalCard({
 
   async function proceedWithAccept() {
     setLoading("accept");
+    setAcceptError(null);
     try {
       const res = await fetch("/api/proposal/accept", {
         method: "POST",
@@ -2488,9 +2496,13 @@ function GuestBuyerProposalCard({
         setBookingConfirmed(true);
         setLoading(null);
         window.location.reload();
+      } else {
+        setAcceptError(json.error ?? "Something went wrong. Please try again.");
+        setLoading(null);
       }
     } catch (err) {
       console.error("[accept]", err);
+      setAcceptError("Something went wrong. Please try again.");
       setLoading(null);
     }
   }
@@ -2701,6 +2713,12 @@ function GuestBuyerProposalCard({
                   ? `Accept — ${sym}${net.toLocaleString()} ${proposal.currency ?? "EUR"}`
                   : "Accept"}
           </button>
+
+          {acceptError && (
+            <p style={{ fontSize: 13, color: "#ef4444", margin: 0, textAlign: "center" as const }}>
+              {acceptError}
+            </p>
+          )}
 
           {counterOpen ? (
             <div style={card}>
