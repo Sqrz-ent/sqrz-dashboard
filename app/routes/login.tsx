@@ -182,9 +182,7 @@ export default function Login() {
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 800, letterSpacing: "0.25em" }}>
-            [<span style={{ color: "#F5A623" }}> SQRZ </span>]
-          </span>
+          <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 40, width: "auto" }} />
         </div>
 
         <h1
