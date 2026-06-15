@@ -129,6 +129,16 @@ export default function AppLayout() {
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
+
+  // 4th bottom-nav slot — partner takes precedence, then beta crew, else own profile
+  const isBeta = !!(p?.is_beta as boolean | null);
+  const profileSlug = (p?.slug as string | null) ?? "";
+  const fourthNav = isPartner
+    ? { to: "/partners", external: false, icon: "🤝", label: "Partners" }
+    : isBeta
+    ? { to: "/crew", external: false, icon: "👥", label: "Crew" }
+    : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👤", label: "Profile" };
+
   const [showOnboarding, setShowOnboarding] = useState(false);
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -648,25 +658,27 @@ export default function AppLayout() {
             <span>{item.label}</span>
           </NavLink>
         ))}
-        {isPartner ? (
-          <NavLink
-            to="/partners"
-            style={({ isActive }) => ({
+        {fourthNav.external ? (
+          <a
+            href={fourthNav.to}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               gap: 3,
               textDecoration: "none",
               fontSize: 11,
-              color: isActive ? "#F5A623" : "var(--text-muted)",
-            })}
+              color: "var(--text-muted)",
+            }}
           >
-            <span style={{ fontSize: 18 }}>🤝</span>
-            <span>Partners</span>
-          </NavLink>
+            <span style={{ fontSize: 18 }}>{fourthNav.icon}</span>
+            <span>{fourthNav.label}</span>
+          </a>
         ) : (
           <NavLink
-            to="/crew"
+            to={fourthNav.to}
             style={({ isActive }) => ({
               display: "flex",
               flexDirection: "column",
@@ -677,8 +689,8 @@ export default function AppLayout() {
               color: isActive ? "#F5A623" : "var(--text-muted)",
             })}
           >
-            <span style={{ fontSize: 18 }}>👥</span>
-            <span>Crew</span>
+            <span style={{ fontSize: 18 }}>{fourthNav.icon}</span>
+            <span>{fourthNav.label}</span>
           </NavLink>
         )}
       </nav>
