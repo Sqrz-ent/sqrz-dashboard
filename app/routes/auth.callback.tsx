@@ -37,33 +37,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (code) {
     const { data: sessionData } = await supabase.auth.exchangeCodeForSession(code);
 
-    // Apply the user's chosen handle from the join form if present
+    // Apply referral code from the join form if present
     const cookieHeader = request.headers.get("Cookie") ?? "";
-    const pendingHandle = cookieHeader.match(/sqrz_pending_handle=([^;]+)/)?.[1];
     const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
 
-    if (sessionData?.user && (pendingHandle || pendingRef)) {
+    if (sessionData?.user && pendingRef) {
       const admin = createClient(
         process.env.SUPABASE_URL!,
         process.env.SUPABASE_SERVICE_ROLE_KEY!
       );
-
-      // Check the handle isn't already taken by a different profile
-      if (pendingHandle) {
-        const { data: taken } = await admin
-          .from("profiles")
-          .select("id")
-          .eq("slug", pendingHandle)
-          .neq("user_id", sessionData.user.id)
-          .maybeSingle();
-
-        if (!taken) {
-          await admin
-            .from("profiles")
-            .update({ slug: pendingHandle })
-            .eq("user_id", sessionData.user.id);
-        }
-      }
 
       if (pendingRef) {
         // Validate the ref code is active before writing
@@ -83,8 +65,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         }
       }
 
-      // Clear the pending cookies
-      headers.append("Set-Cookie", "sqrz_pending_handle=; Path=/; Max-Age=0");
+      // Clear the pending cookie
       headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
     }
   }

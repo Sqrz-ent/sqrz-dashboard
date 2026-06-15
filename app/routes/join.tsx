@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
-import { redirect, data, useLoaderData, useFetcher } from "react-router";
+import { redirect, data, useLoaderData, useFetcher, useNavigate } from "react-router";
 import type { Route } from "./+types/join";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
 
-type Step = "username" | "email" | "sent";
+type Step = "username" | "email" | "code";
 type SlugStatus = "idle" | "checking" | "available" | "taken";
 
 type Template = {
@@ -243,39 +243,79 @@ function EmailStep({
   );
 }
 
-function SentStep({
+function CodeStep({
   email,
+  code,
+  setCode,
+  onSubmit,
   onResend,
   onChangeEmail,
+  error,
   loading,
+  verifying,
 }: {
   email: string;
+  code: string;
+  setCode: (v: string) => void;
+  onSubmit: () => void;
   onResend: () => void;
   onChangeEmail: () => void;
+  error: string;
   loading: boolean;
+  verifying: boolean;
 }) {
+  const canSubmit = code.length === 6 && !verifying;
+
   return (
     <div style={{ textAlign: "center" }}>
       <div style={{ fontSize: 52, marginBottom: 16 }}>✉️</div>
       <h2 style={{ color: "#ffffff", fontSize: 22, fontWeight: 700, marginBottom: 8 }}>
-        Check your email
+        Enter the 6-digit code
       </h2>
       <p style={{ color: "rgba(255,255,255,0.5)", marginBottom: 4, fontSize: 15 }}>
-        We sent a magic link to
+        We sent a code to
       </p>
       <p style={{ color: "#F5A623", fontWeight: 600, marginBottom: 24, fontSize: 15 }}>
         {email}
       </p>
-      <p style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, marginBottom: 28 }}>
-        Click the link in your email to access your dashboard.
-      </p>
+
+      <input
+        value={code}
+        onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))}
+        onKeyDown={(e) => e.key === "Enter" && canSubmit && onSubmit()}
+        placeholder="123456"
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        autoFocus
+        style={{
+          ...inputStyle,
+          textAlign: "center",
+          fontSize: 28,
+          letterSpacing: "0.4em",
+          fontWeight: 700,
+        }}
+      />
+
+      <ErrorMessage message={error} />
+
+      <button
+        onClick={onSubmit}
+        disabled={!canSubmit}
+        style={{
+          ...primaryButtonStyle,
+          opacity: canSubmit ? 1 : 0.35,
+          cursor: canSubmit ? "pointer" : "default",
+        }}
+      >
+        {verifying ? "Verifying…" : "Continue →"}
+      </button>
 
       <button
         onClick={onResend}
         disabled={loading}
-        style={{ ...ghostButtonStyle, color: "#F5A623", display: "block", margin: "0 auto 14px" }}
+        style={{ ...ghostButtonStyle, color: "#F5A623", display: "block", margin: "20px auto 14px" }}
       >
-        {loading ? "Sending…" : "Resend email"}
+        {loading ? "Sending…" : "Resend code"}
       </button>
       <button
         onClick={onChangeEmail}
@@ -389,15 +429,18 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 export default function Join() {
   const { initialSlug, refCode, refValid } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>("username");
   const [phase, setPhase] = useState<"in" | "out">("in");
 
   const [slug, setSlug] = useState(initialSlug);
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
 
   // Slug availability via useFetcher — fires on every keystroke
   const slugFetcher = useFetcher<{ available: boolean }>();
@@ -439,7 +482,7 @@ export default function Join() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  async function sendMagicLink() {
+  async function sendCode() {
     const normalized = email.trim().toLowerCase();
     if (!normalized.includes("@")) {
       setError("Enter a valid email address");
@@ -448,8 +491,8 @@ export default function Join() {
     setLoading(true);
     setError("");
     try {
-      // Reserve slug server-side so it survives the user opening the magic link
-      // on a different device/browser. Fire-and-forget: failures are non-fatal.
+      // Reserve slug server-side so handle_new_user can recover it at user
+      // creation regardless of where the code is entered. Non-fatal on failure.
       try {
         await fetch(window.location.pathname, {
           method: "POST",
@@ -458,11 +501,6 @@ export default function Join() {
       } catch (reserveErr) {
         console.warn("[join] slug reservation failed, proceeding anyway", reserveErr);
       }
-
-      // Persist handle in cookie before the user leaves the site via magic link
-      // (sqrz_pending_ref is set server-side in the loader when ?ref= is present)
-      const expires = new Date(Date.now() + 3600 * 1000).toUTCString();
-      document.cookie = `sqrz_pending_handle=${encodeURIComponent(slug)}; path=/; expires=${expires}; SameSite=Lax`;
 
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: normalized,
@@ -473,11 +511,33 @@ export default function Join() {
       });
       if (otpError) throw otpError;
       setEmail(normalized);
-      goTo("sent");
+      setCode("");
+      goTo("code");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function verifyCode() {
+    const normalized = email.trim().toLowerCase();
+    setVerifying(true);
+    setError("");
+    try {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email: normalized,
+        token: code,
+        type: "email",
+      });
+      if (verifyError) throw verifyError;
+      // Session is established client-side; slug was already set at user
+      // creation via the pending_signups reservation + trigger.
+      navigate("/");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid or expired code");
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -536,19 +596,24 @@ export default function Join() {
               slug={slug}
               email={email}
               setEmail={setEmail}
-              onSubmit={sendMagicLink}
+              onSubmit={sendCode}
               onBack={() => goTo("username")}
               error={error}
               loading={loading}
             />
           )}
 
-          {step === "sent" && (
-            <SentStep
+          {step === "code" && (
+            <CodeStep
               email={email}
-              onResend={sendMagicLink}
+              code={code}
+              setCode={setCode}
+              onSubmit={verifyCode}
+              onResend={sendCode}
               onChangeEmail={() => goTo("email")}
+              error={error}
               loading={loading}
+              verifying={verifying}
             />
           )}
         </div>
