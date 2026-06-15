@@ -295,11 +295,27 @@ export function headers({ loaderHeaders }: { loaderHeaders: Headers }) {
   return loaderHeaders;
 }
 
-// ─── Action — slug availability check (fires on every keystroke via useFetcher) ──
+// ─── Action — slug availability check + slug reservation ─────────────────────
 
 export async function action({ request }: Route.ActionArgs) {
-  const { supabase: supabaseServer } = createSupabaseServerClient(request);
   const formData = await request.formData();
+  const intent = formData.get("intent") as string | null;
+
+  if (intent === "reserve-slug") {
+    const email = (formData.get("email") as string ?? "").trim().toLowerCase();
+    const slug  = (formData.get("slug")  as string ?? "").trim().toLowerCase();
+    if (!email || !slug) return Response.json({ ok: false });
+
+    const admin = createSupabaseAdminClient();
+    await admin
+      .from("pending_signups")
+      .upsert({ email, slug, created_at: new Date().toISOString() }, { onConflict: "email" });
+
+    return Response.json({ ok: true });
+  }
+
+  // Default: slug availability check (fires on every keystroke via useFetcher)
+  const { supabase: supabaseServer } = createSupabaseServerClient(request);
   const slug = (formData.get("slug") as string ?? "").trim().toLowerCase();
 
   if (!slug || slug.length < 3) {
@@ -432,6 +448,17 @@ export default function Join() {
     setLoading(true);
     setError("");
     try {
+      // Reserve slug server-side so it survives the user opening the magic link
+      // on a different device/browser. Fire-and-forget: failures are non-fatal.
+      try {
+        await fetch(window.location.pathname, {
+          method: "POST",
+          body: new URLSearchParams({ intent: "reserve-slug", email: normalized, slug }),
+        });
+      } catch (reserveErr) {
+        console.warn("[join] slug reservation failed, proceeding anyway", reserveErr);
+      }
+
       // Persist handle in cookie before the user leaves the site via magic link
       // (sqrz_pending_ref is set server-side in the loader when ?ref= is present)
       const expires = new Date(Date.now() + 3600 * 1000).toUTCString();
@@ -441,6 +468,7 @@ export default function Join() {
         email: normalized,
         options: {
           emailRedirectTo: "https://dashboard.sqrz.com/auth/callback",
+          data: { slug },
         },
       });
       if (otpError) throw otpError;
