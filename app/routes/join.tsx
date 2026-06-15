@@ -112,9 +112,6 @@ function UsernameStep({
         <br />
         GETS YOU BOOKED.
       </h1>
-      <p style={{ color: "rgba(255,255,255,0.45)", marginBottom: 32, fontSize: 14 }}>
-        Your professional home on the web.
-      </p>
 
       <div
         style={{
@@ -237,7 +234,7 @@ function EmailStep({
       <ErrorMessage message={error} />
 
       <button onClick={onSubmit} disabled={loading} style={primaryButtonStyle}>
-        {loading ? "Sending…" : "Send magic link"}
+        {loading ? "Sending…" : "Confirm your email"}
       </button>
     </div>
   );
@@ -566,11 +563,7 @@ export default function Join() {
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <span
-            style={{ color: "#ffffff", fontSize: 20, fontWeight: 800, letterSpacing: "0.25em" }}
-          >
-            [<span style={{ color: "#F5A623" }}> SQRZ </span>]
-          </span>
+          <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 40, width: "auto" }} />
         </div>
 
         {/* State machine */}
