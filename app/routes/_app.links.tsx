@@ -84,6 +84,7 @@ type PrivateLink = {
   event_city: string | null;
   lead_gate: boolean;
   lead_count: number;
+  video_url: string | null;
 };
 
 type ProfileService = { id: string; title: string };
@@ -101,7 +102,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [linksRes, servicesRes] = await Promise.all([
     supabase
       .from("private_booking_links")
-      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate")
+      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url")
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
     supabase
@@ -260,6 +261,7 @@ export async function action({ request }: Route.ActionArgs) {
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
+      video_url: (fd.get("video_url") as string) || null,
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -306,6 +308,7 @@ export async function action({ request }: Route.ActionArgs) {
       event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
       expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
+      video_url: (fd.get("video_url") as string) || null,
     })
     .eq("id", id)
     .eq("profile_id", profile.id as string);
@@ -392,6 +395,7 @@ function CreateLinkModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
   const [prefillService, setPrefillService] = useState("");
   const [serviceError, setServiceError] = useState<string | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
@@ -412,6 +416,7 @@ function CreateLinkModal({
       setTitle(editingLink.title || "");
       setDescription(editingLink.description || "");
       setCoverImageUrl(editingLink.cover_image_url || "");
+      setVideoUrl(editingLink.video_url || "");
       setPrefillService(editingLink.prefill_service || "");
       setExternalUrl(editingLink.external_url || "");
       setEventDate(toDatetimeLocal(editingLink.event_date));
@@ -441,6 +446,7 @@ function CreateLinkModal({
     setPageType("download");
     setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription(""); setCoverImageUrl("");
+    setVideoUrl("");
     setPrefillService(""); setServiceError(null);
     setExternalUrl("");
     setEventDate(""); setEventVenue(""); setEventCity("");
@@ -477,6 +483,7 @@ function CreateLinkModal({
     fd.append("title", title);
     fd.append("description", description);
     fd.append("cover_image_url", coverImageUrl);
+    fd.append("video_url", videoUrl);
     if (pageType === "book") fd.append("prefill_service", prefillService);
     if (pageType !== "book") {
       fd.append("external_url", externalUrl);
@@ -618,6 +625,10 @@ function CreateLinkModal({
             onSaved={(url) => setCoverImageUrl(url ?? "")}
             onUploadingChange={setCoverUploading}
           />
+        </div>
+        <div>
+          <label style={labelStyle}>Promo Video (YouTube)</label>
+          <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
         </div>
 
         {/* DOWNLOAD — external URL + label */}
