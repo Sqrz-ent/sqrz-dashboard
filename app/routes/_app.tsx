@@ -590,6 +590,7 @@ export default function AppLayout() {
 
       <InquiryBubble
       enabled={true}
+      chatEnabled={(p?.inquiry_chat_enabled as boolean | null) !== false}
       services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
       requiresPaymentDefault={isPaid && (p?.stripe_connect_status as string | null) === "active"}
       connectPending={isPaid && !!(p?.stripe_connect_id as string | null) && (p?.stripe_connect_status as string | null) !== "active"}

@@ -71,11 +71,13 @@ export default function InquiryBubble({
   services,
   requiresPaymentDefault = false,
   connectPending = false,
+  chatEnabled = true,
 }: {
   enabled: boolean;
   services: ServiceOption[];
   requiresPaymentDefault?: boolean;
   connectPending?: boolean;
+  chatEnabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<InquirySession | null>(null);
@@ -474,6 +476,26 @@ export default function InquiryBubble({
               </button>
             </div>
           </div>
+
+          {!chatEnabled && (
+            <a
+              href="/"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "10px 16px",
+                background: "rgba(245,166,35,0.10)",
+                borderBottom: "1px solid var(--border)",
+                textDecoration: "none",
+              }}
+            >
+              <span style={{ fontSize: 14, lineHeight: 1 }}>⚠️</span>
+              <span style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.4 }}>
+                Chat bubble is off — turn it on to receive new messages.
+              </span>
+            </a>
+          )}
 
           <div
             onClick={() => { channelRef.current?.markRead?.().catch(() => {}); }}
