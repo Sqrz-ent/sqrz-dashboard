@@ -248,7 +248,7 @@ export default function Login() {
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
-          <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 40, width: "auto" }} />
+          <img src="/sqrz-logo.png" alt="SQRZ" style={{ height: 40, width: "auto", display: "block", margin: "0 auto" }} />
         </div>
 
         <h1
