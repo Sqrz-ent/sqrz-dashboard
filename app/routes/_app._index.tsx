@@ -4,24 +4,10 @@ import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
-import { getPushPublicKey, isPushConfigured } from "~/lib/push.server";
 import UpgradeBanner from "~/components/UpgradeBanner";
 
 const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-
-  return outputArray;
-}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -147,7 +133,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       planName: homeData.planName ?? null,
       availabilityBlocks: homeData.availabilityBlocks ?? [],
       refCode: homeData.refCode ?? null,
-      webPushPublicKey: isPushConfigured() ? getPushPublicKey() : "",
     },
     { headers }
   );
@@ -245,7 +230,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, analytics, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode, webPushPublicKey } =
+  const { profile, analytics, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -286,10 +271,6 @@ export default function DashboardIndex() {
   );
   const [inquiryChatEnabled, setInquiryChatEnabled] = useState<boolean>((p.inquiry_chat_enabled as boolean | null) !== false);
   const [toggleError, setToggleError] = useState<string | null>(null);
-  const [pushState, setPushState] = useState({ supported: false, permission: "default" as string, subscribed: false });
-  const [pushBusy, setPushBusy] = useState(false);
-  const [pushFeedback, setPushFeedback] = useState<string | null>(null);
-  const [showMobilePushActions, setShowMobilePushActions] = useState(false);
 
   // Availability
   const gigHistoryFetcher = useFetcher();
@@ -309,45 +290,6 @@ export default function DashboardIndex() {
   }, [p.inquiry_chat_enabled]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadPushState() {
-      if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window) || !webPushPublicKey) {
-        if (!cancelled) setPushState({ supported: false, permission: "default", subscribed: false });
-        return;
-      }
-
-      try {
-        const registration = await navigator.serviceWorker.ready;
-        const subscription = await registration.pushManager.getSubscription();
-        if (!cancelled) {
-          setPushState({ supported: true, permission: Notification.permission, subscribed: !!subscription });
-        }
-      } catch {
-        if (!cancelled) setPushState({ supported: false, permission: "default", subscribed: false });
-      }
-    }
-
-    void loadPushState();
-    return () => {
-      cancelled = true;
-    };
-  }, [webPushPublicKey]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-
-    const media = window.matchMedia("(max-width: 767px)");
-    const update = () => setShowMobilePushActions(media.matches);
-
-    update();
-    media.addEventListener?.("change", update);
-    return () => {
-      media.removeEventListener?.("change", update);
-    };
-  }, []);
-
-  useEffect(() => {
     if (inquiryChatFetcher.state !== "idle") return;
     const data = inquiryChatFetcher.data as { ok?: boolean; error?: string } | undefined;
     if (!data) return;
@@ -360,112 +302,6 @@ export default function DashboardIndex() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inquiryChatFetcher.state, inquiryChatFetcher.data]);
 
-  async function refreshPushState() {
-    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window) || !webPushPublicKey) {
-      setPushState({ supported: false, permission: "default", subscribed: false });
-      return;
-    }
-
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-    setPushState({ supported: true, permission: Notification.permission, subscribed: !!subscription });
-  }
-
-  async function enablePushNotifications() {
-    if (!webPushPublicKey || pushBusy) return;
-
-    setPushBusy(true);
-    setPushFeedback(null);
-    try {
-      const permission = await Notification.requestPermission();
-      setPushState((s) => ({ ...s, permission }));
-      if (permission !== "granted") {
-        throw new Error("Notification permission was not granted");
-      }
-
-      const registration = await navigator.serviceWorker.ready;
-      let subscription = await registration.pushManager.getSubscription();
-
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(webPushPublicKey),
-        });
-      }
-
-      const response = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          endpoint: subscription.endpoint,
-          keys: subscription.toJSON().keys,
-          platform: navigator.platform,
-          userAgent: navigator.userAgent,
-          appScope: registration.scope,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to save push subscription");
-      }
-
-      await refreshPushState();
-      setPushFeedback("Instant alerts enabled.");
-    } catch (error) {
-      setPushFeedback(error instanceof Error ? error.message : "Failed to enable notifications");
-    } finally {
-      setPushBusy(false);
-    }
-  }
-
-  async function disablePushNotifications() {
-    if (pushBusy) return;
-
-    setPushBusy(true);
-    setPushFeedback(null);
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      if (subscription) {
-        await fetch("/api/push/unsubscribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ endpoint: subscription.endpoint }),
-        });
-        await subscription.unsubscribe();
-      }
-      await refreshPushState();
-      setPushFeedback("Instant alerts disabled.");
-    } catch (error) {
-      setPushFeedback(error instanceof Error ? error.message : "Failed to disable notifications");
-    } finally {
-      setPushBusy(false);
-    }
-  }
-
-  async function sendTestPushNotification() {
-    if (pushBusy) return;
-
-    setPushBusy(true);
-    setPushFeedback(null);
-    try {
-      const response = await fetch("/api/push/test", { method: "POST" });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error ?? "Failed to send test notification");
-      }
-
-      if (payload?.sent > 0) {
-        setPushFeedback("Test notification sent.");
-      } else {
-        setPushFeedback("No active push subscription found yet.");
-      }
-    } catch (error) {
-      setPushFeedback(error instanceof Error ? error.message : "Failed to send test notification");
-    } finally {
-      setPushBusy(false);
-    }
-  }
 
   function copyLink() {
     if (!slug) return;
@@ -728,7 +564,7 @@ export default function DashboardIndex() {
               Creator messaging controls
             </h2>
             <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "8px 0 0" }}>
-              Control whether new inquiries can reach you and whether your installed SQRZ app can send high-priority alerts.
+              Control whether new inquiries can reach you.
             </p>
           </div>
           {!isPaid && (
@@ -804,73 +640,6 @@ export default function DashboardIndex() {
             </div>
           </div>
 
-          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-              <div>
-                <p style={{ ...metaLabel, margin: "0 0 8px" }}>Instant Alerts</p>
-                <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
-                  Push notifications
-                </p>
-                {pushFeedback && (
-                  <p style={{ color: pushFeedback.includes("Failed") || pushFeedback.includes("not") ? "#f87171" : ACCENT, fontSize: 12, margin: "10px 0 0", fontWeight: 700 }}>
-                    {pushFeedback}
-                  </p>
-                )}
-              </div>
-              <div style={{ flexShrink: 0, textAlign: "right", display: "grid", gap: 8 }}>
-                {!isPaid ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Upgrade to unlock</p>
-                ) : !showMobilePushActions ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, maxWidth: 180, lineHeight: 1.5 }}>
-                    Enable alerts from your phone in the installed SQRZ app.
-                  </p>
-                ) : !webPushPublicKey ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>Push not configured</p>
-                ) : !pushState.supported ? (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>This browser does not support push here</p>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => void (pushState.subscribed ? disablePushNotifications() : enablePushNotifications())}
-                      disabled={pushBusy}
-                      style={{
-                        padding: "10px 14px",
-                        borderRadius: 10,
-                        border: pushState.subscribed ? "1px solid var(--border)" : "none",
-                        background: pushState.subscribed ? "var(--surface)" : ACCENT,
-                        color: pushState.subscribed ? "var(--text)" : "#111",
-                        fontSize: 13,
-                        fontWeight: 700,
-                        cursor: pushBusy ? "not-allowed" : "pointer",
-                        opacity: pushBusy ? 0.65 : 1,
-                      }}
-                    >
-                      {pushState.subscribed ? "Disable alerts" : "Enable alerts"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void sendTestPushNotification()}
-                      disabled={pushBusy || !pushState.subscribed}
-                      style={{
-                        padding: "9px 14px",
-                        borderRadius: 10,
-                        border: "1px solid var(--border)",
-                        background: "var(--surface)",
-                        color: "var(--text)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: pushBusy || !pushState.subscribed ? "not-allowed" : "pointer",
-                        opacity: pushBusy || !pushState.subscribed ? 0.5 : 1,
-                      }}
-                    >
-                      Send test
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
 
         {toggleError && (
