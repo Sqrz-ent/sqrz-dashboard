@@ -120,13 +120,14 @@ export async function action({ request }: Route.ActionArgs) {
       .eq("id", profile.id);
   }
 
-  // Native callers return to the app via the custom URL scheme; the browser flow
-  // returns to the relevant dashboard page.
+  // Native callers return to an https pass-through page that re-opens the app via the
+  // sqrz:// custom scheme — Stripe AccountLink rejects custom schemes directly. The
+  // browser flow returns to the relevant dashboard page.
   const refreshUrl = isNative
     ? "https://dashboard.sqrz.com/payments"
     : `${publicUrl}${returnPath}?connect=refresh${returnModeParam}`;
   const returnUrl = isNative
-    ? "sqrz://stripe-return"
+    ? "https://dashboard.sqrz.com/stripe-return"
     : `${publicUrl}${returnPath}?connect=success${returnModeParam}`;
 
   // Create onboarding link

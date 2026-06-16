@@ -12,6 +12,9 @@ export default [
   // Standalone booking access (no dashboard chrome)
   route("booking/:id", "routes/booking.$id.tsx"),
 
+  // Stripe Connect native return pass-through (no auth — re-opens sqrz:// app)
+  route("stripe-return", "routes/stripe-return.tsx"),
+
   // Protected app (session required)
   layout("routes/_app.tsx", [
     index("routes/_app._index.tsx"),
