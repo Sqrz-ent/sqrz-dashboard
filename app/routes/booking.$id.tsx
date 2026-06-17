@@ -318,6 +318,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposalFeePct,
         memberInfo,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
+        stripeConnectStatus: (profile?.stripe_connect_status as string | null) ?? null,
         stripeConnectIdTest: (profile?.stripe_connect_id_test as string | null) ?? null,
         stripeConnectStatusTest: (profile?.stripe_connect_status_test as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
@@ -569,6 +570,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         memberInfo: sessionMemberInfo,
         memberEmail: sessionMemberEmail,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
+        stripeConnectStatus: (profile?.stripe_connect_status as string | null) ?? null,
         stripeConnectIdTest: (profile?.stripe_connect_id_test as string | null) ?? null,
         stripeConnectStatusTest: (profile?.stripe_connect_status_test as string | null) ?? null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
@@ -1287,6 +1289,7 @@ function ProposalSection({
   booking,
   planLevel,
   stripeConnectId,
+  stripeConnectStatus,
   stripeConnectIdTest,
   stripeConnectStatusTest,
   isBeta,
@@ -1295,6 +1298,7 @@ function ProposalSection({
   booking: Booking;
   planLevel: number;
   stripeConnectId: string | null;
+  stripeConnectStatus: string | null;
   stripeConnectIdTest: string | null;
   stripeConnectStatusTest: string | null;
   isBeta: boolean;
@@ -1365,6 +1369,16 @@ function ProposalSection({
       <SectionHeading>
         {buyerCounted ? "Counter Offer" : (showForm && isRevise) ? "Revise Proposal" : "Proposal"}
       </SectionHeading>
+
+      {/* Read-only Stripe onboarding hint — informational only, no CTA. Mirrors the
+          equivalent hint in sqrz-ios CreateProposalView. */}
+      {stripeConnectStatus !== "active" && (
+        <div style={{ marginBottom: 20, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)", borderRadius: 10, padding: "10px 12px" }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>
+            ⚠️ Finish your Stripe onboarding to unlock payments
+          </p>
+        </div>
+      )}
 
       {sent ? (
         <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
@@ -3659,6 +3673,7 @@ function MemberView({
   messagingProvider,
   bookingToken,
   stripeConnectId,
+  stripeConnectStatus,
   stripeConnectIdTest,
   stripeConnectStatusTest,
   isBeta,
@@ -3678,6 +3693,7 @@ function MemberView({
   messagingProvider: BookingMessagingProvider;
   bookingToken?: string | null;
   stripeConnectId: string | null;
+  stripeConnectStatus: string | null;
   stripeConnectIdTest: string | null;
   stripeConnectStatusTest: string | null;
   isBeta: boolean;
@@ -3823,6 +3839,7 @@ function MemberView({
             booking={b}
             planLevel={planLevel}
             stripeConnectId={stripeConnectId}
+            stripeConnectStatus={stripeConnectStatus}
             stripeConnectIdTest={stripeConnectIdTest}
             stripeConnectStatusTest={stripeConnectStatusTest}
             isBeta={isBeta}
@@ -4053,6 +4070,7 @@ export default function BookingAccessPage() {
     proposalFeePct,
     memberInfo,
     stripeConnectId,
+    stripeConnectStatus,
     stripeConnectIdTest,
     stripeConnectStatusTest,
     senderName,
@@ -4074,6 +4092,7 @@ export default function BookingAccessPage() {
     proposalFeePct?: number | null;
     memberInfo?: MemberInfo;
     stripeConnectId?: string | null;
+    stripeConnectStatus?: string | null;
     stripeConnectIdTest?: string | null;
     stripeConnectStatusTest?: string | null;
     senderName: string | null;
@@ -4101,6 +4120,7 @@ export default function BookingAccessPage() {
           messagingProvider={messagingProvider}
           bookingToken={bookingToken}
           stripeConnectId={stripeConnectId ?? null}
+          stripeConnectStatus={stripeConnectStatus ?? null}
           stripeConnectIdTest={stripeConnectIdTest ?? null}
           stripeConnectStatusTest={stripeConnectStatusTest ?? null}
           isBeta={isBeta}
