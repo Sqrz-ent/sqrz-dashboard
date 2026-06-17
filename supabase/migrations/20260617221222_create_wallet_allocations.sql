@@ -19,10 +19,6 @@ create table public.wallet_allocations (
   paid_at timestamptz,
   boost_campaign_id uuid references public.boost_campaigns(id)
     on delete set null,
-  -- controls whether this line appears on the client invoice
-  billable_to_client boolean default false,
-  -- if billable_to_client, whether to show the amount or just the label (privacy option)
-  show_amount boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -78,10 +74,3 @@ create policy "Owner can update wallet allocations"
         )
     )
   );
-
--- Invoice mode on the wallet: 'consolidated' shows a single total line on the
--- client invoice; 'itemized' lists each billable_to_client allocation.
-alter table public.booking_wallets
-  add column if not exists invoice_mode text
-  default 'consolidated'
-  check (invoice_mode in ('consolidated', 'itemized'));
