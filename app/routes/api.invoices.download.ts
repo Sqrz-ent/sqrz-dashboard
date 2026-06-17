@@ -1,11 +1,25 @@
-import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
 export async function action({ request }: { request: Request }) {
-  const { supabase } = createSupabaseServerClient(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Native callers (sqrz-ios) authenticate with a Bearer access token; the browser flow
+  // uses cookies. Both paths return JSON — this route never redirects.
+  const authHeader = request.headers.get("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+
+  let supabase;
+  let user;
+  if (bearerToken) {
+    supabase = createSupabaseBearerClient(bearerToken);
+    ({
+      data: { user },
+    } = await supabase.auth.getUser(bearerToken));
+  } else {
+    ({ supabase } = createSupabaseServerClient(request));
+    ({
+      data: { user },
+    } = await supabase.auth.getUser());
+  }
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   const profile = await getCurrentProfile(supabase, user.id);
