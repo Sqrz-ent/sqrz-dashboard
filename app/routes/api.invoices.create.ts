@@ -129,7 +129,7 @@ export async function action({ request }: { request: Request }) {
   // Fetch booking owned by this profile
   const { data: booking } = await adminClient
     .from("bookings")
-    .select("id, title, service, owner_id")
+    .select("id, title, service, owner_id, status")
     .eq("id", booking_id)
     .eq("owner_id", profile.id as string)
     .maybeSingle();
@@ -138,7 +138,16 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Booking not found or unauthorized" }, { status: 404 });
   }
 
-  // Fetch accepted proposal (latest version, status=accepted)
+  // Fetch the wallet (+ allocations). When a wallet exists it is the source of truth for
+  // amounts and line items; the accepted proposal is only a fallback (instant pre-wallet
+  // bookings, edge cases).
+  const { data: wallet } = await adminClient
+    .from("booking_wallets")
+    .select("*, wallet_allocations(*)")
+    .eq("booking_id", booking_id)
+    .maybeSingle();
+
+  // Fetch accepted proposal (latest version) — fallback source + consolidated line items.
   const { data: proposal } = await adminClient
     .from("booking_proposals")
     .select("id, rate, currency, tax_pct, tax_amount, line_items, requires_payment, sqrz_fee_pct")
@@ -148,22 +157,103 @@ export async function action({ request }: { request: Request }) {
     .limit(1)
     .maybeSingle();
 
-  if (!proposal) {
+  if (!wallet && !proposal) {
     return Response.json({ error: "No accepted proposal found for this booking" }, { status: 404 });
   }
 
-  const lockedFeePct = resolveLockedSqrzFeePct({
-    requiresPayment: (proposal as { requires_payment?: boolean | null }).requires_payment,
-    proposalFeePct: (proposal as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,
-  });
-  const sqrzFeeAmount = roundCurrency(Number(proposal.rate) * (lockedFeePct / 100));
-  const taxAmt = Number((proposal as { tax_amount?: number | null }).tax_amount ?? 0);
-  const gross = roundCurrency(Number(proposal.rate) + taxAmt + sqrzFeeAmount);
-  const invoiceLineItems = reconcileInvoiceLineItems({
-    netAmount: proposal.rate,
-    rawLineItems: proposal.line_items,
-    primaryLabel: (booking.service as string | null) || (booking.title as string | null) || "Professional services",
-  });
+  // GATE: once a wallet exists, an invoice may only be generated after the booking has
+  // been delivered (wallet payout approved, or booking completed). No gate without a wallet.
+  if (wallet) {
+    const payoutStatus = (wallet as { payout_status?: string | null }).payout_status;
+    if (payoutStatus !== "approved" && (booking.status as string) !== "completed") {
+      return Response.json(
+        { error: "Invoice can only be generated after marking the booking as delivered" },
+        { status: 400 }
+      );
+    }
+  }
+
+  const primaryLabel =
+    (booking.service as string | null) || (booking.title as string | null) || "Professional services";
+
+  // Computed invoice amounts + line items — wallet-first, proposal fallback.
+  let currency: string;
+  let netAmount: number;
+  let taxPct: number;
+  let taxAmt: number;
+  let sqrzFeeAmount: number;
+  let gross: number;
+  let invoiceLineItems: Array<Record<string, unknown>>;
+
+  if (wallet) {
+    const w = wallet as {
+      secured_amount?: number | string | null;
+      total_budget?: number | string | null;
+      tax_pct?: number | string | null;
+      tax_amount?: number | string | null;
+      sqrz_fee_pct?: number | string | null;
+      currency?: string | null;
+      invoice_mode?: string | null;
+      wallet_allocations?: Array<{
+        label?: string | null;
+        amount?: number | string | null;
+        allocation_type?: string | null;
+        billable_to_client?: boolean | null;
+        show_amount?: boolean | null;
+      }> | null;
+    };
+
+    currency = ((w.currency as string | null) ?? (proposal?.currency as string | null) ?? "EUR").toUpperCase();
+    netAmount = Number(w.secured_amount ?? 0);
+    taxPct = Number(w.tax_pct ?? 0);
+    taxAmt = Number(w.tax_amount ?? 0);
+    const feePct = Number(w.sqrz_fee_pct ?? 0);
+    sqrzFeeAmount = roundCurrency(netAmount * (feePct / 100));
+    gross =
+      w.total_budget != null
+        ? Number(w.total_budget)
+        : roundCurrency(netAmount + taxAmt + sqrzFeeAmount);
+
+    const invoiceMode = (w.invoice_mode as string | null) ?? "consolidated";
+    if (invoiceMode === "itemized") {
+      // Only client-billable allocations; honor the per-line privacy flag (show_amount).
+      // crew/promo default to billable_to_client=false, so they're already excluded.
+      invoiceLineItems = (w.wallet_allocations ?? [])
+        .filter((a) => a.billable_to_client === true)
+        .map((a) => ({
+          label: a.show_amount ? (a.label ?? "Item") : `${a.label ?? "Item"} (amount withheld)`,
+          amount: a.show_amount ? Number(a.amount ?? 0) : 0,
+          allocation_type: a.allocation_type ?? null,
+        }));
+    } else {
+      // Consolidated: existing proposal line-item logic, against the wallet net.
+      invoiceLineItems = reconcileInvoiceLineItems({
+        netAmount,
+        rawLineItems: proposal?.line_items,
+        primaryLabel,
+      });
+    }
+  } else {
+    // Fallback — proposal-based (existing logic, unchanged).
+    const p = proposal as NonNullable<typeof proposal>;
+    const lockedFeePct = resolveLockedSqrzFeePct({
+      requiresPayment: (p as { requires_payment?: boolean | null }).requires_payment,
+      proposalFeePct: (p as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,
+    });
+    currency = ((p.currency as string | null) ?? "EUR").toUpperCase();
+    netAmount = Number(p.rate);
+    taxPct = (p.tax_pct as number | null) ?? 0;
+    taxAmt = Number((p as { tax_amount?: number | null }).tax_amount ?? 0);
+    sqrzFeeAmount = roundCurrency(Number(p.rate) * (lockedFeePct / 100));
+    gross = roundCurrency(Number(p.rate) + taxAmt + sqrzFeeAmount);
+    invoiceLineItems = reconcileInvoiceLineItems({
+      netAmount: p.rate,
+      rawLineItems: p.line_items,
+      primaryLabel,
+    });
+  }
+
+  const proposalIdForInsert = proposal_id || (proposal?.id as string | undefined) || null;
 
   const issuerName = (
     (profile.company_name as string | null) ||
@@ -177,7 +267,7 @@ export async function action({ request }: { request: Request }) {
     .from("invoices")
     .insert({
       booking_id,
-      proposal_id: proposal_id || proposal.id,
+      proposal_id: proposalIdForInsert,
       issuer_profile_id: profile.id as string,
       invoice_number: invoice_number || null,
       invoice_date,
@@ -196,9 +286,9 @@ export async function action({ request }: { request: Request }) {
       recipient_city: recipient_city || null,
       recipient_country: recipient_country || null,
       recipient_vat_id: recipient_vat_id || null,
-      currency: ((proposal.currency as string | null) ?? "EUR").toUpperCase(),
-      net_amount: proposal.rate,
-      tax_pct: (proposal.tax_pct as number | null) ?? 0,
+      currency,
+      net_amount: netAmount,
+      tax_pct: taxPct,
       tax_amount: taxAmt,
       sqrz_fee_amount: sqrzFeeAmount,
       gross_amount: gross,
