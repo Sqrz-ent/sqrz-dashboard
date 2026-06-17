@@ -81,9 +81,18 @@ async function syncWalletFromProposal(input: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   walletId: string;
   proposal: NonNullable<Proposal> | null;
+  clientPaid?: boolean | null;
 }) {
-  const { admin, walletId, proposal } = input;
+  const { admin, walletId, proposal, clientPaid } = input;
   if (!proposal || !walletId) return;
+
+  // ── Data-integrity guards: never clobber real wallet figures ─────────────────
+  // 1. Only an ACCEPTED proposal may drive wallet amounts. A draft/sent/countered
+  //    proposal must never overwrite the wallet.
+  if (proposal.status !== "accepted") return;
+  // 2. Once a wallet is funded by a real Stripe payment it is the source of truth —
+  //    never overwrite its amounts.
+  if (clientPaid === true) return;
 
   const proposalNet = Number(proposal.rate ?? 0);
   const proposalTaxPct = Number(proposal.tax_pct ?? 0);
@@ -246,6 +255,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
             admin,
             walletId: (baseWallet as { id: string }).id,
             proposal: latestProposal,
+            clientPaid: (baseWallet as { client_paid?: boolean | null }).client_paid,
           });
           const { data: refreshedWallet } = await admin
             .from("booking_wallets")
@@ -474,6 +484,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           admin,
           walletId: (baseWallet as { id: string }).id,
           proposal: latestProposal,
+          clientPaid: (baseWallet as { client_paid?: boolean | null }).client_paid,
         });
         const { data: refreshedWallet } = await admin
           .from("booking_wallets")
