@@ -99,25 +99,50 @@ export async function action({ request }: { request: Request }) {
 
   const adminClient = createSupabaseAdminClient();
 
-  // Parse multipart form data
-  const formData = await request.formData();
-  const booking_id = (formData.get("booking_id") as string) || null;
-  // UUID fields — must be valid UUID or null, never empty string
-  const proposal_id_raw = (formData.get("proposal_id") as string) || "";
-  const proposal_id = proposal_id_raw.match(/^[0-9a-f-]{36}$/i) ? proposal_id_raw : null;
-  const invoice_number = (formData.get("invoice_number") as string) || null;
-  // Dates — coerce to YYYY-MM-DD
-  const rawInvoiceDate = (formData.get("invoice_date") as string) || "";
-  const invoice_date = rawInvoiceDate ? rawInvoiceDate.split("T")[0] : new Date().toISOString().split("T")[0];
-  const rawDueDate = (formData.get("due_date") as string) || "";
-  const due_date = rawDueDate ? rawDueDate.split("T")[0] : null;
-  const recipient_name = (formData.get("recipient_name") as string) || "";
-  const recipient_email = (formData.get("recipient_email") as string) || null;
-  const recipient_address = (formData.get("recipient_address") as string) || null;
-  const recipient_city = (formData.get("recipient_city") as string) || null;
-  const recipient_country = (formData.get("recipient_country") as string) || null;
-  const recipient_vat_id = (formData.get("recipient_vat_id") as string) || null;
-  const notes = (formData.get("notes") as string) || null;
+  // Content-type-aware body parsing. Native (sqrz-ios) callers send a JSON body with a
+  // Bearer token; the browser flow sends multipart FormData. request.formData() throws on
+  // a JSON body, so we must branch on the caller. For native, recipient_* are auto-filled
+  // from booking_participants after the booking is loaded (see below).
+  const isNative = !!bearerToken;
+
+  let booking_id: string | null;
+  let proposal_id: string | null = null;
+  let invoice_number: string | null = null;
+  let invoice_date: string;
+  let due_date: string | null = null;
+  let recipient_name = "";
+  let recipient_email: string | null = null;
+  let recipient_address: string | null = null;
+  let recipient_city: string | null = null;
+  let recipient_country: string | null = null;
+  let recipient_vat_id: string | null = null;
+  let notes: string | null = null;
+
+  if (isNative) {
+    const json = (await request.json()) as { booking_id?: string; notes?: string | null };
+    booking_id = json.booking_id ?? null;
+    notes = json.notes ?? null;
+    invoice_date = new Date().toISOString().split("T")[0];
+  } else {
+    const formData = await request.formData();
+    booking_id = (formData.get("booking_id") as string) || null;
+    // UUID fields — must be valid UUID or null, never empty string
+    const proposal_id_raw = (formData.get("proposal_id") as string) || "";
+    proposal_id = proposal_id_raw.match(/^[0-9a-f-]{36}$/i) ? proposal_id_raw : null;
+    invoice_number = (formData.get("invoice_number") as string) || null;
+    // Dates — coerce to YYYY-MM-DD
+    const rawInvoiceDate = (formData.get("invoice_date") as string) || "";
+    invoice_date = rawInvoiceDate ? rawInvoiceDate.split("T")[0] : new Date().toISOString().split("T")[0];
+    const rawDueDate = (formData.get("due_date") as string) || "";
+    due_date = rawDueDate ? rawDueDate.split("T")[0] : null;
+    recipient_name = (formData.get("recipient_name") as string) || "";
+    recipient_email = (formData.get("recipient_email") as string) || null;
+    recipient_address = (formData.get("recipient_address") as string) || null;
+    recipient_city = (formData.get("recipient_city") as string) || null;
+    recipient_country = (formData.get("recipient_country") as string) || null;
+    recipient_vat_id = (formData.get("recipient_vat_id") as string) || null;
+    notes = (formData.get("notes") as string) || null;
+  }
 
   console.log("[invoices/create] parsed fields:", JSON.stringify({
     booking_id, proposal_id, invoice_number, invoice_date, due_date,
@@ -136,6 +161,25 @@ export async function action({ request }: { request: Request }) {
 
   if (!booking) {
     return Response.json({ error: "Booking not found or unauthorized" }, { status: 404 });
+  }
+
+  // Native callers send no recipient fields — derive them from the buyer participant
+  // (billing details preferred, falling back to name/email). Web keeps its form prefill.
+  if (isNative) {
+    const { data: participant } = await adminClient
+      .from("booking_participants")
+      .select("name, email, billing_company, billing_address, billing_city, billing_country, billing_vat_id, billing_confirmed")
+      .eq("booking_id", booking_id)
+      .eq("role", "buyer")
+      .limit(1)
+      .maybeSingle();
+
+    recipient_name = (participant?.billing_company as string | null) || (participant?.name as string | null) || "";
+    recipient_email = (participant?.email as string | null) || "";
+    recipient_address = (participant?.billing_address as string | null) || null;
+    recipient_city = (participant?.billing_city as string | null) || null;
+    recipient_country = (participant?.billing_country as string | null) || null;
+    recipient_vat_id = (participant?.billing_vat_id as string | null) || null;
   }
 
   // Fetch the wallet (+ allocations). When a wallet exists it is the source of truth for
