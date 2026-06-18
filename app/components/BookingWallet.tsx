@@ -120,12 +120,12 @@ function TypeBadge({ type }: { type: string }) {
 
 export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, requiresPayment, hasInvoice, stripeExpressUrl }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
-  const [newType,   setNewType]   = useState<string>("expense");
-  const [newLabel,  setNewLabel]  = useState("Transport");
+  // Two clear modes instead of a raw allocation_type dropdown:
+  //  "charge"   → allocation_type "income",  billable_to_client true
+  //  "internal" → allocation_type "crew",    billable_to_client false
+  const [newMode,   setNewMode]   = useState<"charge" | "internal">("charge");
+  const [newLabel,  setNewLabel]  = useState("Artist Fee");
   const [newAmount, setNewAmount] = useState("");
-  // Billable to client — only meaningful for expense lines. Defaults to true for
-  // expense, false for everything else.
-  const [newBillable, setNewBillable] = useState(true);
 
   const paidFetcher      = useFetcher<{ ok?: boolean }>();
   const addFetcher       = useFetcher<{ ok?: boolean }>();
@@ -136,19 +136,20 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
   useEffect(() => {
     if (addFetcher.state === "idle" && addFetcher.data?.ok) {
       setShowAddForm(false);
-      setNewType("expense");
-      setNewLabel("Transport");
+      setNewMode("charge");
+      setNewLabel("Artist Fee");
       setNewAmount("");
-      setNewBillable(true);
     }
   }, [addFetcher.state, addFetcher.data]);
 
-  // When type changes, reset label to first suggestion and the billable default
-  // (checked for expense, unchecked for crew/promo).
+  // Derived allocation_type / billable_to_client for the selected mode.
+  const allocationType = newMode === "charge" ? "income" : "crew";
+  const billableToClient = newMode === "charge";
+
+  // When the mode changes, reset label to the first suggestion for that mode.
   useEffect(() => {
-    setNewLabel(LABEL_SUGGESTIONS[newType]?.[0] ?? "");
-    setNewBillable(newType === "expense");
-  }, [newType]);
+    setNewLabel(LABEL_SUGGESTIONS[allocationType]?.[0] ?? "");
+  }, [newMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allocations = wallet.allocations ?? [];
 
@@ -493,32 +494,53 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
       ) : (
         <div style={{ ...card, border: "1px solid rgba(245,166,35,0.25)" }}>
           <p style={{ ...lbl, margin: "0 0 12px" }}>Add line item</p>
-          <div style={{ display: "grid", gridTemplateColumns: "110px 1fr 100px", gap: 10, marginBottom: 12 }}>
-            <div>
-              <p style={{ ...lbl, marginBottom: 5 }}>Type</p>
-              <select
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-                style={{ ...inputSt, width: "100%" }}
-              >
-                <option value="income">Income</option>
-                <option value="crew">Crew</option>
-                <option value="promo">Promo</option>
-                <option value="expense">Expense</option>
-              </select>
-            </div>
+
+          {/* Charge client vs internal cost */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {([
+              { mode: "charge"   as const, title: "Charge client", desc: "Added to client invoice and wallet total" },
+              { mode: "internal" as const, title: "Internal cost", desc: "Recorded internally, not billed to client" },
+            ]).map((opt) => {
+              const selected = newMode === opt.mode;
+              return (
+                <button
+                  key={opt.mode}
+                  type="button"
+                  onClick={() => setNewMode(opt.mode)}
+                  style={{
+                    textAlign: "left" as const,
+                    padding: "10px 12px",
+                    borderRadius: 9,
+                    cursor: "pointer",
+                    fontFamily: FONT_BODY,
+                    background: selected ? "rgba(245,166,35,0.12)" : "var(--bg)",
+                    border: selected ? `1px solid ${ACCENT}` : "1px solid var(--border)",
+                  }}
+                >
+                  <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: selected ? ACCENT : "var(--text)", marginBottom: 2 }}>
+                    {opt.title}
+                  </span>
+                  <span style={{ display: "block", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.35 }}>
+                    {opt.desc}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 10, marginBottom: 12 }}>
             <div>
               <p style={{ ...lbl, marginBottom: 5 }}>Label</p>
               <input
                 type="text"
-                list={`label-suggestions-${newType}`}
+                list={`label-suggestions-${allocationType}`}
                 value={newLabel}
                 onChange={(e) => setNewLabel(e.target.value)}
                 placeholder="Label"
                 style={{ ...inputSt, width: "100%" }}
               />
-              <datalist id={`label-suggestions-${newType}`}>
-                {(LABEL_SUGGESTIONS[newType] ?? []).map((s2) => (
+              <datalist id={`label-suggestions-${allocationType}`}>
+                {(LABEL_SUGGESTIONS[allocationType] ?? []).map((s2) => (
                   <option key={s2} value={s2} />
                 ))}
               </datalist>
@@ -535,27 +557,17 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
               />
             </div>
           </div>
-          {newType === "expense" && (
-            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={newBillable}
-                onChange={(e) => setNewBillable(e.target.checked)}
-              />
-              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Billable to client</span>
-            </label>
-          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => {
                 const fd = new FormData();
                 fd.append("intent", "add_wallet_allocation");
                 fd.append("wallet_id", wallet.id);
-                fd.append("allocation_type", newType);
+                fd.append("allocation_type", allocationType);
                 fd.append("label", newLabel);
                 fd.append("amount", newAmount);
                 fd.append("currency", wallet.currency ?? "EUR");
-                fd.append("billable_to_client", newBillable ? "true" : "false");
+                fd.append("billable_to_client", billableToClient ? "true" : "false");
                 addFetcher.submit(fd, { method: "post" });
               }}
               disabled={addFetcher.state !== "idle" || !newAmount || !newLabel}
@@ -578,10 +590,9 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
             <button
               onClick={() => {
                 setShowAddForm(false);
-                setNewType("expense");
-                setNewLabel("Transport");
+                setNewMode("charge");
+                setNewLabel("Artist Fee");
                 setNewAmount("");
-                setNewBillable(true);
               }}
               style={{
                 padding: "10px 18px",
