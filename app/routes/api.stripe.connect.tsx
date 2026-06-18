@@ -65,11 +65,13 @@ export async function action({ request }: Route.ActionArgs) {
   const isJson = contentType.includes("application/json");
   const isBeta = Boolean(profile.is_beta);
 
-  // Native/JSON callers send no form data — default to live mode + payments return.
+  // Native (sqrz-ios) callers send JSON. Read `mode` from the body and run it through the
+  // same is_beta gate as the browser flow — a non-beta caller can never reach test mode.
   let mode: StripeMode;
   let returnTo: string;
   if (isJson) {
-    mode = "live";
+    const body = (await request.json().catch(() => ({}))) as { mode?: string | null };
+    mode = resolveStripeMode(body.mode ?? url.searchParams.get("mode"), isBeta);
     returnTo = "payments";
   } else {
     const formData = await request.formData();
