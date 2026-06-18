@@ -45,7 +45,7 @@ export async function action({ request }: { request: Request }) {
     .single();
 
   const planId: number | null = (ownerProfile?.plan_id as number | null) ?? null;
-  const planFeePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+  const planFeePct: number = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
   const feePct = resolveLockedSqrzFeePct({
     requiresPayment: proposal.requires_payment,
     proposalFeePct: (proposal as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,

@@ -459,7 +459,7 @@ export async function action({ request }: ActionFunctionArgs) {
             .select("plan_id, plans(booking_fee_pct)")
             .eq("id", bk.owner_id)
             .maybeSingle();
-          feePct = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8;
+          feePct = (ownerProfile?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
         }
 
         // secured_amount = member's rate (net); total_budget = what booker paid (net + tax + fee)

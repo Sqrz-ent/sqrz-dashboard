@@ -153,13 +153,9 @@ export async function action({ request }: ActionFunctionArgs) {
   if (include_proposal && rate) {
     const emailNet = parseFloat(String(rate));
     const emailTaxPct = tax_pct ? parseFloat(String(tax_pct)) : 0;
-    const emailFeePct = resolveLockedSqrzFeePct({
-      requiresPayment: requires_payment ?? false,
-      fallbackFeePct,
-    });
     const emailTaxAmt = emailTaxPct > 0 ? Math.round(emailNet * emailTaxPct / 100 * 100) / 100 : 0;
-    const emailFeeAmt = Math.round(emailNet * emailFeePct / 100 * 100) / 100;
-    const emailTotal = Math.round((emailNet + emailTaxAmt + emailFeeAmt) * 100) / 100;
+    // SQRZ fee removed — total = net + tax.
+    const emailTotal = Math.round((emailNet + emailTaxAmt) * 100) / 100;
     const currStr = (currency ?? "EUR").toUpperCase();
     const row = (label: string, value: string, bold = false, muted = false) =>
       `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #eee;">` +
@@ -171,7 +167,6 @@ export async function action({ request }: ActionFunctionArgs) {
       <div style="margin-bottom:16px;">
         ${row("Rate (net)", `${currStr} ${emailNet.toLocaleString()}`)}
         ${emailTaxAmt > 0 ? row(`Tax (${emailTaxPct}%)`, `+${currStr} ${emailTaxAmt.toLocaleString()}`, false, true) : ""}
-        ${emailFeeAmt > 0 ? row(`SQRZ fee (${emailFeePct}% of net)`, `+${currStr} ${emailFeeAmt.toLocaleString()}`, false, true) : ""}
         <div style="display:flex;justify-content:space-between;padding:7px 0;">
           <span style="font-size:14px;color:#0a0a0a;font-weight:700;">You pay</span>
           <span style="font-size:14px;color:#0a0a0a;font-weight:700;">${currStr} ${emailTotal.toLocaleString()}</span>
