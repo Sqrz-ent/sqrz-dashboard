@@ -95,8 +95,8 @@ export async function action({ request }: Route.ActionArgs) {
 
   // Recalc wallet totals (exact same logic as add_wallet_allocation in booking.$id.tsx).
   // base_rate is frozen at creation; secured_amount = base_rate + sum of income
-  // allocations. tax/fee track secured_amount. (billable expense → V2; crew/promo → no
-  // effect on totals.)
+  // allocations. tax tracks secured_amount. (billable expense → V2; crew/promo → no
+  // effect on totals.) SQRZ fee removed — total = secured + tax only.
   const { data: incomeRows } = await admin
     .from("wallet_allocations")
     .select("amount")
@@ -111,12 +111,10 @@ export async function action({ request }: Route.ActionArgs) {
 
   const baseRate = Number(wallet.base_rate ?? 0);
   const taxPct   = Number(wallet.tax_pct ?? 0);
-  const feePct   = Number(wallet.sqrz_fee_pct ?? 0);
 
   const newSecured = roundCurrency(baseRate + incomeTotal);
   const newTax     = roundCurrency(newSecured * taxPct / 100);
-  const newFee     = roundCurrency(newSecured * feePct / 100);
-  const newTotal   = roundCurrency(newSecured + newTax + newFee);
+  const newTotal   = roundCurrency(newSecured + newTax);
 
   await admin
     .from("booking_wallets")

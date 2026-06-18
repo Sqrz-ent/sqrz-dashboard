@@ -163,15 +163,12 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
 
   const hasTypedAllocations = allocations.some((a) => !!a.allocation_type);
 
-  const feePct    = wallet.sqrz_fee_pct ?? 0;
   const taxPctVal = wallet.tax_pct ?? 0;
-  // net = member's rate (before tax/fees); SQRZ fee on net only
+  // net = member's rate (before tax). No SQRZ fee.
   const memberRate      = wallet.secured_amount ?? 0;
   const taxAmt          = wallet.tax_amount ?? (taxPctVal > 0 ? Math.round(memberRate * taxPctVal / 100 * 100) / 100 : 0);
-  const sqrzFee         = Math.round(memberRate * (feePct / 100) * 100) / 100;
-  const bookerPays      = wallet.total_budget ?? Math.round((memberRate + taxAmt + sqrzFee) * 100) / 100;
+  const bookerPays      = wallet.total_budget ?? Math.round((memberRate + taxAmt) * 100) / 100;
   const hasTax          = taxPctVal > 0 || taxAmt > 0;
-  // SQRZ fee is charged on top to the booker, so seller gross remains net + tax.
   const youReceiveGross = Math.round((memberRate + taxAmt) * 100) / 100;
   const yourNetIncome   = memberRate;
 
@@ -415,17 +412,6 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
             </p>
           </div>
         )}
-
-        {/* SQRZ fee — on net only */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-            SQRZ fee{" "}
-            <span style={{ fontSize: 11, opacity: 0.65 }}>({feePct}% of net · paid by booker)</span>
-          </p>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
-            +{s}{fmt(sqrzFee)}
-          </p>
-        </div>
 
         {/* Booker paid total */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0 2px" }}>

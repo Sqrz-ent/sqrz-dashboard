@@ -22,15 +22,14 @@ export function normalizeProposalLineItems(raw: unknown): ProposalBreakdownLineI
     .filter((item): item is ProposalBreakdownLineItem => item !== null);
 }
 
-export function resolveLockedSqrzFeePct(input: {
+export function resolveLockedSqrzFeePct(_input: {
   requiresPayment: boolean | null | undefined;
   proposalFeePct?: number | null;
   fallbackFeePct?: number | null;
 }): number {
-  if (!input.requiresPayment) return 0;
-  const pct = input.proposalFeePct ?? input.fallbackFeePct ?? 0;
-  const normalized = Number(pct);
-  return Number.isFinite(normalized) && normalized > 0 ? normalized : 0;
+  // SQRZ fee has been removed from the product — always 0. The function is kept
+  // (called in many places) and the DB columns remain, but no fee is ever charged.
+  return 0;
 }
 
 export function reconcileInvoiceLineItems(input: {

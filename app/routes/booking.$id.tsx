@@ -201,7 +201,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
     ]);
     const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
-    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
+    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0);
     const memberInfo: MemberInfo = ownerPlan ? {
       name: (ownerPlan.brand_name as string | null) ?? (ownerPlan.name as string | null) ?? null,
       company_name: (ownerPlan.company_name as string | null) ?? null,
@@ -377,7 +377,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .maybeSingle(),
     ]);
     const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
-    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
+    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0);
     const memberInfoToken: MemberInfo = ownerPlan ? {
       name: (ownerPlan.brand_name as string | null) ?? (ownerPlan.name as string | null) ?? null,
       company_name: (ownerPlan.company_name as string | null) ?? null,
@@ -518,7 +518,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         .eq("id", ownerId)
         .maybeSingle();
       const ownerPlanIdSess = (ownerPlanSess?.plan_id as number | null) ?? null;
-      sessionProposalFeePct = ownerPlanIdSess === null ? 0 : ((ownerPlanSess?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 8);
+      sessionProposalFeePct = ownerPlanIdSess === null ? 0 : ((ownerPlanSess?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0);
       sessionMemberEmail = (ownerPlanSess?.email as string | null) ?? null;
       sessionMemberInfo = ownerPlanSess ? {
         name: (ownerPlanSess.brand_name as string | null) ?? (ownerPlanSess.name as string | null) ?? null,
@@ -1002,11 +1002,12 @@ export async function action({ request, params }: Route.ActionArgs) {
     });
 
     // Recompute wallet totals. base_rate is frozen at creation; secured_amount =
-    // base_rate + sum of income allocations. tax/fee track secured_amount.
+    // base_rate + sum of income allocations. tax tracks secured_amount.
     // (billable expense → V2; crew/promo → no effect on totals.)
+    // SQRZ fee removed — total = secured + tax only.
     const { data: w } = await admin
       .from("booking_wallets")
-      .select("base_rate, tax_pct, sqrz_fee_pct")
+      .select("base_rate, tax_pct")
       .eq("id", walletId)
       .maybeSingle();
 
@@ -1025,12 +1026,10 @@ export async function action({ request, params }: Route.ActionArgs) {
 
       const baseRate = Number(w.base_rate ?? 0);
       const taxPct   = Number(w.tax_pct ?? 0);
-      const feePct   = Number(w.sqrz_fee_pct ?? 0);
 
       const newSecured = roundCurrency(baseRate + incomeTotal);
       const newTax     = roundCurrency(newSecured * taxPct / 100);
-      const newFee     = roundCurrency(newSecured * feePct / 100);
-      const newTotal   = roundCurrency(newSecured + newTax + newFee);
+      const newTotal   = roundCurrency(newSecured + newTax);
 
       await admin
         .from("booking_wallets")
@@ -1452,14 +1451,7 @@ function ProposalSection({
                 const net = p.rate ?? 0;
                 const tPct = p.tax_pct ?? 0;
                 const tAmt = tPct > 0 ? Math.round(net * tPct / 100 * 100) / 100 : 0;
-                const feePct2 = resolveLockedSqrzFeePct({
-                  requiresPayment: p.requires_payment,
-                  proposalFeePct: p.sqrz_fee_pct,
-                  fallbackFeePct: proposalFeePct ?? 0,
-                });
-                const feeAmt2 = Math.round(net * feePct2 / 100 * 100) / 100;
-                const bookerPays2 = Math.round((net + tAmt + feeAmt2) * 100) / 100;
-                // Member receives net + tax; SQRZ fee is added on top for the booker
+                const bookerPays2 = Math.round((net + tAmt) * 100) / 100;
                 const youReceiveGross2 = Math.round((net + tAmt) * 100) / 100;
                 const yourNetIncome2 = net;
                 const symP = currencySym(p.currency);
@@ -1478,10 +1470,6 @@ function ProposalSection({
                           <span style={{ fontSize: 13, color: "var(--text-muted)" }}>+{symP}{tAmt.toLocaleString()}</span>
                         </div>
                       )}
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>SQRZ fee ({feePct2}% of net)</span>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>+{symP}{feeAmt2.toLocaleString()}</span>
-                      </div>
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{symP}{bookerPays2.toLocaleString()}</span>
@@ -1784,10 +1772,7 @@ function ProposalSection({
                   const taxRate = taxEnabled ? (parseFloat(taxPct) || 0) : 0;
                   const taxAmt = Math.round(net * taxRate / 100 * 100) / 100;
                   const symLive = currencySym(form.currency);
-                  const feePct = proposalFeePct ?? 0;
-                  const feeAmt = canUseStripe ? Math.round(net * feePct / 100 * 100) / 100 : 0;
-                  const bookerPays = Math.round((net + taxAmt + feeAmt) * 100) / 100;
-                  // Member receives net + tax; SQRZ fee is added on top for the booker
+                  const bookerPays = Math.round((net + taxAmt) * 100) / 100;
                   const youReceiveGross = Math.round((net + taxAmt) * 100) / 100;
                   const yourNetIncome = net;
                   return (
@@ -1802,12 +1787,6 @@ function ProposalSection({
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Tax ({taxRate}%)</span>
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{taxAmt.toLocaleString()}</span>
-                          </div>
-                        )}
-                        {canUseStripe && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>SQRZ fee ({proposalFeePct ?? 0}% of net)</span>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{feeAmt.toLocaleString()}</span>
                           </div>
                         )}
                         {form.requires_payment && canUseStripe && (
@@ -2533,14 +2512,11 @@ function GuestBuyerProposalCard({
     proposal.require_food && "Catering",
   ].filter(Boolean) as string[];
 
-  // Fee: prefer wallet-locked pct (post-payment), then plan pct (pre-payment)
-  const feePct: number | null = walletFeePct ?? proposal?.sqrz_fee_pct ?? proposalFeePct ?? null;
   const net = proposal.rate ?? 0;
   const taxRate = proposal.tax_pct ?? 0;
   const taxAmt = taxRate > 0 ? Math.round(net * taxRate / 100 * 100) / 100 : 0;
-  // SQRZ fee is calculated on NET only (before tax)
-  const sqrzFee = feePct != null ? Math.round(net * (feePct / 100) * 100) / 100 : null;
-  const totalCharged = sqrzFee != null ? Math.round((net + taxAmt + sqrzFee) * 100) / 100 : null;
+  // SQRZ fee removed — total = net + tax.
+  const totalCharged = Math.round((net + taxAmt) * 100) / 100;
 
   const proposalLineItems = proposal.line_items ?? [];
   const hasBreakdown = proposalLineItems.length > 0;
@@ -2665,13 +2641,6 @@ function GuestBuyerProposalCard({
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
                 <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Tax ({taxRate}%)</span>
                 <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{taxAmt.toLocaleString()}</span>
-              </div>
-            )}
-
-            {proposal.requires_payment && feePct != null && feePct > 0 && sqrzFee != null && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>SQRZ fee ({feePct}% of net)</span>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{sqrzFee.toLocaleString()}</span>
               </div>
             )}
 

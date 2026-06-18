@@ -326,10 +326,6 @@ export default function PaymentsPage() {
     .filter(w => !w.client_paid)
     .reduce((s, w) => s + (w.secured_amount ?? 0), 0);
 
-  const sqrzFeesPaid = walletRows
-    .filter(w => w.client_paid)
-    .reduce((s, w) => s + ((w.total_budget ?? 0) - (w.secured_amount ?? 0)), 0);
-
   // Default currency from most recent wallet with a value
   const defaultCurrency = walletRows.find(w => w.currency)?.currency ?? "EUR";
 
@@ -360,7 +356,6 @@ export default function PaymentsPage() {
           <MetricCard label="Total Earned" value={fmt(totalEarned, defaultCurrency)} accent />
           <MetricCard label="Pending Payout" value={fmt(pendingPayout, defaultCurrency)} />
           <MetricCard label="Awaiting Payment" value={fmt(awaitingPayment, defaultCurrency)} muted />
-          <MetricCard label="SQRZ Fees Paid" value={fmt(sqrzFeesPaid, defaultCurrency)} muted />
         </div>
       )}
 

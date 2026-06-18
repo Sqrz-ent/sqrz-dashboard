@@ -2,7 +2,6 @@ import { createSupabaseServerClient, createSupabaseAdminClient, createSupabaseBe
 import { getCurrentProfile } from "~/lib/profile.server";
 import {
   reconcileInvoiceLineItems,
-  resolveLockedSqrzFeePct,
   roundCurrency,
 } from "~/lib/proposal-pricing";
 
@@ -225,7 +224,6 @@ export async function action({ request }: { request: Request }) {
   let netAmount: number;
   let taxPct: number;
   let taxAmt: number;
-  let sqrzFeeAmount: number;
   let gross: number;
   let invoiceLineItems: Array<Record<string, unknown>>;
 
@@ -251,12 +249,11 @@ export async function action({ request }: { request: Request }) {
     netAmount = Number(w.secured_amount ?? 0);
     taxPct = Number(w.tax_pct ?? 0);
     taxAmt = Number(w.tax_amount ?? 0);
-    const feePct = Number(w.sqrz_fee_pct ?? 0);
-    sqrzFeeAmount = roundCurrency(netAmount * (feePct / 100));
+    // SQRZ fee removed — gross = net + tax.
     gross =
       w.total_budget != null
         ? Number(w.total_budget)
-        : roundCurrency(netAmount + taxAmt + sqrzFeeAmount);
+        : roundCurrency(netAmount + taxAmt);
 
     const invoiceMode = (w.invoice_mode as string | null) ?? "consolidated";
     if (invoiceMode === "itemized") {
@@ -278,18 +275,13 @@ export async function action({ request }: { request: Request }) {
       });
     }
   } else {
-    // Fallback — proposal-based (existing logic, unchanged).
+    // Fallback — proposal-based. SQRZ fee removed — gross = net + tax.
     const p = proposal as NonNullable<typeof proposal>;
-    const lockedFeePct = resolveLockedSqrzFeePct({
-      requiresPayment: (p as { requires_payment?: boolean | null }).requires_payment,
-      proposalFeePct: (p as { sqrz_fee_pct?: number | null }).sqrz_fee_pct,
-    });
     currency = ((p.currency as string | null) ?? "EUR").toUpperCase();
     netAmount = Number(p.rate);
     taxPct = (p.tax_pct as number | null) ?? 0;
     taxAmt = Number((p as { tax_amount?: number | null }).tax_amount ?? 0);
-    sqrzFeeAmount = roundCurrency(Number(p.rate) * (lockedFeePct / 100));
-    gross = roundCurrency(Number(p.rate) + taxAmt + sqrzFeeAmount);
+    gross = roundCurrency(Number(p.rate) + taxAmt);
     invoiceLineItems = reconcileInvoiceLineItems({
       netAmount: p.rate,
       rawLineItems: p.line_items,
@@ -334,7 +326,6 @@ export async function action({ request }: { request: Request }) {
       net_amount: netAmount,
       tax_pct: taxPct,
       tax_amount: taxAmt,
-      sqrz_fee_amount: sqrzFeeAmount,
       gross_amount: gross,
       line_items: invoiceLineItems,
       notes: notes || null,
