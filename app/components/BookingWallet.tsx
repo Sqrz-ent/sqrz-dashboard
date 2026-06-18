@@ -38,6 +38,8 @@ interface Props {
   bookingStatus: string;
   stripeConnectId?: string | null;
   requiresPayment?: boolean | null;
+  hasInvoice?: boolean;
+  stripeExpressUrl?: string | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -116,7 +118,7 @@ function TypeBadge({ type }: { type: string }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, requiresPayment }: Props) {
+export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, requiresPayment, hasInvoice, stripeExpressUrl }: Props) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newType,   setNewType]   = useState<string>("expense");
   const [newLabel,  setNewLabel]  = useState("Transport");
@@ -126,6 +128,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
   const addFetcher       = useFetcher<{ ok?: boolean }>();
   const payReqFetcher    = useFetcher<{ ok?: boolean; url?: string }>();
   const deliveredFetcher = useFetcher<{ ok?: boolean }>();
+  const payoutFetcher    = useFetcher<{ ok?: boolean; error?: string }>();
 
   useEffect(() => {
     if (addFetcher.state === "idle" && addFetcher.data?.ok) {
@@ -172,6 +175,22 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
   const justDelivered = deliveredFetcher.state === "idle" && deliveredFetcher.data?.ok === true;
   const isConfirmedBooking = bookingStatus === "confirmed";
   const isManagedPayment = requiresPayment === true;
+
+  // Payout state machine. Optimistically advance 'approved' → 'release_requested'
+  // while the request is in flight or after it succeeds.
+  const rawPayoutStatus = wallet.payout_status ?? "pending";
+  const payoutOptimisticallyRequested =
+    rawPayoutStatus === "approved" &&
+    (payoutFetcher.state !== "idle" || payoutFetcher.data?.ok === true);
+  const payoutStatus = payoutOptimisticallyRequested ? "release_requested" : rawPayoutStatus;
+  const payoutSubmitting = payoutFetcher.state !== "idle";
+
+  function requestPayout() {
+    payoutFetcher.submit(
+      { booking_id: wallet.booking_id },
+      { method: "post", action: "/api/payout", encType: "application/json" },
+    );
+  }
 
   function markAsPaid() {
     const fd = new FormData();
@@ -619,8 +638,8 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
           )}
         </div>
 
-        {/* Payout row */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        {/* Payout row — state machine driven by payout_status */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
           <div>
             <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 5px" }}>
               Payout
@@ -631,18 +650,36 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
               borderRadius: 20,
               fontSize: 11,
               fontWeight: 700,
-              background: wallet.payout_status === "released" ? "rgba(74,222,128,0.12)" : "var(--surface-muted)",
-              color: wallet.payout_status === "released" ? "#4ade80" : "var(--text-muted)",
-              textTransform: "capitalize",
+              background:
+                payoutStatus === "released" ? "rgba(74,222,128,0.12)"
+                : payoutStatus === "release_requested" ? "rgba(245,166,35,0.12)"
+                : "var(--surface-muted)",
+              color:
+                payoutStatus === "released" ? "#4ade80"
+                : payoutStatus === "release_requested" ? ACCENT
+                : "var(--text-muted)",
             }}>
-              {wallet.payout_status === "released" ? "Released ✓" : (wallet.payout_status ?? "Not initiated")}
+              {payoutStatus === "released" ? "Paid out ✓"
+                : payoutStatus === "release_requested" ? "Requested — processing"
+                : payoutStatus === "approved"
+                  ? (hasInvoice ? "Ready to release" : "Ready — invoice required")
+                  : "Pending delivery"}
             </span>
+            {payoutStatus === "release_requested" && (
+              <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "6px 0 0" }}>
+                We'll process your payout within 1-2 business days
+              </p>
+            )}
+            {payoutStatus === "approved" && !hasInvoice && (
+              <p style={{ color: ACCENT, fontSize: 11, margin: "6px 0 0" }}>
+                Generate your invoice to unlock your payout
+              </p>
+            )}
           </div>
-          {isManagedPayment && isDelivered && stripeConnectId ? (
+
+          {payoutStatus === "approved" && !hasInvoice ? (
             <a
-              href="https://express.stripe.com"
-              target="_blank"
-              rel="noopener noreferrer"
+              href="#invoice"
               style={{
                 padding: "9px 18px",
                 background: ACCENT,
@@ -656,15 +693,37 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
                 whiteSpace: "nowrap",
               }}
             >
-              Stripe dashboard →
+              Generate Invoice
             </a>
-          ) : isManagedPayment && isDelivered && !stripeConnectId ? (
+          ) : payoutStatus === "approved" && hasInvoice ? (
+            <button
+              onClick={requestPayout}
+              disabled={payoutSubmitting}
+              style={{
+                padding: "9px 18px",
+                background: ACCENT,
+                color: "#111",
+                border: "none",
+                borderRadius: 9,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: payoutSubmitting ? "default" : "pointer",
+                opacity: payoutSubmitting ? 0.7 : 1,
+                fontFamily: FONT_BODY,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {payoutSubmitting ? "Requesting…" : "Request Payout →"}
+            </button>
+          ) : payoutStatus === "released" ? (
             <a
-              href="/payments"
+              href={stripeExpressUrl ?? "https://express.stripe.com"}
+              target="_blank"
+              rel="noopener noreferrer"
               style={{
                 padding: "9px 18px",
                 background: "var(--surface-muted)",
-                color: "var(--text-muted)",
+                color: "var(--text)",
                 border: "1px solid var(--border)",
                 borderRadius: 9,
                 fontSize: 12,
@@ -674,16 +733,15 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
                 whiteSpace: "nowrap",
               }}
             >
-              Connect bank →
+              View in Stripe →
             </a>
-          ) : isPaid && !isDelivered ? (
-            <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>
-              {isManagedPayment
-                ? "Mark as Delivered to release funds"
-                : "Manual payment confirmed"}
-            </span>
           ) : null}
         </div>
+        {payoutFetcher.data?.error && (
+          <p style={{ color: "#f87171", fontSize: 11, margin: "8px 0 0" }}>
+            {payoutFetcher.data.error}
+          </p>
+        )}
 
         {/* Mark as Delivered */}
         {isConfirmedBooking && isPaid && !isDelivered && (

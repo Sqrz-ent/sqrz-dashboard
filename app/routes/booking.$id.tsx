@@ -3864,6 +3864,7 @@ function MemberView({
             bookingStatus={b.status as string}
             stripeConnectId={stripeConnectId}
             requiresPayment={proposal?.requires_payment ?? null}
+            hasInvoice={!!invoice && invoice.status !== "void"}
           />
         )}
 
