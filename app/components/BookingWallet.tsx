@@ -123,6 +123,9 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
   const [newType,   setNewType]   = useState<string>("expense");
   const [newLabel,  setNewLabel]  = useState("Transport");
   const [newAmount, setNewAmount] = useState("");
+  // Billable to client — only meaningful for expense lines. Defaults to true for
+  // expense, false for everything else.
+  const [newBillable, setNewBillable] = useState(true);
 
   const paidFetcher      = useFetcher<{ ok?: boolean }>();
   const addFetcher       = useFetcher<{ ok?: boolean }>();
@@ -136,12 +139,15 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
       setNewType("expense");
       setNewLabel("Transport");
       setNewAmount("");
+      setNewBillable(true);
     }
   }, [addFetcher.state, addFetcher.data]);
 
-  // When type changes, reset label to first suggestion
+  // When type changes, reset label to first suggestion and the billable default
+  // (checked for expense, unchecked for crew/promo).
   useEffect(() => {
     setNewLabel(LABEL_SUGGESTIONS[newType]?.[0] ?? "");
+    setNewBillable(newType === "expense");
   }, [newType]);
 
   const allocations = wallet.allocations ?? [];
@@ -529,6 +535,16 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
               />
             </div>
           </div>
+          {newType === "expense" && (
+            <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={newBillable}
+                onChange={(e) => setNewBillable(e.target.checked)}
+              />
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Billable to client</span>
+            </label>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <button
               onClick={() => {
@@ -539,6 +555,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
                 fd.append("label", newLabel);
                 fd.append("amount", newAmount);
                 fd.append("currency", wallet.currency ?? "EUR");
+                fd.append("billable_to_client", newBillable ? "true" : "false");
                 addFetcher.submit(fd, { method: "post" });
               }}
               disabled={addFetcher.state !== "idle" || !newAmount || !newLabel}
@@ -564,6 +581,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
                 setNewType("expense");
                 setNewLabel("Transport");
                 setNewAmount("");
+                setNewBillable(true);
               }}
               style={{
                 padding: "10px 18px",

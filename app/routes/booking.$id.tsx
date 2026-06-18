@@ -988,6 +988,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const allocLabel     = formData.get("label") as string;
     const allocAmount    = parseFloat(formData.get("amount") as string) || 0;
     const currency       = formData.get("currency") as string;
+    const billableToClient = formData.get("billable_to_client") === "true";
     const admin = createSupabaseAdminClient();
     await admin.from("wallet_allocations").insert({
       wallet_id: walletId,
@@ -997,7 +998,50 @@ export async function action({ request, params }: Route.ActionArgs) {
       amount: allocAmount,
       currency,
       status: "pending",
+      billable_to_client: billableToClient,
     });
+
+    // Recompute wallet totals. base_rate is frozen at creation; secured_amount =
+    // base_rate + sum of income allocations. tax/fee track secured_amount.
+    // (billable expense → V2; crew/promo → no effect on totals.)
+    const { data: w } = await admin
+      .from("booking_wallets")
+      .select("base_rate, tax_pct, sqrz_fee_pct")
+      .eq("id", walletId)
+      .maybeSingle();
+
+    if (w) {
+      const { data: incomeRows } = await admin
+        .from("wallet_allocations")
+        .select("amount")
+        .eq("wallet_id", walletId)
+        .eq("allocation_type", "income")
+        .neq("status", "void");
+
+      const incomeTotal = (incomeRows ?? []).reduce(
+        (sum, r) => sum + Number(r.amount ?? 0),
+        0
+      );
+
+      const baseRate = Number(w.base_rate ?? 0);
+      const taxPct   = Number(w.tax_pct ?? 0);
+      const feePct   = Number(w.sqrz_fee_pct ?? 0);
+
+      const newSecured = roundCurrency(baseRate + incomeTotal);
+      const newTax     = roundCurrency(newSecured * taxPct / 100);
+      const newFee     = roundCurrency(newSecured * feePct / 100);
+      const newTotal   = roundCurrency(newSecured + newTax + newFee);
+
+      await admin
+        .from("booking_wallets")
+        .update({
+          secured_amount: newSecured,
+          tax_amount: newTax,
+          total_budget: newTotal,
+        })
+        .eq("id", walletId);
+    }
+
     return Response.json({ ok: true }, { headers });
   }
 
