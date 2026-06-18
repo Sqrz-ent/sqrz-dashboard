@@ -93,8 +93,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       subscriptionData,
       creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
       creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
-      earlyAccessCouponId: process.env.STRIPE_EARLY_ACCESS_COUPON_ID ?? "",
-      isClaimed: !!(profile?.is_claimed as boolean | null),
       isPartner: !!(profile?.is_partner as boolean | null),
       partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
       partnerInvitedAt: (profile?.partner_invited_at as string | null) ?? null,
@@ -125,7 +123,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, services, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, earlyAccessCouponId, isClaimed, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, services, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -615,10 +613,7 @@ export default function AppLayout() {
           upgradeContext={upgradeContext}
           monthlyPriceId={creatorMonthlyPriceId}
           yearlyPriceId={creatorYearlyPriceId}
-          earlyAccessCouponId={earlyAccessCouponId}
           referredByCode={p?.referred_by_code as string | null ?? null}
-          isClaimed={isClaimed}
-          isPartner={isPartner}
         />
       )}
 

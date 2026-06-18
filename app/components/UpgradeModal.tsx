@@ -10,9 +10,6 @@ interface UpgradeModalProps {
   monthlyPriceId: string;
   yearlyPriceId: string;
   referredByCode: string | null;
-  earlyAccessCouponId: string;
-  isClaimed: boolean;
-  isPartner: boolean;
 }
 
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
@@ -63,9 +60,6 @@ export default function UpgradeModal({
   monthlyPriceId,
   yearlyPriceId,
   referredByCode,
-  earlyAccessCouponId,
-  isClaimed,
-  isPartner,
 }: UpgradeModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<UpgradeView>(contextToView(upgradeContext));
@@ -272,9 +266,6 @@ export default function UpgradeModal({
               )}
               <Form method="post" action="/api/stripe/checkout">
                 <input type="hidden" name="price_id" value={yearlyPriceId} />
-                {(isClaimed || isPartner) && earlyAccessCouponId && (
-                  <input type="hidden" name="coupon_id" value={earlyAccessCouponId} />
-                )}
                 <button type="submit" style={submitBtn}>Select</button>
               </Form>
             </div>

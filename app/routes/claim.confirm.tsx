@@ -12,7 +12,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const { supabase, headers } = createSupabaseServerClient(request);
 
-  // Must be authenticated (magic link was just clicked)
+  // Must be authenticated (OTP was just verified)
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return redirect("/login", { headers });

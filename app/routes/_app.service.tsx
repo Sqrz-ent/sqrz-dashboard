@@ -1415,6 +1415,10 @@ export default function ServicePage() {
         </businessFetcher.Form>
       </div>
 
+      {/* E-invoice toggle UI hidden — invoice generation is now upload-only.
+          DB columns (e_invoice_enabled, e_invoice_unlocked_at) and the backend
+          intent (toggle_e_invoice_enabled) + activation route are kept. */}
+      {false && (
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Invoicing</h2>
 
@@ -1588,6 +1592,7 @@ export default function ServicePage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* ── CREDENTIALS (beta only) ──────────────────────────────────────── */}
       {!!(profile.is_beta as boolean | null) && (

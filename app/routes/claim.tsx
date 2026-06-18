@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/claim";
 import { supabase } from "~/lib/supabase.client";
 
@@ -15,9 +15,12 @@ const ACCENT = "#F5A623";
 
 export default function ClaimPage() {
   const { token, slug } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,16 +30,9 @@ export default function ClaimPage() {
     setError(null);
     setLoading(true);
 
-    // Encode claim_token and slug into the post-auth redirect path
-    const next = encodeURIComponent(
-      `/claim/confirm?claim_token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`
-    );
-    const emailRedirectTo = `https://dashboard.sqrz.com/auth/callback?next=${next}`;
-
     const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email: email.trim().toLowerCase(),
       options: {
-        emailRedirectTo,
         data: { claim_token: token },
       },
     });
@@ -45,8 +41,35 @@ export default function ClaimPage() {
     if (otpError) {
       setError("Something went wrong. Please try again.");
     } else {
+      setEmail(email.trim().toLowerCase());
+      setCode("");
       setSent(true);
     }
+  }
+
+  async function verifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (code.length !== 6 || verifying) return;
+
+    setError(null);
+    setVerifying(true);
+
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email,
+      token: code,
+      type: "email",
+    });
+
+    if (verifyError) {
+      setError("Invalid or expired code");
+      setVerifying(false);
+      return;
+    }
+
+    navigate(
+      `/claim/confirm?claim_token=${encodeURIComponent(token)}&slug=${encodeURIComponent(slug)}`,
+      { replace: true }
+    );
   }
 
   return (
@@ -83,12 +106,62 @@ export default function ClaimPage() {
           <>
             <div style={{ fontSize: 40, marginBottom: 16 }}>📬</div>
             <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 10px" }}>
-              Check your email
+              Enter your code
             </h2>
-            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", margin: 0, lineHeight: 1.6 }}>
-              We sent a magic link to <strong style={{ color: "rgba(255,255,255,0.8)" }}>{email}</strong>.
-              Click it to claim your profile.
+            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", margin: "0 0 24px", lineHeight: 1.6 }}>
+              We sent a 6-digit code to <strong style={{ color: "rgba(255,255,255,0.8)" }}>{email}</strong>.
             </p>
+            <form onSubmit={verifyCode}>
+              <input
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]*"
+                maxLength={6}
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                required
+                style={{
+                  width: "100%",
+                  padding: "14px 16px",
+                  background: "#111",
+                  border: "1px solid rgba(245,166,35,0.3)",
+                  borderRadius: 12,
+                  fontSize: 20,
+                  letterSpacing: "0.12em",
+                  textAlign: "center",
+                  color: "#fff",
+                  outline: "none",
+                  marginBottom: 14,
+                  boxSizing: "border-box",
+                  fontFamily: FONT,
+                }}
+              />
+
+              {error && (
+                <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>{error}</p>
+              )}
+
+              <button
+                type="submit"
+                disabled={verifying || code.length !== 6}
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  background: ACCENT,
+                  color: "#111",
+                  border: "none",
+                  borderRadius: 12,
+                  fontSize: 16,
+                  fontWeight: 700,
+                  cursor: verifying || code.length !== 6 ? "not-allowed" : "pointer",
+                  opacity: verifying || code.length !== 6 ? 0.7 : 1,
+                  fontFamily: FONT,
+                }}
+              >
+                {verifying ? "Verifying…" : "Claim profile"}
+              </button>
+            </form>
           </>
         ) : (
           <>
@@ -101,7 +174,7 @@ export default function ClaimPage() {
               </p>
             )}
             <p style={{ fontSize: 14, color: "rgba(255,255,255,0.55)", margin: "0 0 28px", lineHeight: 1.6 }}>
-              Enter your email to receive a magic link and take full control of your profile.
+              Enter your email to receive a 6-digit code and take full control of your profile.
             </p>
 
             <form onSubmit={handleSubmit}>
@@ -147,7 +220,7 @@ export default function ClaimPage() {
                   fontFamily: FONT,
                 }}
               >
-                {loading ? "Sending…" : "Send me a magic link"}
+                {loading ? "Sending…" : "Send code"}
               </button>
             </form>
           </>

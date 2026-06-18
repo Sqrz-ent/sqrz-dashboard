@@ -3626,15 +3626,17 @@ function InvoiceSection({
             </p>
           </div>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
-            You can create a new invoice below.
+            You can upload a new invoice below.
           </p>
           <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" as const }}>
+            {/* Invoice generation hidden — upload-only flow. Generation code preserved.
             <button
               onClick={() => setGenerateOpen(true)}
               style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
             >
               Generate Invoice
             </button>
+            */}
             <button
               onClick={() => setUploadOpen(true)}
               style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
@@ -3651,18 +3653,20 @@ function InvoiceSection({
           padding: "20px 22px",
         }}>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 14px", lineHeight: 1.6 }}>
-            No invoice has been created for this booking yet. Generate one from your accepted proposal, or upload your own PDF.
+            No invoice has been uploaded for this booking yet. Upload your own PDF to unlock your payout.
           </p>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+            {/* Invoice generation hidden — upload-only flow. Generation code preserved.
             <button
               onClick={() => setGenerateOpen(true)}
               style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
             >
               Generate Invoice
             </button>
+            */}
             <button
               onClick={() => setUploadOpen(true)}
-              style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
+              style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
             >
               Upload PDF
             </button>
@@ -3670,12 +3674,14 @@ function InvoiceSection({
         </div>
       )}
 
+      {/* Invoice generation hidden — upload-only flow. Component preserved below.
       <GenerateInvoiceSlideOver
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         bookingId={bookingId}
         buyerParticipant={buyerParticipant}
       />
+      */}
       <UploadInvoiceSlideOver
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}

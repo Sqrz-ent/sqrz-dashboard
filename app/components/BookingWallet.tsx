@@ -687,7 +687,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
             )}
             {payoutStatus === "approved" && !hasInvoice && (
               <p style={{ color: ACCENT, fontSize: 11, margin: "6px 0 0" }}>
-                Generate your invoice to unlock your payout
+                Upload your invoice to unlock your payout
               </p>
             )}
           </div>
@@ -708,7 +708,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
                 whiteSpace: "nowrap",
               }}
             >
-              Generate Invoice
+              Upload Invoice
             </a>
           ) : payoutStatus === "approved" && hasInvoice ? (
             <button
