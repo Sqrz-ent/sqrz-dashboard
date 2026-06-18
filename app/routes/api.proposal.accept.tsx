@@ -150,6 +150,7 @@ export async function action({ request }: { request: Request }) {
             owner_profile_id: ownerProfileId,
             total_budget: totalAmountMajor,
             secured_amount: proposal.rate ?? 0,
+            base_rate: proposal.rate ?? 0,
             currency: proposal.currency ?? "EUR",
             stripe_mode: stripeMode,
             sqrz_fee_pct: feePct,
