@@ -1,18 +1,38 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/api.campaigns.checkout";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { stripe } from "~/lib/stripe.server";
 
 const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
 export async function action({ request }: Route.ActionArgs) {
-  const { supabase, headers } = createSupabaseServerClient(request);
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers });
+  // Native callers (sqrz-ios) authenticate with a Bearer access token and expect JSON;
+  // the browser flow authenticates via cookies. Body is JSON in both cases.
+  const authHeader = request.headers.get("Authorization");
+  const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const isNative = bearerToken != null;
+
+  let headers = new Headers();
+  let supabase;
+  let user;
+
+  if (bearerToken) {
+    supabase = createSupabaseBearerClient(bearerToken);
+    ({ data: { user } } = await supabase.auth.getUser(bearerToken));
+    if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  } else {
+    ({ supabase, headers } = createSupabaseServerClient(request));
+    ({ data: { user } } = await supabase.auth.getUser());
+    if (!user) return redirect("/login", { headers });
+  }
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers });
+  if (!profile) {
+    return isNative
+      ? Response.json({ error: "Unauthorized" }, { status: 401 })
+      : redirect("/login", { headers });
+  }
 
   let body: {
     campaign_type?: "boost" | "grow";
