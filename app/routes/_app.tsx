@@ -4,7 +4,6 @@ import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
-import NotificationBell from "~/components/NotificationBell";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
 import PartnerInviteBanner from "~/components/PartnerInviteBanner";
@@ -414,7 +413,6 @@ export default function AppLayout() {
                 Upgrade
               </button>
             )}
-            <NotificationBell />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
@@ -485,9 +483,8 @@ export default function AppLayout() {
             </span>
           </div>
 
-          {/* Right — bell + theme */}
+          {/* Right — theme */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 80, justifyContent: "flex-end" }}>
-            <NotificationBell />
             <button
               onClick={toggleTheme}
               aria-label="Toggle theme"
