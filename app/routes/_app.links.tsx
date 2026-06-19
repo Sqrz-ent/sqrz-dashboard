@@ -117,6 +117,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!profile) return redirect("/login", { headers });
 
   const admin = createSupabaseAdminClient();
+  const nowIso = new Date().toISOString();
 
   const [linksRes, servicesRes, ownerBookingsRes, participantRowsRes] = await Promise.all([
     supabase
@@ -134,6 +135,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id")
       .eq("owner_id", profile.id as string)
       .not("status", "in", "(archived,cancelled)")
+      .gte("date_start", nowIso)
       .order("date_start", { ascending: false, nullsFirst: false }),
     admin
       .from("booking_participants")
@@ -151,7 +153,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   for (const row of participantRowsRes.data ?? []) {
     const booking = row.bookings as unknown as RawEventBooking | null;
     const normalized = normalizeEventBooking(booking);
-    if (normalized && !["archived", "cancelled"].includes(normalized.status)) {
+    if (normalized && isFutureEventBooking(normalized)) {
       eventBookingMap.set(normalized.id, normalized);
     }
   }
@@ -287,6 +289,12 @@ function normalizeEventBooking(booking: RawEventBooking | null | undefined): Eve
   };
 }
 
+function isFutureEventBooking(booking: EventBooking) {
+  if (["archived", "cancelled"].includes(booking.status)) return false;
+  if (!booking.date_start) return false;
+  return new Date(booking.date_start).getTime() > Date.now();
+}
+
 async function getAllowedEventBooking(
   admin: ReturnType<typeof createSupabaseAdminClient>,
   bookingId: string,
@@ -300,7 +308,7 @@ async function getAllowedEventBooking(
     .maybeSingle();
 
   const normalized = normalizeEventBooking(booking as RawEventBooking | null);
-  if (!normalized || ["archived", "cancelled"].includes(normalized.status)) return null;
+  if (!normalized || !isFutureEventBooking(normalized)) return null;
   if ((booking as RawEventBooking | null)?.owner_id === profileId) return normalized;
 
   const { data: participant } = await admin
@@ -758,7 +766,7 @@ function CreateLinkModal({
                 )}
               </>
             ) : (
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No eligible bookings yet — confirmed or active event bookings will appear here.</p>
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No upcoming event bookings yet — future bookings where you are booked will appear here.</p>
             )}
           </div>
         )}
