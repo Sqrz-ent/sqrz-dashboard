@@ -89,6 +89,23 @@ type PrivateLink = {
 
 type ProfileService = { id: string; title: string };
 
+type EventBooking = {
+  id: string;
+  title: string | null;
+  service: string | null;
+  status: string;
+  date_start: string | null;
+  venue: string | null;
+  city: string | null;
+  created_at: string | null;
+};
+
+type RawEventBooking = EventBooking & {
+  owner_id: string;
+  venue_address?: string | null;
+  venue_city?: string | null;
+};
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -99,7 +116,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const [linksRes, servicesRes] = await Promise.all([
+  const admin = createSupabaseAdminClient();
+
+  const [linksRes, servicesRes, ownerBookingsRes, participantRowsRes] = await Promise.all([
     supabase
       .from("private_booking_links")
       .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url")
@@ -110,12 +129,39 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("id, title")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
+    admin
+      .from("bookings")
+      .select("id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id")
+      .eq("owner_id", profile.id as string)
+      .not("status", "in", "(archived,cancelled)")
+      .order("date_start", { ascending: false, nullsFirst: false }),
+    admin
+      .from("booking_participants")
+      .select("booking_id, bookings(id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id)")
+      .eq("user_id", user.id)
+      .neq("role", "buyer"),
   ]);
 
   const rawLinks = linksRes.data ?? [];
+  const eventBookingMap = new Map<string, EventBooking>();
+  for (const booking of ownerBookingsRes.data ?? []) {
+    const normalized = normalizeEventBooking(booking as RawEventBooking);
+    if (normalized) eventBookingMap.set(normalized.id, normalized);
+  }
+  for (const row of participantRowsRes.data ?? []) {
+    const booking = row.bookings as unknown as RawEventBooking | null;
+    const normalized = normalizeEventBooking(booking);
+    if (normalized && !["archived", "cancelled"].includes(normalized.status)) {
+      eventBookingMap.set(normalized.id, normalized);
+    }
+  }
+  const eventBookings = [...eventBookingMap.values()].sort((a, b) => {
+    const aTime = new Date(a.date_start ?? a.created_at ?? 0).getTime();
+    const bTime = new Date(b.date_start ?? b.created_at ?? 0).getTime();
+    return bTime - aTime;
+  });
 
   // Fetch per-link stats from profile_views + jitsu_events
-  const admin = createSupabaseAdminClient();
   const linkIds = rawLinks.map((l) => l.id as string);
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const profileSlug = profile.slug as string;
@@ -221,9 +267,51 @@ export async function loader({ request }: Route.LoaderArgs) {
       profileId: profile.id as string,
       links,
       services: servicesRes.data ?? [],
+      eventBookings,
     },
     { headers }
   );
+}
+
+function normalizeEventBooking(booking: RawEventBooking | null | undefined): EventBooking | null {
+  if (!booking?.id) return null;
+  return {
+    id: booking.id,
+    title: booking.title,
+    service: booking.service,
+    status: booking.status,
+    date_start: booking.date_start,
+    venue: booking.venue ?? booking.venue_address ?? null,
+    city: booking.city ?? booking.venue_city ?? null,
+    created_at: booking.created_at,
+  };
+}
+
+async function getAllowedEventBooking(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  bookingId: string,
+  profileId: string,
+  userId: string
+): Promise<EventBooking | null> {
+  const { data: booking } = await admin
+    .from("bookings")
+    .select("id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id")
+    .eq("id", bookingId)
+    .maybeSingle();
+
+  const normalized = normalizeEventBooking(booking as RawEventBooking | null);
+  if (!normalized || ["archived", "cancelled"].includes(normalized.status)) return null;
+  if ((booking as RawEventBooking | null)?.owner_id === profileId) return normalized;
+
+  const { data: participant } = await admin
+    .from("booking_participants")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .eq("user_id", userId)
+    .neq("role", "buyer")
+    .maybeSingle();
+
+  return participant ? normalized : null;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -244,6 +332,19 @@ export async function action({ request }: Route.ActionArgs) {
     const pageType = (fd.get("page_type") as string) || "download";
     const titleVal = (fd.get("title") as string) || null;
     const coverImageUrl = normalizeImageUrl(fd.get("cover_image_url") as string);
+    const selectedEvent = pageType === "event"
+      ? await getAllowedEventBooking(
+          admin,
+          (fd.get("event_booking_id") as string) || "",
+          profile.id as string,
+          user.id
+        )
+      : null;
+
+    if (pageType === "event" && !selectedEvent) {
+      return Response.json({ ok: false, error: "Please select one of your bookings for this event page." }, { headers });
+    }
+
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
@@ -256,9 +357,9 @@ export async function action({ request }: Route.ActionArgs) {
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
       external_url_label: pageType !== "book" ? defaultExternalUrlLabel(pageType) : null,
-      event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
-      event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
-      event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
+      event_date: pageType === "event" ? (selectedEvent?.date_start ?? null) : null,
+      event_venue: pageType === "event" ? (selectedEvent?.venue ?? null) : null,
+      event_city: pageType === "event" ? (selectedEvent?.city ?? null) : null,
       expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
       video_url: (fd.get("video_url") as string) || null,
@@ -293,6 +394,15 @@ export async function action({ request }: Route.ActionArgs) {
     const pageType = (fd.get("page_type") as string) || "download";
     const titleVal = (fd.get("title") as string) || null;
     const coverImageUrl = normalizeImageUrl(fd.get("cover_image_url") as string);
+    const eventBookingId = (fd.get("event_booking_id") as string) || "";
+    const selectedEvent = pageType === "event" && eventBookingId
+      ? await getAllowedEventBooking(admin, eventBookingId, profile.id as string, user.id)
+      : null;
+
+    if (pageType === "event" && eventBookingId && !selectedEvent) {
+      return Response.json({ ok: false, error: "Please select one of your bookings for this event page." }, { headers });
+    }
+
     const { error } = await admin.from("private_booking_links").update({
       link_slug: fd.get("link_slug") as string,
       page_type: pageType,
@@ -303,9 +413,9 @@ export async function action({ request }: Route.ActionArgs) {
       prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
       external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
       external_url_label: pageType !== "book" ? defaultExternalUrlLabel(pageType) : null,
-      event_date: pageType === "event" ? ((fd.get("event_date") as string) || null) : null,
-      event_venue: pageType === "event" ? ((fd.get("event_venue") as string) || null) : null,
-      event_city: pageType === "event" ? ((fd.get("event_city") as string) || null) : null,
+      event_date: pageType === "event" ? (selectedEvent?.date_start ?? ((fd.get("event_date") as string) || null)) : null,
+      event_venue: pageType === "event" ? (selectedEvent?.venue ?? ((fd.get("event_venue") as string) || null)) : null,
+      event_city: pageType === "event" ? (selectedEvent?.city ?? ((fd.get("event_city") as string) || null)) : null,
       expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
       video_url: (fd.get("video_url") as string) || null,
@@ -355,6 +465,14 @@ function defaultExternalUrlLabel(pageType: string) {
   return pageType === "event" ? "Get Tickets" : "Download";
 }
 
+function formatEventBookingLabel(booking: EventBooking) {
+  const title = booking.title || booking.service || "Untitled event";
+  const date = booking.date_start
+    ? new Date(booking.date_start).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
+    : null;
+  return [title, date, booking.city].filter(Boolean).join(" · ");
+}
+
 function createPendingCoverKey() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -375,6 +493,7 @@ function CreateLinkModal({
   profileId,
   existingSlugs,
   services,
+  eventBookings,
   editingLink,
 }: {
   isOpen: boolean;
@@ -384,6 +503,7 @@ function CreateLinkModal({
   profileId: string;
   existingSlugs: string[];
   services: ProfileService[];
+  eventBookings: EventBooking[];
   editingLink: PrivateLink | null;
 }) {
   const isEditing = !!editingLink;
@@ -398,6 +518,8 @@ function CreateLinkModal({
   const [videoUrl, setVideoUrl] = useState("");
   const [prefillService, setPrefillService] = useState("");
   const [serviceError, setServiceError] = useState<string | null>(null);
+  const [selectedEventBooking, setSelectedEventBooking] = useState("");
+  const [eventError, setEventError] = useState<string | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
   const [eventDate, setEventDate] = useState("");
   const [eventVenue, setEventVenue] = useState("");
@@ -418,12 +540,15 @@ function CreateLinkModal({
       setCoverImageUrl(editingLink.cover_image_url || "");
       setVideoUrl(editingLink.video_url || "");
       setPrefillService(editingLink.prefill_service || "");
+      setSelectedEventBooking("");
       setExternalUrl(editingLink.external_url || "");
       setEventDate(toDatetimeLocal(editingLink.event_date));
       setEventVenue(editingLink.event_venue || "");
       setEventCity(editingLink.event_city || "");
       setLeadGate(editingLink.lead_gate ?? false);
       setSlugError(null);
+      setServiceError(null);
+      setEventError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingLink?.id]);
@@ -448,6 +573,7 @@ function CreateLinkModal({
     setTitle(""); setDescription(""); setCoverImageUrl("");
     setVideoUrl("");
     setPrefillService(""); setServiceError(null);
+    setSelectedEventBooking(""); setEventError(null);
     setExternalUrl("");
     setEventDate(""); setEventVenue(""); setEventCity("");
     setLeadGate(false);
@@ -470,6 +596,10 @@ function CreateLinkModal({
       setServiceError("Please select a service for this booking link.");
       return;
     }
+    if (pageType === "event" && !isEditing && !selectedEventBooking) {
+      setEventError("Please select a booking for this event page.");
+      return;
+    }
     if (coverUploading) return;
     const fd = new FormData();
     if (isEditing) {
@@ -485,6 +615,7 @@ function CreateLinkModal({
     fd.append("cover_image_url", coverImageUrl);
     fd.append("video_url", videoUrl);
     if (pageType === "book") fd.append("prefill_service", prefillService);
+    if (pageType === "event" && selectedEventBooking) fd.append("event_booking_id", selectedEventBooking);
     if (pageType !== "book") {
       fd.append("external_url", externalUrl);
       fd.append("external_url_label", defaultExternalUrlLabel(pageType));
@@ -495,6 +626,20 @@ function CreateLinkModal({
   }
 
   const previewUrl = `${username}.sqrz.com/${slug || "your-slug"}`;
+  const eventFieldsLocked = pageType === "event" && !!selectedEventBooking;
+
+  function handleEventBookingChange(bookingId: string) {
+    setSelectedEventBooking(bookingId);
+    setEventError(null);
+    const booking = eventBookings.find((b) => b.id === bookingId);
+    if (!booking) return;
+
+    const nextTitle = booking.title || booking.service || "Event";
+    setTitle(nextTitle);
+    setEventDate(toDatetimeLocal(booking.date_start));
+    setEventVenue(booking.venue || "");
+    setEventCity(booking.city || "");
+  }
 
   return (
     <Modal isOpen={isOpen} onClose={() => { if (!isEditing) resetForm(); onClose(); }} title={isEditing ? "Edit Link" : "Create Private Link"}>
@@ -513,7 +658,7 @@ function CreateLinkModal({
               <button
                 key={pt.value}
                 type="button"
-                onClick={() => { setPageType(pt.value); setServiceError(null); }}
+                onClick={() => { setPageType(pt.value); setServiceError(null); setEventError(null); }}
                 style={{
                   flex: 1,
                   padding: "8px 10px",
@@ -588,6 +733,36 @@ function CreateLinkModal({
           </div>
         )}
 
+        {/* EVENT — booking selector (required on new links), shown immediately after page type */}
+        {pageType === "event" && (
+          <div>
+            <label style={labelStyle}>
+              Event Booking {!isEditing && <span style={{ color: "#ef4444" }}>*</span>}
+            </label>
+            {eventBookings.length > 0 ? (
+              <>
+                <select
+                  style={{ ...inputStyle, cursor: "pointer", ...(eventError ? { border: "1px solid #ef4444" } : {}) }}
+                  value={selectedEventBooking}
+                  onChange={e => handleEventBookingChange(e.target.value)}
+                >
+                  <option value="">— Select an event —</option>
+                  {eventBookings.map(booking => (
+                    <option key={booking.id} value={booking.id}>
+                      {formatEventBookingLabel(booking)}
+                    </option>
+                  ))}
+                </select>
+                {eventError && (
+                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{eventError}</p>
+                )}
+              </>
+            ) : (
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No eligible bookings yet — confirmed or active event bookings will appear here.</p>
+            )}
+          </div>
+        )}
+
         <div>
           <label style={labelStyle}>Link Slug</label>
           <input
@@ -647,17 +822,35 @@ function CreateLinkModal({
             <div>
               <label style={labelStyle}>Event Date &amp; Time</label>
               <div style={{ width: "100%", boxSizing: "border-box" as const, overflow: "hidden" }}>
-                <input type="datetime-local" style={{ ...inputStyle, minWidth: 0, maxWidth: "100%" }} value={eventDate} onChange={e => setEventDate(e.target.value)} />
+                <input
+                  type="datetime-local"
+                  readOnly={eventFieldsLocked}
+                  style={{ ...inputStyle, minWidth: 0, maxWidth: "100%", ...(eventFieldsLocked ? { opacity: 0.72 } : {}) }}
+                  value={eventDate}
+                  onChange={e => setEventDate(e.target.value)}
+                />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               <div>
                 <label style={labelStyle}>Venue</label>
-                <input style={inputStyle} value={eventVenue} onChange={e => setEventVenue(e.target.value)} placeholder="e.g. Berghain" />
+                <input
+                  style={{ ...inputStyle, ...(eventFieldsLocked ? { opacity: 0.72 } : {}) }}
+                  value={eventVenue}
+                  readOnly={eventFieldsLocked}
+                  onChange={e => setEventVenue(e.target.value)}
+                  placeholder="e.g. Berghain"
+                />
               </div>
               <div>
                 <label style={labelStyle}>City</label>
-                <input style={inputStyle} value={eventCity} onChange={e => setEventCity(e.target.value)} placeholder="e.g. Berlin" />
+                <input
+                  style={{ ...inputStyle, ...(eventFieldsLocked ? { opacity: 0.72 } : {}) }}
+                  value={eventCity}
+                  readOnly={eventFieldsLocked}
+                  onChange={e => setEventCity(e.target.value)}
+                  placeholder="e.g. Berlin"
+                />
               </div>
             </div>
             <div>
@@ -919,7 +1112,7 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, is_beta, grow_qualified, username: usernameRaw, profileId, links, services } = useLoaderData<typeof loader>() as {
+  const { plan_id, is_beta, grow_qualified, username: usernameRaw, profileId, links, services, eventBookings } = useLoaderData<typeof loader>() as {
     plan_id: number | null;
     is_beta: boolean;
     grow_qualified: boolean;
@@ -927,6 +1120,7 @@ export default function LinksPage() {
     profileId: string;
     links: PrivateLink[];
     services: ProfileService[];
+    eventBookings: EventBooking[];
   };
 
   const createFetcher = useFetcher();
@@ -1049,6 +1243,7 @@ export default function LinksPage() {
         profileId={profileId}
         existingSlugs={existingSlugs}
         services={services}
+        eventBookings={eventBookings}
         editingLink={editingLink}
       />
     </div>
