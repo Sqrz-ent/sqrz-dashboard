@@ -3,6 +3,7 @@ import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.crew";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { supabase as browserSupabase } from "~/lib/supabase.client";
 
 const AGENT_PROFILE_ID = "8fc5755f-8e1b-47ce-b971-641860458bd0";
 
@@ -320,6 +321,7 @@ export default function Crew() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createSlug, setCreateSlug] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [slugError, setSlugError] = useState<string | null>(null);
   const createFetcher = useFetcher<{ slug: string; claim_token: string; claim_url: string; error?: string }>();
 
   const isCreating = createFetcher.state !== "idle";
@@ -332,6 +334,7 @@ export default function Crew() {
         setShowCreateModal(false);
         setCreateSlug("");
         setCreateError(null);
+        setSlugError(null);
         setClaimCode({
           name: createFetcher.data.slug,
           slug: createFetcher.data.slug,
@@ -349,8 +352,23 @@ export default function Crew() {
       .replace(/[^a-z0-9-]/g, "");
   }
 
+  // Real-time slug availability check — runs on blur of the slug input.
+  async function checkSlug() {
+    const value = createSlug.trim();
+    if (!value) {
+      setSlugError(null);
+      return;
+    }
+    const { data } = await browserSupabase
+      .from("profiles")
+      .select("id")
+      .eq("slug", value)
+      .maybeSingle();
+    if (data) setSlugError("Slug already taken");
+  }
+
   function handleCreate() {
-    if (!createSlug.trim()) return;
+    if (!createSlug.trim() || slugError) return;
     setCreateError(null);
     createFetcher.submit(
       { slug: createSlug },
@@ -371,7 +389,7 @@ export default function Crew() {
         {isAdmin && (
           <button
             type="button"
-            onClick={() => { setShowCreateModal(true); setCreateError(null); setCreateSlug(""); }}
+            onClick={() => { setShowCreateModal(true); setCreateError(null); setCreateSlug(""); setSlugError(null); }}
             style={{
               background: "#F5A623",
               color: "#111111",
@@ -494,7 +512,8 @@ export default function Crew() {
                 <input
                   type="text"
                   value={createSlug}
-                  onChange={(e) => { setCreateSlug(sanitizeSlugInput(e.target.value)); setCreateError(null); }}
+                  onChange={(e) => { setCreateSlug(sanitizeSlugInput(e.target.value)); setCreateError(null); setSlugError(null); }}
+                  onBlur={checkSlug}
                   onKeyDown={(e) => { if (e.key === "Enter" && createSlug.trim()) handleCreate(); }}
                   placeholder="handle"
                   autoFocus
@@ -517,6 +536,12 @@ export default function Crew() {
               )}
             </div>
 
+            {slugError && (
+              <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12 }}>
+                {slugError}
+              </div>
+            )}
+
             {createError && (
               <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12 }}>
                 {createError}
@@ -527,16 +552,16 @@ export default function Crew() {
               <button
                 type="button"
                 onClick={handleCreate}
-                disabled={!createSlug.trim() || isCreating}
+                disabled={!createSlug.trim() || isCreating || !!slugError}
                 style={{
-                  background: !createSlug.trim() || isCreating ? "rgba(245,166,35,0.4)" : "#F5A623",
+                  background: !createSlug.trim() || isCreating || slugError ? "rgba(245,166,35,0.4)" : "#F5A623",
                   color: "#111111",
                   border: "none",
                   borderRadius: 10,
                   fontSize: 13,
                   fontWeight: 700,
                   padding: "10px 18px",
-                  cursor: !createSlug.trim() || isCreating ? "default" : "pointer",
+                  cursor: !createSlug.trim() || isCreating || slugError ? "default" : "pointer",
                   flex: 1,
                 }}
               >
