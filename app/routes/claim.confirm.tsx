@@ -24,18 +24,30 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const admin = createSupabaseAdminClient();
 
-  // Verify the claim token matches an unclaimed profile
+  // Find the profile by claim token regardless of claimed status, then branch
+  // on what we find.
   const { data: profile } = await admin
     .from("profiles")
-    .select("id, slug, claim_token, is_claimed, user_id")
-    .eq("slug", slug)
+    .select("*")
     .eq("claim_token", claimToken)
-    .eq("is_claimed", false)
     .maybeSingle();
 
   if (!profile) {
     return Response.json({ error: "invalid_token" }, { headers });
   }
+
+  // The handle_new_user trigger already linked this profile to the current
+  // user on sign-in — nothing to claim, just send them to the dashboard.
+  if (profile.user_id === user.id) {
+    return redirect("/", { headers });
+  }
+
+  // Genuinely claimed by a different user — reject.
+  if (profile.is_claimed && profile.user_id !== user.id) {
+    return Response.json({ error: "invalid_token" }, { headers });
+  }
+
+  // Trigger didn't run — claim it manually below.
 
   // OTP sign-in may create a new auth user. If the DB signup trigger created
   // a placeholder profile for that auth user first, detach it before linking
