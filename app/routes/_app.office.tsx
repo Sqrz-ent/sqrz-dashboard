@@ -172,7 +172,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getCurrentProfile(supabase, user.id, request);
   if (!profile) return redirect("/login", { headers });
 
   const admin = createSupabaseAdminClient();
@@ -308,7 +308,7 @@ export async function action({ request }: Route.ActionArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getCurrentProfile(supabase, user.id, request);
   if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers });
 
   const formData = await request.formData();

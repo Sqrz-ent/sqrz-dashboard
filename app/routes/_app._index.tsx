@@ -145,7 +145,7 @@ export async function action({ request }: Route.ActionArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/join", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getCurrentProfile(supabase, user.id, request);
   if (!profile) return redirect("/join", { headers });
 
   const formData = await request.formData();

@@ -1,5 +1,6 @@
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getOwnerProfile } from "~/lib/profile.server";
+import { isAgent } from "~/lib/agent.server";
 
 function sanitizeSlug(raw: string): string {
   return raw
@@ -12,8 +13,15 @@ export function loader() {
   return Response.json({ error: "Method not allowed" }, { status: 405 });
 }
 
+/**
+ * POST /api/crew/create-profile
+ *
+ * Creates a managed talent profile via the create_managed_profile RPC, which
+ * atomically creates a guest profile + seeds the active beta delegation linking
+ * it to the current user's roster. Returns the claim token + profile URL so it
+ * can be sent to the talent.
+ */
 export async function action({ request }: { request: Request }) {
-  console.log("[create-profile] action hit:", request.method, request.url);
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
@@ -24,63 +32,65 @@ export async function action({ request }: { request: Request }) {
   } = await supabase.auth.getUser();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  const userProfile = await getCurrentProfile(supabase, user.id);
-  if (!userProfile?.is_beta) {
+  // Resolve the REAL user (not any acting-as profile) — they own the new roster row.
+  const owner = await getOwnerProfile(supabase, user.id);
+  if (!owner) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Gate: only managers (active beta delegation) can create managed profiles.
+  if (!(await isAgent(owner.id as string))) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const formData = await request.formData();
   const slug = sanitizeSlug((formData.get("slug") as string) ?? "");
+  const name = ((formData.get("name") as string) ?? "").trim() || slug;
   if (!slug) return Response.json({ error: "Slug is required" }, { status: 400 });
 
-  // Use admin client for all DB ops — profile has no user_id yet
   const admin = createSupabaseAdminClient();
 
+  // Pre-check for a friendlier conflict message than the raw unique-violation.
   const { data: existing } = await admin
     .from("profiles")
     .select("id")
     .eq("slug", slug)
     .maybeSingle();
-
   if (existing) {
     return Response.json({ error: `@${slug} is already taken` }, { status: 409 });
   }
 
-  const profileId = crypto.randomUUID();
-
-  const { error: insertError } = await admin.from("profiles").insert({
-    id: profileId,
-    slug,
-    user_type: "member",
-    is_published: false,
-    is_claimed: false,
-    template_id: "midnight",
+  const { data, error } = await admin.rpc("create_managed_profile", {
+    p_name: name,
+    p_slug: slug,
+    p_agent_profile_id: owner.id as string,
   });
 
-  if (insertError) {
+  if (error || !data) {
     return Response.json(
-      { error: "Failed to create profile", detail: insertError.message },
+      { error: "Failed to create profile", detail: error?.message ?? "no data returned" },
       { status: 500 }
     );
   }
 
-  // claim_token is set by the set_claim_token DB trigger on INSERT — read it back
-  const { data: row, error: selectError } = await admin
-    .from("profiles")
-    .select("claim_token")
-    .eq("id", profileId)
-    .single();
+  // RPC returns { profile_id, slug, claim_token, profile_url, delegated }
+  const result = data as {
+    profile_id: string;
+    slug: string;
+    claim_token: string;
+    profile_url: string;
+    delegated: boolean;
+  };
 
-  if (selectError || !row?.claim_token) {
-    return Response.json(
-      { error: "Profile created but claim token not found", detail: selectError?.message ?? "claim_token is null" },
-      { status: 500 }
-    );
-  }
+  const claimUrl = result.claim_token
+    ? `${result.profile_url}?claim=${encodeURIComponent(result.claim_token)}`
+    : result.profile_url;
 
   return Response.json({
-    slug,
-    claim_token: row.claim_token,
-    claim_url: `https://${slug}.sqrz.com?claim=${row.claim_token}`,
+    profile_id: result.profile_id,
+    name,
+    slug: result.slug,
+    claim_token: result.claim_token,
+    profile_url: result.profile_url,
+    claim_url: claimUrl,
+    delegated: result.delegated,
   });
 }
