@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.crew";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -352,19 +352,30 @@ export default function Crew() {
       .replace(/[^a-z0-9-]/g, "");
   }
 
-  // Real-time slug availability check — runs on blur of the slug input.
-  async function checkSlug() {
-    const value = createSlug.trim();
-    if (!value) {
+  // Real-time slug availability check — debounced, runs as the user types.
+  const slugCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  async function checkSlug(value: string) {
+    const slug = value.trim();
+    if (!slug) {
       setSlugError(null);
       return;
     }
     const { data } = await browserSupabase
       .from("profiles")
       .select("id")
-      .eq("slug", value)
+      .eq("slug", slug)
       .maybeSingle();
     if (data) setSlugError("Slug already taken");
+  }
+
+  function scheduleSlugCheck(value: string) {
+    if (slugCheckTimer.current) clearTimeout(slugCheckTimer.current);
+    if (!value.trim()) {
+      setSlugError(null);
+      return;
+    }
+    slugCheckTimer.current = setTimeout(() => checkSlug(value), 400);
   }
 
   function handleCreate() {
@@ -512,8 +523,13 @@ export default function Crew() {
                 <input
                   type="text"
                   value={createSlug}
-                  onChange={(e) => { setCreateSlug(sanitizeSlugInput(e.target.value)); setCreateError(null); setSlugError(null); }}
-                  onBlur={checkSlug}
+                  onChange={(e) => {
+                    const next = sanitizeSlugInput(e.target.value);
+                    setCreateSlug(next);
+                    setCreateError(null);
+                    setSlugError(null);
+                    scheduleSlugCheck(next);
+                  }}
                   onKeyDown={(e) => { if (e.key === "Enter" && createSlug.trim()) handleCreate(); }}
                   placeholder="handle"
                   autoFocus
@@ -536,15 +552,9 @@ export default function Crew() {
               )}
             </div>
 
-            {slugError && (
+            {(slugError || createError) && (
               <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12 }}>
-                {slugError}
-              </div>
-            )}
-
-            {createError && (
-              <div style={{ color: "#f87171", fontSize: 13, marginBottom: 12 }}>
-                {createError}
+                {slugError || createError}
               </div>
             )}
 
