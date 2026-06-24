@@ -136,16 +136,34 @@ export async function loader({ request }: Route.LoaderArgs) {
   const userProfile = await getCurrentProfile(supabase, user.id);
   const isAdmin = Boolean(userProfile?.is_beta);
 
-  const { profiles, total } = await fetchProfiles(supabase, {
-    q: "",
-    category: "",
-    city: "",
-    page: 1,
-    includeUnpublished: isAdmin,
+  // Source the directory from the agent roster RPC (Will's roster) instead of
+  // the published-profiles query.
+  const { data: rosterRows, error } = await supabase.rpc("get_agent_roster", {
+    p_agent_profile_id: "8fc5755f-8e1b-47ce-b971-641860458bd0",
   });
+  if (error) {
+    console.error("get_agent_roster error:", error.message);
+  }
+
+  // Map roster rows onto the CrewProfile shape the cards render.
+  const profiles: CrewProfile[] = (
+    (rosterRows ?? []) as Array<Record<string, unknown>>
+  ).map((r) => ({
+    id: r.profile_id as string,
+    name: (r.name as string | null) ?? null,
+    slug: (r.slug as string | null) ?? null,
+    avatar_url: (r.avatar_url as string | null) ?? null,
+    city: null,
+    user_type: (r.user_type as string | null) ?? null,
+    is_published: (r.is_published as boolean | null) ?? null,
+    is_claimed: (r.is_claimed as boolean | null) ?? null,
+    onboarding_completed: null,
+    claim_token: (r.claim_token as string | null) ?? null,
+    profile_skills: [],
+  }));
 
   return Response.json(
-    { access: "full", profiles: sanitizeProfilesForViewer(profiles, isAdmin), total, isAdmin },
+    { access: "full", profiles: sanitizeProfilesForViewer(profiles, isAdmin), total: profiles.length, isAdmin },
     { headers }
   );
 }
