@@ -37,6 +37,17 @@ export async function loader({ request }: Route.LoaderArgs) {
     return Response.json({ error: "invalid_token" }, { headers });
   }
 
+  // OTP sign-in may create a new auth user. If the DB signup trigger created
+  // a placeholder profile for that auth user first, detach it before linking
+  // the intended seeded claim profile. Otherwise getCurrentProfile() can see
+  // multiple rows for one user and the dashboard becomes unreadable.
+  await admin
+    .from("profiles")
+    .update({ user_id: null })
+    .eq("user_id", user.id)
+    .neq("id", profile.id)
+    .eq("is_claimed", false);
+
   // Claim the profile
   const { error: updateError } = await admin
     .from("profiles")
