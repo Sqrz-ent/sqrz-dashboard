@@ -40,7 +40,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id, request);
+  const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   return Response.json(
@@ -64,7 +64,7 @@ export async function action({ request }: Route.ActionArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id, request);
+  const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();

@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator, Form } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { getOwnerProfile } from "~/lib/profile.server";
-import { getAgentState } from "~/lib/agent.server";
+import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
@@ -21,19 +20,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect("/login", { headers });
   }
 
-  // Agent Mode: resolve the real (owner) profile, then the effective profile —
-  // the managed talent while "acting as" them, otherwise the owner themselves.
-  const ownerProfile = await getOwnerProfile(supabase, user.id);
+  const profile = await getCurrentProfile(supabase, user.id);
 
-  const agentState = ownerProfile
-    ? await getAgentState(request, ownerProfile.id as string)
-    : { isAgent: false, managedProfile: null };
-
-  const profile = agentState.managedProfile ?? ownerProfile;
-  const isManaging = !!agentState.managedProfile;
-
-  // Guest-redirect logic only applies to the owner's own (non-managed) profile.
-  if (!isManaging && profile?.user_type === 'guest') {
+  if (profile?.user_type === 'guest') {
     const url = new URL(request.url);
     const next = url.searchParams.get('next');
 
@@ -106,14 +95,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       isPartner: !!(profile?.is_partner as boolean | null),
       partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
       partnerInvitedAt: (profile?.partner_invited_at as string | null) ?? null,
-      // Agent Mode
-      isAgent: agentState.isAgent,
-      managedName: isManaging
-        ? ((profile?.name as string | null) ||
-           [profile?.first_name, profile?.last_name].filter(Boolean).join(" ") ||
-           (profile?.slug as string | null) ||
-           "talent")
-        : null,
     },
     { headers }
   );
@@ -141,7 +122,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, services, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, isPartner, partnerInviteStatus, partnerInvitedAt, isAgent, managedName } =
+  const { user, profile, services, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -149,18 +130,11 @@ export default function AppLayout() {
   // 4th bottom-nav slot — partner takes precedence, then beta crew, else own profile
   const isBeta = !!(p?.is_beta as boolean | null);
   const profileSlug = (p?.slug as string | null) ?? "";
-  const fourthNav = isAgent
-    ? { to: "/roster", external: false, icon: "👥", label: "Roster" }
-    : isPartner
+  const fourthNav = isPartner
     ? { to: "/partners", external: false, icon: "🤝", label: "Partners" }
     : isBeta
     ? { to: "/crew", external: false, icon: "👥", label: "Crew" }
     : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👤", label: "Profile" };
-
-  // Agent-only top-nav link to the roster directory.
-  const navItems = isAgent
-    ? [...topNavItems, { to: "/roster", label: "Roster", end: false }]
-    : topNavItems;
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const revalidator = useRevalidator();
@@ -318,10 +292,6 @@ export default function AppLayout() {
 
   const showComplianceBanner = shouldShowCompliance && !complianceDismissed;
 
-  // When the managed-mode banner is shown it occupies the top sticky slot, so the
-  // nav/header stick just below it.
-  const stickyTop = managedName ? 37 : 0;
-
   return (
     <div
       style={{
@@ -331,48 +301,7 @@ export default function AppLayout() {
         fontFamily: "ui-sans-serif, system-ui, -apple-system, sans-serif",
       }}
     >
-      {/* ── Managed-mode banner (Agent Mode) ────────────────────────────────── */}
-      {managedName && (
-        <div
-          style={{
-            position: "sticky",
-            top: 0,
-            zIndex: 60,
-            background: "#F5A623",
-            color: "#111111",
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            padding: "8px 16px",
-            fontSize: 13,
-            fontWeight: 600,
-            fontFamily: "ui-sans-serif, system-ui, sans-serif",
-          }}
-        >
-          <span style={{ fontSize: 14 }}>👤</span>
-          <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            Managing: <strong>{managedName}</strong>
-          </span>
-          <Form method="post" action="/roster/exit" style={{ display: "flex" }}>
-            <button
-              type="submit"
-              style={{
-                background: "rgba(17,17,17,0.12)",
-                color: "#111111",
-                border: "1px solid rgba(17,17,17,0.3)",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 700,
-                padding: "4px 12px",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Exit
-            </button>
-          </Form>
-        </div>
-      )}
+      {/* ── Beta banner ─────────────────────────────────────────────────────── */}
 
       {/* ── Top progress bar ────────────────────────────────────────────────── */}
       <div
@@ -411,7 +340,7 @@ export default function AppLayout() {
             height: 56,
             borderBottom: "1px solid var(--border)",
             position: "sticky",
-            top: stickyTop,
+            top: 0,
             background: "var(--bg)",
             zIndex: 10,
             width: "100vw",
@@ -428,7 +357,7 @@ export default function AppLayout() {
 
           {/* Top nav tabs */}
           <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap", minWidth: "max-content" }}>
-            {navItems.map((item) => (
+            {topNavItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
@@ -515,7 +444,7 @@ export default function AppLayout() {
             padding: "0 16px",
             borderBottom: "1px solid var(--border)",
             position: "sticky",
-            top: stickyTop,
+            top: 0,
             background: "var(--bg)",
             zIndex: 10,
           }}

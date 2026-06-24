@@ -23,7 +23,6 @@ export default [
     route("partner-onboarding", "routes/_app.partner-onboarding.tsx"),
     route("office/admin/payouts", "routes/_app.office.admin.payouts.tsx"),
     route("crew", "routes/_app.crew.tsx"),
-    route("roster", "routes/_app.roster.tsx"),
     route("profile", "routes/_app.profile.tsx"),
     route("service", "routes/_app.service.tsx"),
     route("payments", "routes/_app.payments.tsx"),
@@ -33,10 +32,6 @@ export default [
     route("account", "routes/_app.account.tsx"),
     route("analytics", "routes/_app.analytics.tsx"),
   ]),
-
-  // Agent Mode — context switch (server-only, action handlers)
-  route("roster/switch", "routes/roster.switch.tsx"),
-  route("roster/exit", "routes/roster.exit.tsx"),
 
   // API routes (server-only, action handlers)
   route("api/crew/create-profile", "routes/api.crew.create-profile.ts"),
