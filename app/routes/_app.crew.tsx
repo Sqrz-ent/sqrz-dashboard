@@ -1,10 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.crew";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
-const PAGE_SIZE = 20;
+const AGENT_PROFILE_ID = "8fc5755f-8e1b-47ce-b971-641860458bd0";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,85 +31,35 @@ type LoaderData = {
   isAdmin: boolean;
 };
 
-type ActionData = { profiles: CrewProfile[]; total: number };
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-async function fetchProfiles(
-  supabase: ReturnType<typeof createSupabaseServerClient>["supabase"],
-  {
-    q,
-    category,
-    city,
-    page,
-    includeUnpublished,
-  }: { q: string; category: string; city: string; page: number; includeUnpublished: boolean }
-): Promise<{ profiles: CrewProfile[]; total: number }> {
-  const offset = (page - 1) * PAGE_SIZE;
-
-  // If filtering by category, first resolve profile IDs that have that skill
-  let categoryProfileIds: string[] | null = null;
-  if (category) {
-    const { data: skillRows } = await supabase
-      .from("skills")
-      .select("id")
-      .eq("category", category);
-
-    const skillIds = skillRows?.map((s: { id: string }) => s.id) ?? [];
-
-    if (skillIds.length === 0) {
-      return { profiles: [], total: 0 };
-    }
-
-    const { data: psRows } = await supabase
-      .from("profile_skills")
-      .select("profile_id")
-      .in("skill_id", skillIds);
-
-    categoryProfileIds = [
-      ...new Set((psRows ?? []).map((r: { profile_id: string }) => r.profile_id)),
-    ];
-
-    if (categoryProfileIds.length === 0) {
-      return { profiles: [], total: 0 };
-    }
-  }
-
-  let query = supabase
-    .from("profiles")
-    .select(
-      "id, name, slug, avatar_url, city, user_type, is_published, is_claimed, onboarding_completed, claim_token, profile_skills ( skill_id, skills ( name, category ) )",
-      { count: "exact" }
-    )
-    .eq("user_type", "member")
-    .order("name", { ascending: true })
-    .range(offset, offset + PAGE_SIZE - 1);
-
-  if (!includeUnpublished) {
-    query = query.eq("onboarding_completed", true);
-    query = query.or("is_claimed.eq.true,claim_token.is.null");
-  } else {
-    query = query.or("onboarding_completed.eq.true,is_claimed.eq.false");
-  }
-
-  if (q) {
-    query = query.or(`name.ilike.%${q}%,slug.ilike.%${q}%,city.ilike.%${q}%`);
-  }
-  if (city) {
-    query = query.ilike("city", `%${city}%`);
-  }
-  if (categoryProfileIds !== null) {
-    query = query.in("id", categoryProfileIds);
-  }
-
-  const { data, count, error } = await query;
+async function fetchRoster(
+  supabase: ReturnType<typeof createSupabaseServerClient>["supabase"]
+): Promise<CrewProfile[]> {
+  const { data, error } = await supabase.rpc("get_agent_roster", {
+    p_agent_profile_id: AGENT_PROFILE_ID,
+  });
 
   if (error) {
-    console.error("fetchProfiles error:", error.message);
-    return { profiles: [], total: 0 };
+    console.error("get_agent_roster error:", error.message);
+    return [];
   }
 
-  return { profiles: (data ?? []) as unknown as CrewProfile[], total: count ?? 0 };
+  // Map roster rows onto the CrewProfile shape the cards render. The RPC has no
+  // city/skills columns, so those are nulled out.
+  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+    id: r.profile_id as string,
+    name: (r.name as string | null) ?? null,
+    slug: (r.slug as string | null) ?? null,
+    avatar_url: (r.avatar_url as string | null) ?? null,
+    city: null,
+    user_type: (r.user_type as string | null) ?? null,
+    is_published: (r.is_published as boolean | null) ?? null,
+    is_claimed: (r.is_claimed as boolean | null) ?? null,
+    onboarding_completed: null,
+    claim_token: (r.claim_token as string | null) ?? null,
+    profile_skills: [],
+  }));
 }
 
 function sanitizeProfilesForViewer(profiles: CrewProfile[], isAdmin: boolean): CrewProfile[] {
@@ -136,67 +86,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   const userProfile = await getCurrentProfile(supabase, user.id);
   const isAdmin = Boolean(userProfile?.is_beta);
 
-  // Source the directory from the agent roster RPC (Will's roster) instead of
-  // the published-profiles query.
-  const { data: rosterRows, error } = await supabase.rpc("get_agent_roster", {
-    p_agent_profile_id: "8fc5755f-8e1b-47ce-b971-641860458bd0",
-  });
-  if (error) {
-    console.error("get_agent_roster error:", error.message);
-  }
-
-  // Map roster rows onto the CrewProfile shape the cards render.
-  const profiles: CrewProfile[] = (
-    (rosterRows ?? []) as Array<Record<string, unknown>>
-  ).map((r) => ({
-    id: r.profile_id as string,
-    name: (r.name as string | null) ?? null,
-    slug: (r.slug as string | null) ?? null,
-    avatar_url: (r.avatar_url as string | null) ?? null,
-    city: null,
-    user_type: (r.user_type as string | null) ?? null,
-    is_published: (r.is_published as boolean | null) ?? null,
-    is_claimed: (r.is_claimed as boolean | null) ?? null,
-    onboarding_completed: null,
-    claim_token: (r.claim_token as string | null) ?? null,
-    profile_skills: [],
-  }));
+  const profiles = await fetchRoster(supabase);
 
   return Response.json(
     { access: "full", profiles: sanitizeProfilesForViewer(profiles, isAdmin), total: profiles.length, isAdmin },
     { headers }
   );
-}
-
-// ─── Action — search / filter ─────────────────────────────────────────────────
-
-export async function action({ request }: Route.ActionArgs) {
-  const { supabase } = createSupabaseServerClient(request);
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return Response.json({ profiles: [], total: 0 }, { status: 401 });
-  const userProfile = await getCurrentProfile(supabase, user.id);
-  const isAdmin = Boolean(userProfile?.is_beta);
-
-  const formData = await request.formData();
-  const q = (formData.get("q") as string) ?? "";
-  const category = (formData.get("category") as string) ?? "";
-  const city = (formData.get("city") as string) ?? "";
-  const page = Math.max(1, parseInt((formData.get("page") as string) ?? "1", 10));
-
-  const result = await fetchProfiles(supabase, {
-    q,
-    category,
-    city,
-    page,
-    includeUnpublished: isAdmin,
-  });
-  return Response.json({
-    profiles: sanitizeProfilesForViewer(result.profiles, isAdmin),
-    total: result.total,
-  });
 }
 
 // ─── Profile card ─────────────────────────────────────────────────────────────
@@ -415,11 +310,6 @@ export default function Crew() {
   const loaderData = useLoaderData<typeof loader>() as LoaderData;
   const { profiles: initialProfiles, total: initialTotal, isAdmin } = loaderData;
 
-  const fetcher = useFetcher<ActionData>();
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const [q, setQ] = useState("");
-  const [page, setPage] = useState(1);
   const [claimCode, setClaimCode] = useState<{
     name: string;
     slug: string;
@@ -468,56 +358,8 @@ export default function Crew() {
     );
   }
 
-  const profiles = fetcher.data?.profiles ?? initialProfiles;
-  const total = fetcher.data?.total ?? initialTotal;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const isSearching = fetcher.state !== "idle";
-
-  function clearDebounce() {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
-    }
-  }
-
-  function submit(params: { q: string; category: string; city: string; page: number }) {
-    fetcher.submit(
-      {
-        q: params.q,
-        category: params.category,
-        city: params.city,
-        page: String(params.page),
-      },
-      { method: "POST" }
-    );
-  }
-
-  // Debounce text search
-  useEffect(() => {
-    clearDebounce();
-    debounceRef.current = setTimeout(() => {
-      setPage(1);
-      submit({ q, category: "", city: "", page: 1 });
-    }, 300);
-    return clearDebounce;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
-
-  function goToPage(newPage: number) {
-    setPage(newPage);
-    submit({ q, category: "", city: "", page: newPage });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
-
-  const inputBase: React.CSSProperties = {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 10,
-    color: "var(--text)",
-    fontSize: 14,
-    padding: "10px 14px",
-    outline: "none",
-  };
+  const profiles = initialProfiles;
+  const total = initialTotal;
 
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto", padding: "36px 24px" }}>
@@ -549,47 +391,18 @@ export default function Crew() {
       </div>
       <p style={{ color: "var(--text-muted)", fontSize: 15, marginBottom: 28 }}>
         {isAdmin
-          ? "Search completed member profiles and Crew-created drafts."
-          : "Search and hire published creatives for your next gig."}
+          ? "Your managed roster and Crew-created drafts."
+          : "Your managed roster."}
       </p>
-
-      {/* Search + filters */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 10,
-          marginBottom: 20,
-        }}
-      >
-        <input
-          type="text"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name or handle…"
-          style={{ ...inputBase, flex: "1 1 240px", minWidth: 0 }}
-        />
-      </div>
 
       {/* Result count */}
       <div style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
-        {isSearching ? (
-          "Searching…"
-        ) : (
-          <>
-            <span style={{ color: "var(--text)", fontWeight: 600 }}>{total}</span>{" "}
-            {total === 1 ? "profile" : "profiles"} found
-            {totalPages > 1 && (
-              <span>
-                {" "}· page {page} of {totalPages}
-              </span>
-            )}
-          </>
-        )}
+        <span style={{ color: "var(--text)", fontWeight: 600 }}>{total}</span>{" "}
+        {total === 1 ? "profile" : "profiles"}
       </div>
 
       {/* Grid */}
-      {profiles.length === 0 && !isSearching ? (
+      {profiles.length === 0 ? (
         <div
           style={{
             textAlign: "center",
@@ -597,8 +410,8 @@ export default function Crew() {
             color: "var(--text-muted)",
           }}
         >
-          <div style={{ fontSize: 32, marginBottom: 12 }}>🔍</div>
-          <p style={{ fontSize: 14, margin: 0 }}>No profiles match your search.</p>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>👥</div>
+          <p style={{ fontSize: 14, margin: 0 }}>No profiles in the roster yet.</p>
         </div>
       ) : (
         <div
@@ -606,8 +419,6 @@ export default function Crew() {
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
             gap: 14,
-            opacity: isSearching ? 0.5 : 1,
-            transition: "opacity 0.15s",
           }}
         >
           {profiles.map((profile) => (
@@ -621,54 +432,6 @@ export default function Crew() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            marginTop: 36,
-          }}
-        >
-          <button
-            onClick={() => goToPage(page - 1)}
-            disabled={page <= 1}
-            style={{
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              color: page <= 1 ? "var(--text-muted)" : "var(--text)",
-              fontSize: 14,
-              padding: "8px 16px",
-              cursor: page <= 1 ? "default" : "pointer",
-            }}
-          >
-            ← Previous
-          </button>
-
-          <span style={{ color: "var(--text-muted)", fontSize: 13 }}>
-            {page} / {totalPages}
-          </span>
-
-          <button
-            onClick={() => goToPage(page + 1)}
-            disabled={page >= totalPages}
-            style={{
-              background: "none",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              color: page >= totalPages ? "var(--text-muted)" : "var(--text)",
-              fontSize: 14,
-              padding: "8px 16px",
-              cursor: page >= totalPages ? "default" : "pointer",
-            }}
-          >
-            Next →
-          </button>
-        </div>
-      )}
 
       {/* ── Create Profile Modal ─────────────────────────────────────────────── */}
       {showCreateModal && (
