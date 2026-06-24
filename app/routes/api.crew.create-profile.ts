@@ -31,9 +31,11 @@ export async function action({ request }: { request: Request }) {
 
   const formData = await request.formData();
   const slug = sanitizeSlug((formData.get("slug") as string) ?? "");
+  const name = ((formData.get("name") as string) ?? "").trim() || slug;
   if (!slug) return Response.json({ error: "Slug is required" }, { status: 400 });
 
-  // Use admin client for all DB ops — profile has no user_id yet
+  // Use admin client (service role) — profile has no user_id yet, and
+  // create_managed_profile also seeds the agent delegation row.
   const admin = createSupabaseAdminClient();
 
   const { data: existing } = await admin
@@ -46,41 +48,34 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: `@${slug} is already taken` }, { status: 409 });
   }
 
-  const profileId = crypto.randomUUID();
-
-  const { error: insertError } = await admin.from("profiles").insert({
-    id: profileId,
-    slug,
-    user_type: "member",
-    is_published: false,
-    is_claimed: false,
-    template_id: "midnight",
+  // Creates the guest profile + seeds the delegation atomically, so the new
+  // profile shows up in the agent's roster (get_agent_roster).
+  const { data, error: rpcError } = await admin.rpc("create_managed_profile", {
+    p_name: name,
+    p_slug: slug,
+    p_agent_profile_id: "8fc5755f-8e1b-47ce-b971-641860458bd0",
   });
 
-  if (insertError) {
+  if (rpcError || !data) {
     return Response.json(
-      { error: "Failed to create profile", detail: insertError.message },
+      { error: "Failed to create profile", detail: rpcError?.message ?? "no data returned" },
       { status: 500 }
     );
   }
 
-  // claim_token is set by the set_claim_token DB trigger on INSERT — read it back
-  const { data: row, error: selectError } = await admin
-    .from("profiles")
-    .select("claim_token")
-    .eq("id", profileId)
-    .single();
-
-  if (selectError || !row?.claim_token) {
-    return Response.json(
-      { error: "Profile created but claim token not found", detail: selectError?.message ?? "claim_token is null" },
-      { status: 500 }
-    );
-  }
+  // RPC returns { profile_id, slug, claim_token, profile_url, delegated }
+  const result = data as {
+    profile_id: string;
+    slug: string;
+    claim_token: string;
+    profile_url: string;
+    delegated: boolean;
+  };
 
   return Response.json({
-    slug,
-    claim_token: row.claim_token,
-    claim_url: `https://${slug}.sqrz.com?claim=${row.claim_token}`,
+    slug: result.slug,
+    claim_token: result.claim_token,
+    claim_url: `https://${result.slug}.sqrz.com?claim=${result.claim_token}`,
+    profile_url: result.profile_url,
   });
 }
