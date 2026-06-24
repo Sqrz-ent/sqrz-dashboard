@@ -82,7 +82,11 @@ export default function ClaimConfirm({
     },
   };
 
-  const msg = error ? (messages[error] ?? messages.update_failed) : null;
+  // This page only renders on FAILURE — on success the loader redirects to the
+  // dashboard before this component ever renders. Never infer success from the
+  // absence of an error payload, or an invalid/already-used claim would fall
+  // through to the success UI.
+  const msg = messages[error ?? ""] ?? messages.invalid_token;
 
   return (
     <div
@@ -113,60 +117,31 @@ export default function ClaimConfirm({
           </span>
         </div>
 
-        {msg ? (
-          <>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 10px" }}>
-              {msg.title}
-            </h2>
-            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", margin: "0 0 24px", lineHeight: 1.6 }}>
-              {msg.body}
-            </p>
-            <a
-              href="/"
-              style={{
-                display: "inline-block",
-                padding: "12px 24px",
-                background: ACCENT,
-                color: "#111",
-                fontWeight: 700,
-                fontSize: 14,
-                borderRadius: 12,
-                textDecoration: "none",
-                fontFamily: FONT,
-              }}
-            >
-              Go to Dashboard
-            </a>
-          </>
-        ) : (
-          // Fallback while redirect fires (rarely shown)
-          <>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>🎉</div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 10px" }}>
-              Profile claimed!
-            </h2>
-            <p style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", margin: "0 0 24px", lineHeight: 1.6 }}>
-              Your profile is live. Welcome to SQRZ.
-            </p>
-            <a
-              href="/"
-              style={{
-                display: "inline-block",
-                padding: "12px 24px",
-                background: ACCENT,
-                color: "#111",
-                fontWeight: 700,
-                fontSize: 14,
-                borderRadius: 12,
-                textDecoration: "none",
-                fontFamily: FONT,
-              }}
-            >
-              Go to Dashboard →
-            </a>
-          </>
-        )}
+        <>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: "#fff", margin: "0 0 10px" }}>
+            {msg.title}
+          </h2>
+          <p style={{ fontSize: 14, color: "rgba(255,255,255,0.5)", margin: "0 0 24px", lineHeight: 1.6 }}>
+            {msg.body}
+          </p>
+          <a
+            href="/"
+            style={{
+              display: "inline-block",
+              padding: "12px 24px",
+              background: ACCENT,
+              color: "#111",
+              fontWeight: 700,
+              fontSize: 14,
+              borderRadius: 12,
+              textDecoration: "none",
+              fontFamily: FONT,
+            }}
+          >
+            Go to Dashboard
+          </a>
+        </>
       </div>
     </div>
   );
