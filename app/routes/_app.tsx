@@ -3,6 +3,7 @@ import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigatio
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { normalizeTaxPresets } from "~/lib/tax-presets";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
@@ -587,6 +588,7 @@ export default function AppLayout() {
       enabled={true}
       chatEnabled={(p?.inquiry_chat_enabled as boolean | null) !== false}
       services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
+      taxPresets={normalizeTaxPresets(p?.tax_presets)}
       />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}

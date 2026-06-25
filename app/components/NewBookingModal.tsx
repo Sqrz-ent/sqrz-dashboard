@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Modal from "~/components/Modal";
+import type { TaxPreset } from "~/lib/tax-presets";
 
 export type NewBookingService = {
   id: string;
@@ -48,17 +49,24 @@ export default function NewBookingModal({
   services,
   onSuccess,
   prefill,
+  taxPresets = [],
 }: {
   isOpen: boolean;
   onClose: () => void;
   services: NewBookingService[];
   onSuccess: (clientEmail: string, bookingId: string) => void;
   prefill?: { client_name?: string; client_email?: string; description?: string };
+  taxPresets?: TaxPreset[];
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lineItems, setLineItems] = useState<LineItem[]>([{ label: "Artist Fee", amount: 0 }]);
+
+  // Tax: preset dropdown when the profile has presets, else the free-text fallback below.
+  const hasTaxPresets = taxPresets.length > 0;
+  const defaultTaxIdx = taxPresets.findIndex((p) => p.is_default);
+  const [selectedTaxIdx, setSelectedTaxIdx] = useState<number | null>(defaultTaxIdx >= 0 ? defaultTaxIdx : null);
 
   const [form, setForm] = useState({
     // Step 1
@@ -95,6 +103,7 @@ export default function NewBookingModal({
       setStep(1);
       setError(null);
       setLineItems([{ label: "Artist Fee", amount: 0 }]);
+      setSelectedTaxIdx(defaultTaxIdx >= 0 ? defaultTaxIdx : null);
       setForm({
         client_name: "",
         client_email: "",
@@ -119,6 +128,12 @@ export default function NewBookingModal({
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
+
+  const selectedTaxPreset = selectedTaxIdx != null ? (taxPresets[selectedTaxIdx] ?? null) : null;
+  const effectiveTaxPct = hasTaxPresets
+    ? (selectedTaxPreset?.rate ?? 0)
+    : (form.tax_pct ? parseFloat(form.tax_pct) || 0 : 0);
+  const effectiveTaxLabel = hasTaxPresets ? (selectedTaxPreset?.label ?? null) : null;
 
   function handleNext(e: React.FormEvent) {
     e.preventDefault();
@@ -149,7 +164,8 @@ export default function NewBookingModal({
           line_items: lineItems.filter((i) => i.label && i.amount > 0),
           proposal_message: form.proposal_message || null,
           requires_payment: form.requires_payment,
-          tax_pct: form.tax_pct ? parseFloat(form.tax_pct) : null,
+          tax_pct: effectiveTaxPct > 0 ? effectiveTaxPct : null,
+          tax_label: effectiveTaxLabel,
           require_hotel: form.require_hotel,
           require_travel: form.require_travel,
           require_food: form.require_food,
@@ -379,17 +395,37 @@ export default function NewBookingModal({
 
           {/* Tax */}
           <div style={{ marginBottom: 10 }}>
-            <label style={lbl}>Tax % (optional)</label>
-            <input
-              style={inputStyle}
-              type="number"
-              min={0}
-              max={100}
-              step={0.1}
-              placeholder="e.g. 19"
-              value={form.tax_pct}
-              onChange={(e) => set("tax_pct", e.target.value)}
-            />
+            <label style={lbl}>Tax</label>
+            {hasTaxPresets ? (
+              <select
+                style={inputStyle}
+                value={selectedTaxIdx == null ? "" : String(selectedTaxIdx)}
+                onChange={(e) => setSelectedTaxIdx(e.target.value === "" ? null : Number(e.target.value))}
+              >
+                <option value="">No tax</option>
+                {taxPresets.map((p, i) => (
+                  <option key={i} value={String(i)}>
+                    {p.label} ({p.rate}%)
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <input
+                  style={inputStyle}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  placeholder="e.g. 19"
+                  value={form.tax_pct}
+                  onChange={(e) => set("tax_pct", e.target.value)}
+                />
+                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>
+                  Add tax presets in your profile settings to pick from a dropdown.
+                </p>
+              </>
+            )}
           </div>
 
           {/* Breakdown */}

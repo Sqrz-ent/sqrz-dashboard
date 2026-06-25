@@ -25,7 +25,7 @@ export async function action({ request }: { request: Request }) {
   // 2. Get proposal details including line_items and tax_pct
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("rate, currency, requires_payment, sqrz_fee_pct, stripe_mode, booking_id, line_items, tax_pct, bookings(title, owner_id, profiles(name))")
+    .select("rate, currency, requires_payment, sqrz_fee_pct, stripe_mode, booking_id, line_items, tax_pct, tax_label, bookings(title, owner_id, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -61,6 +61,7 @@ export async function action({ request }: { request: Request }) {
   // net = what member quoted; SQRZ fee on net only; tax added on top
   const rate = proposal.rate;
   const taxPct: number = (proposal.tax_pct as number | null) ?? 0;
+  const taxLabel: string | null = (proposal as { tax_label?: string | null }).tax_label ?? null;
   const taxAmount = Math.round(rate * taxPct / 100 * 100);
   const feeAmount = Math.round(rate * feePct / 100 * 100);  // fee on net, not on net+tax
   const totalAmount = Math.round(rate * 100) + taxAmount + feeAmount;
@@ -110,6 +111,7 @@ export async function action({ request }: { request: Request }) {
             sqrz_fee_pct: feePct,
             tax_pct: taxPct || null,
             tax_amount: taxAmountMajor || null,
+            tax_label: taxLabel,
             status: "open",
             client_paid: false,
             payout_status: "pending",
@@ -128,6 +130,7 @@ export async function action({ request }: { request: Request }) {
             sqrz_fee_pct: feePct,
             tax_pct: taxPct || null,
             tax_amount: taxAmountMajor || null,
+            tax_label: taxLabel,
           })
           .eq("id", walletId);
       }

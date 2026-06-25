@@ -7,6 +7,7 @@ import {
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { canManageBookingBilling } from "~/lib/delegate.server";
+import { normalizeTaxPresets, type TaxPreset } from "~/lib/tax-presets";
 import { resolveMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
 import type { MessagingProvider } from "~/lib/messaging/types";
 import { getPlanLevel } from "~/lib/plans";
@@ -56,6 +57,7 @@ type Proposal = {
   requires_payment?: boolean | null;
   line_items?: LineItem[] | null;
   tax_pct?: number | null;
+  tax_label?: string | null;
   sqrz_fee_pct?: number | null;
   stripe_mode?: ProposalStripeMode | null;
 } | null;
@@ -116,6 +118,7 @@ async function syncWalletFromProposal(input: {
       sqrz_fee_pct: proposalFeePct,
       tax_pct: proposalTaxPct || null,
       tax_amount: proposalTaxAmount || null,
+      tax_label: (proposal as { tax_label?: string | null }).tax_label ?? null,
     })
     .eq("id", walletId);
 }
@@ -245,6 +248,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
               sqrz_fee_pct: lockedProposalFeePct,
               tax_pct: proposalTaxPct || null,
               tax_amount: proposalTaxAmount || null,
+              tax_label: (latestProposal as { tax_label?: string | null } | null)?.tax_label ?? null,
               status: "pending",
             })
             .select("*")
@@ -479,6 +483,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
             sqrz_fee_pct: proposalFeePct,
             tax_pct: proposalTaxPct || null,
             tax_amount: proposalTaxAmount || null,
+            tax_label: (latestProposal as { tax_label?: string | null } | null)?.tax_label ?? null,
             status: "pending",
           })
           .select("*")
@@ -584,6 +589,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         profileId: (profile?.id as string) ?? null,
         planId: (profile?.plan_id as number | null) ?? null,
         isBeta: (profile?.is_beta as boolean) ?? false,
+        taxPresets: normalizeTaxPresets((profile as Record<string, unknown> | null)?.tax_presets),
         proposalFeePct: sessionProposalFeePct,
         memberInfo: sessionMemberInfo,
         memberEmail: sessionMemberEmail,
@@ -737,6 +743,7 @@ export async function action({ request, params }: Route.ActionArgs) {
     const lineItemsRaw = (formData.get("line_items") as string) || null;
     const taxPctRaw = formData.get("tax_pct") as string | null;
     const taxPct = taxPctRaw ? (parseFloat(taxPctRaw) || null) : null;
+    const taxLabel = ((formData.get("tax_label") as string) || "").trim() || null;
     const requestedStripeMode = formData.get("stripe_mode") === "test" ? "test" : "live";
 
     let lineItems: LineItem[] | null = null;
@@ -826,6 +833,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         parent_proposal_id: parentProposalId,
         line_items: lineItems ?? null,
         tax_pct: taxPct,
+        tax_label: taxLabel,
         sqrz_fee_pct: lockedFeePct,
         stripe_mode: stripeMode,
       })
@@ -844,6 +852,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         sqrz_fee_pct: lockedFeePct,
         tax_pct: normalizedTaxPct || null,
         tax_amount: normalizedTaxAmount || null,
+        tax_label: taxLabel,
       })
       .eq("booking_id", params.id);
 
@@ -1551,6 +1560,7 @@ function ProposalSection({
   stripeConnectIdTest,
   stripeConnectStatusTest,
   isBeta,
+  taxPresets = [],
   proposalFeePct,
 }: {
   booking: Booking;
@@ -1560,6 +1570,7 @@ function ProposalSection({
   stripeConnectIdTest: string | null;
   stripeConnectStatusTest: string | null;
   isBeta: boolean;
+  taxPresets?: TaxPreset[];
   proposalFeePct?: number | null;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
@@ -1590,8 +1601,30 @@ function ProposalSection({
     stripe_mode: "live" as ProposalStripeMode,
   });
 
-  const [taxEnabled, setTaxEnabled] = useState(!!(latestProposal?.tax_pct));
+  // Tax: preset dropdown when the profile has tax_presets, else free-text fallback.
+  const hasTaxPresets = taxPresets.length > 0;
+  const defaultTaxIdx = taxPresets.findIndex((p) => p.is_default);
+  const [selectedTaxIdx, setSelectedTaxIdx] = useState<number | null>(() => {
+    const lp = latestProposal;
+    if (lp && (lp.tax_pct ?? 0) > 0) {
+      const byLabel = lp.tax_label ? taxPresets.findIndex((p) => p.label === lp.tax_label) : -1;
+      if (byLabel >= 0) return byLabel;
+      const byRate = taxPresets.findIndex((p) => p.rate === lp.tax_pct);
+      if (byRate >= 0) return byRate;
+      return null; // had tax but no matching preset
+    }
+    if (lp) return null; // existing proposal, no tax
+    return defaultTaxIdx >= 0 ? defaultTaxIdx : null; // new proposal → default preset
+  });
+  // Free-text fallback (only used when the profile has no presets).
+  const [taxEnabled, setTaxEnabled] = useState(!hasTaxPresets && !!(latestProposal?.tax_pct));
   const [taxPct, setTaxPct] = useState(String(latestProposal?.tax_pct ?? ""));
+
+  const selectedPreset = selectedTaxIdx != null ? (taxPresets[selectedTaxIdx] ?? null) : null;
+  const effectiveTaxPct = hasTaxPresets
+    ? (selectedPreset?.rate ?? 0)
+    : (taxEnabled ? (parseFloat(taxPct) || 0) : 0);
+  const effectiveTaxLabel = hasTaxPresets ? (selectedPreset?.label ?? null) : null;
 
   const [lineItems, setLineItems] = useState<LineItem[]>(() => {
     const existing = latestProposal?.line_items;
@@ -1819,35 +1852,56 @@ function ProposalSection({
                 </div>
               </div>
 
-              {/* Tax toggle */}
+              {/* Tax */}
               <div style={{ marginBottom: 14 }}>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taxEnabled ? 10 : 0 }}>
-                  <input
-                    type="checkbox"
-                    checked={taxEnabled}
-                    onChange={(e) => {
-                      setTaxEnabled(e.target.checked);
-                      if (!e.target.checked) setTaxPct("");
-                    }}
-                    style={{ accentColor: ACCENT, width: 15, height: 15 }}
-                  />
-                  <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: FONT_BODY }}>Add Tax</span>
-                </label>
-                {taxEnabled && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 23 }}>
-                    <p style={{ ...lbl, marginBottom: 0, whiteSpace: "nowrap" }}>Tax rate</p>
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="any"
-                      style={{ ...inputStyle, width: 80, padding: "8px 10px", textAlign: "right" as const }}
-                      value={taxPct}
-                      onChange={(e) => setTaxPct(e.target.value)}
-                      placeholder="e.g. 19 (VAT/USt/IVA/GST)"
-                    />
-                    <span style={{ fontSize: 13, color: "var(--text-muted)" }}>%</span>
-                  </div>
+                <p style={{ ...lbl, marginBottom: 6 }}>Tax</p>
+                {hasTaxPresets ? (
+                  <select
+                    style={inputStyle}
+                    value={selectedTaxIdx == null ? "" : String(selectedTaxIdx)}
+                    onChange={(e) => setSelectedTaxIdx(e.target.value === "" ? null : Number(e.target.value))}
+                  >
+                    <option value="">No tax</option>
+                    {taxPresets.map((p, i) => (
+                      <option key={i} value={String(i)}>
+                        {p.label} ({p.rate}%)
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taxEnabled ? 10 : 0 }}>
+                      <input
+                        type="checkbox"
+                        checked={taxEnabled}
+                        onChange={(e) => {
+                          setTaxEnabled(e.target.checked);
+                          if (!e.target.checked) setTaxPct("");
+                        }}
+                        style={{ accentColor: ACCENT, width: 15, height: 15 }}
+                      />
+                      <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: FONT_BODY }}>Add Tax</span>
+                    </label>
+                    {taxEnabled && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 23 }}>
+                        <p style={{ ...lbl, marginBottom: 0, whiteSpace: "nowrap" }}>Tax rate</p>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step="any"
+                          style={{ ...inputStyle, width: 80, padding: "8px 10px", textAlign: "right" as const }}
+                          value={taxPct}
+                          onChange={(e) => setTaxPct(e.target.value)}
+                          placeholder="e.g. 19 (VAT/USt/IVA/GST)"
+                        />
+                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>%</span>
+                      </div>
+                    )}
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
+                      Add tax presets in your profile settings to pick from a dropdown.
+                    </p>
+                  </>
                 )}
               </div>
 
@@ -1957,7 +2011,8 @@ function ProposalSection({
               {form.rate && parseFloat(form.rate) > 0 && (
                 (() => {
                   const net = parseFloat(form.rate) || 0;
-                  const taxRate = taxEnabled ? (parseFloat(taxPct) || 0) : 0;
+                  const taxRate = effectiveTaxPct;
+                  const taxRowLabel = effectiveTaxLabel ?? "Tax";
                   const taxAmt = Math.round(net * taxRate / 100 * 100) / 100;
                   const symLive = currencySym(form.currency);
                   const bookerPays = Math.round((net + taxAmt) * 100) / 100;
@@ -1973,7 +2028,7 @@ function ProposalSection({
                         </div>
                         {taxAmt > 0 && (
                           <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Tax ({taxRate}%)</span>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{taxRowLabel} ({taxRate}%)</span>
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{taxAmt.toLocaleString()}</span>
                           </div>
                         )}
@@ -1998,7 +2053,7 @@ function ProposalSection({
                             {taxAmt > 0 && (
                               <>
                                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>of which tax ({taxRate}%) — remit to authority</span>
+                                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>of which {taxRowLabel.toLowerCase()} ({taxRate}%) — remit to authority</span>
                                   <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>−{symLive}{taxAmt.toLocaleString()}</span>
                                 </div>
                                 <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -2076,7 +2131,10 @@ function ProposalSection({
                     fd.append("requires_payment", String(form.requires_payment));
                     fd.append("stripe_mode", effectiveStripeMode);
                     fd.append("line_items", JSON.stringify(lineItems.filter((i) => i.label && i.amount > 0)));
-                    if (taxEnabled && taxPct) fd.append("tax_pct", taxPct);
+                    if (effectiveTaxPct > 0) {
+                      fd.append("tax_pct", String(effectiveTaxPct));
+                      if (effectiveTaxLabel) fd.append("tax_label", effectiveTaxLabel);
+                    }
                     if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
                     fetcher.submit(fd, { method: "post" });
                   }}
@@ -2625,6 +2683,7 @@ function GuestBuyerProposalCard({
 
   const net = proposal.rate ?? 0;
   const taxRate = proposal.tax_pct ?? 0;
+  const taxRowLabel = proposal.tax_label ?? "Tax";
   const taxAmt = taxRate > 0 ? Math.round(net * taxRate / 100 * 100) / 100 : 0;
   // SQRZ fee removed — total = net + tax.
   const totalCharged = Math.round((net + taxAmt) * 100) / 100;
@@ -2750,7 +2809,7 @@ function GuestBuyerProposalCard({
 
             {taxAmt > 0 && (
               <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>Tax ({taxRate}%)</span>
+                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{taxRowLabel} ({taxRate}%)</span>
                 <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{taxAmt.toLocaleString()}</span>
               </div>
             )}
@@ -3589,6 +3648,7 @@ function MemberView({
   stripeConnectIdTest,
   stripeConnectStatusTest,
   isBeta,
+  taxPresets = [],
   memberInfo,
   proposalFeePct,
   proposal,
@@ -3611,6 +3671,7 @@ function MemberView({
   stripeConnectIdTest: string | null;
   stripeConnectStatusTest: string | null;
   isBeta: boolean;
+  taxPresets?: TaxPreset[];
   memberInfo?: MemberInfo;
   proposalFeePct?: number | null;
   proposal: Proposal | null;
@@ -3760,6 +3821,7 @@ function MemberView({
             stripeConnectIdTest={stripeConnectIdTest}
             stripeConnectStatusTest={stripeConnectStatusTest}
             isBeta={isBeta}
+            taxPresets={taxPresets}
             proposalFeePct={proposalFeePct}
           />
         )}
@@ -3988,6 +4050,7 @@ export default function BookingAccessPage() {
     planId,
     profileId,
     isBeta,
+    taxPresets,
     proposalFeePct,
     memberInfo,
     stripeConnectId,
@@ -4012,6 +4075,7 @@ export default function BookingAccessPage() {
     planId: number | null;
     profileId: string | null;
     isBeta: boolean;
+    taxPresets?: TaxPreset[];
     proposalFeePct?: number | null;
     memberInfo?: MemberInfo;
     stripeConnectId?: string | null;
@@ -4048,6 +4112,7 @@ export default function BookingAccessPage() {
           stripeConnectIdTest={stripeConnectIdTest ?? null}
           stripeConnectStatusTest={stripeConnectStatusTest ?? null}
           isBeta={isBeta}
+          taxPresets={taxPresets ?? []}
           memberInfo={memberInfo}
           proposalFeePct={proposalFeePct}
           proposal={proposal ?? null}

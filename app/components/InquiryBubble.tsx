@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StreamChat } from "stream-chat";
 import NewBookingModal from "~/components/NewBookingModal";
+import type { TaxPreset } from "~/lib/tax-presets";
 
 type ServiceOption = {
   id: string;
@@ -70,10 +71,12 @@ export default function InquiryBubble({
   enabled,
   services,
   chatEnabled = true,
+  taxPresets = [],
 }: {
   enabled: boolean;
   services: ServiceOption[];
   chatEnabled?: boolean;
+  taxPresets?: TaxPreset[];
 }) {
   const [open, setOpen] = useState(false);
   const [session, setSession] = useState<InquirySession | null>(null);
@@ -757,6 +760,7 @@ export default function InquiryBubble({
         services={services}
         onSuccess={handleNewBookingSuccess}
         prefill={newBookingPrefill}
+        taxPresets={taxPresets}
       />
     </>
   );

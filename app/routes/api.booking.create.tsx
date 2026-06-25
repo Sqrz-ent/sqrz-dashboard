@@ -44,6 +44,7 @@ export async function action({ request }: ActionFunctionArgs) {
     proposal_message,
     requires_payment,
     tax_pct,
+    tax_label,
     require_hotel,
     require_travel,
     require_food,
@@ -133,6 +134,7 @@ export async function action({ request }: ActionFunctionArgs) {
       // Payment is never collected at the proposal stage — always non-payment.
       requires_payment: false,
       tax_pct: tax_pct ? (parseFloat(String(tax_pct)) || null) : null,
+      tax_label: (typeof tax_label === "string" && tax_label.trim()) ? tax_label.trim() : null,
       require_hotel: require_hotel ?? false,
       require_travel: require_travel ?? false,
       require_food: require_food ?? false,

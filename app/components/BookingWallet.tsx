@@ -26,6 +26,7 @@ export type WalletData = {
   sqrz_fee_pct: number;
   tax_pct: number | null;
   tax_amount: number | null;
+  tax_label: string | null;
   client_paid: boolean;
   payout_status: string | null;
   delivery_confirmed_at: string | null;
@@ -164,6 +165,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
   const hasTypedAllocations = allocations.some((a) => !!a.allocation_type);
 
   const taxPctVal = wallet.tax_pct ?? 0;
+  const taxLabel  = wallet.tax_label ?? "Tax";
   // net = member's rate (before tax). No SQRZ fee.
   const memberRate      = wallet.secured_amount ?? 0;
   const taxAmt          = wallet.tax_amount ?? (taxPctVal > 0 ? Math.round(memberRate * taxPctVal / 100 * 100) / 100 : 0);
@@ -405,7 +407,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
         {hasTax && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
             <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-              Tax{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""}
+              {taxLabel}{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""}
             </p>
             <p style={{ color: "var(--text-muted)", fontSize: 13, fontWeight: 600, margin: 0 }}>
               +{s}{fmt(taxAmt)}
@@ -429,7 +431,7 @@ export default function BookingWallet({ wallet, bookingStatus, stripeConnectId, 
             <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
                 <p style={{ color: "var(--text-muted)", fontSize: 12, fontStyle: "italic", margin: 0 }}>
-                  of which tax{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""} — remit to authority
+                  of which {taxLabel.toLowerCase()}{taxPctVal > 0 ? ` (${taxPctVal}%)` : ""} — remit to authority
                 </p>
                 <p style={{ color: "var(--text-muted)", fontSize: 12, fontStyle: "italic", margin: 0 }}>−{s}{fmt(taxAmt)}</p>
               </div>
