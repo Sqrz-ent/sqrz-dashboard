@@ -61,7 +61,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   confirmed:       { bg: "rgba(74,222,128,0.12)",  text: "#4ade80" },
   completed:       { bg: "var(--surface-muted)", text: "var(--text-muted)" },
   archived:        { bg: "var(--surface-muted)", text: "var(--text-muted)" },
-  pending_payment: { bg: "rgba(251,191,36,0.12)",  text: "#fbbf24" },
 };
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
@@ -519,7 +518,6 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
     ? `/booking/${booking.id}?token=${booking.invite_token}`
     : `/booking/${booking.id}`;
 
-  const isPendingPayment = booking.status === "pending_payment";
   const unreadCount = Number(booking.chat_summary?.unreadCount ?? 0);
   const lastReadLabel = formatTime(booking.chat_summary?.lastReadAt ?? null);
 
@@ -533,9 +531,7 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
         background: "var(--surface)",
         border: unreadCount > 0
           ? "1px solid rgba(245,166,35,0.42)"
-          : isPendingPayment
-            ? "1px solid rgba(251,191,36,0.3)"
-            : "1px solid var(--border)",
+          : "1px solid var(--border)",
         borderRadius: 10,
         marginBottom: 8,
       }}
@@ -560,28 +556,7 @@ function MyRequestRow({ booking }: { booking: BuyerBooking }) {
       <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
         {formatDate(booking.date_start)}
       </span>
-      {isPendingPayment ? (
-        <OfficeBookingLink
-          href={href}
-          style={{
-            flexShrink: 0,
-            padding: "5px 12px",
-            borderRadius: 20,
-            border: "none",
-            background: "#fbbf24",
-            color: "#000",
-            fontWeight: 600,
-            fontSize: 12,
-            cursor: "pointer",
-            textDecoration: "none",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Complete Payment
-        </OfficeBookingLink>
-      ) : (
-        <StatusBadge status={booking.status} />
-      )}
+      <StatusBadge status={booking.status} />
     </div>
   );
 }

@@ -1,6 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
 import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
-import { getStripeClient } from "~/lib/stripe-mode.server";
 
 export async function action({ request }: { request: Request }) {
   const { booking_id, proposal_id, invite_token } = await request.json();
@@ -69,57 +68,12 @@ export async function action({ request }: { request: Request }) {
   const feeAmountMajor = Math.round(rate * feePct / 100 * 100) / 100;
   const totalAmountMajor = Math.round((rate + taxAmountMajor + feeAmountMajor) * 100) / 100;
 
-  console.log("[accept] requires_payment:", proposal.requires_payment, "feePct:", feePct, "rate:", rate, "total:", totalAmount / 100, "connectId:", connectId);
+  console.log("[accept] feePct:", feePct, "rate:", rate, "total:", totalAmount / 100, "connectId:", connectId);
 
-  if (proposal.requires_payment === true) {
-    // Stripe destination charge — fee stays on platform, net goes directly to member's Connect account
-    const stripe = getStripeClient(stripeMode);
-    if (!stripe) {
-      return Response.json({ error: `Stripe ${stripeMode} mode is not configured.` }, { status: 500 });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [
-        {
-          price_data: {
-            currency: proposal.currency.toLowerCase(),
-            unit_amount: totalAmount,
-            product_data: {
-              name: bk.title,
-              description: `Booking with ${bk.profiles?.name ?? "SQRZ Member"}`,
-            },
-          },
-          quantity: 1,
-        },
-      ],
-      payment_intent_data: connectId
-        ? {
-            application_fee_amount: feeAmount,
-            transfer_data: { destination: connectId },
-          }
-        : undefined,
-      success_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}&payment=success`,
-      cancel_url: `https://dashboard.sqrz.com/booking/${booking_id}?token=${invite_token}`,
-      metadata: {
-        booking_id,
-        invite_token,
-        proposal_id,
-        stripe_mode: stripeMode,
-        booking_type: "quote_accepted",
-        owner_profile_id: bk.owner_id,
-        rate: rate.toString(),
-        fee_pct: feePct.toString(),
-        tax_pct: taxPct.toString(),
-        tax_amount: (Math.round(rate * (taxPct / 100) * 100) / 100).toString(),
-      },
-      customer_email: participant.email,
-    });
-
-    // Do NOT update proposal status here — webhook sets it to 'accepted' after payment
-    return Response.json({ checkout_url: session.url });
-  } else {
-    // No payment needed — confirm directly
+  {
+    // Payment is never collected at proposal acceptance. Accepted proposals go straight
+    // to 'confirmed'; invoicing and any Stripe payment link happen post-confirmation on
+    // the booking page (Send Invoice / Send Invoice + Payment Link).
     await adminClient
       .from("booking_proposals")
       .update({ status: "accepted" })

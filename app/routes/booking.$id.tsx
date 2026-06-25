@@ -6,6 +6,7 @@ import {
   createSupabaseAdminClient,
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { canManageBookingBilling } from "~/lib/delegate.server";
 import { resolveMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
 import type { MessagingProvider } from "~/lib/messaging/types";
 import { getPlanLevel } from "~/lib/plans";
@@ -428,6 +429,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (!booking) return Response.json({ accessType: "invalid_token" }, { headers });
 
     const isOwner = !!(profile && booking.owner_id === profile.id);
+    // Billing capability (invoices, payment links) is granted to the owner OR an active
+    // agent delegate of the owner. Delegates manage billing on the owner's behalf.
+    const canManageBilling = profile
+      ? await canManageBookingBilling(admin, profile.id as string, booking.owner_id as string)
+      : false;
     const messagingProvider = await resolveMessagingProviderForBooking({
       admin,
       bookingId: params.id!,
@@ -437,13 +443,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       const isParticipant = (booking.booking_participants ?? []).some(
         (p: { user_id: string | null }) => p.user_id === user.id
       );
-      if (!isParticipant) return Response.json({ accessType: "no_access" }, { headers });
+      if (!isParticipant && !canManageBilling) return Response.json({ accessType: "no_access" }, { headers });
     }
 
-    // Wallet + allocations for owner on bookable statuses
+    // Wallet + allocations for the owner (or a billing delegate) on bookable statuses
     let wallet: WalletData | null = null;
     const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
-    if (isOwner && showPaymentsTab) {
+    if (canManageBilling && showPaymentsTab) {
       const { data: existingWallet } = await admin
         .from("booking_wallets")
         .select("*")
@@ -466,7 +472,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
           .from("booking_wallets")
           .insert({
             booking_id: booking.id,
-            owner_profile_id: profile!.id,
+            owner_profile_id: booking.owner_id,
             total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
             secured_amount: proposalNet,
             currency: latestProposal?.currency ?? "EUR",
@@ -571,6 +577,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         role: isOwner ? "owner" : "member",
         userEmail: (profile?.email as string) ?? user.email ?? "",
         isOwner,
+        canManageBilling,
         proposal: proposal ?? null,
         bookingToken: null,
         wallet,
@@ -723,7 +730,9 @@ export async function action({ request, params }: Route.ActionArgs) {
     const requireHotel = formData.get("require_hotel") === "true";
     const requireTravel = formData.get("require_travel") === "true";
     const requireFood = formData.get("require_food") === "true";
-    const requiresPayment = formData.get("requires_payment") === "true";
+    // Payment is never collected at the proposal stage. Proposals are always non-payment;
+    // invoicing and any Stripe payment link happen post-confirmation on the booking page.
+    const requiresPayment = false;
     const existingProposalId = (formData.get("existing_proposal_id") as string) || null;
     const lineItemsRaw = (formData.get("line_items") as string) || null;
     const taxPctRaw = formData.get("tax_pct") as string | null;
@@ -1262,7 +1271,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   confirmed:       { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
   completed:       { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
   archived:        { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
-  pending_payment: { bg: "rgba(251,191,36,0.12)", text: "#fbbf24" },
   cancelled:       { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
 };
 
@@ -1577,15 +1585,9 @@ function ProposalSection({
     require_travel: latestProposal?.require_travel ?? false,
     require_hotel: latestProposal?.require_hotel ?? false,
     require_food: latestProposal?.require_food ?? false,
-    requires_payment:
-      latestProposal?.requires_payment ??
-      ((planLevel >= 1 && !!stripeConnectId) ||
-        (isBeta && stripeConnectStatusTest === "active" && !!stripeConnectIdTest)),
-    stripe_mode:
-      latestProposal?.stripe_mode ??
-      ((planLevel < 1 || !stripeConnectId) && isBeta && stripeConnectStatusTest === "active" && !!stripeConnectIdTest
-        ? "test"
-        : "live"),
+    // Payment is never collected at the proposal stage — proposals are always non-payment.
+    requires_payment: false,
+    stripe_mode: "live" as ProposalStripeMode,
   });
 
   const [taxEnabled, setTaxEnabled] = useState(!!(latestProposal?.tax_pct));
@@ -2059,89 +2061,12 @@ function ProposalSection({
                 ))}
               </div>
 
-              {/* Payment toggle */}
-              {canUseStripe ? (
-                <div style={{ marginBottom: 20 }}>
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={!form.requires_payment}
-                      onChange={(e) => setForm((f) => ({ ...f, requires_payment: !e.target.checked }))}
-                      style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
-                    />
-                    <div>
-                      <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Handle payment manually instead</p>
-                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Buyer won't receive a Stripe payment link</p>
-                    </div>
-                  </label>
-                  {!form.requires_payment && (
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, marginLeft: 25, background: "var(--surface-muted)", borderRadius: 8, padding: "8px 10px" }}>
-                      ⚠️ Manual payments are not covered by SQRZ wallet protection. Funds won't be held in escrow.
-                    </p>
-                  )}
-                </div>
-              ) : !canUseStripe ? (
-                <>
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px", lineHeight: 1.55 }}>
-                    After your client accepts, share your email or payment details with them directly. SQRZ does not process payments on free plans.
-                  </p>
-                  <div style={{ background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.3)", borderRadius: 10, padding: "12px 14px", marginBottom: 20 }}>
-                    <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: "0 0 4px" }}>💳 Get paid directly through SQRZ</p>
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 10px" }}>Collect payment securely via Stripe — funds held in escrow until delivery.</p>
-                    <a href="https://dashboard.sqrz.com/account?upgrade=true" style={{ fontSize: 12, fontWeight: 600, color: ACCENT, textDecoration: "none" }}>Upgrade to Creator →</a>
-                  </div>
-                </>
-              ) : null}
-
-              {form.requires_payment && canUseStripe && canUseTestStripe && (
-                <div style={{ marginBottom: 20 }}>
-                  <p style={{ ...lbl, marginBottom: 8 }}>Stripe mode</p>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {canUseLiveStripe && (
-                      <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                        <input
-                          type="radio"
-                          name="proposal_stripe_mode"
-                          checked={effectiveStripeMode === "live"}
-                          onChange={() => setForm((f) => ({ ...f, stripe_mode: "live" }))}
-                          style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
-                        />
-                        <div>
-                          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Live Stripe</p>
-                          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Real checkout and real payout flow</p>
-                        </div>
-                      </label>
-                    )}
-                    <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                      <input
-                        type="radio"
-                        name="proposal_stripe_mode"
-                        checked={effectiveStripeMode === "test"}
-                        onChange={() => setForm((f) => ({ ...f, stripe_mode: "test" }))}
-                        style={{ accentColor: ACCENT, width: 15, height: 15, marginTop: 2, flexShrink: 0 }}
-                      />
-                      <div>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: ACCENT, margin: 0 }}>Stripe Test Mode</p>
-                        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>Sandbox checkout for beta rehearsal. No real funds move.</p>
-                      </div>
-                    </label>
-                  </div>
-                  {stripeConnectStatusTest && stripeConnectStatusTest !== "active" && (
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
-                      Test Connect is linked. If Stripe still flags setup details internally, checkout will show that during the test flow.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {form.requires_payment && canUseStripe && !canUseLiveStripe && canUseTestStripe && (
-                <div style={{ marginBottom: 20, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)", borderRadius: 10, padding: "10px 12px" }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: ACCENT, margin: "0 0 3px" }}>Beta test payment link</p>
-                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                    This account can rehearse Stripe payments in test mode even though live proposal payments are not enabled.
-                  </p>
-                </div>
-              )}
+              {/* Payment is not collected at the proposal stage. Once the booking is
+                  confirmed, the owner sends an invoice (optionally with a Stripe payment
+                  link) from the booking page. */}
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 20px", lineHeight: 1.55 }}>
+                After your client accepts, you can send an invoice — with or without a Stripe payment link — from the booking page.
+              </p>
 
               {fetcher.data?.error && (
                 <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
@@ -2937,15 +2862,9 @@ function GuestBuyerProposalCard({
           >
             {loading === "accept"
               ? "Processing…"
-              : proposal.requires_payment
-                ? totalCharged != null
-                  ? `Accept & Pay${proposal.stripe_mode === "test" ? " (Test)" : ""} ${sym}${totalCharged.toLocaleString()}`
-                  : proposal.stripe_mode === "test"
-                    ? "Accept & Pay (Test)"
-                    : "Accept & Pay"
-                : net > 0
-                  ? `Accept — ${sym}${net.toLocaleString()} ${proposal.currency ?? "EUR"}`
-                  : "Accept"}
+              : net > 0
+                ? `Accept — ${sym}${net.toLocaleString()} ${proposal.currency ?? "EUR"}`
+                : "Accept"}
           </button>
 
           {acceptError && (
@@ -3521,11 +3440,13 @@ function UploadInvoiceSlideOver({
   onClose,
   bookingId,
   buyerParticipant,
+  withPaymentLink = false,
 }: {
   open: boolean;
   onClose: () => void;
   bookingId: string;
   buyerParticipant: BuyerParticipant;
+  withPaymentLink?: boolean;
 }) {
   const today = new Date().toISOString().split("T")[0];
   const [form, setForm] = useState({
@@ -3547,13 +3468,13 @@ function UploadInvoiceSlideOver({
       fd.append("invoice_number", form.invoice_number);
       fd.append("invoice_date", form.invoice_date);
       fd.append("recipient_name", form.recipient_name);
+      fd.append("with_payment_link", String(withPaymentLink));
       fd.append("pdf", file);
 
       const res = await fetch("/api/invoices/upload", { method: "POST", body: fd });
       const json = (await res.json()) as { signed_url?: string; error?: string };
       if (!res.ok) throw new Error(json.error ?? "Upload failed");
 
-      if (json.signed_url) window.open(json.signed_url, "_blank");
       window.location.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unknown error");
@@ -3577,9 +3498,11 @@ function UploadInvoiceSlideOver({
   const fieldLbl: React.CSSProperties = { ...lbl, marginBottom: 4, display: "block" };
 
   return (
-    <SlideOver open={open} onClose={onClose} title="Upload Invoice">
+    <SlideOver open={open} onClose={onClose} title={withPaymentLink ? "Send Invoice + Payment Link" : "Send Invoice"}>
       <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 16px", lineHeight: 1.6 }}>
-        Upload your own PDF invoice. It will be saved and linked to this booking.
+        {withPaymentLink
+          ? "Upload your PDF invoice. It will be emailed to your client together with a Stripe payment link for the booking total."
+          : "Upload your PDF invoice. It will be emailed to your client and linked to this booking."}
       </p>
 
       <label style={fieldLbl}>Recipient name</label>
@@ -3637,7 +3560,7 @@ function UploadInvoiceSlideOver({
             fontFamily: FONT_BODY,
           }}
         >
-          {loading ? "Uploading…" : "Upload Invoice"}
+          {loading ? "Sending…" : withPaymentLink ? "Send Invoice + Payment Link" : "Send Invoice"}
         </button>
         <button
           onClick={onClose}
@@ -3664,16 +3587,20 @@ function InvoiceSection({
   booking,
   invoice,
   buyerParticipant,
+  canManageBilling = true,
 }: {
   booking: Booking;
   invoice: InvoiceRecord | null;
   buyerParticipant: BuyerParticipant;
+  canManageBilling?: boolean;
 }) {
   const bookingId = booking.id as string;
   const bookingStatus = booking.status as string;
 
   const [generateOpen, setGenerateOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
+  // When true, the upload modal also mints a Stripe payment link on send.
+  const [uploadWithPayment, setUploadWithPayment] = useState(false);
   const [showVoidConfirm, setShowVoidConfirm] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [voidLoading, setVoidLoading] = useState(false);
@@ -3822,24 +3749,24 @@ function InvoiceSection({
             </p>
           </div>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
-            You can upload a new invoice below.
+            You can send a new invoice below.
           </p>
-          <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" as const }}>
-            {/* Invoice generation hidden — upload-only flow. Generation code preserved.
-            <button
-              onClick={() => setGenerateOpen(true)}
-              style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-            >
-              Generate Invoice
-            </button>
-            */}
-            <button
-              onClick={() => setUploadOpen(true)}
-              style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
-            >
-              Upload PDF
-            </button>
-          </div>
+          {canManageBilling && (
+            <div style={{ display: "flex", gap: 10, marginTop: 14, flexWrap: "wrap" as const }}>
+              <button
+                onClick={() => { setUploadWithPayment(false); setUploadOpen(true); }}
+                style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+              >
+                Send Invoice
+              </button>
+              <button
+                onClick={() => { setUploadWithPayment(true); setUploadOpen(true); }}
+                style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
+              >
+                Send Invoice + Payment Link
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{
@@ -3849,24 +3776,26 @@ function InvoiceSection({
           padding: "20px 22px",
         }}>
           <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 14px", lineHeight: 1.6 }}>
-            No invoice has been uploaded for this booking yet. Upload your own PDF to unlock your payout.
+            {canManageBilling
+              ? "No invoice has been sent for this booking yet. Upload your PDF to send it to the client — with or without a Stripe payment link."
+              : "No invoice has been sent for this booking yet."}
           </p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
-            {/* Invoice generation hidden — upload-only flow. Generation code preserved.
-            <button
-              onClick={() => setGenerateOpen(true)}
-              style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-            >
-              Generate Invoice
-            </button>
-            */}
-            <button
-              onClick={() => setUploadOpen(true)}
-              style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-            >
-              Upload PDF
-            </button>
-          </div>
+          {canManageBilling && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+              <button
+                onClick={() => { setUploadWithPayment(false); setUploadOpen(true); }}
+                style={{ padding: "9px 18px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+              >
+                Send Invoice
+              </button>
+              <button
+                onClick={() => { setUploadWithPayment(true); setUploadOpen(true); }}
+                style={{ padding: "9px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
+              >
+                Send Invoice + Payment Link
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -3883,6 +3812,7 @@ function InvoiceSection({
         onClose={() => setUploadOpen(false)}
         bookingId={bookingId}
         buyerParticipant={buyerParticipant}
+        withPaymentLink={uploadWithPayment}
       />
     </section>
   );
@@ -3892,6 +3822,7 @@ function InvoiceSection({
 
 function MemberView({
   booking,
+  canManageBilling = true,
   wallet,
   planLevel,
   userEmail,
@@ -3913,6 +3844,7 @@ function MemberView({
   onMobileOfficeBack,
 }: {
   booking: Booking;
+  canManageBilling?: boolean;
   wallet: WalletData | null;
   planLevel: number;
   userEmail: string;
@@ -4091,6 +4023,7 @@ function MemberView({
           booking={b}
           invoice={invoice}
           buyerParticipant={buyerParticipant}
+          canManageBilling={canManageBilling}
         />
 
         {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
@@ -4291,6 +4224,7 @@ export default function BookingAccessPage() {
     booking,
     userEmail,
     isOwner,
+    canManageBilling,
     accessType,
     role,
     proposal,
@@ -4314,6 +4248,7 @@ export default function BookingAccessPage() {
     booking: Booking;
     userEmail: string;
     isOwner: boolean;
+    canManageBilling?: boolean;
     accessType: string;
     role: string;
     proposal: Proposal;
@@ -4338,14 +4273,15 @@ export default function BookingAccessPage() {
   const b = booking;
   const planLevel = getPlanLevel(planId);
 
-  // ── Owner / authenticated member — full rich UI ────────────────────────────
-  if (isOwner) {
+  // ── Owner / authenticated member (or billing delegate) — full rich UI ───────
+  if (isOwner || canManageBilling) {
     return (
       <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
         {themeToggle}
         <PaymentSuccessBanner />
         <MemberView
           booking={b}
+          canManageBilling={isOwner || !!canManageBilling}
           wallet={wallet}
           planLevel={planLevel}
           userEmail={userEmail}

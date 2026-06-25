@@ -77,7 +77,7 @@ export default function NewBookingModal({
     // Step 2
     rate: "",
     currency: "EUR",
-    requires_payment: requiresPaymentDefault,
+    requires_payment: false,
     tax_pct: "",
     require_hotel: false,
     require_travel: false,
@@ -110,7 +110,7 @@ export default function NewBookingModal({
         description: "",
         rate: "",
         currency: "EUR",
-        requires_payment: requiresPaymentDefault,
+        requires_payment: false,
         tax_pct: "",
         require_hotel: false,
         require_travel: false,
@@ -510,61 +510,9 @@ export default function NewBookingModal({
             </label>
           </div>
 
-          {/* Payment method */}
-          {requiresPaymentDefault ? (
-            <div
-              style={{
-                padding: "12px 14px",
-                background: "var(--bg)",
-                borderRadius: 10,
-                border: "1px solid var(--border)",
-                marginBottom: 10,
-              }}
-            >
-              <label style={{ ...checkRow, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={!form.requires_payment}
-                  onChange={(e) => set("requires_payment", !e.target.checked)}
-                  style={{ accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, marginTop: 2 }}
-                />
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>Handle payment manually instead</p>
-                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "2px 0 0" }}>
-                    {form.requires_payment
-                      ? "Client will receive a Stripe payment link"
-                      : "Payment handled outside SQRZ — no Stripe link sent"}
-                  </p>
-                </div>
-              </label>
-            </div>
-          ) : connectPending ? (
-            <div
-              style={{
-                padding: "11px 14px",
-                background: "var(--bg)",
-                borderRadius: 10,
-                border: "1px solid var(--border)",
-                marginBottom: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-              }}
-            >
-              <span style={{ fontSize: 15, lineHeight: 1 }}>⚠️</span>
-              <div>
-                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>
-                  Finish your Stripe onboarding to unlock payments
-                </p>
-                <a
-                  href="/payments"
-                  style={{ fontSize: 11, color: ACCENT, textDecoration: "none", fontWeight: 600 }}
-                >
-                  Complete setup →
-                </a>
-              </div>
-            </div>
-          ) : null}
+          {/* Payment is not collected at the proposal stage. Once the booking is
+              confirmed, the owner sends an invoice (optionally with a Stripe payment
+              link) from the booking page. */}
 
           {/* Message */}
           <div style={{ marginBottom: 10 }}>

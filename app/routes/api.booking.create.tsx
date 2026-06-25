@@ -130,13 +130,14 @@ export async function action({ request }: ActionFunctionArgs) {
       currency: currency ?? "EUR",
       message: proposal_message || null,
       line_items: line_items?.length ? line_items : null,
-      requires_payment: requires_payment ?? false,
+      // Payment is never collected at the proposal stage — always non-payment.
+      requires_payment: false,
       tax_pct: tax_pct ? (parseFloat(String(tax_pct)) || null) : null,
       require_hotel: require_hotel ?? false,
       require_travel: require_travel ?? false,
       require_food: require_food ?? false,
       sqrz_fee_pct: resolveLockedSqrzFeePct({
-        requiresPayment: requires_payment ?? false,
+        requiresPayment: false,
         fallbackFeePct,
       }),
       status: "sent",
