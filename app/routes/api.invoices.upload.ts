@@ -143,7 +143,6 @@ export async function action({ request }: { request: Request }) {
       line_items: [],
       pdf_source: "uploaded",
       pdf_url: storagePath,
-      invoice_fee_paid: true,
       status: "sent",
       invoice_type: "manual",
       currency: "EUR",

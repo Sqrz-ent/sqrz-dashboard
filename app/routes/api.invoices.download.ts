@@ -43,27 +43,7 @@ export async function action({ request }: { request: Request }) {
 
   let signed_url: string | null = null;
 
-  if (invoice.pdf_source === "generated") {
-    // Re-call the Edge Function to get a fresh signed URL
-    try {
-      const edgeRes = await fetch(
-        `${process.env.SUPABASE_URL}/functions/v1/generate-invoice`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${process.env.SUPABASE_SERVICE_ROLE_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ invoice_id }),
-        }
-      );
-      const edgeJson = (await edgeRes.json()) as { ok?: boolean; signed_url?: string };
-      signed_url = edgeJson.signed_url ?? null;
-    } catch (err) {
-      console.error("[invoices/download] edge function error:", err);
-      return Response.json({ error: "Failed to generate download link" }, { status: 500 });
-    }
-  } else if (invoice.pdf_source === "uploaded" && invoice.pdf_url) {
+  if (invoice.pdf_source === "uploaded" && invoice.pdf_url) {
     // Create fresh signed URL from storage
     const { data: signedData, error: signedError } = await adminClient.storage
       .from("invoices")

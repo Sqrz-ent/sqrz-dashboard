@@ -31,30 +31,3 @@ export function resolveLockedSqrzFeePct(_input: {
   // (called in many places) and the DB columns remain, but no fee is ever charged.
   return 0;
 }
-
-export function reconcileInvoiceLineItems(input: {
-  netAmount: number | null | undefined;
-  rawLineItems: unknown;
-  primaryLabel?: string | null;
-}): ProposalBreakdownLineItem[] {
-  const netAmount = roundCurrency(Number(input.netAmount ?? 0));
-  const primaryLabel = input.primaryLabel?.trim() || "Professional services";
-  const lineItems = normalizeProposalLineItems(input.rawLineItems);
-
-  if (netAmount <= 0) return lineItems;
-  if (lineItems.length === 0) {
-    return [{ label: primaryLabel, amount: netAmount }];
-  }
-
-  const breakdownTotal = roundCurrency(
-    lineItems.reduce((sum, item) => sum + item.amount, 0)
-  );
-  const remainder = roundCurrency(netAmount - breakdownTotal);
-
-  if (Math.abs(remainder) <= 0.01) return lineItems;
-  if (remainder < 0) {
-    return [{ label: primaryLabel, amount: netAmount }];
-  }
-
-  return [{ label: primaryLabel, amount: remainder }, ...lineItems];
-}
