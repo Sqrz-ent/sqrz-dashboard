@@ -1622,16 +1622,6 @@ function ProposalSection({
         {buyerCounted ? "Counter Offer" : (showForm && isRevise) ? "Revise Proposal" : "Proposal"}
       </SectionHeading>
 
-      {/* Read-only Stripe onboarding hint — informational only, no CTA. Mirrors the
-          equivalent hint in sqrz-ios CreateProposalView. */}
-      {stripeConnectStatus !== "active" && (
-        <div style={{ marginBottom: 20, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)", borderRadius: 10, padding: "10px 12px" }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", margin: 0 }}>
-            ⚠️ Finish your Stripe onboarding to unlock payments
-          </p>
-        </div>
-      )}
-
       {sent ? (
         <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
           <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
