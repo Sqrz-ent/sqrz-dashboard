@@ -2031,141 +2031,6 @@ function GuestProposalCard({ proposal }: { proposal: Proposal }) {
   );
 }
 
-// ── BillingModal ──────────────────────────────────────────────────────────────
-
-function BillingModal({
-  open,
-  onClose,
-  onConfirm,
-  bookingId,
-  bookingToken,
-  prefill,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onConfirm: () => void;
-  bookingId: string;
-  bookingToken: string | null;
-  prefill: { name: string | null; email: string | null };
-}) {
-  const [form, setForm] = useState({
-    billing_company: prefill.name ?? "",
-    billing_address: "",
-    billing_city: "",
-    billing_country: "",
-    billing_vat_id: "",
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!form.billing_company.trim()) {
-      setError("Company / Name is required.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/billing/confirm", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          booking_id: bookingId,
-          invite_token: bookingToken,
-          ...form,
-        }),
-      });
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}));
-        setError((json as { error?: string }).error ?? "Could not save billing details. Please try again.");
-        setSaving(false);
-        return;
-      }
-      onConfirm();
-    } catch {
-      setError("Could not save billing details. Please try again.");
-      setSaving(false);
-    }
-  }
-
-  if (!open) return null;
-
-  const overlay: React.CSSProperties = {
-    position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)",
-    zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center",
-    padding: "20px",
-  };
-  const modal: React.CSSProperties = {
-    background: "var(--surface)", borderRadius: 18, padding: "28px 28px 24px",
-    width: "100%", maxWidth: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
-    fontFamily: "'DM Sans', ui-sans-serif, sans-serif",
-  };
-  const lbl: React.CSSProperties = {
-    fontSize: 11, fontWeight: 700, color: "var(--text-muted)",
-    textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 5,
-  };
-  const inp: React.CSSProperties = {
-    width: "100%", padding: "10px 13px", background: "var(--bg)",
-    border: "1px solid var(--border)", borderRadius: 10, fontSize: 14,
-    color: "var(--text)", outline: "none", boxSizing: "border-box",
-    fontFamily: "'DM Sans', ui-sans-serif, sans-serif",
-  };
-
-  return (
-    <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={modal}>
-        <h2 style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: 22, fontWeight: 800, color: "#F5A623", textTransform: "uppercase", margin: "0 0 4px" }}>
-          Billing Details
-        </h2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 20px" }}>
-          Your details will be used to generate your invoice.
-        </p>
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div>
-            <label style={lbl}>Company / Name *</label>
-            <input style={inp} value={form.billing_company} required
-              onChange={(e) => setForm(f => ({ ...f, billing_company: e.target.value }))} />
-          </div>
-          <div>
-            <label style={lbl}>Address</label>
-            <input style={inp} value={form.billing_address}
-              onChange={(e) => setForm(f => ({ ...f, billing_address: e.target.value }))} />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={lbl}>City</label>
-              <input style={inp} value={form.billing_city}
-                onChange={(e) => setForm(f => ({ ...f, billing_city: e.target.value }))} />
-            </div>
-            <div>
-              <label style={lbl}>Country</label>
-              <input style={inp} value={form.billing_country}
-                onChange={(e) => setForm(f => ({ ...f, billing_country: e.target.value }))} />
-            </div>
-          </div>
-          <div>
-            <label style={lbl}>VAT ID</label>
-            <input style={inp} value={form.billing_vat_id} placeholder="Leave blank if not VAT registered"
-              onChange={(e) => setForm(f => ({ ...f, billing_vat_id: e.target.value }))} />
-          </div>
-          {error && <p style={{ fontSize: 13, color: "#ef4444", margin: 0 }}>{error}</p>}
-          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
-            <button type="button" onClick={onClose} style={{ padding: "10px 18px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 14, color: "var(--text)", cursor: "pointer", fontFamily: "'DM Sans', ui-sans-serif, sans-serif" }}>
-              Cancel
-            </button>
-            <button type="submit" disabled={saving} style={{ padding: "10px 22px", background: "#F5A623", color: "#111", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: "'DM Sans', ui-sans-serif, sans-serif" }}>
-              {saving ? "Saving…" : "Continue →"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
 function GuestBuyerProposalCard({
   proposal,
   bookingId,
@@ -2173,8 +2038,6 @@ function GuestBuyerProposalCard({
   walletFeePct,
   proposalFeePct,
   memberEmail,
-  participantName,
-  participantEmail,
 }: {
   proposal: Proposal;
   bookingId: string;
@@ -2182,12 +2045,9 @@ function GuestBuyerProposalCard({
   walletFeePct?: number | null;
   proposalFeePct?: number | null;
   memberEmail?: string | null;
-  participantName?: string | null;
-  participantEmail?: string | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
-  const [billingOpen, setBillingOpen] = useState(false);
   const [counterOpen, setCounterOpen] = useState(false);
   const [counterRate, setCounterRate] = useState(String(proposal?.rate ?? ""));
   const [counterCurrency, setCounterCurrency] = useState(proposal?.currency ?? "EUR");
@@ -2259,10 +2119,6 @@ function GuestBuyerProposalCard({
       setAcceptError("Something went wrong. Please try again.");
       setLoading(null);
     }
-  }
-
-  function handleAccept() {
-    setBillingOpen(true);
   }
 
   async function handleCounter() {
@@ -2432,7 +2288,7 @@ function GuestBuyerProposalCard({
       {showActions && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <button
-            onClick={handleAccept}
+            onClick={proceedWithAccept}
             disabled={loading !== null}
             style={{
               width: "100%",
@@ -2567,15 +2423,6 @@ function GuestBuyerProposalCard({
           </button>
         </div>
       )}
-
-      <BillingModal
-        open={billingOpen}
-        onClose={() => setBillingOpen(false)}
-        onConfirm={() => { setBillingOpen(false); proceedWithAccept(); }}
-        bookingId={bookingId}
-        bookingToken={bookingToken}
-        prefill={{ name: participantName ?? null, email: participantEmail ?? null }}
-      />
     </>
   );
 }
@@ -3639,8 +3486,6 @@ export default function BookingAccessPage() {
                   walletFeePct={(wallet as { sqrz_fee_pct?: number } | null)?.sqrz_fee_pct ?? null}
                   proposalFeePct={proposalFeePct ?? null}
                   memberEmail={memberEmail ?? null}
-                  participantName={senderName ?? null}
-                  participantEmail={userEmail ?? null}
                 />
               </div>
             )}
