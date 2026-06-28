@@ -123,6 +123,67 @@ async function syncWalletFromProposal(input: {
     .eq("id", walletId);
 }
 
+// Single source of truth for loading the owner's wallet on a bookable status.
+// Creates the wallet from the latest proposal if missing, otherwise syncs it,
+// and returns the fresh row. Replaces the duplicated create/sync blocks that
+// previously lived inline in each loader branch.
+async function getOrCreateBookingWallet(input: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  booking: { id: string; owner_id: string; booking_proposals?: unknown };
+}): Promise<WalletData | null> {
+  const { admin, booking } = input;
+
+  const { data: existingWallet } = await admin
+    .from("booking_wallets")
+    .select("*")
+    .eq("booking_id", booking.id)
+    .maybeSingle();
+
+  if (!existingWallet) {
+    const latestProposal = getLatestProposalRecord(booking.booking_proposals);
+    const proposalNet = Number(latestProposal?.rate ?? 0);
+    const proposalTaxPct = Number(latestProposal?.tax_pct ?? 0);
+    const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
+    const lockedFeePct = resolveLockedSqrzFeePct({
+      requiresPayment: latestProposal?.requires_payment,
+      proposalFeePct: latestProposal?.sqrz_fee_pct,
+      fallbackFeePct: 0,
+    });
+    const proposalFeeAmount = roundCurrency(proposalNet * lockedFeePct / 100);
+    const { data: newWallet } = await admin
+      .from("booking_wallets")
+      .insert({
+        booking_id: booking.id,
+        owner_profile_id: booking.owner_id,
+        total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
+        secured_amount: proposalNet,
+        currency: latestProposal?.currency ?? "EUR",
+        sqrz_fee_pct: lockedFeePct,
+        tax_pct: proposalTaxPct || null,
+        tax_amount: proposalTaxAmount || null,
+        tax_label: (latestProposal as { tax_label?: string | null } | null)?.tax_label ?? null,
+        status: "pending",
+      })
+      .select("*")
+      .single();
+    return (newWallet as WalletData | null) ?? null;
+  }
+
+  const latestProposal = getLatestProposalRecord(booking.booking_proposals);
+  await syncWalletFromProposal({
+    admin,
+    walletId: (existingWallet as { id: string }).id,
+    proposal: latestProposal,
+    clientPaid: (existingWallet as { client_paid?: boolean | null }).client_paid,
+  });
+  const { data: refreshedWallet } = await admin
+    .from("booking_wallets")
+    .select("*")
+    .eq("id", (existingWallet as { id: string }).id)
+    .maybeSingle();
+  return ((refreshedWallet ?? existingWallet) as WalletData | null) ?? null;
+}
+
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -219,63 +280,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (isOwner) {
       const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
       if (showPaymentsTab) {
-        const { data: existingWallet } = await admin
-          .from("booking_wallets")
-          .select("*")
-          .eq("booking_id", booking.id)
-          .maybeSingle();
-
-        let baseWallet = existingWallet;
-        if (!baseWallet) {
-          const latestProposal = getLatestProposalRecord(booking.booking_proposals);
-          const proposalNet = Number(latestProposal?.rate ?? 0);
-          const proposalTaxPct = Number(latestProposal?.tax_pct ?? 0);
-          const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
-          const lockedProposalFeePct = resolveLockedSqrzFeePct({
-            requiresPayment: latestProposal?.requires_payment,
-            proposalFeePct: latestProposal?.sqrz_fee_pct,
-            fallbackFeePct: proposalFeePct,
-          });
-          const proposalFeeAmount = roundCurrency(proposalNet * lockedProposalFeePct / 100);
-          const { data: newWallet } = await admin
-            .from("booking_wallets")
-            .insert({
-              booking_id: booking.id,
-              owner_profile_id: profile!.id,
-              total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
-              secured_amount: proposalNet,
-              currency: latestProposal?.currency ?? "EUR",
-              sqrz_fee_pct: lockedProposalFeePct,
-              tax_pct: proposalTaxPct || null,
-              tax_amount: proposalTaxAmount || null,
-              tax_label: (latestProposal as { tax_label?: string | null } | null)?.tax_label ?? null,
-              status: "pending",
-            })
-            .select("*")
-            .single();
-          baseWallet = newWallet ?? null;
-        } else {
-          const latestProposal = getLatestProposalRecord(booking.booking_proposals);
-          await syncWalletFromProposal({
-            admin,
-            walletId: (baseWallet as { id: string }).id,
-            proposal: latestProposal,
-            clientPaid: (baseWallet as { client_paid?: boolean | null }).client_paid,
-          });
-          const { data: refreshedWallet } = await admin
-            .from("booking_wallets")
-            .select("*")
-            .eq("id", (baseWallet as { id: string }).id)
-            .maybeSingle();
-          baseWallet = refreshedWallet ?? baseWallet;
-        }
-        if (baseWallet) {
-          const { data: allocations } = await admin
-            .from("wallet_allocations")
-            .select("id, label, role, allocation_type, amount, currency, status, stripe_payment_link_url, paid_at, boost_campaign_id")
-            .eq("wallet_id", baseWallet.id);
-          wallet = { ...(baseWallet as WalletData), allocations: allocations ?? [] };
-        }
+        wallet = await getOrCreateBookingWallet({ admin, booking });
       }
     } else {
       wallet = tokenWallet as WalletData | null;
@@ -450,68 +455,11 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       if (!isParticipant && !canManageBilling) return Response.json({ accessType: "no_access" }, { headers });
     }
 
-    // Wallet + allocations for the owner (or a billing delegate) on bookable statuses
+    // Wallet for the owner (or a billing delegate) on bookable statuses
     let wallet: WalletData | null = null;
     const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
     if (canManageBilling && showPaymentsTab) {
-      const { data: existingWallet } = await admin
-        .from("booking_wallets")
-        .select("*")
-        .eq("booking_id", booking.id)
-        .maybeSingle();
-
-      let baseWallet = existingWallet;
-      if (!baseWallet) {
-        const latestProposal = getLatestProposalRecord(booking.booking_proposals);
-        const proposalNet = Number(latestProposal?.rate ?? 0);
-        const proposalTaxPct = Number(latestProposal?.tax_pct ?? 0);
-        const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
-        const proposalFeePct = resolveLockedSqrzFeePct({
-          requiresPayment: latestProposal?.requires_payment,
-          proposalFeePct: latestProposal?.sqrz_fee_pct,
-          fallbackFeePct: 0,
-        });
-        const proposalFeeAmount = roundCurrency(proposalNet * proposalFeePct / 100);
-        const { data: newWallet } = await admin
-          .from("booking_wallets")
-          .insert({
-            booking_id: booking.id,
-            owner_profile_id: booking.owner_id,
-            total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
-            secured_amount: proposalNet,
-            currency: latestProposal?.currency ?? "EUR",
-            sqrz_fee_pct: proposalFeePct,
-            tax_pct: proposalTaxPct || null,
-            tax_amount: proposalTaxAmount || null,
-            tax_label: (latestProposal as { tax_label?: string | null } | null)?.tax_label ?? null,
-            status: "pending",
-          })
-          .select("*")
-          .single();
-        baseWallet = newWallet ?? null;
-      } else {
-        const latestProposal = getLatestProposalRecord(booking.booking_proposals);
-        await syncWalletFromProposal({
-          admin,
-          walletId: (baseWallet as { id: string }).id,
-          proposal: latestProposal,
-          clientPaid: (baseWallet as { client_paid?: boolean | null }).client_paid,
-        });
-        const { data: refreshedWallet } = await admin
-          .from("booking_wallets")
-          .select("*")
-          .eq("id", (baseWallet as { id: string }).id)
-          .maybeSingle();
-        baseWallet = refreshedWallet ?? baseWallet;
-      }
-
-      if (baseWallet) {
-        const { data: allocations } = await admin
-          .from("wallet_allocations")
-          .select("id, label, role, allocation_type, amount, currency, status, stripe_payment_link_url, paid_at, boost_campaign_id")
-          .eq("wallet_id", baseWallet.id);
-        wallet = { ...(baseWallet as WalletData), allocations: allocations ?? [] };
-      }
+      wallet = await getOrCreateBookingWallet({ admin, booking });
     }
 
     const proposal = getLatestProposalRecord(booking.booking_proposals);
@@ -616,24 +564,6 @@ export async function action({ request, params }: Route.ActionArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const formData = await request.formData();
   const intent = formData.get("intent") as string;
-  const bookingToken = formData.get("bookingToken") as string | null;
-
-  // Token-based: guest confirm / decline
-  if ((intent === "confirm_booking" || intent === "decline_booking") && bookingToken) {
-    const admin = createSupabaseAdminClient();
-    const { data: participant } = await admin
-      .from("booking_participants")
-      .select("role")
-      .eq("booking_id", params.id)
-      .eq("invite_token", bookingToken)
-      .maybeSingle();
-
-    if (!participant) return Response.json({ error: "Unauthorized" }, { headers, status: 403 });
-
-    const newStatus = intent === "confirm_booking" ? "confirmed" : "archived";
-    const { error } = await admin.from("bookings").update({ status: newStatus }).eq("id", params.id);
-    return Response.json({ ok: !error }, { headers });
-  }
 
   // Session-based: all member / owner intents
   const { data: { user } } = await supabase.auth.getUser();
@@ -641,13 +571,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers });
-
-  // Session confirm / decline (no token)
-  if (intent === "confirm_booking" || intent === "decline_booking") {
-    const newStatus = intent === "confirm_booking" ? "confirmed" : "cancelled";
-    const { error } = await supabase.from("bookings").update({ status: newStatus }).eq("id", params.id);
-    return Response.json({ ok: !error }, { headers });
-  }
 
   // All intents below require ownership
   const { data: bkCheck } = await supabase
@@ -714,21 +637,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     return redirect("/office", { headers });
   }
 
-  if (intent === "update_status") {
-    const status = formData.get("status") as string;
-    await supabase.from("bookings").update({ status }).eq("id", params.id).eq("owner_id", profile.id as string);
-    return Response.json({ ok: true }, { headers });
-  }
-
-  if (intent === "update_show_label") {
-    const { error } = await supabase
-      .from("bookings")
-      .update({ show_label: formData.get("show_label") === "true" })
-      .eq("id", params.id)
-      .eq("owner_id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   if (intent === "send_proposal") {
     const rateRaw = parseFloat(formData.get("rate") as string) || null;
     const currency = (formData.get("currency") as string) || "EUR";
@@ -744,7 +652,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     const taxPctRaw = formData.get("tax_pct") as string | null;
     const taxPct = taxPctRaw ? (parseFloat(taxPctRaw) || null) : null;
     const taxLabel = ((formData.get("tax_label") as string) || "").trim() || null;
-    const requestedStripeMode = formData.get("stripe_mode") === "test" ? "test" : "live";
 
     let lineItems: LineItem[] | null = null;
     const rate = rateRaw;
@@ -755,35 +662,9 @@ export async function action({ request, params }: Route.ActionArgs) {
     } catch { /* ignore parse error */ }
 
     const admin = createSupabaseAdminClient();
-    const { data: ownerPlan } = await admin
-      .from("profiles")
-      .select("plan_id, stripe_connect_id, stripe_connect_id_test, plans(booking_fee_pct)")
-      .eq("id", profile.id as string)
-      .maybeSingle();
-    const livePlanLevel = getPlanLevel((ownerPlan?.plan_id as number | null) ?? null);
-    const canUseLiveStripe = livePlanLevel >= 1 && !!(ownerPlan?.stripe_connect_id as string | null);
-    const canUseTestStripe =
-      !!(profile.is_beta as boolean | null) &&
-      !!(ownerPlan?.stripe_connect_id_test as string | null);
-    const stripeMode: ProposalStripeMode = !requiresPayment
-      ? "live"
-      : requestedStripeMode === "test"
-        ? "test"
-        : "live";
-
-    if (requiresPayment && stripeMode === "live" && !canUseLiveStripe) {
-      return Response.json({ error: "Live Stripe payments are not available for this account yet." }, { status: 400, headers });
-    }
-
-    if (requiresPayment && stripeMode === "test" && !canUseTestStripe) {
-      return Response.json({ error: "Stripe test mode is not active for this account yet." }, { status: 400, headers });
-    }
-
-    const fallbackFeePct = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
-    const lockedFeePct = resolveLockedSqrzFeePct({
-      requiresPayment,
-      fallbackFeePct,
-    });
+    // Payment is never collected at the proposal stage, so the SQRZ fee is always 0
+    // and no Stripe account/mode gating applies here.
+    const lockedFeePct = resolveLockedSqrzFeePct({ requiresPayment });
     const normalizedRate = Number(rate ?? 0);
     const normalizedTaxPct = taxPct ?? 0;
     const normalizedTaxAmount = normalizedTaxPct > 0 ? roundCurrency(normalizedRate * normalizedTaxPct / 100) : 0;
@@ -816,7 +697,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         .eq("id", existingProposalId);
     }
 
-    const { data: insertData, error: insertError } = await admin
+    const { error: insertError } = await admin
       .from("booking_proposals")
       .insert({
         booking_id: params.id,
@@ -835,12 +716,13 @@ export async function action({ request, params }: Route.ActionArgs) {
         tax_pct: taxPct,
         tax_label: taxLabel,
         sqrz_fee_pct: lockedFeePct,
-        stripe_mode: stripeMode,
+        stripe_mode: "live",
       })
       .select();
 
-    console.log("[proposal insert] error:", insertError);
-    console.log("[proposal insert] data:", insertData);
+    if (insertError) {
+      console.error("[proposal insert] error:", insertError);
+    }
 
     await admin
       .from("booking_wallets")
@@ -848,7 +730,7 @@ export async function action({ request, params }: Route.ActionArgs) {
         secured_amount: normalizedRate,
         total_budget: roundCurrency(normalizedRate + normalizedTaxAmount + normalizedFeeAmount),
         currency,
-        stripe_mode: requiresPayment ? stripeMode : "live",
+        stripe_mode: "live",
         sqrz_fee_pct: lockedFeePct,
         tax_pct: normalizedTaxPct || null,
         tax_amount: normalizedTaxAmount || null,
@@ -948,33 +830,6 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ ok: true }, { headers });
   }
 
-  if (intent === "mark_as_paid") {
-    await supabase
-      .from("bookings")
-      .update({ status: "completed" })
-      .eq("id", params.id)
-      .eq("owner_id", profile.id as string);
-    try {
-      const adminForReferral = createSupabaseAdminClient();
-      const { data: wallet } = await adminForReferral
-        .from("booking_wallets")
-        .select("secured_amount, stripe_mode")
-        .eq("booking_id", params.id)
-        .maybeSingle();
-      if (wallet?.secured_amount) {
-        await handleBookingReferral({
-          supabase: adminForReferral,
-          bookingId: params.id!,
-          bookingValue: Number(wallet.secured_amount),
-          stripeMode: (wallet.stripe_mode as ProposalStripeMode | null) ?? "live",
-        });
-      }
-    } catch (err) {
-      console.error("[mark_as_paid] referral commission failed:", err);
-    }
-    return Response.json({ ok: true }, { headers });
-  }
-
   if (intent === "mark_as_delivered") {
     await supabase
       .from("bookings")
@@ -1010,38 +865,9 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ ok: true }, { headers });
   }
 
-  if (intent === "wallet_save_costs") {
-    const transport = parseFloat(formData.get("transport") as string) || 0;
-    const hotel     = parseFloat(formData.get("hotel")     as string) || 0;
-    const food      = parseFloat(formData.get("food")      as string) || 0;
-    const admin = createSupabaseAdminClient();
-    await admin
-      .from("booking_wallets")
-      .update({ notes: JSON.stringify({ transport, hotel, food }) })
-      .eq("booking_id", params.id);
-    return Response.json({ ok: true }, { headers });
-  }
-
   if (intent === "wallet_mark_paid") {
     const admin = createSupabaseAdminClient();
     await admin.from("booking_wallets").update({ client_paid: true }).eq("booking_id", params.id);
-    return Response.json({ ok: true }, { headers });
-  }
-
-  if (intent === "add_expense") {
-    const walletId  = formData.get("wallet_id") as string;
-    const expLabel  = formData.get("expense_label") as string;
-    const expAmount = parseFloat(formData.get("expense_amount") as string) || 0;
-    const currency  = formData.get("currency") as string;
-    const admin = createSupabaseAdminClient();
-    await admin.from("wallet_allocations").insert({
-      wallet_id: walletId,
-      participant_id: null,
-      role: expLabel,
-      amount: expAmount,
-      currency,
-      status: "pending",
-    });
     return Response.json({ ok: true }, { headers });
   }
 
@@ -1548,30 +1374,36 @@ function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Bo
         </div>
       )}
 
+      {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
+        <div style={card}>
+          <p style={lbl}>Seller Information</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
+            {(memberInfo.company_name || memberInfo.name) && (
+              <p style={{ ...val, fontWeight: 600 }}>{memberInfo.company_name ?? memberInfo.name}</p>
+            )}
+            {memberInfo.legal_form && (
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.legal_form}</p>
+            )}
+            {memberInfo.company_address && (
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.company_address}</p>
+            )}
+            {memberInfo.vat_id && (
+              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>VAT: {memberInfo.vat_id}</p>
+            )}
+          </div>
+        </div>
+      )}
+
     </section>
   );
 }
 
 function ProposalSection({
   booking,
-  planLevel,
-  stripeConnectId,
-  stripeConnectStatus,
-  stripeConnectIdTest,
-  stripeConnectStatusTest,
-  isBeta,
   taxPresets = [],
-  proposalFeePct,
 }: {
   booking: Booking;
-  planLevel: number;
-  stripeConnectId: string | null;
-  stripeConnectStatus: string | null;
-  stripeConnectIdTest: string | null;
-  stripeConnectStatusTest: string | null;
-  isBeta: boolean;
   taxPresets?: TaxPreset[];
-  proposalFeePct?: number | null;
 }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const declineFetcher = useFetcher<{ ok?: boolean }>();
@@ -1593,12 +1425,6 @@ function ProposalSection({
     rate: String(latestProposal?.rate ?? ""),
     currency: latestProposal?.currency ?? "EUR",
     message: "",
-    require_travel: latestProposal?.require_travel ?? false,
-    require_hotel: latestProposal?.require_hotel ?? false,
-    require_food: latestProposal?.require_food ?? false,
-    // Payment is never collected at the proposal stage — proposals are always non-payment.
-    requires_payment: false,
-    stripe_mode: "live" as ProposalStripeMode,
   });
 
   // Tax: preset dropdown when the profile has tax_presets, else free-text fallback.
@@ -1626,27 +1452,7 @@ function ProposalSection({
     : (taxEnabled ? (parseFloat(taxPct) || 0) : 0);
   const effectiveTaxLabel = hasTaxPresets ? (selectedPreset?.label ?? null) : null;
 
-  const [lineItems, setLineItems] = useState<LineItem[]>(() => {
-    const existing = latestProposal?.line_items;
-    if (existing?.length) return existing;
-    return [{ label: "", amount: 0 }];
-  });
-
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
-  const hasLiveConnect = !!stripeConnectId;
-  const hasTestConnect = !!stripeConnectIdTest;
-  const canUseLiveStripe = planLevel >= 1 && hasLiveConnect;
-  const canUseTestStripe = isBeta && hasTestConnect;
-  const availableStripeModes: ProposalStripeMode[] = [
-    ...(canUseLiveStripe ? ["live" as const] : []),
-    ...(canUseTestStripe ? ["test" as const] : []),
-  ];
-  const canUseStripe = availableStripeModes.length > 0;
-  const effectiveStripeMode: ProposalStripeMode = form.requires_payment
-    ? (availableStripeModes.includes(form.stripe_mode as ProposalStripeMode)
-        ? (form.stripe_mode as ProposalStripeMode)
-        : (availableStripeModes[0] ?? "live"))
-    : "live";
   const sym = currencySym(latestProposal?.currency ?? "EUR");
 
   return (
@@ -1676,7 +1482,6 @@ function ProposalSection({
                 const youReceiveGross2 = Math.round((net + tAmt) * 100) / 100;
                 const yourNetIncome2 = net;
                 const symP = currencySym(p.currency);
-                const lineItemsP = p.line_items ?? [];
                 return (
                   <div style={card}>
                     <p style={{ ...lbl, marginBottom: 10 }}>Sent Proposal</p>
@@ -1712,39 +1517,10 @@ function ProposalSection({
                         </>
                       )}
                     </div>
-                    {lineItemsP.length > 0 && (
-                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-                        <p style={{ ...lbl, marginBottom: 6 }}>Breakdown (for transparency)</p>
-                        {lineItemsP.map((item, idx) => (
-                          <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item.label}</span>
-                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{(item.amount || 0).toLocaleString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {p.requires_payment && p.stripe_mode === "test" && (
-                      <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)" }}>
-                        <p style={{ fontSize: 12, fontWeight: 700, color: ACCENT, margin: "0 0 3px" }}>Stripe Test Mode</p>
-                        <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                          This proposal will generate a Stripe sandbox payment link for rehearsal only.
-                        </p>
-                      </div>
-                    )}
                     {p.message && (
                       <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "12px 0 0", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                         {p.message}
                       </p>
-                    )}
-                    {[p.require_hotel && "Hotel", p.require_travel && "Travel", p.require_food && "Catering"].filter(Boolean).length > 0 && (
-                      <div style={{ marginTop: 10 }}>
-                        {[p.require_hotel && "Hotel", p.require_travel && "Travel", p.require_food && "Catering"].filter(Boolean).map((r) => (
-                          <div key={r as string} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{r}</span>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Required</span>
-                          </div>
-                        ))}
-                      </div>
                     )}
                     <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "12px 0 0", lineHeight: 1.55 }}>
                       You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
@@ -1909,104 +1685,6 @@ function ProposalSection({
                 Enter the flat fee. Use the breakdown below to show how the budget is allocated — for transparency only.
               </p>
 
-              {/* Fee Breakdown */}
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ ...lbl, marginBottom: 8 }}>Breakdown (optional)</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {lineItems.map((item, idx) => (
-                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 90px 32px", gap: 7, alignItems: "center" }}>
-                      <input
-                        type="text"
-                        value={item.label}
-                        onChange={(e) => {
-                          const next = [...lineItems];
-                          next[idx] = { ...item, label: e.target.value };
-                          setLineItems(next);
-                        }}
-                        placeholder="e.g. Artist fee, Transport, Crew, Tax…"
-                        style={{ ...inputStyle, padding: "8px 10px" }}
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        value={item.amount || ""}
-                        onChange={(e) => {
-                          const next = [...lineItems];
-                          next[idx] = { ...item, amount: parseFloat(e.target.value) || 0 };
-                          setLineItems(next);
-                        }}
-                        placeholder="0"
-                        style={{ ...inputStyle, padding: "8px 10px", textAlign: "right" as const }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setLineItems(lineItems.filter((_, i) => i !== idx))}
-                        style={{
-                          background: "none",
-                          border: "1px solid var(--border)",
-                          borderRadius: 6,
-                          color: "var(--text-muted)",
-                          fontSize: 14,
-                          cursor: "pointer",
-                          padding: "6px 8px",
-                          lineHeight: 1,
-                          fontFamily: FONT_BODY,
-                        }}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setLineItems([...lineItems, { label: "", amount: 0 }])}
-                  style={{
-                    marginTop: 7,
-                    background: "none",
-                    border: "1px dashed var(--border)",
-                    borderRadius: 8,
-                    color: "var(--text-muted)",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    padding: "7px 12px",
-                    fontFamily: FONT_BODY,
-                    width: "100%",
-                  }}
-                >
-                  + Add Line Item
-                </button>
-                <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "8px 0 0", lineHeight: 1.5 }}>
-                  These are shown to the client for transparency. You are responsible for all crew and expense payments.
-                </p>
-                {form.rate && parseFloat(form.rate) > 0 && (
-                  <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--bg)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 5 }}>
-                    {(() => {
-                      const rate = parseFloat(form.rate) || 0;
-                      const breakdownTotal = lineItems.reduce((s, i) => s + (i.amount || 0), 0);
-                      const unallocated = rate - breakdownTotal;
-                      const symLive = currencySym(form.currency);
-                      return (
-                        <>
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Total budget</span>
-                            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{rate.toLocaleString()}</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Breakdown total</span>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{breakdownTotal.toLocaleString()}</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 5 }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Unallocated</span>
-                            <span style={{ fontSize: 12, color: unallocated < 0 ? "#ef4444" : "var(--text-muted)" }}>{symLive}{Math.abs(unallocated).toLocaleString()}</span>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                )}
-              </div>
-
               {/* Fee preview */}
               {form.rate && parseFloat(form.rate) > 0 && (
                 (() => {
@@ -2016,8 +1694,6 @@ function ProposalSection({
                   const taxAmt = Math.round(net * taxRate / 100 * 100) / 100;
                   const symLive = currencySym(form.currency);
                   const bookerPays = Math.round((net + taxAmt) * 100) / 100;
-                  const youReceiveGross = Math.round((net + taxAmt) * 100) / 100;
-                  const yourNetIncome = net;
                   return (
                     <div style={{ marginBottom: 16, padding: "12px 14px", background: "var(--bg)", borderRadius: 8 }}>
                       <p style={{ ...lbl, marginBottom: 8 }}>Fee Preview</p>
@@ -2032,38 +1708,10 @@ function ProposalSection({
                             <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{taxAmt.toLocaleString()}</span>
                           </div>
                         )}
-                        {form.requires_payment && canUseStripe && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Stripe mode</span>
-                            <span style={{ fontSize: 12, color: effectiveStripeMode === "test" ? ACCENT : "var(--text-muted)", fontWeight: effectiveStripeMode === "test" ? 700 : 500 }}>
-                              {effectiveStripeMode === "test" ? "Test" : "Live"}
-                            </span>
-                          </div>
-                        )}
                         <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 5 }}>
                           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
                           <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{bookerPays.toLocaleString()}</span>
                         </div>
-                        {canUseStripe && (
-                          <>
-                            <div style={{ display: "flex", justifyContent: "space-between", borderTop: taxAmt > 0 ? "none" : undefined }}>
-                              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>You receive gross (before Stripe fees)</span>
-                              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{youReceiveGross.toLocaleString()}</span>
-                            </div>
-                            {taxAmt > 0 && (
-                              <>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>of which {taxRowLabel.toLowerCase()} ({taxRate}%) — remit to authority</span>
-                                  <span style={{ fontSize: 12, color: "var(--text-muted)", fontStyle: "italic" }}>−{symLive}{taxAmt.toLocaleString()}</span>
-                                </div>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Your net income</span>
-                                  <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{symLive}{yourNetIncome.toLocaleString()}</span>
-                                </div>
-                              </>
-                            )}
-                          </>
-                        )}
                       </div>
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.55 }}>
                         You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
@@ -2085,27 +1733,6 @@ function ProposalSection({
                 />
               </div>
 
-              {/* Rider checkboxes */}
-              <div style={{ display: "flex", gap: 16, marginBottom: 20, flexWrap: "wrap" }}>
-                {(
-                  [
-                    { key: "require_travel", label: "Require Travel" },
-                    { key: "require_hotel", label: "Require Hotel" },
-                    { key: "require_food", label: "Require Food" },
-                  ] as const
-                ).map(({ key, label: lbl2 }) => (
-                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}>
-                    <input
-                      type="checkbox"
-                      checked={form[key]}
-                      onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
-                      style={{ accentColor: ACCENT, width: 15, height: 15 }}
-                    />
-                    {lbl2}
-                  </label>
-                ))}
-              </div>
-
               {/* Payment is not collected at the proposal stage. Once the booking is
                   confirmed, the owner sends an invoice (optionally with a Stripe payment
                   link) from the booking page. */}
@@ -2125,12 +1752,6 @@ function ProposalSection({
                     fd.append("rate", form.rate);
                     fd.append("currency", form.currency);
                     fd.append("message", form.message);
-                    fd.append("require_hotel", String(form.require_hotel));
-                    fd.append("require_travel", String(form.require_travel));
-                    fd.append("require_food", String(form.require_food));
-                    fd.append("requires_payment", String(form.requires_payment));
-                    fd.append("stripe_mode", effectiveStripeMode);
-                    fd.append("line_items", JSON.stringify(lineItems.filter((i) => i.label && i.amount > 0)));
                     if (effectiveTaxPct > 0) {
                       fd.append("tax_pct", String(effectiveTaxPct));
                       if (effectiveTaxLabel) fd.append("tax_label", effectiveTaxLabel);
@@ -2292,110 +1913,9 @@ function PaymentSuccessBanner() {
   );
 }
 
-function ActionsSection({ booking, wallet }: { booking: Booking; wallet?: WalletData | null }) {
-  const fetcher = useFetcher();
-
-  function submitStatus(status: string) {
-    const fd = new FormData();
-    fd.append("intent", "update_status");
-    fd.append("status", status);
-    fetcher.submit(fd, { method: "post" });
-  }
-
-  function submitMarkDelivered() {
-    const fd = new FormData();
-    fd.append("intent", "mark_as_delivered");
-    fetcher.submit(fd, { method: "post" });
-  }
-
-  const isRequested = booking.status === "requested";
-  const isConfirmed = booking.status === "confirmed";
-  const clientPaid = wallet?.client_paid === true;
-
-  const actionLink: React.CSSProperties = {
-    background: "none",
-    border: "none",
-    color: ACCENT,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: "pointer",
-    padding: "10px 0",
-    fontFamily: FONT_BODY,
-    textAlign: "left",
-    display: "block",
-    width: "100%",
-    borderBottom: "1px solid var(--border)",
-  };
-
-  return (
-    <section id="actions" style={{ paddingBottom: 80 }}>
-      <SectionHeading>Actions</SectionHeading>
-      <div style={card}>
-        {isRequested ? (
-          <>
-            <button
-              style={actionLink}
-              onClick={() => {
-                const el = document.getElementById("proposal");
-                if (!el) return;
-                const top = el.getBoundingClientRect().top + window.scrollY - 120;
-                window.scrollTo({ top, behavior: "smooth" });
-              }}
-            >
-              Send Proposal →
-            </button>
-            <button
-              style={{ ...actionLink, color: "var(--text-muted)", borderBottom: "none" }}
-              onClick={() => submitStatus("archived")}
-              disabled={fetcher.state !== "idle"}
-            >
-              Decline Request
-            </button>
-          </>
-        ) : (
-          <>
-            {isConfirmed && clientPaid && (
-              <button
-                style={actionLink}
-                onClick={submitMarkDelivered}
-                disabled={fetcher.state !== "idle"}
-              >
-                Mark as Delivered ✓
-              </button>
-            )}
-            {booking.status !== "confirmed" && (
-              <button style={actionLink} onClick={() => submitStatus("confirmed")} disabled={fetcher.state !== "idle"}>
-                Mark Confirmed
-              </button>
-            )}
-            {booking.status !== "completed" && !(isConfirmed && clientPaid) && (
-              <button
-                style={{ ...actionLink, borderBottom: booking.status !== "archived" ? undefined : "none" }}
-                onClick={() => submitStatus("completed")}
-                disabled={fetcher.state !== "idle"}
-              >
-                Mark Completed
-              </button>
-            )}
-            {booking.status !== "archived" && (
-              <button
-                style={{ ...actionLink, color: "var(--text-muted)", borderBottom: "none" }}
-                onClick={() => submitStatus("archived")}
-                disabled={fetcher.state !== "idle"}
-              >
-                Archive
-              </button>
-            )}
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
 // ─── Guest view components ────────────────────────────────────────────────────
 
-function GuestDetailsCard({ b }: { b: Booking }) {
+function GuestDetailsCard({ b, memberInfo }: { b: Booking; memberInfo?: MemberInfo }) {
   return (
     <div style={card}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
@@ -2446,6 +1966,25 @@ function GuestDetailsCard({ b }: { b: Booking }) {
         <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
           <p style={guestMetaLabel}>Message</p>
           <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65, margin: 0 }}>{b.description as string}</p>
+        </div>
+      )}
+      {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
+        <div style={{ marginTop: 18, paddingTop: 18, borderTop: "1px solid var(--border)" }}>
+          <p style={guestMetaLabel}>Seller Information</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
+            {(memberInfo.company_name || memberInfo.name) && (
+              <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>{memberInfo.company_name ?? memberInfo.name}</p>
+            )}
+            {memberInfo.legal_form && (
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.legal_form}</p>
+            )}
+            {memberInfo.company_address && (
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.company_address}</p>
+            )}
+            {memberInfo.vat_id && (
+              <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>VAT: {memberInfo.vat_id}</p>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -3038,63 +2577,6 @@ function GuestBuyerProposalCard({
         prefill={{ name: participantName ?? null, email: participantEmail ?? null }}
       />
     </>
-  );
-}
-
-function GuestActionsCard({ bookingToken, status }: { bookingId: string; bookingToken: string | null; status: string }) {
-  const fetcher = useFetcher();
-  const isPending = fetcher.state !== "idle";
-  const withdrawn = (fetcher.data as { ok?: boolean } | undefined)?.ok &&
-    fetcher.formData?.get("intent") === "decline_booking";
-
-  if (status === "cancelled") {
-    return (
-      <div style={card}>
-        <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>This booking was declined.</p>
-      </div>
-    );
-  }
-
-  if (withdrawn || status === "archived") {
-    return (
-      <div style={card}>
-        <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>Your booking request has been withdrawn.</p>
-      </div>
-    );
-  }
-
-  if (status !== "requested") {
-    return (
-      <div style={card}>
-        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-          No actions available at this stage.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div style={card}>
-      <fetcher.Form method="post">
-        <input type="hidden" name="bookingToken" value={bookingToken ?? ""} />
-        <button
-          name="intent"
-          value="decline_booking"
-          disabled={isPending}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            fontSize: 13,
-            cursor: isPending ? "default" : "pointer",
-            padding: 0,
-            fontFamily: FONT_BODY,
-          }}
-        >
-          {isPending ? "Withdrawing…" : "Withdraw request"}
-        </button>
-      </fetcher.Form>
-    </div>
   );
 }
 
@@ -3815,14 +3297,7 @@ function MemberView({
         {showProposal && (
           <ProposalSection
             booking={b}
-            planLevel={planLevel}
-            stripeConnectId={stripeConnectId}
-            stripeConnectStatus={stripeConnectStatus}
-            stripeConnectIdTest={stripeConnectIdTest}
-            stripeConnectStatusTest={stripeConnectStatusTest}
-            isBeta={isBeta}
             taxPresets={taxPresets}
-            proposalFeePct={proposalFeePct}
           />
         )}
 
@@ -3830,9 +3305,7 @@ function MemberView({
           <BookingWallet
             wallet={wallet}
             bookingStatus={b.status as string}
-            stripeConnectId={stripeConnectId}
             requiresPayment={proposal?.requires_payment ?? null}
-            hasInvoice={!!invoice && invoice.status !== "void"}
           />
         )}
 
@@ -3842,26 +3315,6 @@ function MemberView({
           buyerParticipant={buyerParticipant}
           canManageBilling={canManageBilling}
         />
-
-        {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
-          <div style={card}>
-            <p style={lbl}>Seller Information</p>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
-              {(memberInfo.company_name || memberInfo.name) && (
-                <p style={{ ...val, fontWeight: 600 }}>{memberInfo.company_name ?? memberInfo.name}</p>
-              )}
-              {memberInfo.legal_form && (
-                <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.legal_form}</p>
-              )}
-              {memberInfo.company_address && (
-                <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.company_address}</p>
-              )}
-              {memberInfo.vat_id && (
-                <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>VAT: {memberInfo.vat_id}</p>
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
       <BookingChat
@@ -3882,7 +3335,6 @@ function MemberView({
 export default function BookingAccessPage() {
   const data = useLoaderData<typeof loader>() as Record<string, unknown>;
   const [searchParams] = useSearchParams();
-  console.log('[booking page] loader data proposal:', data.proposal);
   const fromOffice = searchParams.get("from") === "office";
   const [isStandalonePwa, setIsStandalonePwa] = useState(false);
   const [isMobileBookingNav, setIsMobileBookingNav] = useState(false);
@@ -4173,8 +3625,8 @@ export default function BookingAccessPage() {
               </div>
             </div>
 
-            {/* 2. Booking details card */}
-            <GuestDetailsCard b={b} />
+            {/* 2. Booking details card (includes seller info) */}
+            <GuestDetailsCard b={b} memberInfo={memberInfo} />
 
             {/* 3. Fee details + actions (buyer) */}
             {isBuyer && proposal && (
@@ -4206,26 +3658,6 @@ export default function BookingAccessPage() {
               </div>
             )}
 
-            {/* Seller Information — at the bottom */}
-            {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
-              <div style={{ ...card, marginTop: 8 }}>
-                <p style={guestMetaLabel}>Seller Information</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 8 }}>
-                  {(memberInfo.company_name || memberInfo.name) && (
-                    <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>{memberInfo.company_name ?? memberInfo.name}</p>
-                  )}
-                  {memberInfo.legal_form && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.legal_form}</p>
-                  )}
-                  {memberInfo.company_address && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>{memberInfo.company_address}</p>
-                  )}
-                  {memberInfo.vat_id && (
-                    <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>VAT: {memberInfo.vat_id}</p>
-                  )}
-                </div>
-              </div>
-            )}
           </>
         )}
       </div>
