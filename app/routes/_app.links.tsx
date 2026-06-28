@@ -125,7 +125,12 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url")
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
-    supabase
+    // Use the admin client (not the RLS-scoped `supabase`): the owner reads ALL of
+    // their own services here regardless of is_active/is_published. The profile_services
+    // RLS owner policy compares auth.uid() to profile_id (= profiles.id), which never
+    // matches for migrated users (profiles.id != auth.users.id), and public_read is
+    // gated on is_published — so the RLS path returns nothing for unpublished owners.
+    admin
       .from("profile_services")
       .select("id, title")
       .eq("profile_id", profile.id as string)
