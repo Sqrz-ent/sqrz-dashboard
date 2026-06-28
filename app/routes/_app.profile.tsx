@@ -171,17 +171,25 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
+  // Owner reads of their own profile sub-tables go through the admin (service-role)
+  // client. Their RLS owner policy compares auth.uid() to profile_id (= profiles.id),
+  // which never matches for migrated users (profiles.id != auth.users.id), and the
+  // only other policy (public_read) requires is_published = true — so the RLS-scoped
+  // client returns nothing for unpublished/migrated owners. The public `skills`
+  // catalog queries stay on the RLS client (public reference data).
+  const admin = createSupabaseAdminClient();
+
   const [profileSkillsRes, videosRes, refsRes, allSkillsRes, allLangsRes, profileLangsRes, photosRes] = await Promise.all([
-    supabase
+    admin
       .from("profile_skills")
       .select("skill_id")
       .eq("profile_id", profile.id as string),
-    supabase
+    admin
       .from("profile_videos")
       .select("*")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
-    supabase
+    admin
       .from("profile_references")
       .select("*")
       .eq("profile_id", profile.id as string)
@@ -198,11 +206,11 @@ export async function loader({ request }: Route.LoaderArgs) {
       .eq("type", "language")
       .eq("is_visible", true)
       .order("name", { ascending: true }),
-    supabase
+    admin
       .from("profile_languages")
       .select("skill_id")
       .eq("profile_id", profile.id as string),
-    supabase
+    admin
       .from("profile_photos")
       .select("id, url, sort_order")
       .eq("profile_id", profile.id as string)
