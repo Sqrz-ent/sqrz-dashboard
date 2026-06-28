@@ -54,11 +54,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   if (scope === "secondary") {
-    const [skillsRes, servicesRes, videosRes, refsRes, blocksRes, photosRes] = await Promise.all([
-      supabase
-        .from("profile_skills")
-        .select("skill_id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
+    const [servicesRes, videosRes, refsRes, blocksRes, photosRes] = await Promise.all([
       supabase
         .from("profile_services")
         .select("id", { count: "exact", head: true })
@@ -84,7 +80,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     return Response.json(
       {
-        hasSkills: (skillsRes.count ?? 0) > 0,
         hasServices: (servicesRes.count ?? 0) > 0,
         hasVideos: (videosRes.count ?? 0) > 0,
         hasRefs: (refsRes.count ?? 0) > 0,
@@ -99,7 +94,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     analyticsRes,
     activeBookingsRes,
     upcomingBookingsRes,
-    skillsRes,
     servicesRes,
     videosRes,
     refsRes,
@@ -124,10 +118,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .gt("date_start", new Date().toISOString())
       .order("date_start", { ascending: true })
       .limit(3),
-    supabase
-      .from("profile_skills")
-      .select("skill_id", { count: "exact", head: true })
-      .eq("profile_id", profileId),
     supabase
       .from("profile_services")
       .select("id", { count: "exact", head: true })
@@ -156,7 +146,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       analytics: analyticsRes.data ?? null,
       activeBookingsCount: activeBookingsRes.count ?? 0,
       upcomingBookings: upcomingBookingsRes.data ?? [],
-      hasSkills: (skillsRes.count ?? 0) > 0,
       hasServices: (servicesRes.count ?? 0) > 0,
       hasVideos: (videosRes.count ?? 0) > 0,
       hasRefs: (refsRes.count ?? 0) > 0,

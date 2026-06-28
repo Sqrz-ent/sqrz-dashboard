@@ -13,7 +13,6 @@ export type RichProfile = {
   hasGallery: boolean;
   bio?: string | null;
   city?: string | null;
-  hasSkills: boolean;
   hasVideos: boolean;
   hasRefs: boolean;
   hasServices: boolean;
@@ -58,7 +57,6 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
 
   const items: CompletionItem[] = [
     { key: "basics",     label: "Basics",      done: !!(p.bio && p.city) },
-    { key: "skills",     label: "Skills",      done: p.hasSkills },
     { key: "socials",    label: "Socials",     done: hasSocial },
     { key: "widgets",    label: "Widgets",     done: hasWidget },
     { key: "gallery",    label: "Gallery",     done: p.hasGallery },

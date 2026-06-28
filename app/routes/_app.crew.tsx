@@ -20,9 +20,6 @@ type CrewProfile = {
   is_claimed: boolean | null;
   onboarding_completed: boolean | null;
   claim_token: string | null;
-  profile_skills: Array<{
-    skills: { name: string; category: string } | null;
-  }>;
 };
 
 type LoaderData = {
@@ -47,7 +44,7 @@ async function fetchRoster(
   }
 
   // Map roster rows onto the CrewProfile shape the cards render. The RPC has no
-  // city/skills columns, so those are nulled out.
+  // city column, so that is nulled out.
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: r.profile_id as string,
     name: (r.name as string | null) ?? null,
@@ -59,7 +56,6 @@ async function fetchRoster(
     is_claimed: (r.is_claimed as boolean | null) ?? null,
     onboarding_completed: null,
     claim_token: (r.claim_token as string | null) ?? null,
-    profile_skills: [],
   }));
 }
 
@@ -106,12 +102,6 @@ function ProfileCard({
   isAdmin: boolean;
   onShowClaimCode: (payload: { name: string; slug: string; claimUrl: string }) => void;
 }) {
-  const skills = profile.profile_skills
-    .map((ps) => ps.skills)
-    .filter(Boolean) as { name: string; category: string }[];
-
-  const visibleSkills = skills.slice(0, 4);
-  const extraCount = skills.length - visibleSkills.length;
   const claimUrl =
     !profile.is_published && profile.slug && profile.claim_token
       ? `https://${profile.slug}.sqrz.com?claim=${encodeURIComponent(profile.claim_token)}`
@@ -230,37 +220,6 @@ function ProfileCard({
         {profile.city && (
           <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 10 }}>
             📍 {profile.city}
-          </div>
-        )}
-
-        {/* Skills */}
-        {visibleSkills.length > 0 && (
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-            {visibleSkills.map((s) => (
-              <span
-                key={s.name}
-                style={{
-                  fontSize: 11,
-                  background: "rgba(245,166,35,0.1)",
-                  color: "#F5A623",
-                  borderRadius: 4,
-                  padding: "2px 7px",
-                }}
-              >
-                {s.name}
-              </span>
-            ))}
-            {extraCount > 0 && (
-              <span
-                style={{
-                  fontSize: 11,
-                  color: "var(--text-muted)",
-                  padding: "2px 4px",
-                }}
-              >
-                +{extraCount}
-              </span>
-            )}
           </div>
         )}
 

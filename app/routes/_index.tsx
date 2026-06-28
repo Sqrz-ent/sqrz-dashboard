@@ -25,7 +25,7 @@ export default function DashboardHome() {
         >
           <Card
             title="👤 Profile"
-            description="Edit your public profile, bio, media, and skills."
+            description="Edit your public profile, bio, and media."
           />
           <Card
             title="📅 Bookings"

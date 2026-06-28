@@ -125,7 +125,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       analytics: analytics ?? null,
       activeBookingsCount: homeData.activeBookingsCount ?? 0,
       upcomingBookings: homeData.upcomingBookings ?? [],
-      hasSkills: !!homeData.hasSkills,
       hasServices: !!homeData.hasServices,
       hasVideos: !!homeData.hasVideos,
       hasRefs: !!homeData.hasRefs,
@@ -230,7 +229,7 @@ function formatDate(iso: string | null) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, analytics, activeBookingsCount, upcomingBookings, hasSkills, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
+  const { profile, analytics, activeBookingsCount, upcomingBookings, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -254,7 +253,6 @@ export default function DashboardIndex() {
   // Profile completion
   const richProfile: RichProfile = {
     ...p,
-    hasSkills,
     hasServices,
     hasVideos,
     hasRefs,

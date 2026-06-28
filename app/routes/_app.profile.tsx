@@ -16,13 +16,6 @@ const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
-const SKILL_CATEGORIES = [
-  "Performing Arts & Entertainment",
-  "Media & Creative Arts",
-  "Web & App Development",
-  "Academic & Scholar",
-] as const;
-
 const card: React.CSSProperties = {
   background: "var(--surface)",
   border: "1px solid rgba(245,166,35,0.28)",
@@ -175,15 +168,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   // client. Their RLS owner policy compares auth.uid() to profile_id (= profiles.id),
   // which never matches for migrated users (profiles.id != auth.users.id), and the
   // only other policy (public_read) requires is_published = true — so the RLS-scoped
-  // client returns nothing for unpublished/migrated owners. The public `skills`
-  // catalog queries stay on the RLS client (public reference data).
+  // client returns nothing for unpublished/migrated owners.
   const admin = createSupabaseAdminClient();
 
-  const [profileSkillsRes, videosRes, refsRes, allSkillsRes, allLangsRes, profileLangsRes, photosRes] = await Promise.all([
-    admin
-      .from("profile_skills")
-      .select("skill_id")
-      .eq("profile_id", profile.id as string),
+  const [videosRes, refsRes, photosRes] = await Promise.all([
     admin
       .from("profile_videos")
       .select("*")
@@ -194,22 +182,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("*")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("skills")
-      .select("id, name, category")
-      .eq("type", "skill")
-      .eq("is_visible", true)
-      .order("name", { ascending: true }),
-    supabase
-      .from("skills")
-      .select("id, name")
-      .eq("type", "language")
-      .eq("is_visible", true)
-      .order("name", { ascending: true }),
-    admin
-      .from("profile_languages")
-      .select("skill_id")
-      .eq("profile_id", profile.id as string),
     admin
       .from("profile_photos")
       .select("id, url, sort_order")
@@ -220,10 +192,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json(
     {
       profile,
-      skillIds: (profileSkillsRes.data ?? []).map((r) => (r as { skill_id: number }).skill_id),
-      allSkills: allSkillsRes.data ?? [],
-      languageIds: (profileLangsRes.data ?? []).map((r) => (r as { skill_id: number }).skill_id),
-      allLanguages: allLangsRes.data ?? [],
       videos: videosRes.data ?? [],
       references: refsRes.data ?? [],
       photos: (photosRes.data ?? []) as { id: string; url: string; sort_order: number }[],
@@ -387,54 +355,12 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  if (intent === "add_skill") {
-    const skillId = Number(formData.get("skill_id"));
-    const { error } = await adminClient.from("profile_skills").insert({
-      profile_id: profile.id as string,
-      skill_id: skillId,
-    });
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "remove_skill") {
-    const skillId = Number(formData.get("skill_id"));
-    const { error } = await adminClient
-      .from("profile_skills")
-      .delete()
-      .eq("profile_id", profile.id as string)
-      .eq("skill_id", skillId);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "add_language") {
-    const skillId = Number(formData.get("skill_id"));
-    const { error } = await adminClient.from("profile_languages").insert({
-      profile_id: profile.id as string,
-      skill_id: skillId,
-    });
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "remove_language") {
-    const skillId = Number(formData.get("skill_id"));
-    const { error } = await adminClient
-      .from("profile_languages")
-      .delete()
-      .eq("profile_id", profile.id as string)
-      .eq("skill_id", skillId);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   return Response.json({ ok: false, error: "Unknown intent" }, { headers });
 }
 
 export default function ProfilePage() {
-  const { profile, skillIds, allSkills, languageIds, allLanguages, videos, references, photos } = useLoaderData<typeof loader>() as {
+  const { profile, videos, references, photos } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
-    skillIds: number[];
-    allSkills: { id: number; name: string; category: string }[];
-    languageIds: number[];
-    allLanguages: { id: number; name: string }[];
     videos: Record<string, unknown>[];
     references: Record<string, unknown>[];
     photos: { id: string; url: string; sort_order: number }[];
@@ -446,8 +372,6 @@ export default function ProfilePage() {
   const videoFetcher = useFetcher();
   const videoReorderFetcher = useFetcher();
   const refFetcher = useFetcher();
-  const skillFetcher = useFetcher();
-  const langFetcher = useFetcher();
 
   // Videos local state for drag reorder
   const [localVideos, setLocalVideos] = useState<Record<string, unknown>[]>(videos);
@@ -468,37 +392,6 @@ export default function ProfilePage() {
       videoReorderFetcher.submit(fd, { method: "post" });
       return reordered;
     });
-  }
-
-  // Skills + languages state
-  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<number>>(() => new Set(skillIds));
-  const [selectedLangIds, setSelectedLangIds] = useState<Set<number>>(() => new Set(languageIds));
-  const [activeSkillTab, setActiveSkillTab] = useState<string>(SKILL_CATEGORIES[0]);
-
-  function toggleSkill(skillId: number) {
-    const isSelected = selectedSkillIds.has(skillId);
-    setSelectedSkillIds((prev) => {
-      const next = new Set(prev);
-      if (isSelected) next.delete(skillId); else next.add(skillId);
-      return next;
-    });
-    const fd = new FormData();
-    fd.append("intent", isSelected ? "remove_skill" : "add_skill");
-    fd.append("skill_id", String(skillId));
-    skillFetcher.submit(fd, { method: "post" });
-  }
-
-  function toggleLanguage(skillId: number) {
-    const isSelected = selectedLangIds.has(skillId);
-    setSelectedLangIds((prev) => {
-      const next = new Set(prev);
-      if (isSelected) next.delete(skillId); else next.add(skillId);
-      return next;
-    });
-    const fd = new FormData();
-    fd.append("intent", isSelected ? "remove_language" : "add_language");
-    fd.append("skill_id", String(skillId));
-    langFetcher.submit(fd, { method: "post" });
   }
 
   // Avatar state
@@ -528,8 +421,6 @@ export default function ProfilePage() {
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
   // Modal state
-  const [skillsModalOpen, setSkillsModalOpen] = useState(false);
-  const [langsModalOpen, setLangsModalOpen] = useState(false);
   const [videoModal, setVideoModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
   const [refModal, setRefModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
   const [videoForm, setVideoForm] = useState({ url: "", title: "" });
@@ -736,78 +627,6 @@ export default function ProfilePage() {
             {basicFetcher.state !== "idle" ? "Saving…" : "Save"}
           </button>
         </basicFetcher.Form>
-      </div>
-
-      {/* Section 2: Skills */}
-      <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Skills</h2>
-        {selectedSkillIds.size > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-            {allSkills
-              .filter((s) => selectedSkillIds.has(s.id))
-              .map((skill) => (
-                <span
-                  key={skill.id}
-                  style={{
-                    padding: "5px 12px",
-                    background: "rgba(245,166,35,0.1)",
-                    border: `1.5px solid ${ACCENT}`,
-                    borderRadius: 20,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: ACCENT,
-                    fontFamily: FONT_BODY,
-                  }}
-                >
-                  {skill.name}
-                </span>
-              ))}
-          </div>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No skills added yet.</p>
-        )}
-        <button
-          onClick={() => setSkillsModalOpen(true)}
-          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-        >
-          Edit Skills
-        </button>
-      </div>
-
-      {/* Section 2b: Languages */}
-      <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Languages</h2>
-        {selectedLangIds.size > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-            {allLanguages
-              .filter((l) => selectedLangIds.has(l.id))
-              .map((lang) => (
-                <span
-                  key={lang.id}
-                  style={{
-                    padding: "5px 12px",
-                    background: "rgba(245,166,35,0.1)",
-                    border: `1.5px solid ${ACCENT}`,
-                    borderRadius: 20,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: ACCENT,
-                    fontFamily: FONT_BODY,
-                  }}
-                >
-                  {lang.name}
-                </span>
-              ))}
-          </div>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No languages added yet.</p>
-        )}
-        <button
-          onClick={() => setLangsModalOpen(true)}
-          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-        >
-          Edit Languages
-        </button>
       </div>
 
       {/* Section 3: Socials */}
@@ -1039,136 +858,6 @@ export default function ProfilePage() {
         </button>
       </div>
 
-
-      {/* Skills Modal */}
-      <Modal isOpen={skillsModalOpen} onClose={() => setSkillsModalOpen(false)} title="Edit Skills">
-        {/* Category label */}
-        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
-          Choose a category
-        </p>
-        <div style={{ display: "flex", gap: 6, marginBottom: 0, flexWrap: "wrap" }}>
-          {SKILL_CATEGORIES.map((cat) => {
-            const isActive = activeSkillTab === cat;
-            return (
-              <button
-                key={cat}
-                onClick={() => setActiveSkillTab(cat)}
-                style={{
-                  padding: "5px 12px",
-                  borderRadius: 20,
-                  border: isActive ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                  background: isActive ? "rgba(245,166,35,0.15)" : "var(--surface-muted)",
-                  color: isActive ? ACCENT : "var(--text)",
-                  fontSize: 13,
-                  fontWeight: isActive ? 700 : 600,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                {cat}
-              </button>
-            );
-          })}
-        </div>
-        {/* Divider */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "14px 0 10px" }} />
-        {/* Skills label */}
-        <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px", fontFamily: FONT_BODY }}>
-          Select your skills
-        </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {allSkills
-            .filter((s) => s.category === activeSkillTab)
-            .map((skill) => {
-              const isSelected = selectedSkillIds.has(skill.id);
-              return (
-                <button
-                  key={skill.id}
-                  onClick={() => toggleSkill(skill.id)}
-                  style={{
-                    padding: "6px 13px",
-                    borderRadius: 20,
-                    border: isSelected ? `1.5px solid ${ACCENT}` : "1.5px solid var(--border)",
-                    background: isSelected ? "rgba(245,166,35,0.1)" : "transparent",
-                    color: isSelected ? ACCENT : "var(--text-muted)",
-                    fontSize: 13,
-                    fontWeight: isSelected ? 600 : 400,
-                    cursor: "pointer",
-                    fontFamily: FONT_BODY,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 5,
-                  }}
-                >
-                  {skill.name}
-                  {isSelected && <span style={{ fontSize: 11, opacity: 0.8 }}>✕</span>}
-                </button>
-              );
-            })}
-        </div>
-        {selectedSkillIds.size > 0 && (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
-            {selectedSkillIds.size} skill{selectedSkillIds.size !== 1 ? "s" : ""} selected
-          </p>
-        )}
-      </Modal>
-
-      {/* Languages Modal */}
-      <Modal isOpen={langsModalOpen} onClose={() => setLangsModalOpen(false)} title="Edit Languages">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {allLanguages
-            .filter((l) => selectedLangIds.has(l.id))
-            .map((lang) => (
-              <button
-                key={lang.id}
-                onClick={() => toggleLanguage(lang.id)}
-                style={{
-                  padding: "6px 13px",
-                  borderRadius: 20,
-                  border: `1.5px solid ${ACCENT}`,
-                  background: "rgba(245,166,35,0.1)",
-                  color: ACCENT,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
-                {lang.name}
-                <span style={{ fontSize: 11, opacity: 0.8 }}>✕</span>
-              </button>
-            ))}
-          {allLanguages
-            .filter((l) => !selectedLangIds.has(l.id))
-            .map((lang) => (
-              <button
-                key={lang.id}
-                onClick={() => toggleLanguage(lang.id)}
-                style={{
-                  padding: "6px 13px",
-                  borderRadius: 20,
-                  border: "1.5px solid var(--border)",
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  fontWeight: 400,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                {lang.name}
-              </button>
-            ))}
-        </div>
-        {selectedLangIds.size > 0 && (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 14, marginBottom: 0, fontFamily: FONT_BODY }}>
-            {selectedLangIds.size} language{selectedLangIds.size !== 1 ? "s" : ""} selected
-          </p>
-        )}
-      </Modal>
 
       {/* Video Modal */}
       <Modal
