@@ -85,6 +85,9 @@ type PrivateLink = {
   lead_gate: boolean;
   lead_count: number;
   video_url: string | null;
+  payment_gate: boolean;
+  price: number | null;
+  currency: string | null;
 };
 
 type ProfileService = { id: string; title: string };
@@ -122,7 +125,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [linksRes, servicesRes, ownerBookingsRes, participantRowsRes] = await Promise.all([
     supabase
       .from("private_booking_links")
-      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url")
+      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url, payment_gate, price, currency")
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
     // Use the admin client (not the RLS-scoped `supabase`): the owner reads ALL of
@@ -376,6 +379,9 @@ export async function action({ request }: Route.ActionArgs) {
       expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
       video_url: (fd.get("video_url") as string) || null,
+      payment_gate: fd.get("payment_gate") === "true",
+      price: fd.get("payment_gate") === "true" ? (parseFloat(fd.get("price") as string) || null) : null,
+      currency: fd.get("payment_gate") === "true" ? ((fd.get("currency") as string) || "EUR") : null,
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -432,6 +438,9 @@ export async function action({ request }: Route.ActionArgs) {
       expires_at: null,
       lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
       video_url: (fd.get("video_url") as string) || null,
+      payment_gate: fd.get("payment_gate") === "true",
+      price: fd.get("payment_gate") === "true" ? (parseFloat(fd.get("price") as string) || null) : null,
+      currency: fd.get("payment_gate") === "true" ? ((fd.get("currency") as string) || "EUR") : null,
     })
     .eq("id", id)
     .eq("profile_id", profile.id as string);
@@ -538,6 +547,9 @@ function CreateLinkModal({
   const [eventVenue, setEventVenue] = useState("");
   const [eventCity, setEventCity] = useState("");
   const [leadGate, setLeadGate] = useState(false);
+  const [paymentGate, setPaymentGate] = useState(false);
+  const [price, setPrice] = useState("");
+  const [currency, setCurrency] = useState("EUR");
   const [coverUploading, setCoverUploading] = useState(false);
   const [pendingCoverKey, setPendingCoverKey] = useState(createPendingCoverKey);
   const [toast, setToast] = useState<string | null>(null);
@@ -559,6 +571,9 @@ function CreateLinkModal({
       setEventVenue(editingLink.event_venue || "");
       setEventCity(editingLink.event_city || "");
       setLeadGate(editingLink.lead_gate ?? false);
+      setPaymentGate(editingLink.payment_gate ?? false);
+      setPrice(editingLink.price != null ? String(editingLink.price) : "");
+      setCurrency(editingLink.currency || "EUR");
       setSlugError(null);
       setServiceError(null);
       setEventError(null);
@@ -590,6 +605,7 @@ function CreateLinkModal({
     setExternalUrl("");
     setEventDate(""); setEventVenue(""); setEventCity("");
     setLeadGate(false);
+    setPaymentGate(false); setPrice(""); setCurrency("EUR");
     setCoverUploading(false);
     setPendingCoverKey(createPendingCoverKey());
   }
@@ -635,6 +651,12 @@ function CreateLinkModal({
       fd.append("lead_gate", String(leadGate));
     }
     if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
+    // Payment gate applies to all page types (book/download/event).
+    fd.append("payment_gate", String(paymentGate));
+    if (paymentGate) {
+      fd.append("price", price);
+      fd.append("currency", currency);
+    }
     fetcher.submit(fd, { method: "post" });
   }
 
@@ -715,6 +737,58 @@ function CreateLinkModal({
                 pointerEvents: "none",
               }} />
             </button>
+          </div>
+        )}
+
+        {/* Payment Gate toggle — available for all page types (book, download, event) */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div style={{ flex: 1 }}>
+            <span style={{ ...labelStyle, marginBottom: 2 }}>Payment Gate</span>
+            <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Visitors must pay before they can access this link</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setPaymentGate(v => !v)}
+            style={{
+              width: 38, height: 22, borderRadius: 11, border: "none",
+              background: paymentGate ? "#22c55e" : "var(--border)",
+              cursor: "pointer", position: "relative", flexShrink: 0,
+              transition: "background 0.15s", marginTop: 2,
+            }}
+          >
+            <span style={{
+              position: "absolute", top: 3, left: paymentGate ? 19 : 3,
+              width: 16, height: 16, borderRadius: "50%", background: "#fff",
+              transition: "left 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+              pointerEvents: "none",
+            }} />
+          </button>
+        </div>
+
+        {/* Price + currency — shown when the payment gate is on (all page types) */}
+        {paymentGate && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 10 }}>
+            <div>
+              <label style={labelStyle}>
+                Price <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank = pay what you want)</span>
+              </label>
+              <input
+                type="number"
+                min={0}
+                style={inputStyle}
+                value={price}
+                onChange={e => setPrice(e.target.value)}
+                placeholder="50"
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Currency</label>
+              <select style={{ ...inputStyle }} value={currency} onChange={e => setCurrency(e.target.value)}>
+                <option value="EUR">EUR</option>
+                <option value="USD">USD</option>
+                <option value="GBP">GBP</option>
+              </select>
+            </div>
           </div>
         )}
 
@@ -801,7 +875,7 @@ function CreateLinkModal({
         </div>
         <div>
           <label style={labelStyle}>Description</label>
-          <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown on the page…" />
+          <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder={pageType === "book" ? "Describe what the buyer receives, turnaround time, and next steps after payment" : "Optional details shown on the page…"} />
         </div>
         <div>
           <label style={labelStyle}>Cover Image</label>

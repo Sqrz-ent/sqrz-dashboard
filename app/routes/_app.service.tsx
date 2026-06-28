@@ -348,22 +348,12 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   if (intent === "add_service") {
-    const priceOnRequest = formData.get("price_on_request") === "true";
-    const bookingType = formData.get("booking_type") as string || "quote";
-    const isInstant = bookingType === "instant";
+    // Services are quote/request only — no instant booking, no price fields.
     const { error } = await adminClient.from("profile_services").insert({
       profile_id: profile.id as string,
       title: formData.get("title") as string,
       description: formData.get("description") as string,
-      price_min: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_min") as string) || null),
-      price_max: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_max") as string) || null),
-      price_label: priceOnRequest && !isInstant ? "Price on request" : ((formData.get("price_label") as string) || null),
-      currency: (isInstant || priceOnRequest) ? null : ((formData.get("currency") as string) || "EUR"),
-      price_unit: (isInstant || priceOnRequest) ? null : ((formData.get("price_unit") as string) || "flat"),
-      booking_type: bookingType,
-      instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
-      instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
-      instant_tax_rate: isInstant ? (parseFloat(formData.get("instant_tax_rate") as string) || 0) : null,
+      booking_type: "quote",
       is_active: true,
       sort_order: 0,
     });
@@ -404,21 +394,11 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "update_service") {
     const id = formData.get("id") as string;
-    const priceOnRequest = formData.get("price_on_request") === "true";
-    const bookingType = formData.get("booking_type") as string || "quote";
-    const isInstant = bookingType === "instant";
+    // Services are quote/request only — only title/description are editable now.
     const { error } = await adminClient.from("profile_services").update({
       title: formData.get("title") as string,
       description: formData.get("description") as string,
-      price_min: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_min") as string) || null),
-      price_max: (isInstant || priceOnRequest) ? null : (parseFloat(formData.get("price_max") as string) || null),
-      price_label: priceOnRequest && !isInstant ? "Price on request" : ((formData.get("price_label") as string) || null),
-      currency: (isInstant || priceOnRequest) ? null : ((formData.get("currency") as string) || "EUR"),
-      price_unit: (isInstant || priceOnRequest) ? null : ((formData.get("price_unit") as string) || "flat"),
-      booking_type: bookingType,
-      instant_price: isInstant ? (parseFloat(formData.get("instant_price") as string) || null) : null,
-      instant_currency: isInstant ? ((formData.get("instant_currency") as string) || "EUR") : null,
-      instant_tax_rate: isInstant ? (parseFloat(formData.get("instant_tax_rate") as string) || 0) : null,
+      booking_type: "quote",
     }).eq("id", id);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -497,10 +477,6 @@ type Service = {
   currency: string | null;
   is_active: boolean;
   sort_order: number;
-  booking_type: "instant" | "quote";
-  instant_price: number | null;
-  instant_currency: string | null;
-  instant_tax_rate: number | null;
 };
 
 // ── Sortable service row ──────────────────────────────────────────────────────
@@ -517,13 +493,6 @@ function SortableServiceRow({
   onToggleActive: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: service.id });
-
-  const priceDisplay =
-    service.price_label === "Price on request"
-      ? "Price on request"
-      : service.price_min != null || service.price_max != null
-      ? `${service.currency ?? "€"}${service.price_min ?? ""}${service.price_max != null ? ` – ${service.currency ?? "€"}${service.price_max}` : ""}`
-      : null;
 
   return (
     <div
@@ -570,11 +539,6 @@ function SortableServiceRow({
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{service.title}</div>
-            {priceDisplay && (
-              <div style={{ fontSize: 13, color: service.price_label === "Price on request" ? "var(--text-muted)" : ACCENT, marginTop: 2, fontWeight: 600 }}>
-                {priceDisplay}
-              </div>
-            )}
             {service.description && (
               <div style={{
                 fontSize: 13,
@@ -632,50 +596,25 @@ function ServiceModal({
   onClose,
   editing,
   fetcher,
-  isPremium,
-  taxPresets,
 }: {
   isOpen: boolean;
   onClose: () => void;
   editing: Service | null;
   fetcher: ReturnType<typeof useFetcher>;
-  isPremium: boolean;
-  taxPresets: TaxPreset[];
 }) {
-  const [priceOnRequest, setPriceOnRequest] = useState(false);
-  const [isInstant, setIsInstant] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
-    price_min: "",
-    price_max: "",
-    currency: "EUR",
-    price_unit: "flat",
-    instant_price: "",
-    instant_currency: "EUR",
-    instant_tax_rate: "0",
   });
 
   useEffect(() => {
     if (editing) {
-      const instant = editing.booking_type === "instant";
-      setIsInstant(instant);
-      setPriceOnRequest(!instant && editing.price_label === "Price on request");
       setForm({
         title: editing.title ?? "",
         description: editing.description ?? "",
-        price_min: String(editing.price_min ?? ""),
-        price_max: String(editing.price_max ?? ""),
-        currency: editing.currency ?? "EUR",
-        price_unit: editing.price_unit ?? "flat",
-        instant_price: String(editing.instant_price ?? ""),
-        instant_currency: editing.instant_currency ?? "EUR",
-        instant_tax_rate: String(editing.instant_tax_rate ?? "0"),
       });
     } else {
-      setIsInstant(false);
-      setPriceOnRequest(false);
-      setForm({ title: "", description: "", price_min: "", price_max: "", currency: "EUR", price_unit: "flat", instant_price: "", instant_currency: "EUR", instant_tax_rate: "0" });
+      setForm({ title: "", description: "" });
     }
   }, [editing, isOpen]);
 
@@ -686,18 +625,6 @@ function ServiceModal({
     if (editing) fd.append("id", editing.id);
     fd.append("title", form.title);
     fd.append("description", form.description);
-    fd.append("booking_type", isInstant ? "instant" : "quote");
-    fd.append("price_on_request", String(priceOnRequest && !isInstant));
-    if (isInstant) {
-      fd.append("instant_price", form.instant_price);
-      fd.append("instant_currency", form.instant_currency);
-      fd.append("instant_tax_rate", form.instant_tax_rate);
-    } else if (!priceOnRequest) {
-      fd.append("price_min", form.price_min);
-      fd.append("price_max", form.price_max);
-      fd.append("currency", form.currency);
-      fd.append("price_unit", form.price_unit || "flat");
-    }
     fetcher.submit(fd, { method: "post" });
     onClose();
   }
@@ -725,201 +652,6 @@ function ServiceModal({
             placeholder="Describe what's included…"
           />
         </div>
-
-        {!isInstant && (
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
-            <input
-              type="checkbox"
-              checked={priceOnRequest}
-              onChange={(e) => setPriceOnRequest(e.target.checked)}
-            />
-            Price on request
-          </label>
-        )}
-
-        {!priceOnRequest && !isInstant && (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 80px", gap: 10 }}>
-              <div>
-                <label style={labelStyle}>Min Price</label>
-                <input
-                  type="number"
-                  style={inputStyle}
-                  value={form.price_min}
-                  onChange={(e) => setForm((f) => ({ ...f, price_min: e.target.value }))}
-                  placeholder="500"
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Max Price</label>
-                <input
-                  type="number"
-                  style={inputStyle}
-                  value={form.price_max}
-                  onChange={(e) => setForm((f) => ({ ...f, price_max: e.target.value }))}
-                  placeholder="2000"
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Currency</label>
-                <select
-                  style={{ ...inputStyle }}
-                  value={form.currency}
-                  onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-                >
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Price Unit</label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {([ { value: "flat", label: "Flat" }, { value: "hour", label: "Per Hour" }, { value: "day", label: "Per Day" }, { value: "unit", label: "Per Unit" } ] as const).map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, price_unit: value }))}
-                    style={{
-                      padding: "5px 14px",
-                      borderRadius: 20,
-                      border: form.price_unit === value ? `1.5px solid ${ACCENT}` : "1px solid var(--border)",
-                      background: form.price_unit === value ? "rgba(245,166,35,0.1)" : "transparent",
-                      color: form.price_unit === value ? ACCENT : "var(--text-muted)",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      fontFamily: FONT_BODY,
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        <div style={{ borderTop: "1px solid var(--border)", margin: "4px 0" }} />
-
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: isPremium ? "var(--text)" : "var(--text-muted)", fontFamily: FONT_BODY }}>
-              Instant Booking
-            </span>
-            {!isPremium && (
-              <span style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 5,
-                padding: "2px 8px",
-                borderRadius: 20,
-                background: "rgba(245,166,35,0.12)",
-                color: ACCENT,
-                fontSize: 11,
-                fontWeight: 700,
-                cursor: "default",
-                fontFamily: FONT_BODY,
-                letterSpacing: "0.03em",
-              }}>
-                Creator Plan
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => isPremium && setIsInstant((v) => !v)}
-            aria-pressed={isInstant}
-            style={{
-              width: 42,
-              height: 24,
-              borderRadius: 12,
-              border: "none",
-              background: isInstant ? ACCENT : "var(--border)",
-              cursor: isPremium ? "pointer" : "not-allowed",
-              position: "relative",
-              transition: "background 0.15s",
-              opacity: isPremium ? 1 : 0.45,
-              flexShrink: 0,
-            }}
-          >
-            <span style={{
-              position: "absolute",
-              top: 3,
-              left: isInstant ? 21 : 3,
-              width: 18,
-              height: 18,
-              borderRadius: "50%",
-              background: "#fff",
-              transition: "left 0.15s",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.25)",
-            }} />
-          </button>
-        </div>
-
-        {isInstant && (
-          <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 80px", gap: 10 }}>
-              <div>
-                <label style={labelStyle}>Fixed Price</label>
-                <input
-                  type="number"
-                  style={inputStyle}
-                  value={form.instant_price}
-                  onChange={(e) => setForm((f) => ({ ...f, instant_price: e.target.value }))}
-                  placeholder="150"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Currency</label>
-                <select
-                  style={{ ...inputStyle }}
-                  value={form.instant_currency}
-                  onChange={(e) => setForm((f) => ({ ...f, instant_currency: e.target.value }))}
-                >
-                  <option value="EUR">EUR</option>
-                  <option value="USD">USD</option>
-                  <option value="GBP">GBP</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Tax Rate</label>
-              {taxPresets.length > 0 ? (
-                <select
-                  style={inputStyle}
-                  value={form.instant_tax_rate}
-                  onChange={(e) => setForm((f) => ({ ...f, instant_tax_rate: e.target.value }))}
-                >
-                  <option value="0">No tax</option>
-                  {taxPresets.map((p, i) => (
-                    <option key={i} value={String(p.rate)}>
-                      {p.label} ({p.rate}%)
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.1}
-                    style={inputStyle}
-                    value={form.instant_tax_rate}
-                    onChange={(e) => setForm((f) => ({ ...f, instant_tax_rate: e.target.value }))}
-                    placeholder="e.g. 19 for German USt"
-                  />
-                  <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>
-                    Add tax presets in your profile settings to pick from a dropdown.
-                  </p>
-                </>
-              )}
-            </div>
-          </>
-        )}
 
         <button
           onClick={handleSubmit}
@@ -1110,8 +842,6 @@ export default function ServicePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeFetcher.state, activeFetcher.data]);
 
-  const planId = profile.plan_id as number | null | undefined;
-  const isPremium = !!planId && planId > 0;
   const businessFilled = [profile.company_name, profile.responsible_person, profile.vat_id].some(Boolean) ? 1 : 0;
 
   const sensors = useSensors(
@@ -1426,7 +1156,7 @@ export default function ServicePage() {
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 6 }}>Tax rates</h2>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px", lineHeight: 1.5 }}>
-          Define reusable tax rates (e.g. MwSt 19%). They appear as a dropdown when you create proposals and instant services.
+          Define reusable tax rates (e.g. MwSt 19%). They appear as a dropdown when you create proposals.
         </p>
 
         {taxPresets.length > 0 ? (
@@ -1704,8 +1434,6 @@ export default function ServicePage() {
         onClose={() => setServiceModal({ open: false, editing: null })}
         editing={serviceModal.editing}
         fetcher={serviceFetcher}
-        isPremium={isPremium}
-        taxPresets={taxPresets}
       />
     </div>
   );
