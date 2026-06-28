@@ -187,6 +187,45 @@ export async function action({ request }: ActionFunctionArgs) {
     console.log("[webhook] booking_type:", session.metadata?.booking_type, "| booking_id:", session.metadata?.booking_id, "| invite_token:", session.metadata?.invite_token);
     console.log("[webhook] subscription:", session.subscription, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
 
+    // ── Private link payment (PaymentGateCta on sqrz-profiles) ───────────────
+    // A payment-gated private booking link was paid. Record the use + capture the
+    // payer's email as a lead. No booking is created.
+    if (session.metadata?.type === "link_payment" && session.metadata?.link_id) {
+      const linkId = session.metadata.link_id;
+      const email = session.customer_details?.email ?? session.customer_email ?? null;
+      console.log("[webhook] link_payment received — link_id:", linkId, "email:", email ? "present" : "missing");
+
+      const { data: linkRow } = await supabase
+        .from("private_booking_links")
+        .select("use_count, profile_id")
+        .eq("id", linkId)
+        .maybeSingle();
+
+      if (linkRow) {
+        await supabase
+          .from("private_booking_links")
+          .update({ use_count: (linkRow.use_count ?? 0) + 1 })
+          .eq("id", linkId);
+
+        if (email) {
+          const { error: leadError } = await supabase.from("link_leads").insert({
+            link_id: linkId,
+            profile_id: linkRow.profile_id,
+            email,
+            collected_at: new Date().toISOString(),
+          });
+          // Duplicate email (unique constraint 23505) is fine — ignore it.
+          if (leadError && leadError.code !== "23505") {
+            console.error("[webhook] link_payment lead insert failed:", leadError);
+          }
+        }
+      } else {
+        console.error("[webhook] link_payment: link not found:", linkId);
+      }
+
+      return Response.json({ received: true });
+    }
+
     // ── Boost / Grow campaign payment (unified) ──────────────────────────────
     if (session.metadata?.campaign_id) {
       const campaignId = session.metadata.campaign_id;
