@@ -359,6 +359,38 @@ export default function BoostPage() {
     }
   }
 
+  // Unified resume-payment handler for pending campaign cards. Reads the campaign's
+  // real type from the DB row so the server applies the correct fee: Boost campaigns
+  // get the flat $25 activation fee, Grow campaigns the 20% management fee. Previously
+  // every pending "Pay" button called handleGrowRetry, which hardcoded campaign_type
+  // "grow" and mischarged Boost campaigns (20% instead of flat $25).
+  async function handleRetryPayment(campaign: Campaign) {
+    if (campaign.campaign_type === "grow") {
+      await handleGrowRetry(campaign.budget_amount, campaign.id);
+      return;
+    }
+    // Boost (campaign_type defaults to "boost" in the DB): flat activation fee.
+    setRetryingId(campaign.id);
+    try {
+      const res = await fetch("/api/campaigns/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          campaign_type: "boost",
+          budget_amount: campaign.budget_amount,
+          campaign_id: campaign.id,
+          is_reactivation: false,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.checkout_url) {
+        window.location.href = data.checkout_url;
+      }
+    } catch { /* silent */ } finally {
+      setRetryingId(null);
+    }
+  }
+
   async function handleGrowCheckout() {
     setGrowLoading(true);
     setGrowError(null);
@@ -1089,6 +1121,15 @@ export default function BoostPage() {
               ];
               const allStatsEmpty = STATS_ROWS.every((r) => !r.value);
 
+              // Pending payment breakdown — mirror the server fee logic so the card
+              // shows the real total before checkout: Grow = 20% management fee,
+              // Boost = flat $25 activation fee.
+              const pendingFee = c.campaign_type === "grow"
+                ? Math.round(c.budget_amount * 0.20 * 100) / 100
+                : 25;
+              const pendingTotal = c.budget_amount + pendingFee;
+              const pendingFeeLabel = c.campaign_type === "grow" ? "Management fee (20%)" : "Activation fee";
+
               return (
                 <div
                   key={c.id}
@@ -1148,11 +1189,19 @@ export default function BoostPage() {
                   {/* Payment section for pending campaigns */}
                   {isPending && (
                     <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 14 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 10 }}>
-                        Ad Budget
-                      </div>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", marginBottom: 12 }}>
-                        ${c.budget_amount}
+                      <div style={{ marginBottom: 12, fontSize: 13 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+                          <span>Ad budget</span>
+                          <span style={{ fontFamily: "monospace" }}>${c.budget_amount.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+                          <span>{pendingFeeLabel}</span>
+                          <span style={{ fontFamily: "monospace" }}>+${pendingFee.toLocaleString()}</span>
+                        </div>
+                        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+                          <span>Total</span>
+                          <span style={{ fontFamily: "monospace" }}>${pendingTotal.toLocaleString()}</span>
+                        </div>
                       </div>
                       {paymentUrl ? (
                         <a
@@ -1176,11 +1225,11 @@ export default function BoostPage() {
                             marginBottom: 8,
                           }}
                         >
-                          Pay ${c.budget_amount} →
+                          Pay ${pendingTotal.toLocaleString()} →
                         </a>
                       ) : (
                         <button
-                          onClick={() => handleGrowRetry(c.budget_amount, c.id)}
+                          onClick={() => handleRetryPayment(c)}
                           disabled={retryingId === c.id}
                           style={{
                             display: "block",
@@ -1200,7 +1249,7 @@ export default function BoostPage() {
                             opacity: retryingId === c.id ? 0.7 : 1,
                           }}
                         >
-                          {retryingId === c.id ? "Redirecting…" : `Pay $${c.budget_amount} →`}
+                          {retryingId === c.id ? "Redirecting…" : `Pay $${pendingTotal.toLocaleString()} →`}
                         </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
