@@ -199,7 +199,6 @@ export async function listBookingMessagingMembers(input: {
   const ownerName =
     (ownerProfile.brand_name as string | null) ||
     (ownerProfile.name as string | null) ||
-    [ownerProfile.first_name, ownerProfile.last_name].filter(Boolean).join(" ") ||
     ((ownerProfile.email as string | null)?.split("@")[0] ?? "Booking Owner");
 
   members.set(toStreamUserIdForProfile(ownerProfileId), {
@@ -225,7 +224,6 @@ export async function listBookingMessagingMembers(input: {
     const participantName =
       (linkedProfile?.brand_name as string | null) ||
       (linkedProfile?.name as string | null) ||
-      [linkedProfile?.first_name, linkedProfile?.last_name].filter(Boolean).join(" ") ||
       (participant.name as string | null) ||
       ((participant.email as string | null)?.split("@")[0] ?? "Guest");
 

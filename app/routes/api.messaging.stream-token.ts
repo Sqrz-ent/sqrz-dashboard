@@ -15,7 +15,6 @@ function displayNameFromProfile(profile: Record<string, unknown> | null) {
   return (
     (profile.brand_name as string | null) ||
     (profile.name as string | null) ||
-    [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
     ((profile.email as string | null)?.split("@")[0] ?? null)
   );
 }

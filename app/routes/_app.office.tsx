@@ -251,7 +251,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       ownerNameMap[p.id] =
         p.brand_name ||
         p.name ||
-        [p.first_name, p.last_name].filter(Boolean).join(" ") ||
         "Unknown";
     }
   }

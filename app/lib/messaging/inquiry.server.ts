@@ -42,7 +42,6 @@ function formatProfileName(profile: Record<string, unknown>) {
   return (
     (profile.brand_name as string | null) ||
     (profile.name as string | null) ||
-    [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
     ((profile.slug as string | null) ?? "SQRZ Host")
   );
 }
