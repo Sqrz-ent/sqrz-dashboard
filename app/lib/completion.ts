@@ -6,13 +6,12 @@ const SOCIAL_FIELDS = [
 ] as const;
 
 const WIDGET_FIELDS = [
-  "widget_spotify", "widget_soundcloud", "widget_bandsintown", "widget_muso",
+  "widget_spotify", "widget_soundcloud", "widget_bandsintown",
 ] as const;
 
 export type RichProfile = {
   hasGallery: boolean;
   bio?: string | null;
-  city?: string | null;
   hasVideos: boolean;
   hasRefs: boolean;
   hasServices: boolean;
@@ -26,7 +25,6 @@ export type RichProfile = {
   widget_spotify?: string | null;
   widget_soundcloud?: string | null;
   widget_bandsintown?: string | null;
-  widget_muso?: string | null;
   company_name?: string | null;
   company_address?: string | null;
   company_tax_id?: string | null;
@@ -56,7 +54,7 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
   const hasWidget = WIDGET_FIELDS.some((f) => !!(p[f] as string | null));
 
   const items: CompletionItem[] = [
-    { key: "basics",     label: "Basics",      done: !!(p.bio && p.city) },
+    { key: "basics",     label: "Basics",      done: !!p.bio },
     { key: "socials",    label: "Socials",     done: hasSocial },
     { key: "widgets",    label: "Widgets",     done: hasWidget },
     { key: "gallery",    label: "Gallery",     done: p.hasGallery },

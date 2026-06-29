@@ -219,7 +219,6 @@ export async function action({ request }: Route.ActionArgs) {
       brand_name: name,
       name: name,
       bio: formData.get("bio") as string,
-      city: formData.get("city") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -241,7 +240,6 @@ export async function action({ request }: Route.ActionArgs) {
       widget_spotify: formData.get("widget_spotify") as string,
       widget_soundcloud: formData.get("widget_soundcloud") as string,
       widget_bandsintown: formData.get("widget_bandsintown") as string,
-      widget_muso: formData.get("widget_muso") as string,
       widget_mixcloud: formData.get("widget_mixcloud") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -415,7 +413,6 @@ export default function ProfilePage() {
     widget_spotify: (profile.widget_spotify as string) ?? "",
     widget_soundcloud: (profile.widget_soundcloud as string) ?? "",
     widget_bandsintown: (profile.widget_bandsintown as string) ?? "",
-    widget_muso: (profile.widget_muso as string) ?? "",
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
   });
   // Modal state
@@ -510,9 +507,9 @@ export default function ProfilePage() {
   }
 
   // Completion counts
-  const basicFilled = [profile.brand_name, profile.bio, profile.city].filter(Boolean).length;
+  const basicFilled = [profile.brand_name, profile.bio].filter(Boolean).length;
   const socialFilled = [socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin, socialValues.social_tiktok].filter(Boolean).length;
-  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_muso, widgetValues.widget_mixcloud].filter(Boolean).length;
+  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_mixcloud].filter(Boolean).length;
 
   const TikTokIcon = () => (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style={{ display: "inline-block", verticalAlign: "middle" }}>
@@ -532,7 +529,6 @@ export default function ProfilePage() {
     { key: "widget_spotify", emoji: "🎵", label: "Spotify" },
     { key: "widget_soundcloud", emoji: "☁️", label: "SoundCloud" },
     { key: "widget_bandsintown", emoji: "🎤", label: "Bandsintown" },
-    { key: "widget_muso", emoji: "🎼", label: "Muso" },
     { key: "widget_mixcloud", emoji: "🎧", label: "Mixcloud", placeholder: "https://www.mixcloud.com/username/mix-name/", validate: v => v && !v.includes("mixcloud.com") ? "Must be a valid Mixcloud URL" : null },
   ];
 
@@ -585,7 +581,7 @@ export default function ProfilePage() {
 
       {/* Section 1: Basic Info */}
       <div style={card}>
-        <CompletionBadge filled={basicFilled} total={3} />
+        <CompletionBadge filled={basicFilled} total={2} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Basic Info</h2>
         <basicFetcher.Form method="post">
           <input type="hidden" name="intent" value="update_basic" />
@@ -606,10 +602,6 @@ export default function ProfilePage() {
               rows={4}
               style={{ ...inputStyle, resize: "vertical" }}
             />
-          </div>
-          <div>
-            <label style={labelStyle}>City</label>
-            <input name="city" defaultValue={(profile.city as string) ?? ""} style={inputStyle} />
           </div>
           <button type="submit" style={saveBtn} disabled={basicFetcher.state !== "idle"}>
             {basicFetcher.state !== "idle" ? "Saving…" : "Save"}
