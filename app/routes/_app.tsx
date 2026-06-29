@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
-import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { normalizeTaxPresets } from "~/lib/tax-presets";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
@@ -12,6 +12,7 @@ import InquiryBubble from "~/components/InquiryBubble";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
+  const admin = createSupabaseAdminClient();
 
   const {
     data: { user },
@@ -53,7 +54,12 @@ export async function loader({ request }: Route.LoaderArgs) {
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle(),
-        supabase
+        // Use the admin client (not the RLS-scoped `supabase`): the owner reads their
+        // own services here regardless of is_published. The profile_services RLS owner
+        // policy compares auth.uid() to profile_id (= profiles.id), which never matches
+        // for migrated users (profiles.id != auth.users.id), and public_read is gated on
+        // is_published — so the RLS path returns nothing for unpublished owners.
+        admin
           .from("profile_services")
           .select("id, title, booking_type")
           .eq("profile_id", profile.id as string)
