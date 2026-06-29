@@ -89,22 +89,7 @@ export async function action({ request }: Route.ActionArgs) {
     );
   }
 
-  // 4. Invoice gate: at least one non-void invoice must exist for this booking.
-  const { data: invoices } = await admin
-    .from("invoices")
-    .select("id")
-    .eq("booking_id", bookingId)
-    .neq("status", "void")
-    .limit(1);
-
-  if (!invoices || invoices.length === 0) {
-    return Response.json(
-      { error: "An invoice is required before requesting a payout." },
-      { status: 400, headers }
-    );
-  }
-
-  // 5. All checks passed — flip to 'release_requested'.
+  // 4. All checks passed — flip to 'release_requested'.
   const { error: updateError } = await admin
     .from("booking_wallets")
     .update({ payout_status: "release_requested" })
@@ -123,7 +108,6 @@ export async function action({ request }: Route.ActionArgs) {
     const sellerName =
       (profile.brand_name as string | null) ||
       (profile.name as string | null) ||
-      [profile.first_name, profile.last_name].filter(Boolean).join(" ") ||
       (profile.slug as string | null) ||
       "Unknown seller";
 

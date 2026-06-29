@@ -73,8 +73,7 @@ export async function action({ request }: { request: Request }) {
 
   {
     // Payment is never collected at proposal acceptance. Accepted proposals go straight
-    // to 'confirmed'; invoicing and any Stripe payment link happen post-confirmation on
-    // the booking page (Send Invoice / Send Invoice + Payment Link).
+    // to 'confirmed'; payment is tracked on the booking wallet post-confirmation.
     await adminClient
       .from("booking_proposals")
       .update({ status: "accepted" })

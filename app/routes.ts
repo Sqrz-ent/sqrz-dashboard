@@ -53,11 +53,6 @@ export default [
   route("api/payout", "routes/api.payout.tsx"),
   route("api/wallet/allocation", "routes/api.wallet.allocation.tsx"),
 
-  // Invoice API routes
-  route("api/invoices/upload", "routes/api.invoices.upload.ts"),
-  route("api/invoices/download", "routes/api.invoices.download.ts"),
-  route("api/invoices/void", "routes/api.invoices.void.ts"),
-
   // Links API
   route("api/links/:linkId/leads-csv", "routes/api.links.$linkId.leads-csv.tsx"),
 

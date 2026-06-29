@@ -542,10 +542,6 @@ export default function NewBookingModal({
             </label>
           </div>
 
-          {/* Payment is not collected at the proposal stage. Once the booking is
-              confirmed, the owner sends an invoice (optionally with a Stripe payment
-              link) from the booking page. */}
-
           {/* Message */}
           <div style={{ marginBottom: 10 }}>
             <label style={lbl}>Message to client (optional)</label>
