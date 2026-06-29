@@ -5,7 +5,7 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { createClient } from "@supabase/supabase-js";
 import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import UpgradeBanner from "~/components/UpgradeBanner";
-import { getStripeClient, isStripeModeAvailable } from "~/lib/stripe-mode.server";
+import { getStripeClient } from "~/lib/stripe-mode.server";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -103,12 +103,9 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!profile) return redirect("/login", { headers });
   const url = new URL(request.url);
 
+  const profileId = profile.id as string;
   let connectStatus = (profile.stripe_connect_status as string | null) ?? "not_connected";
   const connectId = (profile.stripe_connect_id as string | null) ?? null;
-  let connectStatusTest = (profile.stripe_connect_status_test as string | null) ?? "not_connected";
-  const connectIdTest = (profile.stripe_connect_id_test as string | null) ?? null;
-  const stripeBetaTestMode = (profile.stripe_beta_test_mode as boolean | null) ?? false;
-  const isBeta = (profile.is_beta as boolean | null) ?? false;
   const planId = profile.plan_id as number | null;
 
   const admin = createClient(
@@ -117,21 +114,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 
   const stripeConnect = getStripeClient("live");
-  const stripeConnectTest = getStripeClient("test");
 
   const connectResult = url.searchParams.get("connect");
-  const returnedMode = url.searchParams.get("mode");
   let connectDiagnostics: ConnectDiagnostics | null = null;
-  let connectDiagnosticsTest: ConnectDiagnostics | null = null;
 
-  async function syncConnectStatus(mode: "live" | "test") {
-    const stripeClient = mode === "test" ? stripeConnectTest : stripeConnect;
-    const accountId = mode === "test" ? connectIdTest : connectId;
-    if (!stripeClient || !accountId) return null;
+  // Live-only Connect status sync — retrieves the account from Stripe and persists
+  // the derived status (active | pending) on the profile.
+  async function syncConnectStatus() {
+    if (!stripeConnect || !connectId) return null;
 
-    const account = await stripeClient.accounts.retrieve(accountId);
+    const account = await stripeConnect.accounts.retrieve(connectId);
     const nextStatus = account.charges_enabled && account.payouts_enabled ? "active" : "pending";
-    const statusField = mode === "test" ? "stripe_connect_status_test" : "stripe_connect_status";
     const diagnostics = {
       detailsSubmitted: account.details_submitted ?? null,
       payoutsEnabled: account.payouts_enabled ?? null,
@@ -142,43 +135,26 @@ export async function loader({ request }: Route.LoaderArgs) {
 
     await admin
       .from("profiles")
-      .update({
-        [statusField]: nextStatus,
-        ...(mode === "test" ? { stripe_beta_test_mode: true } : {}),
-      })
-      .eq("id", profile.id as string);
+      .update({ stripe_connect_status: nextStatus })
+      .eq("id", profileId);
 
-    if (mode === "test") {
-      connectStatusTest = nextStatus;
-      connectDiagnosticsTest = diagnostics;
-    } else {
-      connectStatus = nextStatus;
-      connectDiagnostics = diagnostics;
-    }
-
+    connectStatus = nextStatus;
+    connectDiagnostics = diagnostics;
     return diagnostics;
   }
 
   if (connectResult === "success" || connectResult === "refresh") {
-    if (returnedMode === "test" && isBeta) {
-      await syncConnectStatus("test");
-    } else if (returnedMode !== "test") {
-      await syncConnectStatus("live");
-    }
+    await syncConnectStatus();
   }
 
   if (!connectDiagnostics && stripeConnect && connectId && (connectStatus === "pending" || connectStatus === "active")) {
-    connectDiagnostics = await syncConnectStatus("live");
-  }
-  if (!connectDiagnosticsTest && stripeConnectTest && connectIdTest && (connectStatusTest === "pending" || connectStatusTest === "active")) {
-    connectDiagnosticsTest = await syncConnectStatus("test");
+    connectDiagnostics = await syncConnectStatus();
   }
 
   // ── Booking wallets ───────────────────────────────────────────────────────
   const [
     walletsResult,
     stripeExpressResult,
-    stripeExpressTestResult,
   ] = await Promise.allSettled([
     admin
       .from("booking_wallets")
@@ -186,12 +162,9 @@ export async function loader({ request }: Route.LoaderArgs) {
       .eq("owner_profile_id", profile.id)
       .order("created_at", { ascending: false }),
 
-    // Stripe Express login link (test key — accounts created in test mode)
+    // Stripe Express login link for the live, active Connect account.
     stripeConnect && connectId && connectStatus === "active"
       ? stripeConnect.accounts.createLoginLink(connectId).catch(() => null)
-      : Promise.resolve(null),
-    stripeConnectTest && connectIdTest && connectStatusTest === "active"
-      ? stripeConnectTest.accounts.createLoginLink(connectIdTest).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -201,10 +174,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   const stripeExpressUrl: string | null =
     stripeExpressResult.status === "fulfilled" && stripeExpressResult.value
       ? (stripeExpressResult.value as { url: string }).url
-      : null;
-  const stripeExpressUrlTest: string | null =
-    stripeExpressTestResult.status === "fulfilled" && stripeExpressTestResult.value
-      ? (stripeExpressTestResult.value as { url: string }).url
       : null;
 
   // ── Enrich wallets with booking title + client name ───────────────────────
@@ -240,15 +209,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json(
     {
       connectStatus,
-      connectStatusTest,
       planId,
       stripeExpressUrl,
-      stripeExpressUrlTest,
-      stripeBetaTestMode,
-      isBeta,
-      testModeAvailable: isStripeModeAvailable("test"),
-      connectDiagnostics,
-      connectDiagnosticsTest,
       walletRows,
     },
     { headers }
@@ -279,28 +241,14 @@ function fmtDate(iso: string) {
 export default function PaymentsPage() {
   const {
     connectStatus,
-    connectStatusTest,
     planId,
     stripeExpressUrl,
-    stripeExpressUrlTest,
-    stripeBetaTestMode,
-    isBeta,
-    testModeAvailable,
-    connectDiagnostics,
-    connectDiagnosticsTest,
     walletRows,
   } =
     useLoaderData<typeof loader>() as {
       connectStatus: string;
-      connectStatusTest: string;
       planId: number | null;
       stripeExpressUrl: string | null;
-      stripeExpressUrlTest: string | null;
-      stripeBetaTestMode: boolean;
-      isBeta: boolean;
-      testModeAvailable: boolean;
-      connectDiagnostics: ConnectDiagnostics | null;
-      connectDiagnosticsTest: ConnectDiagnostics | null;
       walletRows: WalletRow[];
     };
 
@@ -308,9 +256,6 @@ export default function PaymentsPage() {
   const isConnecting = connectFetcher.state !== "idle";
 
   const isActive = connectStatus === "active";
-  const isPending = connectStatus === "pending";
-  const isActiveTest = connectStatusTest === "active";
-  const isPendingTest = connectStatusTest === "pending";
   const locked = getPlanLevel(planId) < FEATURE_GATES.payments;
 
   // ── Summary metrics ────────────────────────────────────────────────────────
@@ -498,18 +443,11 @@ export default function PaymentsPage() {
         <div style={cardHeader}>
           <p style={cardTitle}>Client Payments</p>
 
-          {isActive ? (
+          {isActive && (
             stripeExpressUrl ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                <a
-                  href={stripeExpressUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={ghostBtn}
-                >
-                  Manage Payouts →
-                </a>
-              </div>
+              <a href={stripeExpressUrl} target="_blank" rel="noopener noreferrer" style={ghostBtn}>
+                Manage Payouts →
+              </a>
             ) : (
               <span
                 title="Payout dashboard unavailable — Connect account may need re-linking"
@@ -518,48 +456,13 @@ export default function PaymentsPage() {
                 Manage Payouts →
               </span>
             )
-          ) : isPending ? (
-            <connectFetcher.Form method="post" action="/api/stripe/connect">
-              <button
-                type="submit"
-                disabled={isConnecting}
-                style={{ ...ghostBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
-              >
-                {isConnecting ? "Redirecting…" : "Continue Setup →"}
-              </button>
-            </connectFetcher.Form>
-          ) : null}
+          )}
         </div>
 
-        {!isActive && !isPending && (
-          <div style={{ padding: "20px 0 8px", borderTop: "1px solid var(--border)" }}>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px" }}>
-              Connect your bank account to receive payments from clients.
-            </p>
-            <connectFetcher.Form method="post" action="/api/stripe/connect">
-              <button
-                type="submit"
-                disabled={isConnecting}
-                style={{ ...accentBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
-              >
-                {isConnecting ? "Redirecting…" : "Connect Bank Account →"}
-              </button>
-            </connectFetcher.Form>
-          </div>
-        )}
-
-        {isPending && (
+        {isActive ? (
           <div style={{ padding: "16px 0 4px", borderTop: "1px solid var(--border)" }}>
             <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-              Onboarding in progress — finish setting up your Stripe account to receive payouts.
-            </p>
-          </div>
-        )}
-
-        {isActive && (
-          <div style={{ padding: "16px 0 4px", borderTop: "1px solid var(--border)" }}>
-            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-              Your payout history is available in the{" "}
+              Your Stripe account is connected. Payout history is available in the{" "}
               {stripeExpressUrl ? (
                 <a href={stripeExpressUrl} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT, textDecoration: "none", fontWeight: 600 }}>
                   Stripe Express dashboard →
@@ -569,112 +472,23 @@ export default function PaymentsPage() {
               )}
             </p>
           </div>
+        ) : (
+          <div style={{ padding: "20px 0 8px", borderTop: "1px solid var(--border)" }}>
+            <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px" }}>
+              Connect your Stripe account to receive payments from clients.
+            </p>
+            <connectFetcher.Form method="post" action="/api/stripe/connect">
+              <button
+                type="submit"
+                disabled={isConnecting}
+                style={{ ...accentBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
+              >
+                {isConnecting ? "Redirecting…" : "Connect with Stripe →"}
+              </button>
+            </connectFetcher.Form>
+          </div>
         )}
       </div>
-
-      {isBeta && (
-        <div style={{ ...card, border: "1px dashed rgba(245,166,35,0.4)", background: "rgba(245,166,35,0.05)" }}>
-          <div style={cardHeader}>
-            <div>
-              <p style={cardTitle}>Stripe Test Mode</p>
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
-                Beta-only parallel test environment. Use this to verify Connect onboarding and payout setup without touching live onboarding.
-              </p>
-            </div>
-
-            {stripeBetaTestMode && (
-              <span style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                background: "rgba(245,166,35,0.14)",
-                border: "1px solid rgba(245,166,35,0.35)",
-                borderRadius: 999,
-                padding: "5px 10px",
-                fontSize: 11,
-                color: ACCENT,
-                letterSpacing: "0.05em",
-                textTransform: "uppercase",
-                fontWeight: 700,
-              }}>
-                Test enabled
-              </span>
-            )}
-          </div>
-
-          {!testModeAvailable ? (
-            <div style={{ paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0 }}>
-                Stripe test mode is not configured yet on the server. Add `STRIPE_SECRET_KEY_TEST` before using parallel test onboarding.
-              </p>
-            </div>
-          ) : isActiveTest ? (
-            <div style={{ paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", flexWrap: "wrap" as const }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                  Your Stripe test Connect account is active. No real payouts move here — this is only for safe beta runs.
-                </p>
-                {stripeExpressUrlTest ? (
-                  <a href={stripeExpressUrlTest} target="_blank" rel="noopener noreferrer" style={ghostBtn}>
-                    Open Test Express →
-                  </a>
-                ) : (
-                  <span style={{ ...ghostBtn, opacity: 0.45, cursor: "default" }}>
-                    Open Test Express →
-                  </span>
-                )}
-              </div>
-            </div>
-          ) : isPendingTest ? (
-            <div style={{ paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                  {connectDiagnosticsTest?.detailsSubmitted
-                    ? "Stripe received your test account, but payouts are not enabled yet."
-                    : "Test onboarding started — Stripe is still waiting for more information before it can enable payouts."}
-                </p>
-                {(connectDiagnosticsTest?.currentlyDue?.length ?? 0) > 0 && (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                    Still required by Stripe: {connectDiagnosticsTest!.currentlyDue.slice(0, 2).join(", ")}
-                    {(connectDiagnosticsTest!.currentlyDue.length > 2) ? "…" : ""}
-                  </p>
-                )}
-                {connectDiagnosticsTest?.disabledReason && (
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.6 }}>
-                    Stripe reason: {connectDiagnosticsTest.disabledReason.replaceAll("_", " ")}
-                  </p>
-                )}
-              </div>
-              <connectFetcher.Form method="post" action="/api/stripe/connect?mode=test">
-                <input type="hidden" name="mode" value="test" />
-                <button
-                  type="submit"
-                  disabled={isConnecting}
-                  style={{ ...ghostBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
-                >
-                  {isConnecting ? "Redirecting…" : "Continue Test Setup →"}
-                </button>
-              </connectFetcher.Form>
-            </div>
-          ) : (
-            <div style={{ paddingTop: 16, borderTop: "1px solid var(--border)" }}>
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6 }}>
-                Create a second, clearly marked Stripe Connect account in test mode. This lets your beta team run safe payout and revenue-share experiments while live onboarding stays untouched.
-              </p>
-              <connectFetcher.Form method="post" action="/api/stripe/connect?mode=test">
-                <input type="hidden" name="mode" value="test" />
-                <button
-                  type="submit"
-                  disabled={isConnecting}
-                  style={{ ...accentBtn, opacity: isConnecting ? 0.6 : 1, cursor: isConnecting ? "default" : "pointer" }}
-                >
-                  {isConnecting ? "Redirecting…" : "Create Test Connect Account →"}
-                </button>
-              </connectFetcher.Form>
-            </div>
-          )}
-        </div>
-      )}
 
      </div>
 
