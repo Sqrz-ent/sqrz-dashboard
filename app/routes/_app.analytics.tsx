@@ -12,7 +12,7 @@ const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 type CountryRow = { country_code: string; count: number };
 type SourceRow = { source: string; count: number };
 type CityRow = { city: string; country_code: string | null; count: number };
-type LeadRow = { email: string; link_slug: string | null; created_at: string };
+type LeadRow = { email: string; collected_at: string };
 
 type PrivateLinkStat = {
   id: string;
@@ -640,7 +640,7 @@ export default function AnalyticsPage() {
                 padding: "24px 0",
               }}
             >
-              No leads captured yet — add a lead gate to your private links
+              No leads captured yet — emails from your profile and private links will appear here
             </div>
           ) : (
             <table
@@ -653,7 +653,7 @@ export default function AnalyticsPage() {
             >
               <thead>
                 <tr>
-                  {["Email", "Link"].map((h) => (
+                  {["Email", "Collected"].map((h) => (
                     <th
                       key={h}
                       style={{
@@ -690,9 +690,10 @@ export default function AnalyticsPage() {
                         borderBottom: "1px solid var(--border)",
                         color: "var(--text-muted)",
                         paddingRight: 12,
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      {row.link_slug ?? "—"}
+                      {row.collected_at ? fmtDate(row.collected_at) : "—"}
                     </td>
                   </tr>
                 ))}
