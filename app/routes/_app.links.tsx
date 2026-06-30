@@ -377,7 +377,6 @@ export async function action({ request }: Route.ActionArgs) {
       event_venue: pageType === "event" ? (selectedEvent?.venue ?? null) : null,
       event_city: pageType === "event" ? (selectedEvent?.city ?? null) : null,
       expires_at: null,
-      lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
       video_url: (fd.get("video_url") as string) || null,
       payment_gate: fd.get("payment_gate") === "true",
       price: fd.get("payment_gate") === "true" ? (parseFloat(fd.get("price") as string) || null) : null,
@@ -436,7 +435,6 @@ export async function action({ request }: Route.ActionArgs) {
       event_venue: pageType === "event" ? (selectedEvent?.venue ?? ((fd.get("event_venue") as string) || null)) : null,
       event_city: pageType === "event" ? (selectedEvent?.city ?? ((fd.get("event_city") as string) || null)) : null,
       expires_at: null,
-      lead_gate: pageType !== "book" && fd.get("lead_gate") === "true",
       video_url: (fd.get("video_url") as string) || null,
       payment_gate: fd.get("payment_gate") === "true",
       price: fd.get("payment_gate") === "true" ? (parseFloat(fd.get("price") as string) || null) : null,
@@ -546,7 +544,6 @@ function CreateLinkModal({
   const [eventDate, setEventDate] = useState("");
   const [eventVenue, setEventVenue] = useState("");
   const [eventCity, setEventCity] = useState("");
-  const [leadGate, setLeadGate] = useState(false);
   const [paymentGate, setPaymentGate] = useState(false);
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("EUR");
@@ -570,7 +567,6 @@ function CreateLinkModal({
       setEventDate(toDatetimeLocal(editingLink.event_date));
       setEventVenue(editingLink.event_venue || "");
       setEventCity(editingLink.event_city || "");
-      setLeadGate(editingLink.lead_gate ?? false);
       setPaymentGate(editingLink.payment_gate ?? false);
       setPrice(editingLink.price != null ? String(editingLink.price) : "");
       setCurrency(editingLink.currency || "EUR");
@@ -604,7 +600,6 @@ function CreateLinkModal({
     setSelectedEventBooking(""); setEventError(null);
     setExternalUrl("");
     setEventDate(""); setEventVenue(""); setEventCity("");
-    setLeadGate(false);
     setPaymentGate(false); setPrice(""); setCurrency("EUR");
     setCoverUploading(false);
     setPendingCoverKey(createPendingCoverKey());
@@ -648,7 +643,6 @@ function CreateLinkModal({
     if (pageType !== "book") {
       fd.append("external_url", externalUrl);
       fd.append("external_url_label", defaultExternalUrlLabel(pageType));
-      fd.append("lead_gate", String(leadGate));
     }
     if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
     // Payment gate applies to all page types (book/download/event).
@@ -712,33 +706,6 @@ function CreateLinkModal({
             ))}
           </div>
         </div>
-
-        {/* Lead Gate toggle — download and event only */}
-        {(pageType === "download" || pageType === "event") && (
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <span style={{ ...labelStyle, marginBottom: 2 }}>Lead Gate</span>
-              <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Visitors must leave their email to access the link</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setLeadGate(v => !v)}
-              style={{
-                width: 38, height: 22, borderRadius: 11, border: "none",
-                background: leadGate ? "#22c55e" : "var(--border)",
-                cursor: "pointer", position: "relative", flexShrink: 0,
-                transition: "background 0.15s", marginTop: 2,
-              }}
-            >
-              <span style={{
-                position: "absolute", top: 3, left: leadGate ? 19 : 3,
-                width: 16, height: 16, borderRadius: "50%", background: "#fff",
-                transition: "left 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                pointerEvents: "none",
-              }} />
-            </button>
-          </div>
-        )}
 
         {/* Payment Gate toggle — available for all page types (book, download, event) */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
