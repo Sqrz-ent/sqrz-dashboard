@@ -842,7 +842,7 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (intent === "wallet_mark_paid") {
     const admin = createSupabaseAdminClient();
-    await admin.from("booking_wallets").update({ client_paid: true }).eq("booking_id", params.id);
+    await admin.from("booking_wallets").update({ client_paid: true, client_payment_method: "manual" }).eq("booking_id", params.id);
     return Response.json({ ok: true }, { headers });
   }
 

@@ -207,6 +207,23 @@ export async function action({ request }: ActionFunctionArgs) {
           .update({ use_count: (linkRow.use_count ?? 0) + 1 })
           .eq("id", linkId);
 
+        // Record the payment itself (amount/currency/intent) so it can appear in
+        // the seller's payments dashboard. link_leads only captures the email.
+        const { error: paymentError } = await supabase.from("link_payments").insert({
+          link_id: linkId,
+          profile_id: linkRow.profile_id,
+          email,
+          amount: (session.amount_total ?? 0) / 100,
+          currency: session.currency ?? "eur",
+          stripe_payment_intent: typeof session.payment_intent === "string" ? session.payment_intent : null,
+          stripe_session_id: session.id,
+          stripe_mode: session.livemode ? "live" : "test",
+        });
+        // Duplicate session (unique constraint 23505) is fine — webhook retry.
+        if (paymentError && paymentError.code !== "23505") {
+          console.error("[webhook] link_payment record insert failed:", paymentError);
+        }
+
         if (email) {
           const { error: leadError } = await supabase.from("link_leads").insert({
             link_id: linkId,
@@ -375,6 +392,7 @@ export async function action({ request }: ActionFunctionArgs) {
         base_rate: net ?? totalCharged,
         stripe_mode: sessionStripeMode,
         client_paid: true,
+        client_payment_method: "stripe",
         payout_status: "pending",
         sqrz_fee_pct: feePct,
         tax_pct: metaTaxPct,
@@ -472,6 +490,7 @@ export async function action({ request }: ActionFunctionArgs) {
         // Update existing wallet: mark paid + set secured_amount if not already set
         const updateData: Record<string, unknown> = {
           client_paid: true,
+          client_payment_method: "stripe",
           payout_status: "pending",
           total_budget: totalCharged,
           stripe_mode: sessionStripeMode,
@@ -512,6 +531,7 @@ export async function action({ request }: ActionFunctionArgs) {
           base_rate: securedAmount,
           stripe_mode: sessionStripeMode,
           client_paid: true,
+          client_payment_method: "stripe",
           payout_status: "pending",
           sqrz_fee_pct: feePct,
           tax_pct: metaTaxPct,

@@ -78,10 +78,25 @@ type WalletRow = {
   released_amount: number | null;
   currency: string | null;
   stripe_mode: "live" | "test" | null;
+  client_payment_method: string | null;
   booking_title: string;
   booking_status: string | null;
   client_name: string | null;
   client_email: string | null;
+};
+
+// Unified row used by the merged payments list (bookings + link payments).
+type PaymentRow = {
+  id: string;
+  kind: "booking" | "link";
+  date: string;
+  name: string;
+  href: string;
+  total: number | null;
+  currency: string | null;
+  method: "stripe" | "manual";
+  status: "paid" | "unpaid" | "awaiting";
+  isTest: boolean;
 };
 
 type ConnectDiagnostics = {
@@ -158,7 +173,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   ] = await Promise.allSettled([
     admin
       .from("booking_wallets")
-      .select("id, booking_id, total_budget, secured_amount, sqrz_fee_pct, client_paid, payout_status, status, created_at, released_amount, currency, stripe_mode")
+      .select("id, booking_id, total_budget, secured_amount, sqrz_fee_pct, client_paid, payout_status, status, created_at, released_amount, currency, stripe_mode, client_payment_method")
       .eq("owner_profile_id", profile.id)
       .order("created_at", { ascending: false }),
 
@@ -206,12 +221,79 @@ export async function loader({ request }: Route.LoaderArgs) {
     }));
   }
 
+  // ── Link payments (payment-gated private links) ───────────────────────────
+  const { data: linkPaymentsRaw } = await admin
+    .from("link_payments")
+    .select("id, created_at, link_id, amount, currency, stripe_mode")
+    .eq("profile_id", profileId)
+    .order("created_at", { ascending: false });
+
+  let linkTitleMap: Record<string, string> = {};
+  if (linkPaymentsRaw && linkPaymentsRaw.length > 0) {
+    const linkIds = [...new Set(linkPaymentsRaw.map((p: any) => p.link_id).filter(Boolean))];
+    const { data: linksData } = await admin
+      .from("private_booking_links")
+      .select("id, title")
+      .in("id", linkIds);
+    linkTitleMap = Object.fromEntries((linksData ?? []).map((l: any) => [l.id, l.title]));
+  }
+
+  // ── Merge into one unified, date-sorted list ──────────────────────────────
+  const payments: PaymentRow[] = [
+    ...walletRows.map((w): PaymentRow => ({
+      id: `w_${w.id}`,
+      kind: "booking",
+      date: w.created_at,
+      name: w.booking_title,
+      href: `/booking/${w.booking_id}`,
+      total: w.total_budget,
+      currency: w.currency,
+      method: w.client_payment_method === "manual" ? "manual" : "stripe",
+      // paid → money received; manual-unpaid → "unpaid"; stripe-unpaid → "awaiting"
+      status: w.client_paid ? "paid" : (w.client_payment_method === "manual" ? "unpaid" : "awaiting"),
+      isTest: w.stripe_mode === "test",
+    })),
+    ...(linkPaymentsRaw ?? []).map((p: any): PaymentRow => ({
+      id: `l_${p.id}`,
+      kind: "link",
+      date: p.created_at,
+      name: linkTitleMap[p.link_id] ?? "Private link",
+      href: "/links",
+      total: p.amount,
+      currency: p.currency,
+      method: "stripe", // link payments are always Stripe (PaymentGateCta)
+      status: "paid",    // a link_payments row only exists after a successful charge
+      isTest: p.stripe_mode === "test",
+    })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  // ── Summary totals ────────────────────────────────────────────────────────
+  // Total Earned counts Stripe-processed money only (manual/bank-transfer
+  // payments are settled off-platform, so their amounts are not tracked here).
+  const totalEarned =
+    walletRows
+      .filter((w) => w.client_paid && w.client_payment_method !== "manual")
+      .reduce((s, w) => s + (w.secured_amount ?? 0), 0) +
+    (linkPaymentsRaw ?? []).reduce((s: number, p: any) => s + (Number(p.amount) || 0), 0);
+
+  const awaitingPayment = walletRows
+    .filter((w) => !w.client_paid)
+    .reduce((s, w) => s + (w.secured_amount ?? 0), 0);
+
+  const defaultCurrency =
+    walletRows.find((w) => w.currency)?.currency ??
+    (linkPaymentsRaw ?? []).find((p: any) => p.currency)?.currency ??
+    "EUR";
+
   return Response.json(
     {
       connectStatus,
       planId,
       stripeExpressUrl,
-      walletRows,
+      payments,
+      totalEarned,
+      awaitingPayment,
+      defaultCurrency,
     },
     { headers }
   );
@@ -243,13 +325,19 @@ export default function PaymentsPage() {
     connectStatus,
     planId,
     stripeExpressUrl,
-    walletRows,
+    payments,
+    totalEarned,
+    awaitingPayment,
+    defaultCurrency,
   } =
     useLoaderData<typeof loader>() as {
       connectStatus: string;
       planId: number | null;
       stripeExpressUrl: string | null;
-      walletRows: WalletRow[];
+      payments: PaymentRow[];
+      totalEarned: number;
+      awaitingPayment: number;
+      defaultCurrency: string;
     };
 
   const connectFetcher = useFetcher();
@@ -257,22 +345,6 @@ export default function PaymentsPage() {
 
   const isActive = connectStatus === "active";
   const locked = getPlanLevel(planId) < FEATURE_GATES.payments;
-
-  // ── Summary metrics ────────────────────────────────────────────────────────
-  const totalEarned = walletRows
-    .filter(w => w.payout_status === "released")
-    .reduce((s, w) => s + (w.released_amount ?? w.secured_amount ?? 0), 0);
-
-  const pendingPayout = walletRows
-    .filter(w => w.client_paid && (w.payout_status === "pending" || w.payout_status === "approved"))
-    .reduce((s, w) => s + (w.secured_amount ?? 0), 0);
-
-  const awaitingPayment = walletRows
-    .filter(w => !w.client_paid)
-    .reduce((s, w) => s + (w.secured_amount ?? 0), 0);
-
-  // Default currency from most recent wallet with a value
-  const defaultCurrency = walletRows.find(w => w.currency)?.currency ?? "EUR";
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "32px 24px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -296,24 +368,28 @@ export default function PaymentsPage() {
 
 <div style={locked ? { opacity: 0.45, pointerEvents: "none" } : {}}> 
       {/* ── Summary cards ── */}
-      {walletRows.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 24 }}>
-          <MetricCard label="Total Earned" value={fmt(totalEarned, defaultCurrency)} accent />
-          <MetricCard label="Pending Payout" value={fmt(pendingPayout, defaultCurrency)} />
+      {payments.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 24, alignItems: "start" }}>
+          <div>
+            <MetricCard label="Total Earned" value={fmt(totalEarned, defaultCurrency)} accent />
+            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 2px 0", lineHeight: 1.4 }}>
+              Stripe payments only
+            </p>
+          </div>
           <MetricCard label="Awaiting Payment" value={fmt(awaitingPayment, defaultCurrency)} muted />
         </div>
       )}
 
-      {/* ── Payments table ── */}
+      {/* ── Unified payments list ── */}
       <div style={{ ...card, padding: 0, overflow: "hidden" }}>
         <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid var(--border)" }}>
-          <p style={cardTitle}>Booking Payments</p>
+          <p style={cardTitle}>Payments</p>
         </div>
 
-        {walletRows.length === 0 ? (
+        {payments.length === 0 ? (
           <div style={{ padding: "40px 24px", textAlign: "center" }}>
             <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
-              No booking payments yet. Payments appear here once a client confirms a booking.
+              No payments yet. Booking and link payments appear here once a client pays.
             </p>
           </div>
         ) : (
@@ -321,7 +397,7 @@ export default function PaymentsPage() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  {["Date", "Booking", "Client", "Total", "Your Rate", "Status", "Action"].map(h => (
+                  {["Date", "Name", "Total", "Method", "Status"].map(h => (
                     <th key={h} style={{
                       padding: "10px 16px",
                       textAlign: "left",
@@ -337,111 +413,72 @@ export default function PaymentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {walletRows.map((w, i) => {
-                  const cur = w.currency ?? defaultCurrency;
+                {payments.map((p, i) => (
+                  <tr
+                    key={p.id}
+                    style={{
+                      borderBottom: i < payments.length - 1 ? "1px solid var(--border)" : "none",
+                      background: "transparent",
+                    }}
+                  >
+                    {/* Date */}
+                    <td style={{ padding: "14px 16px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                      {fmtDate(p.date)}
+                    </td>
 
-                  return (
-                    <tr
-                      key={w.id}
-                      style={{
-                        borderBottom: i < walletRows.length - 1 ? "1px solid var(--border)" : "none",
-                        background: "transparent",
-                      }}
-                    >
-                      {/* Date */}
-                      <td style={{ padding: "14px 16px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                        {fmtDate(w.created_at)}
-                      </td>
+                    {/* Name — clickable link to the booking or links page */}
+                    <td style={{ padding: "14px 16px", maxWidth: 220 }}>
+                      <a
+                        href={p.href}
+                        style={{ color: "var(--text)", textDecoration: "none", fontWeight: 600 }}
+                      >
+                        {p.name}
+                      </a>
+                      {p.isTest && (
+                        <span style={{
+                          display: "inline-flex",
+                          marginLeft: 8,
+                          padding: "2px 7px",
+                          borderRadius: 999,
+                          background: "rgba(245,166,35,0.12)",
+                          border: "1px solid rgba(245,166,35,0.28)",
+                          color: ACCENT,
+                          fontSize: 10,
+                          fontWeight: 800,
+                          letterSpacing: "0.08em",
+                          textTransform: "uppercase",
+                        }}>
+                          Test
+                        </span>
+                      )}
+                    </td>
 
-                      {/* Booking */}
-                      <td style={{ padding: "14px 16px", maxWidth: 180 }}>
-                        <a
-                          href={`/booking/${w.booking_id}`}
-                          style={{ color: "var(--text)", textDecoration: "none", fontWeight: 600 }}
-                        >
-                          {w.booking_title}
-                        </a>
-                        {w.stripe_mode === "test" && (
-                          <span style={{
-                            display: "inline-flex",
-                            marginTop: 5,
-                            padding: "2px 7px",
-                            borderRadius: 999,
-                            background: "rgba(245,166,35,0.12)",
-                            border: "1px solid rgba(245,166,35,0.28)",
-                            color: ACCENT,
-                            fontSize: 10,
-                            fontWeight: 800,
-                            letterSpacing: "0.08em",
-                            textTransform: "uppercase",
-                          }}>
-                            Test
-                          </span>
-                        )}
-                      </td>
+                    {/* Total */}
+                    <td style={{ padding: "14px 16px", fontWeight: 600, whiteSpace: "nowrap" }}>
+                      {fmt(p.total, p.currency ?? defaultCurrency)}
+                    </td>
 
-                      {/* Client */}
-                      <td style={{ padding: "14px 16px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                        {w.client_name ?? "—"}
-                      </td>
+                    {/* Method pill */}
+                    <td style={{ padding: "14px 16px" }}>
+                      <MethodBadge method={p.method} />
+                    </td>
 
-                      {/* Total (what client paid) */}
-                      <td style={{ padding: "14px 16px", fontWeight: 600, whiteSpace: "nowrap" }}>
-                        {fmt(w.total_budget, cur)}
-                      </td>
-
-                      {/* Your rate */}
-                      <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
-                        {fmt(w.secured_amount, cur)}
-                      </td>
-
-                      {/* Status */}
-                      <td style={{ padding: "14px 16px" }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <PaymentBadge paid={!!w.client_paid} />
-                          <PayoutBadge status={w.payout_status} />
-                        </div>
-                      </td>
-
-                      {/* Action */}
-                      <td style={{ padding: "14px 16px", whiteSpace: "nowrap" }}>
-                        {w.payout_status === "released" ? (
-                          <span style={{ fontSize: 12, color: "#22c55e", fontWeight: 600 }}>Released ✓</span>
-                        ) : (
-                          <a
-                            href={`/booking/${w.booking_id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              padding: "6px 14px",
-                              background: ACCENT,
-                              border: "none",
-                              borderRadius: 8,
-                              color: "#111",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              fontFamily: FONT_BODY,
-                              textDecoration: "none",
-                              display: "inline-block",
-                            }}
-                          >
-                            View Booking →
-                          </a>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
+                    {/* Status pill */}
+                    <td style={{ padding: "14px 16px" }}>
+                      <StatusBadge status={p.status} />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         )}
       </div>
 
-      {/* ── Section: Client Payments (Connect) ── */}
+      {/* ── Section: Stripe Connect (payouts) ── */}
       <div style={card}>
         <div style={cardHeader}>
-          <p style={cardTitle}>Client Payments</p>
+          <p style={cardTitle}>Stripe Connect</p>
 
           {isActive && (
             stripeExpressUrl ? (
@@ -533,93 +570,35 @@ function MetricCard({ label, value, accent, muted }: {
   );
 }
 
-function PaymentBadge({ paid }: { paid: boolean }) {
+const pillBase: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  fontSize: 11,
+  fontWeight: 600,
+  borderRadius: 5,
+  padding: "2px 8px",
+  whiteSpace: "nowrap",
+};
+
+function MethodBadge({ method }: { method: "stripe" | "manual" }) {
+  const isStripe = method === "stripe";
   return (
     <span style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 4,
-      fontSize: 11,
-      fontWeight: 600,
-      color: paid ? "#22c55e" : "var(--text-muted)",
-      background: paid ? "rgba(34,197,94,0.1)" : "var(--surface-muted)",
-      borderRadius: 5,
-      padding: "2px 7px",
-      whiteSpace: "nowrap",
+      ...pillBase,
+      color: isStripe ? "#635bff" : "var(--text-muted)",
+      background: isStripe ? "rgba(99,91,255,0.12)" : "var(--surface-muted)",
     }}>
-      {paid ? "Paid ✓" : "Unpaid"}
+      {isStripe ? "Stripe" : "Manual"}
     </span>
   );
 }
 
-function PayoutBadge({ status }: { status: string | null }) {
-  if (!status || status === "pending") {
-    return (
-      <span style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: 11,
-        fontWeight: 600,
-        color: "#F3B130",
-        background: "rgba(243,177,48,0.1)",
-        borderRadius: 5,
-        padding: "2px 7px",
-        whiteSpace: "nowrap",
-      }}>
-        Pending
-      </span>
-    );
+function StatusBadge({ status }: { status: "paid" | "unpaid" | "awaiting" }) {
+  if (status === "paid") {
+    return <span style={{ ...pillBase, color: "#22c55e", background: "rgba(34,197,94,0.1)" }}>Paid ✓</span>;
   }
-  if (status === "approved") {
-    return (
-      <span style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: 11,
-        fontWeight: 600,
-        color: "#60a5fa",
-        background: "rgba(96,165,250,0.1)",
-        borderRadius: 5,
-        padding: "2px 7px",
-        whiteSpace: "nowrap",
-      }}>
-        Approved
-      </span>
-    );
+  if (status === "awaiting") {
+    return <span style={{ ...pillBase, color: "#F3B130", background: "rgba(243,177,48,0.1)" }}>Awaiting</span>;
   }
-  if (status === "released") {
-    return (
-      <span style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: 11,
-        fontWeight: 600,
-        color: "#22c55e",
-        background: "rgba(34,197,94,0.1)",
-        borderRadius: 5,
-        padding: "2px 7px",
-        whiteSpace: "nowrap",
-      }}>
-        Released ✓
-      </span>
-    );
-  }
-  if (status === "disputed") {
-    return (
-      <span style={{
-        display: "inline-flex",
-        alignItems: "center",
-        fontSize: 11,
-        fontWeight: 600,
-        color: "#ef4444",
-        background: "rgba(239,68,68,0.1)",
-        borderRadius: 5,
-        padding: "2px 7px",
-        whiteSpace: "nowrap",
-      }}>
-        Disputed
-      </span>
-    );
-  }
-  return null;
+  return <span style={{ ...pillBase, color: "var(--text-muted)", background: "var(--surface-muted)" }}>Unpaid</span>;
 }
