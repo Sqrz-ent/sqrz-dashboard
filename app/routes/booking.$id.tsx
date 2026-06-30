@@ -2924,19 +2924,6 @@ export default function BookingAccessPage() {
   const bStatus = b.status as string;
   const isConfirmedOrCompleted = bStatus === "confirmed" || bStatus === "completed";
 
-  function handleBuyerChatSend(message: string) {
-    // Notify the booking owner — fire and forget
-    fetch("/api/notify-member", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        bookingId: b.id as string,
-        buyerEmail: userEmail,
-        message,
-      }),
-    }).catch(() => { /* non-fatal */ });
-  }
-
   return (
     <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
       {themeToggle}
@@ -3010,7 +2997,6 @@ export default function BookingAccessPage() {
         bookingToken={bookingToken}
         senderName={senderName ?? undefined}
         participantName={memberInfo?.company_name ?? memberInfo?.name ?? undefined}
-        onAfterSend={handleBuyerChatSend}
       />
     </div>
   );

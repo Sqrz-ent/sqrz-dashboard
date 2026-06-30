@@ -35,15 +35,11 @@ export default [
 
   // API routes (server-only, action handlers)
   route("api/crew/create-profile", "routes/api.crew.create-profile.ts"),
-  route("api/notify-member", "routes/api.notify-member.tsx"),
   route("api/messaging/stream-token", "routes/api.messaging.stream-token.ts"),
   route("api/messaging/stream-inbox", "routes/api.messaging.stream-inbox.ts"),
   route("api/messaging/stream-inquiry", "routes/api.messaging.stream-inquiry.ts"),
   route("api/messaging/stream-inquiry-convert", "routes/api.messaging.stream-inquiry-convert.ts"),
   route("api/messaging/stream-inquiry-status", "routes/api.messaging.stream-inquiry-status.ts"),
-  route("api/push/subscribe", "routes/api.push.subscribe.ts"),
-  route("api/push/unsubscribe", "routes/api.push.unsubscribe.ts"),
-  route("api/push/test", "routes/api.push.test.ts"),
   route("api/dashboard/home-summary", "routes/api.dashboard.home-summary.ts"),
   route("api/booking/create", "routes/api.booking.create.tsx"),
   route("api/booking/deliver", "routes/api.booking.deliver.tsx"),

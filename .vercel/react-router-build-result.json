@@ -18,6 +18,7 @@
       "routes/claim": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/claim.confirm": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/booking.$id": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/stripe-return": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app._index": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.office": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.partners": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -33,27 +34,19 @@
       "routes/_app.account": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.analytics": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.crew.create-profile": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.notify-member": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-token": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inbox": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inquiry": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inquiry-convert": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inquiry-status": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.push.subscribe": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.push.unsubscribe": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.push.test": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.dashboard.home-summary": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.booking.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.booking.deliver": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.accept": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.counter": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.decline": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.billing.confirm": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.payout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.invoices.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.invoices.upload": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.invoices.download": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.invoices.void": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.invoicing.activate": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.wallet.allocation": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.links.$linkId.leads-csv": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.campaigns.checkout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.stripe.checkout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -121,6 +114,13 @@
         "parentId": "root",
         "file": "app/routes/booking.$id.tsx",
         "path": "booking/:id",
+        "config": {}
+      },
+      "routes/stripe-return": {
+        "id": "routes/stripe-return",
+        "parentId": "root",
+        "file": "app/routes/stripe-return.tsx",
+        "path": "stripe-return",
         "config": {}
       },
       "routes/_app": {
@@ -234,13 +234,6 @@
         "path": "api/crew/create-profile",
         "config": {}
       },
-      "routes/api.notify-member": {
-        "id": "routes/api.notify-member",
-        "parentId": "root",
-        "file": "app/routes/api.notify-member.tsx",
-        "path": "api/notify-member",
-        "config": {}
-      },
       "routes/api.messaging.stream-token": {
         "id": "routes/api.messaging.stream-token",
         "parentId": "root",
@@ -276,27 +269,6 @@
         "path": "api/messaging/stream-inquiry-status",
         "config": {}
       },
-      "routes/api.push.subscribe": {
-        "id": "routes/api.push.subscribe",
-        "parentId": "root",
-        "file": "app/routes/api.push.subscribe.ts",
-        "path": "api/push/subscribe",
-        "config": {}
-      },
-      "routes/api.push.unsubscribe": {
-        "id": "routes/api.push.unsubscribe",
-        "parentId": "root",
-        "file": "app/routes/api.push.unsubscribe.ts",
-        "path": "api/push/unsubscribe",
-        "config": {}
-      },
-      "routes/api.push.test": {
-        "id": "routes/api.push.test",
-        "parentId": "root",
-        "file": "app/routes/api.push.test.ts",
-        "path": "api/push/test",
-        "config": {}
-      },
       "routes/api.dashboard.home-summary": {
         "id": "routes/api.dashboard.home-summary",
         "parentId": "root",
@@ -309,6 +281,13 @@
         "parentId": "root",
         "file": "app/routes/api.booking.create.tsx",
         "path": "api/booking/create",
+        "config": {}
+      },
+      "routes/api.booking.deliver": {
+        "id": "routes/api.booking.deliver",
+        "parentId": "root",
+        "file": "app/routes/api.booking.deliver.tsx",
+        "path": "api/booking/deliver",
         "config": {}
       },
       "routes/api.proposal.accept": {
@@ -332,13 +311,6 @@
         "path": "api/proposal/decline",
         "config": {}
       },
-      "routes/api.billing.confirm": {
-        "id": "routes/api.billing.confirm",
-        "parentId": "root",
-        "file": "app/routes/api.billing.confirm.ts",
-        "path": "api/billing/confirm",
-        "config": {}
-      },
       "routes/api.payout": {
         "id": "routes/api.payout",
         "parentId": "root",
@@ -346,39 +318,11 @@
         "path": "api/payout",
         "config": {}
       },
-      "routes/api.invoices.create": {
-        "id": "routes/api.invoices.create",
+      "routes/api.wallet.allocation": {
+        "id": "routes/api.wallet.allocation",
         "parentId": "root",
-        "file": "app/routes/api.invoices.create.ts",
-        "path": "api/invoices/create",
-        "config": {}
-      },
-      "routes/api.invoices.upload": {
-        "id": "routes/api.invoices.upload",
-        "parentId": "root",
-        "file": "app/routes/api.invoices.upload.ts",
-        "path": "api/invoices/upload",
-        "config": {}
-      },
-      "routes/api.invoices.download": {
-        "id": "routes/api.invoices.download",
-        "parentId": "root",
-        "file": "app/routes/api.invoices.download.ts",
-        "path": "api/invoices/download",
-        "config": {}
-      },
-      "routes/api.invoices.void": {
-        "id": "routes/api.invoices.void",
-        "parentId": "root",
-        "file": "app/routes/api.invoices.void.ts",
-        "path": "api/invoices/void",
-        "config": {}
-      },
-      "routes/api.invoicing.activate": {
-        "id": "routes/api.invoicing.activate",
-        "parentId": "root",
-        "file": "app/routes/api.invoicing.activate.tsx",
-        "path": "api/invoicing/activate",
+        "file": "app/routes/api.wallet.allocation.tsx",
+        "path": "api/wallet/allocation",
         "config": {}
       },
       "routes/api.links.$linkId.leads-csv": {
@@ -513,6 +457,12 @@
         "file": "routes/booking.$id.tsx",
         "path": "booking/:id"
       },
+      "routes/stripe-return": {
+        "id": "routes/stripe-return",
+        "parentId": "root",
+        "file": "routes/stripe-return.tsx",
+        "path": "stripe-return"
+      },
       "routes/_app": {
         "id": "routes/_app",
         "parentId": "root",
@@ -608,12 +558,6 @@
         "file": "routes/api.crew.create-profile.ts",
         "path": "api/crew/create-profile"
       },
-      "routes/api.notify-member": {
-        "id": "routes/api.notify-member",
-        "parentId": "root",
-        "file": "routes/api.notify-member.tsx",
-        "path": "api/notify-member"
-      },
       "routes/api.messaging.stream-token": {
         "id": "routes/api.messaging.stream-token",
         "parentId": "root",
@@ -644,24 +588,6 @@
         "file": "routes/api.messaging.stream-inquiry-status.ts",
         "path": "api/messaging/stream-inquiry-status"
       },
-      "routes/api.push.subscribe": {
-        "id": "routes/api.push.subscribe",
-        "parentId": "root",
-        "file": "routes/api.push.subscribe.ts",
-        "path": "api/push/subscribe"
-      },
-      "routes/api.push.unsubscribe": {
-        "id": "routes/api.push.unsubscribe",
-        "parentId": "root",
-        "file": "routes/api.push.unsubscribe.ts",
-        "path": "api/push/unsubscribe"
-      },
-      "routes/api.push.test": {
-        "id": "routes/api.push.test",
-        "parentId": "root",
-        "file": "routes/api.push.test.ts",
-        "path": "api/push/test"
-      },
       "routes/api.dashboard.home-summary": {
         "id": "routes/api.dashboard.home-summary",
         "parentId": "root",
@@ -673,6 +599,12 @@
         "parentId": "root",
         "file": "routes/api.booking.create.tsx",
         "path": "api/booking/create"
+      },
+      "routes/api.booking.deliver": {
+        "id": "routes/api.booking.deliver",
+        "parentId": "root",
+        "file": "routes/api.booking.deliver.tsx",
+        "path": "api/booking/deliver"
       },
       "routes/api.proposal.accept": {
         "id": "routes/api.proposal.accept",
@@ -692,47 +624,17 @@
         "file": "routes/api.proposal.decline.tsx",
         "path": "api/proposal/decline"
       },
-      "routes/api.billing.confirm": {
-        "id": "routes/api.billing.confirm",
-        "parentId": "root",
-        "file": "routes/api.billing.confirm.ts",
-        "path": "api/billing/confirm"
-      },
       "routes/api.payout": {
         "id": "routes/api.payout",
         "parentId": "root",
         "file": "routes/api.payout.tsx",
         "path": "api/payout"
       },
-      "routes/api.invoices.create": {
-        "id": "routes/api.invoices.create",
+      "routes/api.wallet.allocation": {
+        "id": "routes/api.wallet.allocation",
         "parentId": "root",
-        "file": "routes/api.invoices.create.ts",
-        "path": "api/invoices/create"
-      },
-      "routes/api.invoices.upload": {
-        "id": "routes/api.invoices.upload",
-        "parentId": "root",
-        "file": "routes/api.invoices.upload.ts",
-        "path": "api/invoices/upload"
-      },
-      "routes/api.invoices.download": {
-        "id": "routes/api.invoices.download",
-        "parentId": "root",
-        "file": "routes/api.invoices.download.ts",
-        "path": "api/invoices/download"
-      },
-      "routes/api.invoices.void": {
-        "id": "routes/api.invoices.void",
-        "parentId": "root",
-        "file": "routes/api.invoices.void.ts",
-        "path": "api/invoices/void"
-      },
-      "routes/api.invoicing.activate": {
-        "id": "routes/api.invoicing.activate",
-        "parentId": "root",
-        "file": "routes/api.invoicing.activate.tsx",
-        "path": "api/invoicing/activate"
+        "file": "routes/api.wallet.allocation.tsx",
+        "path": "api/wallet/allocation"
       },
       "routes/api.links.$linkId.leads-csv": {
         "id": "routes/api.links.$linkId.leads-csv",
@@ -838,6 +740,10 @@
             "path": "booking/:id"
           },
           {
+            "file": "routes/stripe-return.tsx",
+            "path": "stripe-return"
+          },
+          {
             "file": "routes/_app.tsx",
             "children": [
               {
@@ -903,10 +809,6 @@
             "path": "api/crew/create-profile"
           },
           {
-            "file": "routes/api.notify-member.tsx",
-            "path": "api/notify-member"
-          },
-          {
             "file": "routes/api.messaging.stream-token.ts",
             "path": "api/messaging/stream-token"
           },
@@ -927,24 +829,16 @@
             "path": "api/messaging/stream-inquiry-status"
           },
           {
-            "file": "routes/api.push.subscribe.ts",
-            "path": "api/push/subscribe"
-          },
-          {
-            "file": "routes/api.push.unsubscribe.ts",
-            "path": "api/push/unsubscribe"
-          },
-          {
-            "file": "routes/api.push.test.ts",
-            "path": "api/push/test"
-          },
-          {
             "file": "routes/api.dashboard.home-summary.ts",
             "path": "api/dashboard/home-summary"
           },
           {
             "file": "routes/api.booking.create.tsx",
             "path": "api/booking/create"
+          },
+          {
+            "file": "routes/api.booking.deliver.tsx",
+            "path": "api/booking/deliver"
           },
           {
             "file": "routes/api.proposal.accept.tsx",
@@ -959,32 +853,12 @@
             "path": "api/proposal/decline"
           },
           {
-            "file": "routes/api.billing.confirm.ts",
-            "path": "api/billing/confirm"
-          },
-          {
             "file": "routes/api.payout.tsx",
             "path": "api/payout"
           },
           {
-            "file": "routes/api.invoices.create.ts",
-            "path": "api/invoices/create"
-          },
-          {
-            "file": "routes/api.invoices.upload.ts",
-            "path": "api/invoices/upload"
-          },
-          {
-            "file": "routes/api.invoices.download.ts",
-            "path": "api/invoices/download"
-          },
-          {
-            "file": "routes/api.invoices.void.ts",
-            "path": "api/invoices/void"
-          },
-          {
-            "file": "routes/api.invoicing.activate.tsx",
-            "path": "api/invoicing/activate"
+            "file": "routes/api.wallet.allocation.tsx",
+            "path": "api/wallet/allocation"
           },
           {
             "file": "routes/api.links.$linkId.leads-csv.tsx",

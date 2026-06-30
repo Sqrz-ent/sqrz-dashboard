@@ -33,7 +33,7 @@ export default function ClaimPage() {
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: email.trim().toLowerCase(),
       options: {
-        data: { claim_token: token },
+        data: { claim_token: token, slug },
       },
     });
 
