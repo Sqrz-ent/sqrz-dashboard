@@ -164,7 +164,6 @@ export default function AppLayout() {
     }
   }
 
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   useEffect(() => {
     if (p !== null && p.onboarding_completed === false) {
       setShowOnboarding(true);
@@ -196,22 +195,6 @@ export default function AppLayout() {
       window.removeEventListener("sqrz:open-upgrade", handleOpenUpgrade as EventListener);
     };
   }, []);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("sqrz_theme") as "dark" | "light" | null;
-    const initial = saved ?? "dark";
-    setTheme(initial);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(initial);
-  }, []);
-
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    localStorage.setItem("sqrz_theme", next);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(next);
-  }
 
   const navigation = useNavigation();
   const isNavigating = navigation.state === "loading";
@@ -420,23 +403,6 @@ export default function AppLayout() {
                 Upgrade
               </button>
             )}
-            <button
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--text-muted)",
-                fontSize: 18,
-                cursor: "pointer",
-                padding: "4px 6px",
-                lineHeight: 1,
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              {theme === "dark" ? "☀️" : "🌙"}
-            </button>
           </div>
         </nav>
       )}
@@ -490,26 +456,8 @@ export default function AppLayout() {
             </span>
           </div>
 
-          {/* Right — theme */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 80, justifyContent: "flex-end" }}>
-            <button
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--text-muted)",
-                fontSize: 18,
-                cursor: "pointer",
-                padding: "4px 6px",
-                lineHeight: 1,
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
-              {theme === "dark" ? "☀️" : "🌙"}
-            </button>
-          </div>
+          {/* Right — spacer (balances the back button, keeps the title centered) */}
+          <div style={{ minWidth: 80 }} />
         </header>
       )}
 
