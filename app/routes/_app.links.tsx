@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { redirect, useLoaderData, useFetcher } from "react-router";
+import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app.links";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
@@ -275,6 +275,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       grow_qualified: (profile.grow_qualified as boolean) ?? false,
       username: profile.slug as string,
       profileId: profile.id as string,
+      stripeConnectStatus: (profile.stripe_connect_status as string | null) ?? null,
       links,
       services: servicesRes.data ?? [],
       eventBookings,
@@ -511,6 +512,7 @@ function CreateLinkModal({
   fetcher,
   username,
   profileId,
+  stripeConnectStatus,
   existingSlugs,
   services,
   eventBookings,
@@ -521,6 +523,7 @@ function CreateLinkModal({
   fetcher: ReturnType<typeof useFetcher>;
   username: string;
   profileId: string;
+  stripeConnectStatus: string | null;
   existingSlugs: string[];
   services: ProfileService[];
   eventBookings: EventBooking[];
@@ -731,6 +734,29 @@ function CreateLinkModal({
             }} />
           </button>
         </div>
+
+        {/* Stripe Connect warning — payment gate is on but Connect isn't active yet.
+            The toggle can still be set (setting up in advance), but payments won't
+            work until Stripe is connected. */}
+        {paymentGate && stripeConnectStatus !== "active" && (
+          <div style={{
+            display: "flex",
+            gap: 8,
+            padding: "10px 12px",
+            borderRadius: 8,
+            background: "rgba(245,166,35,0.1)",
+            border: "1px solid rgba(245,166,35,0.3)",
+            fontSize: 12,
+            color: "var(--text-muted)",
+            lineHeight: 1.5,
+          }}>
+            <span style={{ flexShrink: 0 }} aria-hidden>⚠️</span>
+            <span>
+              You need to connect Stripe to collect payments. Set up Stripe in your{" "}
+              <Link to="/payments" style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>Payments tab</Link>.
+            </span>
+          </div>
+        )}
 
         {/* Price + currency — shown when the payment gate is on (all page types) */}
         {paymentGate && (
@@ -1166,12 +1192,13 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, is_beta, grow_qualified, username: usernameRaw, profileId, links, services, eventBookings } = useLoaderData<typeof loader>() as {
+  const { plan_id, is_beta, grow_qualified, username: usernameRaw, profileId, stripeConnectStatus, links, services, eventBookings } = useLoaderData<typeof loader>() as {
     plan_id: number | null;
     is_beta: boolean;
     grow_qualified: boolean;
     username: string;
     profileId: string;
+    stripeConnectStatus: string | null;
     links: PrivateLink[];
     services: ProfileService[];
     eventBookings: EventBooking[];
@@ -1295,6 +1322,7 @@ export default function LinksPage() {
         fetcher={createFetcher}
         username={username}
         profileId={profileId}
+        stripeConnectStatus={stripeConnectStatus}
         existingSlugs={existingSlugs}
         services={services}
         eventBookings={eventBookings}
