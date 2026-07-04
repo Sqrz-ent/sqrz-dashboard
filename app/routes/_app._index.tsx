@@ -9,6 +9,12 @@ import UpgradeBanner from "~/components/UpgradeBanner";
 const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
 
+// Inquiry chat is an iOS-first feature — it works on the PWA but not well enough
+// to expose on web yet. Flag the web dashboard config UI off (kept, not deleted).
+// The DB column, action handler, and the iOS app are untouched, so existing users
+// keep their setting and the feature keeps working for them.
+const SHOW_INQUIRY_CHAT_SETTING = false;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type UpcomingBooking = {
@@ -554,6 +560,7 @@ export default function DashboardIndex() {
         )}
       </div>
 
+      {SHOW_INQUIRY_CHAT_SETTING && (
       <div style={{ ...card, marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14 }}>
           <div>
@@ -646,6 +653,7 @@ export default function DashboardIndex() {
           </p>
         )}
       </div>
+      )}
 
       {/* Theme picker */}
       <div style={{ ...card, marginBottom: 16 }}>
