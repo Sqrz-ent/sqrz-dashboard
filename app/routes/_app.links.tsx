@@ -60,7 +60,7 @@ type PageType = "internal" | "external";
 
 type PrivateLink = {
   id: string;
-  link_slug: string;
+  link_slug: string | null;
   is_active: boolean;
   show_on_profile: boolean;
   page_type: PageType;
@@ -358,7 +358,7 @@ export async function action({ request }: Route.ActionArgs) {
     // legacy columns on old rows.
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
-      link_slug: fd.get("link_slug") as string,
+      link_slug: isExternal ? null : (fd.get("link_slug") as string),
       is_active: true,
       page_type: pageType,
       title: titleVal,
@@ -411,7 +411,7 @@ export async function action({ request }: Route.ActionArgs) {
     // preserved (inert) rather than wiped. show_on_profile exclusivity is
     // enforced by the DB trigger.
     const { error } = await admin.from("private_booking_links").update({
-      link_slug: fd.get("link_slug") as string,
+      link_slug: isExternal ? null : (fd.get("link_slug") as string),
       page_type: pageType,
       title: titleVal,
       label: titleVal,
@@ -547,7 +547,7 @@ function CreateLinkModal({
       // Legacy rows may still carry book/download/event — treat anything that
       // isn't 'external' as an internal page.
       setPageType(editingLink.page_type === "external" ? "external" : "internal");
-      setSlug(editingLink.link_slug);
+      setSlug(editingLink.link_slug ?? "");
       setSlugEdited(true);
       setTitle(editingLink.title || "");
       setDescription(editingLink.description || "");
@@ -603,16 +603,8 @@ function CreateLinkModal({
     const isExternal = pageType === "external";
 
     // Internal links use the (editable) slug field. External links have no slug
-    // UI, so auto-generate one from the CTA label — the slug is only an internal
-    // key (external links redirect straight to their URL).
-    let effectiveSlug = slug;
-    if (isExternal && !isEditing) {
-      const base = toSlug(externalUrlLabel) || "link";
-      effectiveSlug = existingSlugs.includes(base)
-        ? `${base}-${Math.random().toString(36).slice(2, 6)}`
-        : base;
-    }
-
+    // at all — they redirect straight to external_url and have no page on
+    // sqrz.com, so link_slug is written null (see the action).
     if (!isExternal && !validateSlug()) return;
     if (coverUploading) return;
 
@@ -624,7 +616,8 @@ function CreateLinkModal({
       fd.append("intent", "create");
     }
     fd.append("page_type", pageType);
-    fd.append("link_slug", effectiveSlug);
+    // External links have no slug; internal links use the slug field.
+    if (!isExternal) fd.append("link_slug", slug);
     fd.append("show_on_profile", String(showOnProfile));
 
     if (isExternal) {
@@ -880,7 +873,11 @@ function LinkCard({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const url = `${username}.sqrz.com/${link.link_slug}`;
+  const isExternal = link.page_type === "external";
+  // External links have no sqrz.com page — show and copy the destination URL
+  // itself; internal links show/copy their sqrz.com page URL.
+  const displayUrl = isExternal ? (link.external_url ?? "") : `${username}.sqrz.com/${link.link_slug}`;
+  const copyTarget = isExternal ? (link.external_url ?? "") : `https://${displayUrl}`;
 
   function toggle() {
     onToggleActive(link.id, link.is_active);
@@ -909,7 +906,7 @@ function LinkCard({
   }
 
   function copyUrl() {
-    navigator.clipboard.writeText(`https://${url}`).then(() => {
+    navigator.clipboard.writeText(copyTarget).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -931,7 +928,7 @@ function LinkCard({
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
           <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-            {link.title || link.link_slug}
+            {link.title || link.link_slug || "Untitled"}
           </span>
           <span style={{
             fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
@@ -942,14 +939,16 @@ function LinkCard({
             {link.page_type === "external" ? "🔗 Link" : "📄 Page"}
           </span>
         </div>
-        <a
-          href={`https://${url}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ display: "block", fontSize: 12, color: ACCENT, textDecoration: "none", fontFamily: FONT_BODY, wordBreak: "break-all" }}
-        >
-          {url}
-        </a>
+        {displayUrl && (
+          <a
+            href={copyTarget}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "block", fontSize: 12, color: ACCENT, textDecoration: "none", fontFamily: FONT_BODY, wordBreak: "break-all" }}
+          >
+            {displayUrl}
+          </a>
+        )}
         <button
           onClick={toggleShowOnProfile}
           style={{
@@ -1127,7 +1126,7 @@ export default function LinksPage() {
   }
 
   const username = usernameRaw;
-  const existingSlugs = localLinks.map(l => l.link_slug);
+  const existingSlugs = localLinks.map(l => l.link_slug).filter((s): s is string => !!s);
 
   function openEdit(link: PrivateLink) {
     setEditingLink(link);
