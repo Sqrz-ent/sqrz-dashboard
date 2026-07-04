@@ -367,7 +367,7 @@ export async function action({ request }: Route.ActionArgs) {
       description: isExternal ? null : ((fd.get("description") as string) || null),
       cover_image_url: coverImageUrl,
       video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
-      external_url: isExternal ? ((fd.get("external_url") as string) || null) : null,
+      external_url: isExternal ? normalizeExternalUrl(fd.get("external_url") as string) : null,
       external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
@@ -419,7 +419,7 @@ export async function action({ request }: Route.ActionArgs) {
       description: isExternal ? null : ((fd.get("description") as string) || null),
       cover_image_url: coverImageUrl,
       video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
-      external_url: isExternal ? ((fd.get("external_url") as string) || null) : null,
+      external_url: isExternal ? normalizeExternalUrl(fd.get("external_url") as string) : null,
       external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
@@ -481,6 +481,14 @@ function formatEventBookingLabel(booking: EventBooking) {
 
 function createPendingCoverKey() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+// Ensure an external URL has a protocol so it resolves as an absolute link
+// (a bare "spotify.com" would otherwise be treated as a relative path).
+function normalizeExternalUrl(url: string | null | undefined): string | null {
+  const trimmed = (url ?? "").trim();
+  if (!trimmed) return null;
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
 // ─── Create / Edit Link Modal ─────────────────────────────────────────────────
