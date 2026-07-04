@@ -56,7 +56,7 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 5,
 };
 
-type PageType = "book" | "download" | "event";
+type PageType = "internal" | "external";
 
 type PrivateLink = {
   id: string;
@@ -346,22 +346,16 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = fd.get("intent") as string;
 
   if (intent === "create") {
-    const pageType = (fd.get("page_type") as string) || "download";
+    const pageType = (fd.get("page_type") as string) || "internal";
+    const isExternal = pageType === "external";
     const titleVal = (fd.get("title") as string) || null;
-    const coverImageUrl = normalizeImageUrl(fd.get("cover_image_url") as string);
-    const selectedEvent = pageType === "event"
-      ? await getAllowedEventBooking(
-          admin,
-          (fd.get("event_booking_id") as string) || "",
-          profile.id as string,
-          user.id
-        )
-      : null;
+    const coverImageUrl = isExternal ? null : normalizeImageUrl(fd.get("cover_image_url") as string);
+    const paid = !isExternal && fd.get("payment_gate") === "true";
 
-    if (pageType === "event" && !selectedEvent) {
-      return Response.json({ ok: false, error: "Please select one of your bookings for this event page." }, { headers });
-    }
-
+    // show_on_profile exclusivity is enforced by the DB trigger
+    // enforce_single_show_on_profile (clears it on the profile's other links).
+    // prefill_service / event_* are intentionally not written — they remain inert
+    // legacy columns on old rows.
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
@@ -369,19 +363,16 @@ export async function action({ request }: Route.ActionArgs) {
       page_type: pageType,
       title: titleVal,
       label: titleVal,
-      description: (fd.get("description") as string) || null,
+      show_on_profile: fd.get("show_on_profile") === "true",
+      description: isExternal ? null : ((fd.get("description") as string) || null),
       cover_image_url: coverImageUrl,
-      prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
-      external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
-      external_url_label: pageType !== "book" ? defaultExternalUrlLabel(pageType) : null,
-      event_date: pageType === "event" ? (selectedEvent?.date_start ?? null) : null,
-      event_venue: pageType === "event" ? (selectedEvent?.venue ?? null) : null,
-      event_city: pageType === "event" ? (selectedEvent?.city ?? null) : null,
+      video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
+      external_url: isExternal ? ((fd.get("external_url") as string) || null) : null,
+      external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
+      payment_gate: paid,
+      price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
+      currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
       expires_at: null,
-      video_url: (fd.get("video_url") as string) || null,
-      payment_gate: fd.get("payment_gate") === "true",
-      price: fd.get("payment_gate") === "true" ? (parseFloat(fd.get("price") as string) || null) : null,
-      currency: fd.get("payment_gate") === "true" ? ((fd.get("currency") as string) || "EUR") : null,
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -410,36 +401,30 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "update") {
     const id = fd.get("id") as string;
-    const pageType = (fd.get("page_type") as string) || "download";
+    const pageType = (fd.get("page_type") as string) || "internal";
+    const isExternal = pageType === "external";
     const titleVal = (fd.get("title") as string) || null;
-    const coverImageUrl = normalizeImageUrl(fd.get("cover_image_url") as string);
-    const eventBookingId = (fd.get("event_booking_id") as string) || "";
-    const selectedEvent = pageType === "event" && eventBookingId
-      ? await getAllowedEventBooking(admin, eventBookingId, profile.id as string, user.id)
-      : null;
+    const coverImageUrl = isExternal ? null : normalizeImageUrl(fd.get("cover_image_url") as string);
+    const paid = !isExternal && fd.get("payment_gate") === "true";
 
-    if (pageType === "event" && eventBookingId && !selectedEvent) {
-      return Response.json({ ok: false, error: "Please select one of your bookings for this event page." }, { headers });
-    }
-
+    // prefill_service / event_* are intentionally omitted so legacy values are
+    // preserved (inert) rather than wiped. show_on_profile exclusivity is
+    // enforced by the DB trigger.
     const { error } = await admin.from("private_booking_links").update({
       link_slug: fd.get("link_slug") as string,
       page_type: pageType,
       title: titleVal,
       label: titleVal,
-      description: (fd.get("description") as string) || null,
+      show_on_profile: fd.get("show_on_profile") === "true",
+      description: isExternal ? null : ((fd.get("description") as string) || null),
       cover_image_url: coverImageUrl,
-      prefill_service: pageType === "book" ? ((fd.get("prefill_service") as string) || null) : null,
-      external_url: pageType !== "book" ? ((fd.get("external_url") as string) || null) : null,
-      external_url_label: pageType !== "book" ? defaultExternalUrlLabel(pageType) : null,
-      event_date: pageType === "event" ? (selectedEvent?.date_start ?? ((fd.get("event_date") as string) || null)) : null,
-      event_venue: pageType === "event" ? (selectedEvent?.venue ?? ((fd.get("event_venue") as string) || null)) : null,
-      event_city: pageType === "event" ? (selectedEvent?.city ?? ((fd.get("event_city") as string) || null)) : null,
+      video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
+      external_url: isExternal ? ((fd.get("external_url") as string) || null) : null,
+      external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
+      payment_gate: paid,
+      price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
+      currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
       expires_at: null,
-      video_url: (fd.get("video_url") as string) || null,
-      payment_gate: fd.get("payment_gate") === "true",
-      price: fd.get("payment_gate") === "true" ? (parseFloat(fd.get("price") as string) || null) : null,
-      currency: fd.get("payment_gate") === "true" ? ((fd.get("currency") as string) || "EUR") : null,
     })
     .eq("id", id)
     .eq("profile_id", profile.id as string);
@@ -501,9 +486,8 @@ function createPendingCoverKey() {
 // ─── Create / Edit Link Modal ─────────────────────────────────────────────────
 
 const PAGE_TYPES: { value: PageType; label: string; emoji: string }[] = [
-  { value: "book", label: "Book", emoji: "📅" },
-  { value: "download", label: "Download", emoji: "📥" },
-  { value: "event", label: "Event", emoji: "🎤" },
+  { value: "internal", label: "Page", emoji: "📄" },
+  { value: "external", label: "External Link", emoji: "🔗" },
 ];
 
 function CreateLinkModal({
@@ -531,7 +515,7 @@ function CreateLinkModal({
 }) {
   const isEditing = !!editingLink;
 
-  const [pageType, setPageType] = useState<PageType>("download");
+  const [pageType, setPageType] = useState<PageType>("internal");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
@@ -539,14 +523,9 @@ function CreateLinkModal({
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
-  const [prefillService, setPrefillService] = useState("");
-  const [serviceError, setServiceError] = useState<string | null>(null);
-  const [selectedEventBooking, setSelectedEventBooking] = useState("");
-  const [eventError, setEventError] = useState<string | null>(null);
   const [externalUrl, setExternalUrl] = useState("");
-  const [eventDate, setEventDate] = useState("");
-  const [eventVenue, setEventVenue] = useState("");
-  const [eventCity, setEventCity] = useState("");
+  const [externalUrlLabel, setExternalUrlLabel] = useState("");
+  const [showOnProfile, setShowOnProfile] = useState(false);
   const [paymentGate, setPaymentGate] = useState(false);
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("EUR");
@@ -557,25 +536,22 @@ function CreateLinkModal({
   // Pre-fill when editing link changes
   useEffect(() => {
     if (editingLink) {
-      setPageType(editingLink.page_type);
+      // Legacy rows may still carry book/download/event — treat anything that
+      // isn't 'external' as an internal page.
+      setPageType(editingLink.page_type === "external" ? "external" : "internal");
       setSlug(editingLink.link_slug);
       setSlugEdited(true);
       setTitle(editingLink.title || "");
       setDescription(editingLink.description || "");
       setCoverImageUrl(editingLink.cover_image_url || "");
       setVideoUrl(editingLink.video_url || "");
-      setPrefillService(editingLink.prefill_service || "");
-      setSelectedEventBooking("");
       setExternalUrl(editingLink.external_url || "");
-      setEventDate(toDatetimeLocal(editingLink.event_date));
-      setEventVenue(editingLink.event_venue || "");
-      setEventCity(editingLink.event_city || "");
+      setExternalUrlLabel(editingLink.external_url_label || "");
+      setShowOnProfile(editingLink.show_on_profile ?? false);
       setPaymentGate(editingLink.payment_gate ?? false);
       setPrice(editingLink.price != null ? String(editingLink.price) : "");
       setCurrency(editingLink.currency || "EUR");
       setSlugError(null);
-      setServiceError(null);
-      setEventError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingLink?.id]);
@@ -595,14 +571,12 @@ function CreateLinkModal({
   }, [fetcher.state, fetcher.data]);
 
   function resetForm() {
-    setPageType("download");
+    setPageType("internal");
     setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription(""); setCoverImageUrl("");
     setVideoUrl("");
-    setPrefillService(""); setServiceError(null);
-    setSelectedEventBooking(""); setEventError(null);
-    setExternalUrl("");
-    setEventDate(""); setEventVenue(""); setEventCity("");
+    setExternalUrl(""); setExternalUrlLabel("");
+    setShowOnProfile(false);
     setPaymentGate(false); setPrice(""); setCurrency("EUR");
     setCoverUploading(false);
     setPendingCoverKey(createPendingCoverKey());
@@ -618,16 +592,22 @@ function CreateLinkModal({
   }
 
   function handleSubmit() {
-    if (!validateSlug()) return;
-    if (pageType === "book" && !prefillService) {
-      setServiceError("Please select a service for this booking link.");
-      return;
+    const isExternal = pageType === "external";
+
+    // Internal links use the (editable) slug field. External links have no slug
+    // UI, so auto-generate one from the CTA label — the slug is only an internal
+    // key (external links redirect straight to their URL).
+    let effectiveSlug = slug;
+    if (isExternal && !isEditing) {
+      const base = toSlug(externalUrlLabel) || "link";
+      effectiveSlug = existingSlugs.includes(base)
+        ? `${base}-${Math.random().toString(36).slice(2, 6)}`
+        : base;
     }
-    if (pageType === "event" && !isEditing && !selectedEventBooking) {
-      setEventError("Please select a booking for this event page.");
-      return;
-    }
+
+    if (!isExternal && !validateSlug()) return;
     if (coverUploading) return;
+
     const fd = new FormData();
     if (isEditing) {
       fd.append("intent", "update");
@@ -636,42 +616,33 @@ function CreateLinkModal({
       fd.append("intent", "create");
     }
     fd.append("page_type", pageType);
-    fd.append("link_slug", slug);
-    fd.append("title", title);
-    fd.append("description", description);
-    fd.append("cover_image_url", coverImageUrl);
-    fd.append("video_url", videoUrl);
-    if (pageType === "book") fd.append("prefill_service", prefillService);
-    if (pageType === "event" && selectedEventBooking) fd.append("event_booking_id", selectedEventBooking);
-    if (pageType !== "book") {
+    fd.append("link_slug", effectiveSlug);
+    fd.append("show_on_profile", String(showOnProfile));
+
+    if (isExternal) {
+      // External: CTA label doubles as the row title; the URL is the destination.
+      fd.append("title", externalUrlLabel);
       fd.append("external_url", externalUrl);
-      fd.append("external_url_label", defaultExternalUrlLabel(pageType));
-    }
-    if (pageType === "event") { fd.append("event_date", eventDate); fd.append("event_venue", eventVenue); fd.append("event_city", eventCity); }
-    // Payment gate applies to all page types (book/download/event).
-    fd.append("payment_gate", String(paymentGate));
-    if (paymentGate) {
-      fd.append("price", price);
-      fd.append("currency", currency);
+      fd.append("external_url_label", externalUrlLabel);
+    } else {
+      fd.append("title", title);
+      fd.append("description", description);
+      fd.append("cover_image_url", coverImageUrl);
+      fd.append("video_url", videoUrl);
+      fd.append("payment_gate", String(paymentGate));
+      if (paymentGate) {
+        fd.append("price", price);
+        fd.append("currency", currency);
+      }
     }
     fetcher.submit(fd, { method: "post" });
   }
 
   const previewUrl = `${username}.sqrz.com/${slug || "your-slug"}`;
-  const eventFieldsLocked = pageType === "event" && !!selectedEventBooking;
-
-  function handleEventBookingChange(bookingId: string) {
-    setSelectedEventBooking(bookingId);
-    setEventError(null);
-    const booking = eventBookings.find((b) => b.id === bookingId);
-    if (!booking) return;
-
-    const nextTitle = booking.title || booking.service || "Event";
-    setTitle(nextTitle);
-    setEventDate(toDatetimeLocal(booking.date_start));
-    setEventVenue(booking.venue || "");
-    setEventCity(booking.city || "");
-  }
+  const submitDisabled = fetcher.state !== "idle" || coverUploading ||
+    (pageType === "external"
+      ? (!externalUrl.trim() || !externalUrlLabel.trim())
+      : (!slug || !!slugError));
 
   return (
     <Modal isOpen={isOpen} onClose={() => { if (!isEditing) resetForm(); onClose(); }} title={isEditing ? "Edit Link" : "Create Private Link"}>
@@ -682,15 +653,15 @@ function CreateLinkModal({
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-        {/* Page type selector */}
+        {/* Type selector — Page (internal) / External Link */}
         <div>
-          <label style={labelStyle}>Page Type</label>
+          <label style={labelStyle}>Type</label>
           <div style={{ display: "flex", gap: 8 }}>
             {PAGE_TYPES.map(pt => (
               <button
                 key={pt.value}
                 type="button"
-                onClick={() => { setPageType(pt.value); setServiceError(null); setEventError(null); }}
+                onClick={() => setPageType(pt.value)}
                 style={{
                   flex: 1,
                   padding: "8px 10px",
@@ -710,24 +681,25 @@ function CreateLinkModal({
           </div>
         </div>
 
-        {/* Payment Gate toggle — available for all page types (book, download, event) */}
+        {/* Feature on profile — available for both types. Exclusive: a DB trigger
+            clears show_on_profile on the profile's other links when this is set. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <span style={{ ...labelStyle, marginBottom: 2 }}>Payment Gate</span>
-            <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Visitors must pay before they can access this link</span>
+            <span style={{ ...labelStyle, marginBottom: 2 }}>Feature on profile</span>
+            <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Show this link as the featured button on your profile (only one at a time)</span>
           </div>
           <button
             type="button"
-            onClick={() => setPaymentGate(v => !v)}
+            onClick={() => setShowOnProfile(v => !v)}
             style={{
               width: 38, height: 22, borderRadius: 11, border: "none",
-              background: paymentGate ? "#22c55e" : "var(--border)",
+              background: showOnProfile ? "#22c55e" : "var(--border)",
               cursor: "pointer", position: "relative", flexShrink: 0,
               transition: "background 0.15s", marginTop: 2,
             }}
           >
             <span style={{
-              position: "absolute", top: 3, left: paymentGate ? 19 : 3,
+              position: "absolute", top: 3, left: showOnProfile ? 19 : 3,
               width: 16, height: 16, borderRadius: "50%", background: "#fff",
               transition: "left 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
               pointerEvents: "none",
@@ -735,209 +707,123 @@ function CreateLinkModal({
           </button>
         </div>
 
-        {/* Stripe Connect warning — payment gate is on but Connect isn't active yet.
-            The toggle can still be set (setting up in advance), but payments won't
-            work until Stripe is connected. */}
-        {paymentGate && stripeConnectStatus !== "active" && (
-          <div style={{
-            display: "flex",
-            gap: 8,
-            padding: "10px 12px",
-            borderRadius: 8,
-            background: "rgba(245,166,35,0.1)",
-            border: "1px solid rgba(245,166,35,0.3)",
-            fontSize: 12,
-            color: "var(--text-muted)",
-            lineHeight: 1.5,
-          }}>
-            <span style={{ flexShrink: 0 }} aria-hidden>⚠️</span>
-            <span>
-              You need to connect Stripe to collect payments. Set up Stripe in your{" "}
-              <Link to="/payments" style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>Payments tab</Link>.
-            </span>
-          </div>
+        {/* EXTERNAL — button text + URL, nothing else */}
+        {pageType === "external" && (
+          <>
+            <div>
+              <label style={labelStyle}>Button Text</label>
+              <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Listen on Spotify" autoFocus />
+            </div>
+            <div>
+              <label style={labelStyle}>URL</label>
+              <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://..." />
+            </div>
+          </>
         )}
 
-        {/* Price + currency — shown when the payment gate is on (all page types) */}
-        {paymentGate && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 10 }}>
+        {/* INTERNAL — a page hosted at username.sqrz.com/{slug} */}
+        {pageType === "internal" && (
+          <>
             <div>
-              <label style={labelStyle}>
-                Price <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank = pay what you want)</span>
-              </label>
+              <label style={labelStyle}>Link Slug</label>
               <input
-                type="number"
-                min={0}
-                style={inputStyle}
-                value={price}
-                onChange={e => setPrice(e.target.value)}
-                placeholder="50"
+                style={{ ...inputStyle, ...(slugError ? { border: "1px solid #ef4444" } : {}) }}
+                value={slug}
+                onChange={e => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); setSlugError(null); }}
+                onBlur={() => { setSlug(s => s.toLowerCase()); validateSlug(); }}
+                placeholder="asia-tour-2026"
+              />
+              {slugError ? (
+                <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{slugError}</p>
+              ) : slug ? (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
+                  Preview: <span style={{ color: ACCENT }}>{previewUrl}</span>
+                </p>
+              ) : null}
+            </div>
+
+            <div>
+              <label style={labelStyle}>Title</label>
+              <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Press Kit 2026" autoFocus />
+            </div>
+            <div>
+              <label style={labelStyle}>Description</label>
+              <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional details shown on the page…" />
+            </div>
+            <div>
+              <label style={labelStyle}>Cover Image</label>
+              <LinkCoverUploader
+                profileId={profileId}
+                linkId={editingLink?.id ?? null}
+                pendingKey={pendingCoverKey}
+                currentUrl={coverImageUrl || null}
+                onSaved={(url) => setCoverImageUrl(url ?? "")}
+                onUploadingChange={setCoverUploading}
               />
             </div>
             <div>
-              <label style={labelStyle}>Currency</label>
-              <select style={{ ...inputStyle }} value={currency} onChange={e => setCurrency(e.target.value)}>
-                <option value="EUR">EUR</option>
-                <option value="USD">USD</option>
-                <option value="GBP">GBP</option>
-              </select>
+              <label style={labelStyle}>Promo Video (YouTube)</label>
+              <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
             </div>
-          </div>
-        )}
 
-        {/* BOOK — service selector (required), shown immediately after page type */}
-        {pageType === "book" && (
-          <div>
-            <label style={labelStyle}>
-              Service <span style={{ color: "#ef4444" }}>*</span>
-            </label>
-            {services.length > 0 ? (
-              <>
-                <select
-                  style={{ ...inputStyle, cursor: "pointer", ...(serviceError ? { border: "1px solid #ef4444" } : {}) }}
-                  value={prefillService}
-                  onChange={e => { setPrefillService(e.target.value); setServiceError(null); }}
-                >
-                  <option value="">— Select a service —</option>
-                  {services.map(s => (
-                    <option key={s.id} value={s.title}>{s.title}</option>
-                  ))}
-                </select>
-                {serviceError && (
-                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{serviceError}</p>
-                )}
-              </>
-            ) : (
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No services yet — add them in the Services tab first.</p>
+            {/* Payment Gate toggle */}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <span style={{ ...labelStyle, marginBottom: 2 }}>Payment Gate</span>
+                <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Visitors must pay before they can access this link</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentGate(v => !v)}
+                style={{
+                  width: 38, height: 22, borderRadius: 11, border: "none",
+                  background: paymentGate ? "#22c55e" : "var(--border)",
+                  cursor: "pointer", position: "relative", flexShrink: 0,
+                  transition: "background 0.15s", marginTop: 2,
+                }}
+              >
+                <span style={{
+                  position: "absolute", top: 3, left: paymentGate ? 19 : 3,
+                  width: 16, height: 16, borderRadius: "50%", background: "#fff",
+                  transition: "left 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  pointerEvents: "none",
+                }} />
+              </button>
+            </div>
+
+            {paymentGate && stripeConnectStatus !== "active" && (
+              <div style={{
+                display: "flex", gap: 8, padding: "10px 12px", borderRadius: 8,
+                background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)",
+                fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5,
+              }}>
+                <span style={{ flexShrink: 0 }} aria-hidden>⚠️</span>
+                <span>
+                  You need to connect Stripe to collect payments. Set up Stripe in your{" "}
+                  <Link to="/payments" style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>Payments tab</Link>.
+                </span>
+              </div>
             )}
-          </div>
-        )}
 
-        {/* EVENT — booking selector (required on new links), shown immediately after page type */}
-        {pageType === "event" && (
-          <div>
-            <label style={labelStyle}>
-              Event Booking {!isEditing && <span style={{ color: "#ef4444" }}>*</span>}
-            </label>
-            {eventBookings.length > 0 ? (
-              <>
-                <select
-                  style={{ ...inputStyle, cursor: "pointer", ...(eventError ? { border: "1px solid #ef4444" } : {}) }}
-                  value={selectedEventBooking}
-                  onChange={e => handleEventBookingChange(e.target.value)}
-                >
-                  <option value="">— Select an event —</option>
-                  {eventBookings.map(booking => (
-                    <option key={booking.id} value={booking.id}>
-                      {formatEventBookingLabel(booking)}
-                    </option>
-                  ))}
-                </select>
-                {eventError && (
-                  <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{eventError}</p>
-                )}
-              </>
-            ) : (
-              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>No upcoming event bookings yet — future bookings where you are booked will appear here.</p>
+            {paymentGate && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 10 }}>
+                <div>
+                  <label style={labelStyle}>
+                    Price <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank = pay what you want)</span>
+                  </label>
+                  <input type="number" min={0} style={inputStyle} value={price} onChange={e => setPrice(e.target.value)} placeholder="50" />
+                </div>
+                <div>
+                  <label style={labelStyle}>Currency</label>
+                  <select style={{ ...inputStyle }} value={currency} onChange={e => setCurrency(e.target.value)}>
+                    <option value="EUR">EUR</option>
+                    <option value="USD">USD</option>
+                    <option value="GBP">GBP</option>
+                  </select>
+                </div>
+              </div>
             )}
-          </div>
-        )}
-
-        <div>
-          <label style={labelStyle}>Link Slug</label>
-          <input
-            style={{ ...inputStyle, ...(slugError ? { border: "1px solid #ef4444" } : {}) }}
-            value={slug}
-            onChange={e => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); setSlugError(null); }}
-            onBlur={() => { setSlug(s => s.toLowerCase()); validateSlug(); }}
-            placeholder="asia-tour-2026"
-          />
-          {slugError ? (
-            <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{slugError}</p>
-          ) : slug ? (
-            <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-              Preview: <span style={{ color: ACCENT }}>{previewUrl}</span>
-            </p>
-          ) : null}
-        </div>
-
-        {/* Common: title + description + cover image */}
-        <div>
-          <label style={labelStyle}>Title</label>
-          <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder={pageType === "book" ? "e.g. Book me for your event" : pageType === "event" ? "e.g. DJ Set @ Berghain" : "e.g. Press Kit 2026"} autoFocus />
-        </div>
-        <div>
-          <label style={labelStyle}>Description</label>
-          <textarea rows={3} style={{ ...inputStyle, resize: "vertical" }} value={description} onChange={e => setDescription(e.target.value)} placeholder={pageType === "book" ? "Describe what the buyer receives, turnaround time, and next steps after payment" : "Optional details shown on the page…"} />
-        </div>
-        <div>
-          <label style={labelStyle}>Cover Image</label>
-          <LinkCoverUploader
-            profileId={profileId}
-            linkId={editingLink?.id ?? null}
-            pendingKey={pendingCoverKey}
-            currentUrl={coverImageUrl || null}
-            onSaved={(url) => setCoverImageUrl(url ?? "")}
-            onUploadingChange={setCoverUploading}
-          />
-        </div>
-        <div>
-          <label style={labelStyle}>Promo Video (YouTube)</label>
-          <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
-        </div>
-
-        {/* DOWNLOAD — external URL + label */}
-        {pageType === "download" && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <label style={labelStyle}>External URL</label>
-              <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://dropbox.com/... or any link" />
-            </div>
-          </div>
-        )}
-
-        {/* EVENT — date + venue + city + external URL */}
-        {pageType === "event" && (
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <label style={labelStyle}>Event Date &amp; Time</label>
-              <div style={{ width: "100%", boxSizing: "border-box" as const, overflow: "hidden" }}>
-                <input
-                  type="datetime-local"
-                  readOnly={eventFieldsLocked}
-                  style={{ ...inputStyle, minWidth: 0, maxWidth: "100%", ...(eventFieldsLocked ? { opacity: 0.72 } : {}) }}
-                  value={eventDate}
-                  onChange={e => setEventDate(e.target.value)}
-                />
-              </div>
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label style={labelStyle}>Venue</label>
-                <input
-                  style={{ ...inputStyle, ...(eventFieldsLocked ? { opacity: 0.72 } : {}) }}
-                  value={eventVenue}
-                  readOnly={eventFieldsLocked}
-                  onChange={e => setEventVenue(e.target.value)}
-                  placeholder="e.g. Berghain"
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>City</label>
-                <input
-                  style={{ ...inputStyle, ...(eventFieldsLocked ? { opacity: 0.72 } : {}) }}
-                  value={eventCity}
-                  readOnly={eventFieldsLocked}
-                  onChange={e => setEventCity(e.target.value)}
-                  placeholder="e.g. Berlin"
-                />
-              </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Ticket / External URL</label>
-              <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://eventim.de/..." />
-            </div>
-          </div>
+          </>
         )}
 
         {(fetcher.data as { error?: string } | undefined)?.error && (
@@ -947,16 +833,16 @@ function CreateLinkModal({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={fetcher.state !== "idle" || coverUploading || !slug || !!slugError}
+          disabled={submitDisabled}
           style={{
             padding: "11px 22px",
-            background: (!slug || !!slugError || coverUploading) ? "var(--surface-muted)" : ACCENT,
-            color: (!slug || !!slugError || coverUploading) ? "var(--text-muted)" : "#111",
+            background: submitDisabled ? "var(--surface-muted)" : ACCENT,
+            color: submitDisabled ? "var(--text-muted)" : "#111",
             border: "none",
             borderRadius: 10,
             fontSize: 14,
             fontWeight: 700,
-            cursor: (!slug || !!slugError || coverUploading || fetcher.state !== "idle") ? "not-allowed" : "pointer",
+            cursor: submitDisabled ? "not-allowed" : "pointer",
             fontFamily: FONT_BODY,
           }}
         >
@@ -1042,10 +928,10 @@ function LinkCard({
           <span style={{
             fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
             padding: "2px 7px", borderRadius: 6,
-            background: link.page_type === "book" ? "rgba(34,197,94,0.12)" : link.page_type === "event" ? "rgba(168,85,247,0.12)" : "rgba(245,166,35,0.12)",
-            color: link.page_type === "book" ? "#22c55e" : link.page_type === "event" ? "#a855f7" : ACCENT,
+            background: link.page_type === "external" ? "rgba(96,165,250,0.12)" : "rgba(245,166,35,0.12)",
+            color: link.page_type === "external" ? "#60a5fa" : ACCENT,
           }}>
-            {link.page_type === "book" ? "📅 Book" : link.page_type === "event" ? "🎤 Event" : "📥 Download"}
+            {link.page_type === "external" ? "🔗 Link" : "📄 Page"}
           </span>
         </div>
         <a
