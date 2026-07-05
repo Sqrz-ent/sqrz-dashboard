@@ -622,9 +622,9 @@ function CreateLinkModal({
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-        {/* Internal / External top toggle */}
+        {/* Service Page / External top toggle */}
         <div style={{ display: "flex", gap: 8 }}>
-          {(["Internal", "External"] as const).map(opt => {
+          {(["Service Page", "External"] as const).map(opt => {
             const active = opt === "External" ? isExternal : !isExternal;
             return (
               <button
@@ -640,7 +640,7 @@ function CreateLinkModal({
                   fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY,
                 }}
               >
-                {opt === "Internal" ? "📄 Internal" : "🔗 External"}
+                {opt === "Service Page" ? "📄 Service Page" : "🔗 External"}
               </button>
             );
           })}
