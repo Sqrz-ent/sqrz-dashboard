@@ -10,6 +10,7 @@ import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 import { normalizeImageUrl } from "~/lib/image-url";
 import Modal from "~/components/Modal";
+import AvatarFocalPicker from "~/components/AvatarFocalPicker";
 import GalleryUploader from "~/components/GalleryUploader";
 
 const ACCENT = "#F5A623";
@@ -393,6 +394,7 @@ export default function ProfilePage() {
   // Avatar state
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [avatarStatus, setAvatarStatus] = useState<string>("");
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Social edit states
@@ -476,9 +478,17 @@ export default function ProfilePage() {
   const profileId = profile.id as string;
   const slug = (profile.slug as string) ?? "";
 
-  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // File select opens the focal picker (no upload yet); uploadAvatar commits.
+  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingAvatarFile(file);
+    setAvatarStatus("");
+    // Allow re-selecting the same file later.
+    e.target.value = "";
+  }
+
+  async function uploadAvatar(file: File, focalX: number, focalY: number) {
     setAvatarUploading(true);
     setAvatarStatus("Uploading…");
     const { data: { user: authUser } } = await browserSupabase.auth.getUser();
@@ -500,9 +510,14 @@ export default function ProfilePage() {
     }
     const { data: urlData } = browserSupabase.storage.from("profile-pictures").getPublicUrl(path);
     const publicUrl = urlData.publicUrl;
-    await browserSupabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", profileId);
+    await browserSupabase.from("profiles").update({
+      avatar_url: publicUrl,
+      avatar_focal_x: focalX,
+      avatar_focal_y: focalY,
+    }).eq("id", profileId);
     setAvatarStatus("Photo updated!");
     setAvatarUploading(false);
+    setPendingAvatarFile(null);
     setTimeout(() => setAvatarStatus(""), 3000);
   }
 
@@ -577,6 +592,15 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
+
+        {pendingAvatarFile && (
+          <AvatarFocalPicker
+            file={pendingAvatarFile}
+            uploading={avatarUploading}
+            onConfirm={(fx, fy) => uploadAvatar(pendingAvatarFile, fx, fy)}
+            onCancel={() => setPendingAvatarFile(null)}
+          />
+        )}
       </div>
 
       {/* Section 1: Basic Info */}

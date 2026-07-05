@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useFetcher } from "react-router";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
+import AvatarFocalPicker from "~/components/AvatarFocalPicker";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ export default function OnboardingModal({
   const [avatarUrl, setAvatarUrl] = useState(initialAvatarUrl);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
   const [nameError, setNameError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -172,9 +174,16 @@ export default function OnboardingModal({
 
   // ── Step 1: name + avatar ────────────────────────────────────────────────
 
-  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+  // File select opens the focal picker (no upload yet); uploadAvatar commits.
+  function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPendingAvatarFile(file);
+    setUploadStatus("");
+    e.target.value = "";
+  }
+
+  async function uploadAvatar(file: File, focalX: number, focalY: number) {
     setUploading(true);
     setUploadStatus("Uploading…");
     const { data: { user: authUser } } = await browserSupabase.auth.getUser();
@@ -198,10 +207,15 @@ export default function OnboardingModal({
     }
     const { data: urlData } = browserSupabase.storage.from("profile-pictures").getPublicUrl(path);
     const publicUrl = urlData.publicUrl;
-    await browserSupabase.from("profiles").update({ avatar_url: publicUrl }).eq("id", profileId);
+    await browserSupabase.from("profiles").update({
+      avatar_url: publicUrl,
+      avatar_focal_x: focalX,
+      avatar_focal_y: focalY,
+    }).eq("id", profileId);
     setAvatarUrl(publicUrl);
     setUploadStatus("Photo saved!");
     setUploading(false);
+    setPendingAvatarFile(null);
     setTimeout(() => setUploadStatus(""), 3000);
   }
 
@@ -393,6 +407,15 @@ export default function OnboardingModal({
                 <input ref={fileInputRef} type="file" accept="image/*" onChange={handleAvatarChange} style={{ display: "none" }} />
               </div>
             </div>
+
+            {pendingAvatarFile && (
+              <AvatarFocalPicker
+                file={pendingAvatarFile}
+                uploading={uploading}
+                onConfirm={(fx, fy) => uploadAvatar(pendingAvatarFile, fx, fy)}
+                onCancel={() => setPendingAvatarFile(null)}
+              />
+            )}
 
             <button onClick={submitStep1} style={primaryBtn}>Continue</button>
           </div>
