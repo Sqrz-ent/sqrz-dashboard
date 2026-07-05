@@ -286,6 +286,19 @@ export default function DashboardIndex() {
   const blockStartRef = useRef<HTMLInputElement>(null);
   const blockEndRef = useRef<HTMLInputElement>(null);
 
+  // Dark/light mode
+  const [theme, setThemeState] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    setThemeState((localStorage.getItem("sqrz_theme") as "dark" | "light" | null) ?? "dark");
+  }, []);
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    setThemeState(next);
+    localStorage.setItem("sqrz_theme", next);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(next);
+  }
+
   // Share button
   const [copied, setCopied] = useState(false);
 
@@ -963,6 +976,40 @@ export default function DashboardIndex() {
             + Add unavailable period
           </button>
         )}
+      </div>
+
+      {/* Appearance — dark/light mode */}
+      <div style={{ ...card, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <p style={{ ...metaLabel, margin: "0 0 4px" }}>Appearance</p>
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+              Switch between dark and light themes
+            </p>
+          </div>
+          <button
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border)",
+              borderRadius: 20,
+              color: "var(--text)",
+              fontSize: 13,
+              fontWeight: 600,
+              padding: "8px 16px",
+              cursor: "pointer",
+              fontFamily: FONT,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexShrink: 0,
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>{theme === "dark" ? "☀️" : "🌙"}</span>
+            {theme === "dark" ? "Switch to light" : "Switch to dark"}
+          </button>
+        </div>
       </div>
     </div>
   );

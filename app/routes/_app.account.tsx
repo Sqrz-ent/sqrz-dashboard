@@ -204,22 +204,6 @@ export default function AccountPage() {
   const [passwordError, setPasswordError]   = useState("");
   const [passwordSuccess, setPasswordSuccess] = useState(false);
 
-  // Theme (dark/light) — moved here from the top nav. Self-contained: reads/writes
-  // the sqrz_theme localStorage key and applies the class to <html>. root.tsx
-  // applies the saved theme on initial load (anti-flash), so this only needs to
-  // handle live toggling.
-  const [theme, setThemeState] = useState<"dark" | "light">("dark");
-  useEffect(() => {
-    setThemeState((localStorage.getItem("sqrz_theme") as "dark" | "light" | null) ?? "dark");
-  }, []);
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    setThemeState(next);
-    localStorage.setItem("sqrz_theme", next);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(next);
-  }
-
   async function handleSetPassword() {
     setPasswordError("");
     setPasswordSuccess(false);
@@ -285,42 +269,6 @@ export default function AccountPage() {
         <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>
           Read-only for now
         </p>
-      </div>
-
-      {/* Card: Appearance (theme) */}
-      <div style={card}>
-        <span style={labelStyle}>Appearance</span>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text)", fontFamily: FONT_BODY }}>
-              {theme === "dark" ? "Dark mode" : "Light mode"}
-            </div>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "2px 0 0", fontFamily: FONT_BODY }}>
-              Switch between dark and light themes
-            </p>
-          </div>
-          <button
-            onClick={toggleTheme}
-            aria-label="Toggle theme"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: 20,
-              color: "var(--text)",
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "8px 16px",
-              cursor: "pointer",
-              fontFamily: FONT_BODY,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            <span style={{ fontSize: 16, lineHeight: 1 }}>{theme === "dark" ? "☀️" : "🌙"}</span>
-            {theme === "dark" ? "Switch to light" : "Switch to dark"}
-          </button>
-        </div>
       </div>
 
       {/* Card 2: Password */}
