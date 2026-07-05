@@ -183,7 +183,7 @@ export default function OnboardingModal({
     e.target.value = "";
   }
 
-  async function uploadAvatar(file: File, focalX: number, focalY: number) {
+  async function uploadAvatar(file: File, focalX: number, focalY: number, zoom: number) {
     setUploading(true);
     setUploadStatus("Uploading…");
     const { data: { user: authUser } } = await browserSupabase.auth.getUser();
@@ -211,6 +211,7 @@ export default function OnboardingModal({
       avatar_url: publicUrl,
       avatar_focal_x: focalX,
       avatar_focal_y: focalY,
+      avatar_zoom: zoom,
     }).eq("id", profileId);
     setAvatarUrl(publicUrl);
     setUploadStatus("Photo saved!");
@@ -412,7 +413,7 @@ export default function OnboardingModal({
               <AvatarFocalPicker
                 file={pendingAvatarFile}
                 uploading={uploading}
-                onConfirm={(fx, fy) => uploadAvatar(pendingAvatarFile, fx, fy)}
+                onConfirm={(fx, fy, z) => uploadAvatar(pendingAvatarFile, fx, fy, z)}
                 onCancel={() => setPendingAvatarFile(null)}
               />
             )}

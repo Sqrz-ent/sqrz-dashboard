@@ -1,34 +1,34 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { computeCoverTransform } from "~/lib/heroTransform";
 
 const ACCENT = "#F5A623";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
 // True hero geometry (from sqrz-profiles app/page.tsx): the hero is a full-bleed
-// container with a FIXED height of 480px and background-size:cover. There is no
-// fixed aspect ratio — its width is 100% of the viewport — but the height is
-// always 480px on every device. So desktop and mobile crop the SAME vertical
-// 480px band and differ only in width. Representative widths:
-//   desktop ~1280 × 480  →  8:3   ≈ 2.667:1  (wide)
-//   mobile  ~390  × 480  →  13:16 = 0.8125:1 (narrow)
-// Both frames therefore share the same height; the mobile frame is a narrow,
-// horizontally-centered slice nested inside the wider desktop band.
+// container with a FIXED height of 480px and cover scaling. No fixed aspect ratio
+// (width = viewport), but the height is always 480px, so desktop and mobile crop
+// the SAME 480px band and differ only in width:
+//   desktop ~1280 × 480 →  8:3   ≈ 2.667:1 (wide)
+//   mobile  ~390  × 480 → 13:16  = 0.8125:1 (narrow)
+// The picker window is the desktop crop; the mobile "safe zone" is the narrower
+// centred slice within it (same height). For the common landscape hero photo the
+// mobile crop is exactly the centre 390/1280 of the desktop crop.
 const DESKTOP_RATIO = 1280 / 480; // 2.667
-const MOBILE_RATIO = 390 / 480; //   0.8125
+const MOBILE_FRACTION = 390 / 1280; // 0.3047 — mobile visible width / desktop width
 
-const WINDOW_HEIGHT = 340;
-const FRAME_FIT = 0.9; // outer frame occupies 90% of the fitted image
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.02;
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
-// Single-window focal picker: the full uploaded image is shown scaled to fit,
-// with two fixed nested crop frames on top (outer = desktop hero, inner = mobile
-// hero). The user drags the IMAGE under the fixed frames; everything outside the
-// outer frame is dimmed. On confirm we emit the normalized focal point (0..1) —
-// the image point sitting at the centre of the frames — which the hero render
-// feeds straight into background-position: {x}% {y}%.
+// Drag-and-zoom focal picker. Shows the desktop hero crop live (img + transform via
+// the shared computeCoverTransform), with the mobile safe zone marked and its side
+// bands dimmed. Dragging pans (updates focal); the slider/wheel zooms. On confirm
+// it emits the normalized focal point (0..1) + zoom (>=1) — the exact same inputs
+// the profile hero feeds into computeCoverTransform.
 export default function AvatarFocalPicker({
   file,
   uploading = false,
@@ -37,22 +37,23 @@ export default function AvatarFocalPicker({
 }: {
   file: File;
   uploading?: boolean;
-  onConfirm: (focalX: number, focalY: number) => void;
+  onConfirm: (focalX: number, focalY: number, zoom: number) => void;
   onCancel: () => void;
 }) {
   const [objectUrl, setObjectUrl] = useState<string>("");
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
-  const [winW, setWinW] = useState(0);
-  // Offset (px) of the image from its centred position. (0,0) => focal 50%/50%.
-  const [offset, setOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [box, setBox] = useState<{ w: number; h: number } | null>(null);
+  const [focal, setFocal] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
+  const [zoom, setZoom] = useState(1);
 
   const windowRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+  const drag = useRef<{ px: number; py: number; fx: number; fy: number } | null>(null);
 
   useEffect(() => {
     const url = URL.createObjectURL(file);
     setObjectUrl(url);
-    setOffset({ x: 0, y: 0 });
+    setFocal({ x: 0.5, y: 0.5 });
+    setZoom(1);
     setNatural(null);
     const img = new Image();
     img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
@@ -61,58 +62,71 @@ export default function AvatarFocalPicker({
   }, [file]);
 
   useLayoutEffect(() => {
-    function measure() {
-      if (windowRef.current) setWinW(windowRef.current.clientWidth);
-    }
+    const el = windowRef.current;
+    if (!el) return;
+    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
-  // Scale-dependent geometry (independent of the drag offset).
-  const base = useMemo(() => {
-    if (!natural || winW <= 0) return null;
-    const WW = winW;
-    const WH = WINDOW_HEIGHT;
-    // Scale the image to fit inside the window (contain) — whole image visible.
-    const s = Math.min(WW / natural.w, WH / natural.h);
-    const dw = natural.w * s;
-    const dh = natural.h * s;
-    // Largest desktop-ratio rect that fits within FRAME_FIT of the image display.
-    const oh = Math.min(dh, dw / DESKTOP_RATIO) * FRAME_FIT;
-    const ow = oh * DESKTOP_RATIO;
-    const iw = oh * MOBILE_RATIO; // mobile shares the desktop height
-    // Drag bounds keep the outer frame fully within the image (no empty crop).
-    const maxOx = Math.max(0, (dw - ow) / 2);
-    const maxOy = Math.max(0, (dh - oh) / 2);
-    return { WW, WH, dw, dh, ow, oh, iw, maxOx, maxOy };
-  }, [natural, winW]);
+  // Scaled image size + the focal range that still keeps the frame covered.
+  const geo = useMemo(() => {
+    if (!natural || !box || natural.w <= 0 || natural.h <= 0) return null;
+    const baseScale = Math.max(box.w / natural.w, box.h / natural.h);
+    const scale = baseScale * zoom;
+    const scaledW = natural.w * scale;
+    const scaledH = natural.h * scale;
+    // Focal is only meaningful within [half, 1-half]; outside would show a gap.
+    const halfX = box.w / (2 * scaledW);
+    const halfY = box.h / (2 * scaledH);
+    return {
+      scaledW,
+      scaledH,
+      rangeX: halfX >= 0.5 ? ([0.5, 0.5] as const) : ([halfX, 1 - halfX] as const),
+      rangeY: halfY >= 0.5 ? ([0.5, 0.5] as const) : ([halfY, 1 - halfY] as const),
+    };
+  }, [natural, box, zoom]);
+
+  const fx = geo ? clamp(focal.x, geo.rangeX[0], geo.rangeX[1]) : focal.x;
+  const fy = geo ? clamp(focal.y, geo.rangeY[0], geo.rangeY[1]) : focal.y;
+
+  // Keep stored focal within the valid range as zoom changes.
+  useEffect(() => {
+    if (geo && (fx !== focal.x || fy !== focal.y)) setFocal({ x: fx, y: fy });
+  }, [geo, fx, fy, focal.x, focal.y]);
+
+  const transform =
+    natural && box && geo
+      ? computeCoverTransform(box.w, box.h, natural.w, natural.h, fx, fy, zoom)
+      : null;
 
   function onPointerDown(e: React.PointerEvent) {
-    if (!base) return;
-    drag.current = { px: e.clientX, py: e.clientY, ox: offset.x, oy: offset.y };
+    if (!geo) return;
+    drag.current = { px: e.clientX, py: e.clientY, fx, fy };
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   }
   function onPointerMove(e: React.PointerEvent) {
-    if (!drag.current || !base) return;
-    setOffset({
-      x: clamp(drag.current.ox + (e.clientX - drag.current.px), -base.maxOx, base.maxOx),
-      y: clamp(drag.current.oy + (e.clientY - drag.current.py), -base.maxOy, base.maxOy),
-    });
+    if (!drag.current || !geo) return;
+    // Dragging the image right (positive dx) reveals more of its left → focal x down.
+    const nx = drag.current.fx - (e.clientX - drag.current.px) / geo.scaledW;
+    const ny = drag.current.fy - (e.clientY - drag.current.py) / geo.scaledH;
+    setFocal({ x: clamp(nx, geo.rangeX[0], geo.rangeX[1]), y: clamp(ny, geo.rangeY[0], geo.rangeY[1]) });
   }
   function endDrag() {
     drag.current = null;
   }
+  function onWheel(e: React.WheelEvent) {
+    if (!geo) return;
+    setZoom((z) => clamp(z - e.deltaY * 0.002, ZOOM_MIN, ZOOM_MAX));
+  }
 
-  // Offset-dependent geometry.
-  const ox = base ? clamp(offset.x, -base.maxOx, base.maxOx) : 0;
-  const oy = base ? clamp(offset.y, -base.maxOy, base.maxOy) : 0;
-  const ix = base ? (base.WW - base.dw) / 2 + ox : 0;
-  const iy = base ? (base.WH - base.dh) / 2 + oy : 0;
-  const focalX = base ? clamp01(0.5 - ox / base.dw) : 0.5;
-  const focalY = base ? clamp01(0.5 - oy / base.dh) : 0.5;
+  const stripW = box ? box.w * MOBILE_FRACTION : 0;
+  const bandW = box ? (box.w - stripW) / 2 : 0;
+  const ready = Boolean(transform && natural && box);
 
-  const frameLabel: React.CSSProperties = {
+  const labelChip: React.CSSProperties = {
     position: "absolute",
     fontSize: 10,
     fontWeight: 700,
@@ -123,13 +137,14 @@ export default function AvatarFocalPicker({
     pointerEvents: "none",
     fontFamily: FONT_BODY,
     whiteSpace: "nowrap",
+    zIndex: 3,
   };
 
   return (
     <div style={{ marginTop: 14, fontFamily: FONT_BODY }}>
       <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 8px", lineHeight: 1.5 }}>
-        Drag the photo to frame it. The <strong>solid</strong> frame is your desktop hero,
-        the <strong>dashed</strong> frame is mobile — keep what matters inside both.
+        Drag to reposition, zoom to fill. The full frame is your desktop hero; the
+        <strong> dashed centre</strong> is the mobile safe zone — keep faces inside it.
       </p>
 
       <div
@@ -138,20 +153,21 @@ export default function AvatarFocalPicker({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onWheel={onWheel}
         style={{
           position: "relative",
           width: "100%",
-          height: WINDOW_HEIGHT,
+          aspectRatio: "1280 / 480",
           borderRadius: 12,
           overflow: "hidden",
           background: "#0e0e0e",
           border: "1px solid var(--border)",
           touchAction: "none",
           userSelect: "none",
-          cursor: base ? "grab" : "default",
+          cursor: ready ? "grab" : "default",
         }}
       >
-        {objectUrl && base && (
+        {objectUrl && transform && natural && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={objectUrl}
@@ -159,90 +175,70 @@ export default function AvatarFocalPicker({
             draggable={false}
             style={{
               position: "absolute",
-              left: ix,
-              top: iy,
-              width: base.dw,
-              height: base.dh,
+              top: 0,
+              left: 0,
+              width: natural.w,
+              height: natural.h,
               maxWidth: "none",
-              display: "block",
+              transformOrigin: "top left",
+              transform: `translate(${transform.translateX}px, ${transform.translateY}px) scale(${transform.scale})`,
               pointerEvents: "none",
+              display: "block",
             }}
           />
         )}
 
-        {base && (
+        {ready && (
           <>
-            {/* Outer (desktop) frame — box-shadow dims everything outside it */}
+            {/* Dim the side bands cropped out on mobile */}
+            <div style={{ position: "absolute", top: 0, left: 0, width: bandW, height: "100%", background: "rgba(0,0,0,0.45)", pointerEvents: "none", zIndex: 2 }} />
+            <div style={{ position: "absolute", top: 0, right: 0, width: bandW, height: "100%", background: "rgba(0,0,0,0.45)", pointerEvents: "none", zIndex: 2 }} />
+            {/* Mobile safe-zone frame */}
             <div
               style={{
                 position: "absolute",
-                left: (base.WW - base.ow) / 2,
-                top: (base.WH - base.oh) / 2,
-                width: base.ow,
-                height: base.oh,
-                boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
-                border: "2px solid rgba(255,255,255,0.9)",
-                borderRadius: 4,
-                pointerEvents: "none",
-              }}
-            >
-              <span
-                style={{
-                  ...frameLabel,
-                  top: -22,
-                  left: 0,
-                  background: "rgba(255,255,255,0.9)",
-                  color: "#111",
-                }}
-              >
-                Desktop
-              </span>
-            </div>
-
-            {/* Inner (mobile) frame — nested, same height, horizontally centred */}
-            <div
-              style={{
-                position: "absolute",
-                left: (base.WW - base.iw) / 2,
-                top: (base.WH - base.oh) / 2,
-                width: base.iw,
-                height: base.oh,
+                top: 0,
+                left: bandW,
+                width: stripW,
+                height: "100%",
                 border: `2px dashed ${ACCENT}`,
-                borderRadius: 2,
+                boxSizing: "border-box",
                 pointerEvents: "none",
+                zIndex: 2,
               }}
-            >
-              <span
-                style={{
-                  ...frameLabel,
-                  bottom: -22,
-                  left: "50%",
-                  transform: "translateX(-50%)",
-                  background: ACCENT,
-                  color: "#111",
-                }}
-              >
-                Mobile
-              </span>
-            </div>
+            />
+            <span style={{ ...labelChip, top: 6, left: 6, background: "rgba(255,255,255,0.9)", color: "#111" }}>
+              Desktop
+            </span>
+            <span style={{ ...labelChip, bottom: 6, left: "50%", transform: "translateX(-50%)", background: ACCENT, color: "#111" }}>
+              Mobile
+            </span>
           </>
         )}
 
-        {!base && (
-          <div
-            style={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "var(--text-muted)",
-              fontSize: 13,
-            }}
-          >
+        {!ready && (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
             Loading photo…
           </div>
         )}
+      </div>
+
+      {/* Zoom slider */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)", fontFamily: FONT_BODY }}>Zoom</span>
+        <input
+          type="range"
+          min={ZOOM_MIN}
+          max={ZOOM_MAX}
+          step={ZOOM_STEP}
+          value={zoom}
+          disabled={!ready}
+          onChange={(e) => setZoom(clamp(Number(e.target.value), ZOOM_MIN, ZOOM_MAX))}
+          style={{ flex: 1, accentColor: ACCENT, cursor: ready ? "pointer" : "default" }}
+        />
+        <span style={{ fontSize: 12, color: "var(--text-muted)", width: 40, textAlign: "right", fontFamily: FONT_BODY }}>
+          {zoom.toFixed(2)}×
+        </span>
       </div>
 
       <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
@@ -267,8 +263,8 @@ export default function AvatarFocalPicker({
         </button>
         <button
           type="button"
-          onClick={() => onConfirm(Number(focalX.toFixed(4)), Number(focalY.toFixed(4)))}
-          disabled={uploading || !base}
+          onClick={() => onConfirm(Number(fx.toFixed(4)), Number(fy.toFixed(4)), Number(zoom.toFixed(4)))}
+          disabled={uploading || !ready}
           style={{
             padding: "10px 18px",
             background: ACCENT,
@@ -277,9 +273,9 @@ export default function AvatarFocalPicker({
             color: "#111",
             fontSize: 13,
             fontWeight: 700,
-            cursor: uploading || !base ? "default" : "pointer",
+            cursor: uploading || !ready ? "default" : "pointer",
             fontFamily: FONT_BODY,
-            opacity: uploading || !base ? 0.6 : 1,
+            opacity: uploading || !ready ? 0.6 : 1,
           }}
         >
           {uploading ? "Uploading…" : "Save photo"}

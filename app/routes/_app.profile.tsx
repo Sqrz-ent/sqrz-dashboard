@@ -488,7 +488,7 @@ export default function ProfilePage() {
     e.target.value = "";
   }
 
-  async function uploadAvatar(file: File, focalX: number, focalY: number) {
+  async function uploadAvatar(file: File, focalX: number, focalY: number, zoom: number) {
     setAvatarUploading(true);
     setAvatarStatus("Uploading…");
     const { data: { user: authUser } } = await browserSupabase.auth.getUser();
@@ -514,6 +514,7 @@ export default function ProfilePage() {
       avatar_url: publicUrl,
       avatar_focal_x: focalX,
       avatar_focal_y: focalY,
+      avatar_zoom: zoom,
     }).eq("id", profileId);
     setAvatarStatus("Photo updated!");
     setAvatarUploading(false);
@@ -597,7 +598,7 @@ export default function ProfilePage() {
           <AvatarFocalPicker
             file={pendingAvatarFile}
             uploading={avatarUploading}
-            onConfirm={(fx, fy) => uploadAvatar(pendingAvatarFile, fx, fy)}
+            onConfirm={(fx, fy, z) => uploadAvatar(pendingAvatarFile, fx, fy, z)}
             onCancel={() => setPendingAvatarFile(null)}
           />
         )}
