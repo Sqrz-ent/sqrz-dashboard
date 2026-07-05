@@ -155,52 +155,6 @@ function CredStatusBadge({ status }: { status: string }) {
   );
 }
 
-const COUNTRY_OPTIONS = [
-  "Argentina",
-  "Australia",
-  "Austria",
-  "Belgium",
-  "Bolivia",
-  "Brazil",
-  "Canada",
-  "Chile",
-  "Colombia",
-  "Costa Rica",
-  "Croatia",
-  "Czech Republic",
-  "Denmark",
-  "Dominican Republic",
-  "Ecuador",
-  "Finland",
-  "France",
-  "Germany",
-  "Greece",
-  "Hungary",
-  "Ireland",
-  "Italy",
-  "Japan",
-  "Mexico",
-  "Netherlands",
-  "New Zealand",
-  "Norway",
-  "Panama",
-  "Paraguay",
-  "Peru",
-  "Poland",
-  "Portugal",
-  "Romania",
-  "Singapore",
-  "South Africa",
-  "South Korea",
-  "Spain",
-  "Sweden",
-  "Switzerland",
-  "Turkey",
-  "United Kingdom",
-  "United States",
-  "Uruguay",
-];
-
 const COUNTRY_LABEL_BY_CODE: Record<string, string> = {
   AR: "Argentina",
   AT: "Austria",
@@ -307,11 +261,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     ? await adminClient.from("credential_declarations").select("*").eq("profile_id", profile.id as string).order("created_at", { ascending: false })
     : { data: [] };
 
+  // Full country list for the business-location dropdown — sourced from the
+  // locations table (all countries, ordered by name), not a hardcoded array.
+  const { data: locationRows } = await adminClient
+    .from("locations")
+    .select("name")
+    .order("name", { ascending: true });
+  const countries = (locationRows ?? [])
+    .map((r) => r.name as string | null)
+    .filter((n): n is string => !!n);
+
   return Response.json(
     {
       profile,
       services: services ?? [],
       credentials: credentialRows ?? [],
+      countries,
     },
     { headers }
   );
@@ -788,10 +753,11 @@ function ServiceModal({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ServicePage() {
-  const { profile, services: initialServices, credentials: initialCredentials } = useLoaderData<typeof loader>() as {
+  const { profile, services: initialServices, credentials: initialCredentials, countries } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     services: Service[];
     credentials: Credential[];
+    countries: string[];
   };
 
   const serviceFetcher = useFetcher();
@@ -1153,7 +1119,7 @@ export default function ServicePage() {
                     style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
                   >
                     <option value="">— Select country —</option>
-                    {COUNTRY_OPTIONS.map((country) => (
+                    {countries.map((country) => (
                       <option key={country} value={country}>
                         {country}
                       </option>
@@ -1179,7 +1145,7 @@ export default function ServicePage() {
                     style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer" }}
                   >
                     <option value="">— Select country —</option>
-                    {COUNTRY_OPTIONS.map((country) => (
+                    {countries.map((country) => (
                       <option key={country} value={country}>
                         {country}
                       </option>
