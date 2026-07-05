@@ -347,7 +347,8 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "create") {
     const titleVal = (fd.get("title") as string) || null;
     const paid = fd.get("payment_gate") === "true";
-    const connectTo = fd.get("connect_to") as string | null;
+    const externalUrlRaw = (fd.get("external_url") as string) || null;
+    const prefillServiceVal = (fd.get("prefill_service") as string) || null;
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
@@ -359,9 +360,9 @@ export async function action({ request }: Route.ActionArgs) {
       description: (fd.get("description") as string) || null,
       cover_image_url: normalizeImageUrl(fd.get("cover_image_url") as string),
       video_url: (fd.get("video_url") as string) || null,
-      external_url: connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
+      external_url: externalUrlRaw ? normalizeExternalUrl(externalUrlRaw) : null,
       external_url_label: null,
-      prefill_service: connectTo === "service" ? ((fd.get("prefill_service") as string) || null) : null,
+      prefill_service: prefillServiceVal || null,
       cta_label: (fd.get("cta_label") as string) || null,
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
@@ -397,7 +398,8 @@ export async function action({ request }: Route.ActionArgs) {
     const id = fd.get("id") as string;
     const titleVal = (fd.get("title") as string) || null;
     const paid = fd.get("payment_gate") === "true";
-    const connectTo = fd.get("connect_to") as string | null;
+    const externalUrlRaw = (fd.get("external_url") as string) || null;
+    const prefillServiceVal = (fd.get("prefill_service") as string) || null;
     const { error } = await admin.from("private_booking_links").update({
       link_slug: fd.get("link_slug") as string,
       page_type: "internal",
@@ -407,9 +409,9 @@ export async function action({ request }: Route.ActionArgs) {
       description: (fd.get("description") as string) || null,
       cover_image_url: normalizeImageUrl(fd.get("cover_image_url") as string),
       video_url: (fd.get("video_url") as string) || null,
-      external_url: connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
+      external_url: externalUrlRaw ? normalizeExternalUrl(externalUrlRaw) : null,
       external_url_label: null,
-      prefill_service: connectTo === "service" ? ((fd.get("prefill_service") as string) || null) : null,
+      prefill_service: prefillServiceVal || null,
       cta_label: (fd.get("cta_label") as string) || null,
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
@@ -513,9 +515,8 @@ function CreateLinkModal({
   const [description, setDescription] = useState("");
   const [coverImageUrl, setCoverImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [isExternal, setIsExternal] = useState(false);
   const [externalUrl, setExternalUrl] = useState("");
-  const [externalUrlLabel, setExternalUrlLabel] = useState("");
-  const [connectTo, setConnectTo] = useState<"none" | "service" | "url">("none");
   const [prefillService, setPrefillService] = useState("");
   const [ctaLabel, setCtaLabel] = useState("");
   const [showOnProfile, setShowOnProfile] = useState(false);
@@ -535,12 +536,8 @@ function CreateLinkModal({
       setDescription(editingLink.description || "");
       setCoverImageUrl(editingLink.cover_image_url || "");
       setVideoUrl(editingLink.video_url || "");
+      setIsExternal(!!editingLink.external_url);
       setExternalUrl(editingLink.external_url || "");
-      setExternalUrlLabel(editingLink.external_url_label || "");
-      // Derive connectTo from saved values
-      if (editingLink.prefill_service) setConnectTo("service");
-      else if (editingLink.external_url) setConnectTo("url");
-      else setConnectTo("none");
       setPrefillService(editingLink.prefill_service || "");
       setCtaLabel(editingLink.cta_label || "");
       setShowOnProfile(editingLink.show_on_profile ?? false);
@@ -570,8 +567,7 @@ function CreateLinkModal({
     setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription(""); setCoverImageUrl("");
     setVideoUrl("");
-    setExternalUrl(""); setExternalUrlLabel("");
-    setConnectTo("none"); setPrefillService(""); setCtaLabel("");
+    setIsExternal(false); setExternalUrl(""); setPrefillService(""); setCtaLabel("");
     setShowOnProfile(false);
     setPaymentGate(false); setPrice(""); setCurrency("EUR");
     setCoverUploading(false);
@@ -604,9 +600,8 @@ function CreateLinkModal({
     fd.append("description", description);
     fd.append("cover_image_url", coverImageUrl);
     fd.append("video_url", videoUrl);
-    fd.append("connect_to", connectTo);
-    if (connectTo === "service") fd.append("prefill_service", prefillService);
-    if (connectTo === "url") fd.append("external_url", externalUrl);
+    if (isExternal) fd.append("external_url", externalUrl);
+    if (!isExternal && prefillService) fd.append("prefill_service", prefillService);
     fd.append("cta_label", ctaLabel);
     fd.append("payment_gate", String(paymentGate));
     if (paymentGate) {
@@ -626,6 +621,47 @@ function CreateLinkModal({
         </div>
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+        {/* Internal / External top toggle */}
+        <div style={{ display: "flex", gap: 8 }}>
+          {(["Internal", "External"] as const).map(opt => {
+            const active = opt === "External" ? isExternal : !isExternal;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setIsExternal(opt === "External")}
+                style={{
+                  flex: 1, padding: "8px 10px",
+                  border: `1px solid ${active ? ACCENT : "var(--border)"}`,
+                  borderRadius: 10,
+                  background: active ? "rgba(245,166,35,0.12)" : "var(--bg)",
+                  color: active ? ACCENT : "var(--text-muted)",
+                  fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY,
+                }}
+              >
+                {opt === "Internal" ? "📄 Internal" : "🔗 External"}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* External: destination URL */}
+        {isExternal && (
+          <div>
+            <label style={labelStyle}>Destination URL</label>
+            <input
+              style={inputStyle}
+              value={externalUrl}
+              onChange={e => setExternalUrl(e.target.value)}
+              placeholder="https://..."
+              autoFocus
+            />
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
+              Visitors go here directly from the hero pill (unless the payment gate is on — then they pay first).
+            </p>
+          </div>
+        )}
 
         {/* Feature on profile — Exclusive: a DB trigger
             clears show_on_profile on the profile's other links when this is set. */}
@@ -711,42 +747,10 @@ function CreateLinkModal({
               <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
             </div>
 
-            {/* Connect to — None / Service / External URL */}
-            <div>
-              <label style={labelStyle}>Connect to</label>
-              <div style={{ display: "flex", gap: 8 }}>
-                {(["none", "service", "url"] as const).map(opt => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => setConnectTo(opt)}
-                    style={{
-                      flex: 1,
-                      padding: "8px 10px",
-                      border: `1px solid ${connectTo === opt ? ACCENT : "var(--border)"}`,
-                      borderRadius: 10,
-                      background: connectTo === opt ? "rgba(245,166,35,0.12)" : "var(--bg)",
-                      color: connectTo === opt ? ACCENT : "var(--text-muted)",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      fontFamily: FONT_BODY,
-                    }}
-                  >
-                    {opt === "none" ? "None" : opt === "service" ? "Service" : "External URL"}
-                  </button>
-                ))}
-              </div>
-              {connectTo === "none" && (
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
-                  Shows a plain contact / booking form on the page.
-                </p>
-              )}
-            </div>
-
-            {connectTo === "service" && (
+            {/* Optional: link to a service (internal only) */}
+            {!isExternal && services.length > 0 && (
               <div>
-                <label style={labelStyle}>Pre-fill service</label>
+                <label style={labelStyle}>Link to a service <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span></label>
                 <select
                   style={inputStyle}
                   value={prefillService}
@@ -757,21 +761,6 @@ function CreateLinkModal({
                     <option key={s.id} value={s.title}>{s.title}</option>
                   ))}
                 </select>
-              </div>
-            )}
-
-            {connectTo === "url" && (
-              <div>
-                <label style={labelStyle}>Redirect link</label>
-                <input
-                  style={inputStyle}
-                  value={externalUrl}
-                  onChange={e => setExternalUrl(e.target.value)}
-                  placeholder="https://..."
-                />
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
-                  Visitors are sent here after submitting (or after paying, if the payment gate is on).
-                </p>
               </div>
             )}
 
