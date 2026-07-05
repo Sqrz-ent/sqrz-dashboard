@@ -325,7 +325,7 @@ export default function BoostPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Grow-only state
-  const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 500;
+  const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 250;
   const [growBudget, setGrowBudget] = useState<string | number>("");
   const [growLoading, setGrowLoading] = useState(false);
   const [growError, setGrowError] = useState<string | null>(null);

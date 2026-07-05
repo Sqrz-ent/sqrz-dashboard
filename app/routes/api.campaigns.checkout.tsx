@@ -69,7 +69,7 @@ export async function action({ request }: Route.ActionArgs) {
   } else if (campaign_type === "grow") {
     // Grow: create campaign row now (no prior action step)
     const planId = profile.plan_id as number | null;
-    const minBudget = planId === null || planId === 4 ? 100 : 500;
+    const minBudget = planId === null || planId === 4 ? 100 : 250;
     if (budget < minBudget) {
       return Response.json(
         { error: `Minimum Grow budget is $${minBudget.toLocaleString()}` },
