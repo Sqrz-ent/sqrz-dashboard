@@ -713,9 +713,11 @@ export default function BoostPage() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 28, gap: 12, flexWrap: "wrap" as const }}>
         <div>
           <h1 style={{ ...sectionTitle, marginBottom: 6 }}>Boost</h1>
-          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-            One-time campaign · You pick channel &amp; budget · $25 activation + ad spend
-          </p>
+          {campaignMode === "boost" && (
+            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+              One-time campaign · You pick channel &amp; budget · $25 activation + ad spend
+            </p>
+          )}
         </div>
         <button
           type="button"
