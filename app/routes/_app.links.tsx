@@ -88,6 +88,7 @@ type PrivateLink = {
   payment_gate: boolean;
   price: number | null;
   currency: string | null;
+  cta_label: string | null;
 };
 
 type ProfileService = { id: string; title: string };
@@ -125,7 +126,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [linksRes, servicesRes, ownerBookingsRes, participantRowsRes] = await Promise.all([
     supabase
       .from("private_booking_links")
-      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url, payment_gate, price, currency")
+      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url, payment_gate, price, currency, cta_label")
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
     // Use the admin client (not the RLS-scoped `supabase`): the owner reads ALL of
@@ -352,10 +353,7 @@ export async function action({ request }: Route.ActionArgs) {
     const coverImageUrl = isExternal ? null : normalizeImageUrl(fd.get("cover_image_url") as string);
     const paid = !isExternal && fd.get("payment_gate") === "true";
 
-    // show_on_profile exclusivity is enforced by the DB trigger
-    // enforce_single_show_on_profile (clears it on the profile's other links).
-    // prefill_service / event_* are intentionally not written — they remain inert
-    // legacy columns on old rows.
+    const connectTo = isExternal ? null : (fd.get("connect_to") as string | null);
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
       link_slug: isExternal ? null : (fd.get("link_slug") as string),
@@ -367,8 +365,12 @@ export async function action({ request }: Route.ActionArgs) {
       description: isExternal ? null : ((fd.get("description") as string) || null),
       cover_image_url: coverImageUrl,
       video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
-      external_url: isExternal ? normalizeExternalUrl(fd.get("external_url") as string) : null,
+      external_url: isExternal
+        ? normalizeExternalUrl(fd.get("external_url") as string)
+        : connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
       external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
+      prefill_service: connectTo === "service" ? ((fd.get("prefill_service") as string) || null) : null,
+      cta_label: isExternal ? null : ((fd.get("cta_label") as string) || null),
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
       currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
@@ -407,9 +409,7 @@ export async function action({ request }: Route.ActionArgs) {
     const coverImageUrl = isExternal ? null : normalizeImageUrl(fd.get("cover_image_url") as string);
     const paid = !isExternal && fd.get("payment_gate") === "true";
 
-    // prefill_service / event_* are intentionally omitted so legacy values are
-    // preserved (inert) rather than wiped. show_on_profile exclusivity is
-    // enforced by the DB trigger.
+    const connectTo = isExternal ? null : (fd.get("connect_to") as string | null);
     const { error } = await admin.from("private_booking_links").update({
       link_slug: isExternal ? null : (fd.get("link_slug") as string),
       page_type: pageType,
@@ -419,8 +419,12 @@ export async function action({ request }: Route.ActionArgs) {
       description: isExternal ? null : ((fd.get("description") as string) || null),
       cover_image_url: coverImageUrl,
       video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
-      external_url: isExternal ? normalizeExternalUrl(fd.get("external_url") as string) : null,
+      external_url: isExternal
+        ? normalizeExternalUrl(fd.get("external_url") as string)
+        : connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
       external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
+      prefill_service: connectTo === "service" ? ((fd.get("prefill_service") as string) || null) : null,
+      cta_label: isExternal ? null : ((fd.get("cta_label") as string) || null),
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
       currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
@@ -533,6 +537,9 @@ function CreateLinkModal({
   const [videoUrl, setVideoUrl] = useState("");
   const [externalUrl, setExternalUrl] = useState("");
   const [externalUrlLabel, setExternalUrlLabel] = useState("");
+  const [connectTo, setConnectTo] = useState<"none" | "service" | "url">("none");
+  const [prefillService, setPrefillService] = useState("");
+  const [ctaLabel, setCtaLabel] = useState("");
   const [showOnProfile, setShowOnProfile] = useState(false);
   const [paymentGate, setPaymentGate] = useState(false);
   const [price, setPrice] = useState("");
@@ -555,6 +562,14 @@ function CreateLinkModal({
       setVideoUrl(editingLink.video_url || "");
       setExternalUrl(editingLink.external_url || "");
       setExternalUrlLabel(editingLink.external_url_label || "");
+      // Derive connectTo from saved values (for internal pages only)
+      if (editingLink.page_type !== "external") {
+        if (editingLink.prefill_service) setConnectTo("service");
+        else if (editingLink.external_url) setConnectTo("url");
+        else setConnectTo("none");
+      }
+      setPrefillService(editingLink.prefill_service || "");
+      setCtaLabel(editingLink.cta_label || "");
       setShowOnProfile(editingLink.show_on_profile ?? false);
       setPaymentGate(editingLink.payment_gate ?? false);
       setPrice(editingLink.price != null ? String(editingLink.price) : "");
@@ -584,6 +599,7 @@ function CreateLinkModal({
     setTitle(""); setDescription(""); setCoverImageUrl("");
     setVideoUrl("");
     setExternalUrl(""); setExternalUrlLabel("");
+    setConnectTo("none"); setPrefillService(""); setCtaLabel("");
     setShowOnProfile(false);
     setPaymentGate(false); setPrice(""); setCurrency("EUR");
     setCoverUploading(false);
@@ -630,6 +646,10 @@ function CreateLinkModal({
       fd.append("description", description);
       fd.append("cover_image_url", coverImageUrl);
       fd.append("video_url", videoUrl);
+      fd.append("connect_to", connectTo);
+      if (connectTo === "service") fd.append("prefill_service", prefillService);
+      if (connectTo === "url") fd.append("external_url", externalUrl);
+      fd.append("cta_label", ctaLabel);
       fd.append("payment_gate", String(paymentGate));
       if (paymentGate) {
         fd.append("price", price);
@@ -765,6 +785,81 @@ function CreateLinkModal({
             <div>
               <label style={labelStyle}>Promo Video (YouTube)</label>
               <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
+            </div>
+
+            {/* Connect to — None / Service / External URL */}
+            <div>
+              <label style={labelStyle}>Connect to</label>
+              <div style={{ display: "flex", gap: 8 }}>
+                {(["none", "service", "url"] as const).map(opt => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => setConnectTo(opt)}
+                    style={{
+                      flex: 1,
+                      padding: "8px 10px",
+                      border: `1px solid ${connectTo === opt ? ACCENT : "var(--border)"}`,
+                      borderRadius: 10,
+                      background: connectTo === opt ? "rgba(245,166,35,0.12)" : "var(--bg)",
+                      color: connectTo === opt ? ACCENT : "var(--text-muted)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: FONT_BODY,
+                    }}
+                  >
+                    {opt === "none" ? "None" : opt === "service" ? "Service" : "External URL"}
+                  </button>
+                ))}
+              </div>
+              {connectTo === "none" && (
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
+                  Shows a plain contact / booking form on the page.
+                </p>
+              )}
+            </div>
+
+            {connectTo === "service" && (
+              <div>
+                <label style={labelStyle}>Pre-fill service</label>
+                <select
+                  style={inputStyle}
+                  value={prefillService}
+                  onChange={e => setPrefillService(e.target.value)}
+                >
+                  <option value="">— none —</option>
+                  {services.map(s => (
+                    <option key={s.id} value={s.title}>{s.title}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {connectTo === "url" && (
+              <div>
+                <label style={labelStyle}>Redirect link</label>
+                <input
+                  style={inputStyle}
+                  value={externalUrl}
+                  onChange={e => setExternalUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
+                  Visitors are sent here after submitting (or after paying, if the payment gate is on).
+                </p>
+              </div>
+            )}
+
+            {/* CTA button label */}
+            <div>
+              <label style={labelStyle}>Button Label <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank to use "Book")</span></label>
+              <input
+                style={inputStyle}
+                value={ctaLabel}
+                onChange={e => setCtaLabel(e.target.value)}
+                placeholder="e.g. Get access, Download, Book now…"
+              />
             </div>
 
             {/* Payment Gate toggle */}
