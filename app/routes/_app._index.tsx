@@ -202,13 +202,6 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  if (intent === "toggle_gig_history") {
-    const { error } = await supabase.from("profiles").update({
-      show_gig_history: !(profile.show_gig_history as boolean),
-    }).eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   if (intent === "toggle_inquiry_chat_enabled") {
     const enabled = formData.get("enabled") === "true";
     const { error } = await supabase
@@ -277,7 +270,6 @@ export default function DashboardIndex() {
   const [toggleError, setToggleError] = useState<string | null>(null);
 
   // Availability
-  const gigHistoryFetcher = useFetcher();
   const blockFetcher = useFetcher();
   const deleteFetcher = useFetcher();
   const blocks = availabilityBlocks as AvailabilityBlock[];
@@ -754,28 +746,6 @@ export default function DashboardIndex() {
       {/* Availability widget */}
       <div style={{ ...card, marginBottom: 16 }}>
         <p style={{ ...metaLabel, margin: "0 0 14px" }}>Availability</p>
-
-        {/* Gig history toggle */}
-        <label style={{ display: "flex", alignItems: "flex-start", gap: 12, cursor: "pointer", marginBottom: 16 }}>
-          <input
-            type="checkbox"
-            defaultChecked={!!(p.show_gig_history)}
-            onChange={() => {
-              const fd = new FormData();
-              fd.append("intent", "toggle_gig_history");
-              gigHistoryFetcher.submit(fd, { method: "post" });
-            }}
-            style={{ accentColor: ACCENT, width: 16, height: 16, marginTop: 3, flexShrink: 0 }}
-          />
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", margin: 0 }}>
-              Show gig history on public calendar
-            </p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "3px 0 0", lineHeight: 1.5 }}>
-              Confirmed and completed bookings with dates will appear on your public profile calendar
-            </p>
-          </div>
-        </label>
 
         {/* Blocked periods list */}
         {blocks.length === 0 && !showBlockForm ? (
