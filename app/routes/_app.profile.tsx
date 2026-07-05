@@ -579,18 +579,6 @@ export default function ProfilePage() {
             {avatarStatus && (
               <p style={{ margin: "8px 0 0", fontSize: 12, color: ACCENT, fontFamily: FONT_BODY }}>{avatarStatus}</p>
             )}
-            <div style={{
-              marginTop: 12,
-              background: "rgba(245,166,35,0.08)",
-              border: "1px solid rgba(245,166,35,0.24)",
-              borderRadius: 10,
-              padding: "10px 12px",
-              maxWidth: 340,
-            }}>
-              <p style={{ margin: 0, color: "var(--text-muted)", fontSize: 12, lineHeight: 1.55 }}>
-                Format: square image, ideally 1080×1080 px or larger.
-              </p>
-            </div>
           </div>
         </div>
 
