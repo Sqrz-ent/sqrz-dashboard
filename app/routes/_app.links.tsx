@@ -56,14 +56,12 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 5,
 };
 
-type PageType = "internal" | "external";
-
 type PrivateLink = {
   id: string;
   link_slug: string | null;
   is_active: boolean;
   show_on_profile: boolean;
-  page_type: PageType;
+  page_type: string;
   title: string | null;
   use_count: number;
   unique_visitors: number;
@@ -347,30 +345,24 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = fd.get("intent") as string;
 
   if (intent === "create") {
-    const pageType = (fd.get("page_type") as string) || "internal";
-    const isExternal = pageType === "external";
     const titleVal = (fd.get("title") as string) || null;
-    const coverImageUrl = isExternal ? null : normalizeImageUrl(fd.get("cover_image_url") as string);
-    const paid = !isExternal && fd.get("payment_gate") === "true";
-
-    const connectTo = isExternal ? null : (fd.get("connect_to") as string | null);
+    const paid = fd.get("payment_gate") === "true";
+    const connectTo = fd.get("connect_to") as string | null;
     const { error } = await admin.from("private_booking_links").insert({
       profile_id: profile.id as string,
-      link_slug: isExternal ? null : (fd.get("link_slug") as string),
+      link_slug: fd.get("link_slug") as string,
       is_active: true,
-      page_type: pageType,
+      page_type: "internal",
       title: titleVal,
       label: titleVal,
       show_on_profile: fd.get("show_on_profile") === "true",
-      description: isExternal ? null : ((fd.get("description") as string) || null),
-      cover_image_url: coverImageUrl,
-      video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
-      external_url: isExternal
-        ? normalizeExternalUrl(fd.get("external_url") as string)
-        : connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
-      external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
+      description: (fd.get("description") as string) || null,
+      cover_image_url: normalizeImageUrl(fd.get("cover_image_url") as string),
+      video_url: (fd.get("video_url") as string) || null,
+      external_url: connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
+      external_url_label: null,
       prefill_service: connectTo === "service" ? ((fd.get("prefill_service") as string) || null) : null,
-      cta_label: isExternal ? null : ((fd.get("cta_label") as string) || null),
+      cta_label: (fd.get("cta_label") as string) || null,
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
       currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
@@ -403,28 +395,22 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "update") {
     const id = fd.get("id") as string;
-    const pageType = (fd.get("page_type") as string) || "internal";
-    const isExternal = pageType === "external";
     const titleVal = (fd.get("title") as string) || null;
-    const coverImageUrl = isExternal ? null : normalizeImageUrl(fd.get("cover_image_url") as string);
-    const paid = !isExternal && fd.get("payment_gate") === "true";
-
-    const connectTo = isExternal ? null : (fd.get("connect_to") as string | null);
+    const paid = fd.get("payment_gate") === "true";
+    const connectTo = fd.get("connect_to") as string | null;
     const { error } = await admin.from("private_booking_links").update({
-      link_slug: isExternal ? null : (fd.get("link_slug") as string),
-      page_type: pageType,
+      link_slug: fd.get("link_slug") as string,
+      page_type: "internal",
       title: titleVal,
       label: titleVal,
       show_on_profile: fd.get("show_on_profile") === "true",
-      description: isExternal ? null : ((fd.get("description") as string) || null),
-      cover_image_url: coverImageUrl,
-      video_url: isExternal ? null : ((fd.get("video_url") as string) || null),
-      external_url: isExternal
-        ? normalizeExternalUrl(fd.get("external_url") as string)
-        : connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
-      external_url_label: isExternal ? ((fd.get("external_url_label") as string) || null) : null,
+      description: (fd.get("description") as string) || null,
+      cover_image_url: normalizeImageUrl(fd.get("cover_image_url") as string),
+      video_url: (fd.get("video_url") as string) || null,
+      external_url: connectTo === "url" ? normalizeExternalUrl(fd.get("external_url") as string) : null,
+      external_url_label: null,
       prefill_service: connectTo === "service" ? ((fd.get("prefill_service") as string) || null) : null,
-      cta_label: isExternal ? null : ((fd.get("cta_label") as string) || null),
+      cta_label: (fd.get("cta_label") as string) || null,
       payment_gate: paid,
       price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
       currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
@@ -471,9 +457,6 @@ function toDatetimeLocal(iso: string | null | undefined): string {
   }
 }
 
-function defaultExternalUrlLabel(pageType: string) {
-  return pageType === "event" ? "Get Tickets" : "Download";
-}
 
 function formatEventBookingLabel(booking: EventBooking) {
   const title = booking.title || booking.service || "Untitled event";
@@ -497,10 +480,6 @@ function normalizeExternalUrl(url: string | null | undefined): string | null {
 
 // ─── Create / Edit Link Modal ─────────────────────────────────────────────────
 
-const PAGE_TYPES: { value: PageType; label: string; emoji: string }[] = [
-  { value: "internal", label: "Page", emoji: "📄" },
-  { value: "external", label: "External Link", emoji: "🔗" },
-];
 
 function CreateLinkModal({
   isOpen,
@@ -527,7 +506,6 @@ function CreateLinkModal({
 }) {
   const isEditing = !!editingLink;
 
-  const [pageType, setPageType] = useState<PageType>("internal");
   const [slug, setSlug] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
   const [slugError, setSlugError] = useState<string | null>(null);
@@ -551,9 +529,6 @@ function CreateLinkModal({
   // Pre-fill when editing link changes
   useEffect(() => {
     if (editingLink) {
-      // Legacy rows may still carry book/download/event — treat anything that
-      // isn't 'external' as an internal page.
-      setPageType(editingLink.page_type === "external" ? "external" : "internal");
       setSlug(editingLink.link_slug ?? "");
       setSlugEdited(true);
       setTitle(editingLink.title || "");
@@ -562,12 +537,10 @@ function CreateLinkModal({
       setVideoUrl(editingLink.video_url || "");
       setExternalUrl(editingLink.external_url || "");
       setExternalUrlLabel(editingLink.external_url_label || "");
-      // Derive connectTo from saved values (for internal pages only)
-      if (editingLink.page_type !== "external") {
-        if (editingLink.prefill_service) setConnectTo("service");
-        else if (editingLink.external_url) setConnectTo("url");
-        else setConnectTo("none");
-      }
+      // Derive connectTo from saved values
+      if (editingLink.prefill_service) setConnectTo("service");
+      else if (editingLink.external_url) setConnectTo("url");
+      else setConnectTo("none");
       setPrefillService(editingLink.prefill_service || "");
       setCtaLabel(editingLink.cta_label || "");
       setShowOnProfile(editingLink.show_on_profile ?? false);
@@ -594,7 +567,6 @@ function CreateLinkModal({
   }, [fetcher.state, fetcher.data]);
 
   function resetForm() {
-    setPageType("internal");
     setSlug(""); setSlugEdited(false); setSlugError(null);
     setTitle(""); setDescription(""); setCoverImageUrl("");
     setVideoUrl("");
@@ -616,12 +588,7 @@ function CreateLinkModal({
   }
 
   function handleSubmit() {
-    const isExternal = pageType === "external";
-
-    // Internal links use the (editable) slug field. External links have no slug
-    // at all — they redirect straight to external_url and have no page on
-    // sqrz.com, so link_slug is written null (see the action).
-    if (!isExternal && !validateSlug()) return;
+    if (!validateSlug()) return;
     if (coverUploading) return;
 
     const fd = new FormData();
@@ -631,38 +598,25 @@ function CreateLinkModal({
     } else {
       fd.append("intent", "create");
     }
-    fd.append("page_type", pageType);
-    // External links have no slug; internal links use the slug field.
-    if (!isExternal) fd.append("link_slug", slug);
+    fd.append("link_slug", slug);
     fd.append("show_on_profile", String(showOnProfile));
-
-    if (isExternal) {
-      // External: CTA label doubles as the row title; the URL is the destination.
-      fd.append("title", externalUrlLabel);
-      fd.append("external_url", externalUrl);
-      fd.append("external_url_label", externalUrlLabel);
-    } else {
-      fd.append("title", title);
-      fd.append("description", description);
-      fd.append("cover_image_url", coverImageUrl);
-      fd.append("video_url", videoUrl);
-      fd.append("connect_to", connectTo);
-      if (connectTo === "service") fd.append("prefill_service", prefillService);
-      if (connectTo === "url") fd.append("external_url", externalUrl);
-      fd.append("cta_label", ctaLabel);
-      fd.append("payment_gate", String(paymentGate));
-      if (paymentGate) {
-        fd.append("price", price);
-        fd.append("currency", currency);
-      }
+    fd.append("title", title);
+    fd.append("description", description);
+    fd.append("cover_image_url", coverImageUrl);
+    fd.append("video_url", videoUrl);
+    fd.append("connect_to", connectTo);
+    if (connectTo === "service") fd.append("prefill_service", prefillService);
+    if (connectTo === "url") fd.append("external_url", externalUrl);
+    fd.append("cta_label", ctaLabel);
+    fd.append("payment_gate", String(paymentGate));
+    if (paymentGate) {
+      fd.append("price", price);
+      fd.append("currency", currency);
     }
     fetcher.submit(fd, { method: "post" });
   }
 
-  const submitDisabled = fetcher.state !== "idle" || coverUploading ||
-    (pageType === "external"
-      ? (!externalUrl.trim() || !externalUrlLabel.trim())
-      : (!slug || !!slugError));
+  const submitDisabled = fetcher.state !== "idle" || coverUploading || !slug || !!slugError;
 
   return (
     <Modal isOpen={isOpen} onClose={() => { if (!isEditing) resetForm(); onClose(); }} title={isEditing ? "Edit Link" : "Create Private Link"}>
@@ -673,35 +627,7 @@ function CreateLinkModal({
       )}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
-        {/* Type selector — Page (internal) / External Link */}
-        <div>
-          <label style={labelStyle}>Type</label>
-          <div style={{ display: "flex", gap: 8 }}>
-            {PAGE_TYPES.map(pt => (
-              <button
-                key={pt.value}
-                type="button"
-                onClick={() => setPageType(pt.value)}
-                style={{
-                  flex: 1,
-                  padding: "8px 10px",
-                  border: `1px solid ${pageType === pt.value ? ACCENT : "var(--border)"}`,
-                  borderRadius: 10,
-                  background: pageType === pt.value ? `rgba(245,166,35,0.12)` : "var(--bg)",
-                  color: pageType === pt.value ? ACCENT : "var(--text-muted)",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: FONT_BODY,
-                }}
-              >
-                {pt.emoji} {pt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Feature on profile — available for both types. Exclusive: a DB trigger
+        {/* Feature on profile — Exclusive: a DB trigger
             clears show_on_profile on the profile's other links when this is set. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ flex: 1 }}>
@@ -727,23 +653,8 @@ function CreateLinkModal({
           </button>
         </div>
 
-        {/* EXTERNAL — button text + URL, nothing else */}
-        {pageType === "external" && (
-          <>
-            <div>
-              <label style={labelStyle}>Button Text</label>
-              <input style={inputStyle} value={externalUrlLabel} onChange={e => setExternalUrlLabel(e.target.value)} placeholder="e.g. Listen on Spotify" autoFocus />
-            </div>
-            <div>
-              <label style={labelStyle}>URL</label>
-              <input style={inputStyle} value={externalUrl} onChange={e => setExternalUrl(e.target.value)} placeholder="https://..." />
-            </div>
-          </>
-        )}
-
-        {/* INTERNAL — a page hosted at username.sqrz.com/{slug} */}
-        {pageType === "internal" && (
-          <>
+        {/* Page fields — title, slug, content, connect-to, payment */}
+        <>
             <div>
               <label style={labelStyle}>Title</label>
               <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Press Kit 2026" autoFocus />
@@ -932,8 +843,7 @@ function CreateLinkModal({
                 </div>
               </div>
             )}
-          </>
-        )}
+        </>
 
         {(fetcher.data as { error?: string } | undefined)?.error && (
           <p style={{ fontSize: 13, color: "#ef4444" }}>{(fetcher.data as { error: string }).error}</p>
@@ -981,11 +891,8 @@ function LinkCard({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const isExternal = link.page_type === "external";
-  // External links have no sqrz.com page — show and copy the destination URL
-  // itself; internal links show/copy their sqrz.com page URL.
-  const displayUrl = isExternal ? (link.external_url ?? "") : `${username}.sqrz.com/${link.link_slug}`;
-  const copyTarget = isExternal ? (link.external_url ?? "") : `https://${displayUrl}`;
+  const displayUrl = link.link_slug ? `${username}.sqrz.com/${link.link_slug}` : "";
+  const copyTarget = displayUrl ? `https://${displayUrl}` : "";
 
   function toggle() {
     onToggleActive(link.id, link.is_active);
@@ -1041,10 +948,10 @@ function LinkCard({
           <span style={{
             fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em",
             padding: "2px 7px", borderRadius: 6,
-            background: link.page_type === "external" ? "rgba(96,165,250,0.12)" : "rgba(245,166,35,0.12)",
-            color: link.page_type === "external" ? "#60a5fa" : ACCENT,
+            background: "rgba(245,166,35,0.12)",
+            color: ACCENT,
           }}>
-            {link.page_type === "external" ? "🔗 Link" : "📄 Page"}
+            📄 Page
           </span>
         </div>
         {displayUrl && (
