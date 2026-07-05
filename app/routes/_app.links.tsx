@@ -659,7 +659,6 @@ function CreateLinkModal({
     fetcher.submit(fd, { method: "post" });
   }
 
-  const previewUrl = `${username}.sqrz.com/${slug || "your-slug"}`;
   const submitDisabled = fetcher.state !== "idle" || coverUploading ||
     (pageType === "external"
       ? (!externalUrl.trim() || !externalUrlLabel.trim())
@@ -746,26 +745,40 @@ function CreateLinkModal({
         {pageType === "internal" && (
           <>
             <div>
-              <label style={labelStyle}>Link Slug</label>
-              <input
-                style={{ ...inputStyle, ...(slugError ? { border: "1px solid #ef4444" } : {}) }}
-                value={slug}
-                onChange={e => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); setSlugError(null); }}
-                onBlur={() => { setSlug(s => s.toLowerCase()); validateSlug(); }}
-                placeholder="asia-tour-2026"
-              />
-              {slugError ? (
-                <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{slugError}</p>
-              ) : slug ? (
-                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>
-                  Preview: <span style={{ color: ACCENT }}>{previewUrl}</span>
-                </p>
-              ) : null}
-            </div>
-
-            <div>
               <label style={labelStyle}>Title</label>
               <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Press Kit 2026" autoFocus />
+            </div>
+
+            {/* Slug — secondary field, auto-derived from title until manually edited */}
+            <div>
+              <label style={{ ...labelStyle, fontSize: 10 }}>Page URL</label>
+              <div style={{
+                display: "flex", alignItems: "center", gap: 0,
+                border: `1px solid ${slugError ? "#ef4444" : "var(--border)"}`,
+                borderRadius: 10, background: "var(--bg)", overflow: "hidden",
+              }}>
+                <span style={{
+                  padding: "9px 10px 9px 13px", fontSize: 12,
+                  color: "var(--text-muted)", whiteSpace: "nowrap", userSelect: "none" as const,
+                  borderRight: "1px solid var(--border)", flexShrink: 0,
+                }}>
+                  {username}.sqrz.com/
+                </span>
+                <input
+                  style={{
+                    flex: 1, padding: "9px 10px", background: "transparent",
+                    border: "none", outline: "none", fontSize: 13,
+                    color: "var(--text)", fontFamily: FONT_BODY, minWidth: 0,
+                  }}
+                  value={slug}
+                  onChange={e => { setSlug(e.target.value.toLowerCase()); setSlugEdited(true); setSlugError(null); }}
+                  onBlur={() => { setSlug(s => s.toLowerCase()); validateSlug(); }}
+                  placeholder="auto-generated"
+                />
+              </div>
+              {slugError && (
+                <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{slugError}</p>
+              )}
             </div>
             <div>
               <label style={labelStyle}>Description</label>
