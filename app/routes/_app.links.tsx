@@ -203,7 +203,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         .from("jitsu_events")
         .select("event_properties")
         .eq("profile_slug", profileSlug)
-        .eq("event_type", "download_clicked"),
+        .in("event_type", ["external_link_clicked", "download_clicked"]),
       admin
         .from("link_leads")
         .select("link_id")
@@ -213,9 +213,14 @@ export async function loader({ request }: Route.LoaderArgs) {
     bookingModalOpens = modalOpens ?? 0;
     bookingRequests = requestsSent ?? 0;
 
-    // Download clicks per link_slug
+    // External-link clicks per link_slug — consolidated download_clicked (legacy)
+    // + external_link_clicked (new). Skip pill clicks that route to the hosted
+    // /{slug} page (destination:'page'); those are navigations, not external
+    // opens. Legacy download_clicked rows carry no destination and always count.
     for (const row of downloadRows ?? []) {
-      const ls = (row.event_properties as Record<string, string> | null)?.link_slug;
+      const props = row.event_properties as Record<string, string> | null;
+      if (props?.destination === "page") continue;
+      const ls = props?.link_slug;
       if (ls) downloadClickMap[ls] = (downloadClickMap[ls] ?? 0) + 1;
     }
 
