@@ -52,7 +52,9 @@ type AnalyticsData = {
   chat_opens: number;
   service_clicks: number;
   booking_modal_opens: number;
-  download_clicks: number;
+  external_link_clicks: number;
+  payment_gate_clicks: number;
+  payment_gate_unlocks: number;
   requests_sent: number;
   leads: LeadRow[];
   private_links: PrivateLinkStat[];
@@ -525,7 +527,9 @@ export default function AnalyticsPage() {
         >
           <InlineStat label="Chat Opens" value={a?.chat_opens ?? 0} />
           <InlineStat label="Booking Modal Opens" value={a?.booking_modal_opens ?? 0} />
-          <InlineStat label="Download Clicks" value={a?.download_clicks ?? 0} />
+          <InlineStat label="External Link Clicks" value={a?.external_link_clicks ?? 0} />
+          <InlineStat label="Payment Gate Clicks" value={a?.payment_gate_clicks ?? 0} />
+          <InlineStat label="Payment Gate Unlocks" value={a?.payment_gate_unlocks ?? 0} />
           <InlineStat label="Requests Sent" value={a?.requests_sent ?? 0} />
         </div>
       </section>
