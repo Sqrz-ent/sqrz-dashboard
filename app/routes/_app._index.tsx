@@ -5,6 +5,7 @@ import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/sup
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import UpgradeBanner from "~/components/UpgradeBanner";
+import { useTheme, writeThemeCookie } from "~/lib/theme";
 
 const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
@@ -278,17 +279,14 @@ export default function DashboardIndex() {
   const blockStartRef = useRef<HTMLInputElement>(null);
   const blockEndRef = useRef<HTMLInputElement>(null);
 
-  // Dark/light mode
-  const [theme, setThemeState] = useState<"dark" | "light">("dark");
-  useEffect(() => {
-    setThemeState((localStorage.getItem("sqrz_theme") as "dark" | "light" | null) ?? "dark");
-  }, []);
+  // Dark/light mode — theme lives in the root Layout (server-rendered from a
+  // cookie so <html> has the right class at first paint). Toggling updates that
+  // shared state (instant, no reload) and persists the choice to the cookie.
+  const { theme, setTheme } = useTheme();
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
-    setThemeState(next);
-    localStorage.setItem("sqrz_theme", next);
-    document.documentElement.classList.remove("dark", "light");
-    document.documentElement.classList.add(next);
+    setTheme(next);
+    writeThemeCookie(next);
   }
 
   // Share button
