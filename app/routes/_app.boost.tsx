@@ -124,6 +124,7 @@ const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }>
   in_review:       { label: "In Review",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
   needs_changes:   { label: "Needs Changes",   color: "#ef4444", bg: "rgba(239,68,68,0.12)"   },
   approved:        { label: "Approved",        color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
+  rejected:        { label: "Declined",        color: "#ef4444", bg: "rgba(239,68,68,0.12)"   },
   // Shared / Grow
   draft:           { label: "Draft",           color: "#888",    bg: "rgba(136,136,136,0.12)" },
   pending:         { label: "Pending Payment", color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
@@ -233,8 +234,7 @@ export async function action({ request }: Route.ActionArgs) {
   const intent = (formData.get("intent") as string) || "create_booking";
 
   // ── Step 2: Content submission (booked/needs_changes → in_review) ───────────
-  // The artist adds creative/targeting/notes after paying. Sets in_review and
-  // fires the "we're reviewing your campaign" email via the shared helper.
+  // The artist adds creative/targeting/notes after paying, moving to in_review.
   if (intent === "save_content") {
     const campaignId = formData.get("campaign_id") as string;
     if (!campaignId) return Response.json({ ok: false, error: "Missing campaign" }, { headers });
@@ -264,7 +264,7 @@ export async function action({ request }: Route.ActionArgs) {
       .eq("profile_id", profile.id as string);
     if (updateError) return Response.json({ ok: false, error: updateError.message }, { headers });
 
-    // Transition to in_review (+ email). needs_changes → resubmit re-enters review.
+    // Transition to in_review. needs_changes → resubmit re-enters review.
     const res = await transitionBoostCampaign({ campaignId, status: "in_review" });
     return Response.json({ ok: res.ok, error: res.error, contentSaved: res.ok }, { headers });
   }
@@ -359,14 +359,29 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
   const data = fetcher.data as { ok?: boolean; error?: string; contentSaved?: boolean } | undefined;
   const submitted = !!data?.contentSaved;
 
+  const rejected = c.status === "rejected";
   const sectionStyle: React.CSSProperties = { borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 12 };
+
+  // Declined — read-only. This is now the sole notification of a rejection.
+  if (rejected) {
+    return (
+      <div style={sectionStyle}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+          Declined
+        </div>
+        <p style={{ fontSize: 13, color: "var(--text)", margin: 0, lineHeight: 1.5 }}>
+          We're not able to run this campaign as submitted. You won't be charged — we'll take care of your refund manually. You're welcome to start a fresh campaign anytime.
+        </p>
+      </div>
+    );
+  }
 
   // In review — read-only (unless a fresh submit just happened, handled below).
   if (inReview && !submitted) {
     return (
       <div style={sectionStyle}>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-          👀 Your content is in review — we'll email you as soon as it's approved.
+          👀 Your content is in review — this page updates as soon as our team responds.
         </p>
       </div>
     );
@@ -1312,6 +1327,7 @@ export default function BoostPage() {
               // Boost Step 2 entry: booked (add content) or needs_changes (revise + resubmit).
               const canAddContent = isBoost && (c.status === "booked" || c.status === "needs_changes");
               const isBoostInReview = isBoost && c.status === "in_review";
+              const isBoostRejected = isBoost && c.status === "rejected";
               const hasStats = c.status === "live" || c.status === "completed";
               const paymentUrl = c.stripe_payment_link_url
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
@@ -1499,8 +1515,8 @@ export default function BoostPage() {
                   </div>
 
                   {/* Boost content step: booked → add content, needs_changes →
-                      feedback + revise, in_review → read-only status. */}
-                  {(canAddContent || isBoostInReview) && (
+                      feedback + revise, in_review + rejected → read-only status. */}
+                  {(canAddContent || isBoostInReview || isBoostRejected) && (
                     <BoostContentSection campaign={c} />
                   )}
 
