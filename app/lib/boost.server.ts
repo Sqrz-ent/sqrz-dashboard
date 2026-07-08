@@ -8,7 +8,8 @@ export type BoostStatus =
   | "needs_changes"
   | "approved"
   | "live"
-  | "completed";
+  | "completed"
+  | "rejected";
 
 const EDIT_URL = `${process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com"}/boost`;
 
@@ -63,6 +64,16 @@ function buildStatusEmail(
         html: shell(
           `${escapeHtml(artistName)}, you're live! 🎉`,
           `<p>Your Boost campaign has been approved and is going live. We'll keep an eye on it and share results as they come in.</p>`
+        ),
+      };
+    case "rejected":
+      return {
+        subject: "An update on your campaign",
+        html: shell(
+          `Hi ${escapeHtml(artistName)}, about your campaign`,
+          `<p>Thanks for submitting your Boost campaign. After reviewing it, we're not able to run this one as submitted — sometimes a concept isn't the right fit for the ad platforms or our guidelines, and this was one of those cases.</p>
+           <p>This isn't a reflection on you, and you're very welcome to start a fresh campaign whenever you'd like.</p>
+           <p>You won't be charged for a campaign we don't run — <strong>we'll take care of your refund manually</strong> and follow up by email with the details. If you have any questions in the meantime, just reply here.</p>`
         ),
       };
     case "completed":

@@ -6,31 +6,23 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIG — fill in with the REAL HubSpot IDs once Will has created the pipeline.
+// CONFIG — HubSpot "Boost Campaigns" pipeline.
 //
 // HubSpot plan no longer allows custom deal properties, so this syncs default
-// properties only. Campaign status is carried by `dealstage` on a dedicated
-// "Boost Campaigns" pipeline (created manually in HubSpot).
-//
-// Get these from HubSpot → Settings → Objects → Deals → Pipelines →
-// "Boost Campaigns". Use each stage's INTERNAL ID (not the display label) and
-// the pipeline's INTERNAL ID. Do not guess — paste the exact values.
+// properties only. Campaign status is carried by `dealstage` on this dedicated
+// pipeline. Values are the pipeline + stage INTERNAL IDs (not display labels),
+// from HubSpot → Settings → Objects → Deals → Pipelines → "Boost Campaigns".
 // ─────────────────────────────────────────────────────────────────────────────
-const BOOST_PIPELINE_ID = "REPLACE_WITH_BOOST_PIPELINE_ID";
+const BOOST_PIPELINE_ID = "916004525";
 const BOOST_STAGE_IDS: Record<string, string> = {
-  booked:        "REPLACE_WITH_STAGE_ID_booked",
-  in_review:     "REPLACE_WITH_STAGE_ID_in_review",
-  needs_changes: "REPLACE_WITH_STAGE_ID_needs_changes",
-  approved:      "REPLACE_WITH_STAGE_ID_approved",
-  live:          "REPLACE_WITH_STAGE_ID_live",
-  completed:     "REPLACE_WITH_STAGE_ID_completed",
+  booked:        "1396005686",
+  in_review:     "1396005687",
+  needs_changes: "1396005688",
+  approved:      "1396005689",
+  live:          "1396005690",
+  completed:     "1396005691",
+  rejected:      "1396005692",
 };
-
-// Safety guard: until the real IDs are in, the function no-ops instead of
-// writing deals to a wrong/nonexistent stage. Flip live purely by pasting IDs.
-const IS_CONFIGURED =
-  !BOOST_PIPELINE_ID.startsWith("REPLACE_") &&
-  Object.values(BOOST_STAGE_IDS).every((v) => !v.startsWith("REPLACE_"));
 
 const GOAL_LABELS: Record<string, string> = {
   bookings: "Bookings",
@@ -60,11 +52,6 @@ Deno.serve(async (req: Request) => {
   const campaignType = (record.campaign_type as string) ?? "boost";
   if (campaignType !== "boost") {
     return new Response("Not a boost campaign — skipping", { status: 200 });
-  }
-
-  if (!IS_CONFIGURED) {
-    console.warn("[hubspot-sync-deal] Boost Campaigns pipeline/stage IDs not configured yet — skipping.");
-    return new Response("Pipeline not configured yet — skipping", { status: 200 });
   }
 
   // Only sync once the campaign has a status that maps to a pipeline stage
@@ -115,9 +102,10 @@ Deno.serve(async (req: Request) => {
     deal_currency_code: ((record.budget_currency as string) ?? "USD").toUpperCase(),
     description,
   };
-  // Closed stage wants a close date.
-  if (status === "completed" && record.completed_at) {
-    dealProperties.closedate = new Date(record.completed_at as string).toISOString();
+  // Terminal stages (completed / rejected) want a close date.
+  if (status === "completed" || status === "rejected") {
+    const ts = (record.completed_at as string) || (record.status_updated_at as string) || (record.created_at as string);
+    if (ts) dealProperties.closedate = new Date(ts).toISOString();
   }
 
   const existingDealId = record.hubspot_deal_id as string | null;

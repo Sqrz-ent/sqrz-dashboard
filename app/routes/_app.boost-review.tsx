@@ -98,6 +98,12 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json(res, { headers });
   }
 
+  // Final decline (manual refund). Distinct from request_changes (fixable).
+  if (intent === "reject") {
+    const res = await transitionBoostCampaign({ campaignId, status: "rejected" });
+    return Response.json(res, { headers });
+  }
+
   return Response.json({ ok: false, error: "Unknown intent" }, { headers });
 }
 
@@ -201,6 +207,21 @@ function ReviewCard({ campaign: c }: { campaign: ReviewCampaign }) {
           style={{ ...btn, background: "transparent", color: "var(--text)", border: "1px solid var(--border)" }}
         >
           Request changes
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            // Final decline — confirm, since it triggers a rejection email + manual refund.
+            if (!window.confirm("Reject this campaign? The artist is emailed and you'll need to refund them manually. Use \"Request changes\" instead if it's fixable.")) return;
+            const fd = new FormData();
+            fd.append("intent", "reject");
+            fd.append("campaign_id", c.id);
+            fetcher.submit(fd, { method: "post" });
+          }}
+          style={{ ...btn, background: "transparent", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}
+        >
+          Reject
         </button>
       </div>
 
