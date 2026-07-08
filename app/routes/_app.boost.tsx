@@ -3,6 +3,8 @@ import { redirect, useLoaderData, useFetcher, useSearchParams, useNavigate } fro
 import type { Route } from "./+types/_app.boost";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { transitionBoostCampaign } from "~/lib/boost.server";
+import { supabase as browserSupabase } from "~/lib/supabase.client";
 import UpgradeModal from "~/components/UpgradeModal";
 
 const ACCENT = "#F5A623";
@@ -71,7 +73,12 @@ type Campaign = {
   budget_amount: number;
   budget_currency: string;
   notes: string | null;
-  status: "draft" | "pending" | "pending_payment" | "preparing" | "live" | "completed";
+  // Boost lifecycle: null (awaiting payment) → booked → in_review → needs_changes
+  // → approved/live → completed. Grow keeps its own values (pending/preparing).
+  status: string | null;
+  review_feedback: string | null;
+  creative_asset_url: string | null;
+  status_updated_at: string | null;
   channel: string | null;
   duration: string | null;
   utm_url: string | null;
@@ -112,6 +119,12 @@ const BUDGET_OPTIONS = [
 ] as const;
 
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  // Boost lifecycle
+  booked:          { label: "Add Content",     color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
+  in_review:       { label: "In Review",       color: ACCENT,    bg: "rgba(245,166,35,0.12)"  },
+  needs_changes:   { label: "Needs Changes",   color: "#ef4444", bg: "rgba(239,68,68,0.12)"   },
+  approved:        { label: "Approved",        color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
+  // Shared / Grow
   draft:           { label: "Draft",           color: "#888",    bg: "rgba(136,136,136,0.12)" },
   pending:         { label: "Pending Payment", color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
   pending_payment: { label: "Pending Payment", color: ACCENT,    bg: "rgba(245,166,35,0.15)"  },
@@ -119,6 +132,15 @@ const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }>
   live:            { label: "Live",            color: "#22c55e", bg: "rgba(34,197,94,0.12)"   },
   completed:       { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
 };
+
+// Boost ad channels. Single option for now; adding Google is a one-line change.
+const CHANNELS = [
+  { value: "meta", label: "Meta (Facebook + Instagram)" },
+] as const;
+
+function channelLabel(value: string | null): string {
+  return CHANNELS.find((c) => c.value === value)?.label ?? (value ?? "");
+}
 
 const GROW_MEETING_URL =
   "https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b";
@@ -156,6 +178,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         notes, status, channel, duration, utm_url, utm_source,
         utm_medium, utm_campaign, utm_content, starts_at, ends_at,
         target_audience, campaign_type, fee_pct, fee_amount,
+        review_feedback, creative_asset_url, status_updated_at,
         stripe_payment_id, stripe_payment_status,
         stripe_payment_link_id, stripe_payment_link_url,
         requires_payment, payment_expires_at,
@@ -207,12 +230,53 @@ export async function action({ request }: Route.ActionArgs) {
   if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();
+  const intent = (formData.get("intent") as string) || "create_booking";
+
+  // ── Step 2: Content submission (booked/needs_changes → in_review) ───────────
+  // The artist adds creative/targeting/notes after paying. Sets in_review and
+  // fires the "we're reviewing your campaign" email via the shared helper.
+  if (intent === "save_content") {
+    const campaignId = formData.get("campaign_id") as string;
+    if (!campaignId) return Response.json({ ok: false, error: "Missing campaign" }, { headers });
+
+    // Verify ownership + that it's a Boost campaign in a content-editable state.
+    const { data: existing } = await supabase
+      .from("boost_campaigns")
+      .select("id, status, campaign_type")
+      .eq("id", campaignId)
+      .eq("profile_id", profile.id as string)
+      .single();
+    if (!existing || existing.campaign_type !== "boost") {
+      return Response.json({ ok: false, error: "Campaign not found" }, { headers });
+    }
+    if (!["booked", "needs_changes", "in_review"].includes(existing.status as string)) {
+      return Response.json({ ok: false, error: "This campaign can't accept content right now." }, { headers });
+    }
+
+    const { error: updateError } = await supabase
+      .from("boost_campaigns")
+      .update({
+        target_audience: (formData.get("target_audience") as string) || null,
+        creative_asset_url: (formData.get("creative_asset_url") as string) || null,
+        notes: (formData.get("notes") as string) || null,
+      })
+      .eq("id", campaignId)
+      .eq("profile_id", profile.id as string);
+    if (updateError) return Response.json({ ok: false, error: updateError.message }, { headers });
+
+    // Transition to in_review (+ email). needs_changes → resubmit re-enters review.
+    const res = await transitionBoostCampaign({ campaignId, status: "in_review" });
+    return Response.json({ ok: res.ok, error: res.error, contentSaved: res.ok }, { headers });
+  }
+
+  // ── Step 1: Booking (goal + budget + channel + duration). Content comes later.
   const promoteType = formData.get("promote_type") as string;
   const promoteLinkId = formData.get("promote_link_id") as string | null;
   const duration = (formData.get("duration") as string) || null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
-  // ── Insert ─────────────────────────────────────────────────────────────────
+  // Insert with NULL status = created, awaiting payment. The Stripe webhook sets
+  // status='booked' on successful payment; the artist then adds content (Step 2).
   const { data: inserted, error } = await supabase
     .from("boost_campaigns")
     .insert({
@@ -222,11 +286,9 @@ export async function action({ request }: Route.ActionArgs) {
       channel: (formData.get("channel") as string) || null,
       duration,
       goal: (formData.get("goal") as string) || null,
-      target_audience: (formData.get("target_audience") as string) || null,
       budget_amount: newBudget,
       budget_currency: "USD",
-      notes: (formData.get("notes") as string) || null,
-      status: "pending",
+      status: null,
     })
     .select("id, utm_source, utm_campaign, utm_content")
     .single();
@@ -277,6 +339,157 @@ export async function action({ request }: Route.ActionArgs) {
   return Response.json({ ok: true, campaignId: inserted.id }, { headers });
 }
 
+// ── Step 2: Content form on a booked / needs_changes campaign ─────────────────
+const CREATIVE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"];
+const CREATIVE_MAX_BYTES = 20 * 1024 * 1024;
+
+function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
+  const fetcher = useFetcher();
+  const needsChanges = c.status === "needs_changes";
+  const inReview = c.status === "in_review";
+
+  const [open, setOpen] = useState(needsChanges); // needs_changes opens revised view directly
+  const [targetAudience, setTargetAudience] = useState(c.target_audience ?? "");
+  const [notes, setNotes] = useState(c.notes ?? "");
+  const [creativeUrl, setCreativeUrl] = useState<string | null>(c.creative_asset_url ?? null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const busy = fetcher.state !== "idle";
+  const data = fetcher.data as { ok?: boolean; error?: string; contentSaved?: boolean } | undefined;
+  const submitted = !!data?.contentSaved;
+
+  const sectionStyle: React.CSSProperties = { borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 12 };
+
+  // In review — read-only (unless a fresh submit just happened, handled below).
+  if (inReview && !submitted) {
+    return (
+      <div style={sectionStyle}>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+          👀 Your content is in review — we'll email you as soon as it's approved.
+        </p>
+      </div>
+    );
+  }
+
+  async function uploadCreative(file: File) {
+    if (!CREATIVE_TYPES.includes(file.type)) {
+      setUploadError("Use a JPG, PNG, WebP, GIF, or MP4.");
+      return;
+    }
+    if (file.size > CREATIVE_MAX_BYTES) {
+      setUploadError("File must be under 20 MB.");
+      return;
+    }
+    setUploadError(null);
+    setUploading(true);
+    const ext = file.name.split(".").pop() || "bin";
+    const path = `${c.profile_id}/boost/${c.id}.${ext}`;
+    const { error } = await browserSupabase.storage
+      .from("profile-media")
+      .upload(path, file, { contentType: file.type, upsert: true });
+    if (error) {
+      setUploadError(error.message);
+      setUploading(false);
+      return;
+    }
+    const { data: { publicUrl } } = browserSupabase.storage.from("profile-media").getPublicUrl(path);
+    // Cache-bust so a re-upload to the same path shows immediately.
+    setCreativeUrl(`${publicUrl}?v=${Date.now()}`);
+    setUploading(false);
+  }
+
+  function submit() {
+    const fd = new FormData();
+    fd.append("intent", "save_content");
+    fd.append("campaign_id", c.id);
+    fd.append("target_audience", targetAudience);
+    fd.append("notes", notes);
+    if (creativeUrl) fd.append("creative_asset_url", creativeUrl);
+    fetcher.submit(fd, { method: "post" });
+  }
+
+  if (submitted) {
+    return (
+      <div style={sectionStyle}>
+        <p style={{ fontSize: 14, color: "#22c55e", fontWeight: 600, margin: 0 }}>
+          Got it! Our team is reviewing your campaign 🎉
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={sectionStyle}>
+      {needsChanges && c.review_feedback && (
+        <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.25)", borderRadius: 10, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+            Feedback from our team
+          </div>
+          <div style={{ fontSize: 13, color: "var(--text)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>{c.review_feedback}</div>
+        </div>
+      )}
+
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          style={{ background: ACCENT, color: "#111", border: "none", borderRadius: 9, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
+        >
+          {needsChanges ? "See feedback and update →" : "Add your content →"}
+        </button>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={labelStyle}>Who should we target?</label>
+            <input
+              value={targetAudience}
+              onChange={(e) => setTargetAudience(e.target.value)}
+              placeholder="e.g. Electronic music fans, 18–34, Berlin"
+              style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", fontSize: 14, background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, fontFamily: FONT_BODY }}
+            />
+          </div>
+
+          <div>
+            <label style={labelStyle}>Creative</label>
+            {creativeUrl ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <a href={creativeUrl} target="_blank" rel="noopener noreferrer" style={{ color: ACCENT, fontSize: 13, fontWeight: 600 }}>View uploaded creative →</a>
+                <label style={{ fontSize: 12, color: "var(--text-muted)", cursor: "pointer", textDecoration: "underline" }}>
+                  Replace
+                  <input type="file" accept={CREATIVE_TYPES.join(",")} style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCreative(f); e.target.value = ""; }} />
+                </label>
+              </div>
+            ) : (
+              <label style={{ display: "block", border: "2px dashed var(--border)", borderRadius: 10, padding: "16px", textAlign: "center", cursor: uploading ? "default" : "pointer", background: "var(--bg)", fontSize: 13, color: "var(--text-muted)" }}>
+                {uploading ? "Uploading…" : "Upload image or video (JPG, PNG, WebP, GIF, MP4 · max 20 MB)"}
+                <input type="file" accept={CREATIVE_TYPES.join(",")} style={{ display: "none" }} disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCreative(f); e.target.value = ""; }} />
+              </label>
+            )}
+            {uploadError && <p style={{ fontSize: 12, color: "#ef4444", margin: "5px 0 0" }}>{uploadError}</p>}
+          </div>
+
+          <div>
+            <label style={labelStyle}>Anything else we should know?</label>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional context for our team" style={textareaStyle} />
+          </div>
+
+          {data?.error && <p style={{ fontSize: 12, color: "#ef4444", margin: 0 }}>{data.error}</p>}
+
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy || uploading}
+            style={{ background: busy || uploading ? "var(--surface-muted)" : ACCENT, color: busy || uploading ? "var(--text-muted)" : "#111", border: "none", borderRadius: 9, padding: "11px 18px", fontSize: 14, fontWeight: 700, cursor: busy || uploading ? "not-allowed" : "pointer", fontFamily: FONT_BODY }}
+          >
+            {busy ? "Submitting…" : "Submit for review"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function BoostPage() {
   const { campaigns, privateLinks, plan_id, is_beta, grow_qualified, campaign_count, email, profile_slug,
           referredByCode, creatorMonthlyPriceId, creatorYearlyPriceId } =
@@ -310,8 +523,8 @@ export default function BoostPage() {
   const [targetAudience, setTargetAudience] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Boost-only state
-  const [channel, setChannel] = useState<string | null>(null);
+  // Boost-only state — channel defaults to the single available option ('meta').
+  const [channel, setChannel] = useState<string | null>("meta");
   const [duration, setDuration] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
@@ -428,12 +641,10 @@ export default function BoostPage() {
     setBoostSuccess(true);
     setPromoteType(null);
     setPromoteLinkId("");
-    setChannel(null);
+    setChannel("meta");
     setDuration(null);
     setGoal(null);
-    setTargetAudience("");
     setBudget(null);
-    setNotes("");
     // Trigger Stripe checkout — $25 activation or $5 reactivation
     fetch("/api/campaigns/checkout", {
       method: "POST",
@@ -478,14 +689,14 @@ export default function BoostPage() {
     setBoostSuccess(false);
     setRerunSource(null);
     const fd = new FormData();
+    // Step 1 is booking only — target audience, creative + notes are collected
+    // after payment (Step 2 content form on the booked campaign).
     fd.append("promote_type", promoteType!);
     fd.append("promote_link_id", promoteLinkId);
     fd.append("channel", channel!);
     fd.append("duration", duration!);
     fd.append("goal", goal!);
-    fd.append("target_audience", targetAudience);
     fd.append("budget_amount", String(budget));
-    fd.append("notes", notes);
     fetcher.submit(fd, { method: "post" });
   }
 
@@ -646,16 +857,16 @@ export default function BoostPage() {
         <>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
             <button type="button" disabled style={{ ...pillStyle(true), opacity: 1, cursor: "default" }}>
-              {channel}
+              {channelLabel(channel)}
             </button>
           </div>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>Channel locked — same as original campaign</p>
         </>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-          {["Meta (Facebook + Instagram)", "Google"].map((ch) => (
-            <button key={ch} type="button" onClick={() => setChannel(ch)} style={pillStyle(channel === ch)}>
-              {ch}
+          {CHANNELS.map((ch) => (
+            <button key={ch.value} type="button" onClick={() => setChannel(ch.value)} style={pillStyle(channel === ch.value)}>
+              {ch.label}
             </button>
           ))}
         </div>
@@ -814,7 +1025,7 @@ export default function BoostPage() {
             color: "#22c55e",
             lineHeight: 1.5,
           }}>
-            Campaign created — complete payment below to activate it.
+            Booking created — redirecting you to secure checkout…
           </div>
         )}
 
@@ -852,11 +1063,12 @@ export default function BoostPage() {
           </div>
         )}
 
+        {/* Step 1 — Booking only. Audience, creative + notes move to Step 2
+            (the content form on the booked campaign). */}
         {promoteField}
         {channelField}
         {durationField}
         {goalField}
-        {audienceField}
 
         {/* Budget pills */}
         <div style={{ marginBottom: 20 }}>
@@ -869,8 +1081,6 @@ export default function BoostPage() {
             ))}
           </div>
         </div>
-
-        {notesField}
 
         {/* Price breakdown */}
         {budget && (
@@ -1093,9 +1303,15 @@ export default function BoostPage() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {campaigns.map((c) => {
-              const badge = STATUS_BADGE[c.status] ?? STATUS_BADGE.pending;
-              const isPending = c.status === "draft" || c.status === "pending" || c.status === "pending_payment";
-              const isPaid = c.status === "live" || c.status === "preparing";
+              const badge = STATUS_BADGE[c.status ?? ""] ?? STATUS_BADGE.pending;
+              // Boost unpaid = null status; Grow unpaid = 'pending'/'draft'.
+              const isPending = !c.status || c.status === "draft" || c.status === "pending" || c.status === "pending_payment";
+              const isBoost = c.campaign_type === "boost";
+              const boostPaidStatuses = ["booked", "in_review", "needs_changes", "approved", "live", "completed"];
+              const isPaid = c.status === "live" || c.status === "preparing" || (isBoost && boostPaidStatuses.includes(c.status ?? ""));
+              // Boost Step 2 entry: booked (add content) or needs_changes (revise + resubmit).
+              const canAddContent = isBoost && (c.status === "booked" || c.status === "needs_changes");
+              const isBoostInReview = isBoost && c.status === "in_review";
               const hasStats = c.status === "live" || c.status === "completed";
               const paymentUrl = c.stripe_payment_link_url
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
@@ -1281,6 +1497,12 @@ export default function BoostPage() {
                       );
                     })()}
                   </div>
+
+                  {/* Boost content step: booked → add content, needs_changes →
+                      feedback + revise, in_review → read-only status. */}
+                  {(canAddContent || isBoostInReview) && (
+                    <BoostContentSection campaign={c} />
+                  )}
 
                   {c.status === "completed" && (
                     <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 10 }}>
