@@ -247,14 +247,15 @@ export async function action({ request }: Route.ActionArgs) {
     const campaignId = formData.get("campaign_id") as string;
     if (!campaignId) return Response.json({ ok: false, error: "Missing campaign" }, { headers });
 
-    // Verify ownership + that it's a Boost campaign in a content-editable state.
+    // Verify ownership + a content-editable state. Status-based, not type-based:
+    // Boost and Grow both use the content step at booked/needs_changes/in_review.
     const { data: existing } = await supabase
       .from("boost_campaigns")
-      .select("id, status, campaign_type")
+      .select("id, status")
       .eq("id", campaignId)
       .eq("profile_id", profile.id as string)
       .single();
-    if (!existing || existing.campaign_type !== "boost") {
+    if (!existing) {
       return Response.json({ ok: false, error: "Campaign not found" }, { headers });
     }
     if (!["booked", "needs_changes", "in_review"].includes(existing.status as string)) {
@@ -1360,10 +1361,10 @@ export default function BoostPage() {
               const isBoost = c.campaign_type === "boost";
               const boostPaidStatuses = ["booked", "in_review", "needs_changes", "approved", "live", "completed"];
               const isPaid = c.status === "live" || c.status === "preparing" || (isBoost && boostPaidStatuses.includes(c.status ?? ""));
-              // Boost Step 2 entry: booked (add content) or needs_changes (revise + resubmit).
-              const canAddContent = isBoost && (c.status === "booked" || c.status === "needs_changes");
-              const isBoostInReview = isBoost && c.status === "in_review";
-              const isBoostRejected = isBoost && c.status === "rejected";
+              // Content step — purely status-based (Boost & Grow behave identically here).
+              const canAddContent = c.status === "booked" || c.status === "needs_changes";
+              const isContentInReview = c.status === "in_review";
+              const isContentRejected = c.status === "rejected";
               const hasStats = c.status === "live" || c.status === "completed";
               const paymentUrl = c.stripe_payment_link_url
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
@@ -1555,7 +1556,7 @@ export default function BoostPage() {
 
                   {/* Boost content step: booked → add content, needs_changes →
                       feedback + revise, in_review + rejected → read-only status. */}
-                  {(canAddContent || isBoostInReview || isBoostRejected) && (
+                  {(canAddContent || isContentInReview || isContentRejected) && (
                     <BoostContentSection campaign={c} />
                   )}
 
