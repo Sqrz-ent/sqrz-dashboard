@@ -86,6 +86,7 @@ Deno.serve(async (req: Request) => {
   // Plain-text description — a human-readable reference block (no custom props).
   const descriptionLines = [
     record.channel ? `Channel: ${record.channel}` : null,
+    (record.starts_at && record.ends_at) ? `Campaign dates: ${record.starts_at} – ${record.ends_at}` : null,
     record.target_audience ? `Target audience: ${record.target_audience}` : null,
     record.notes ? `Notes: ${record.notes}` : null,
     record.creative_asset_url ? `Creative: ${record.creative_asset_url}` : null,
@@ -102,10 +103,10 @@ Deno.serve(async (req: Request) => {
     deal_currency_code: ((record.budget_currency as string) ?? "USD").toUpperCase(),
     description,
   };
-  // Terminal stages (completed / rejected) want a close date.
-  if (status === "completed" || status === "rejected") {
-    const ts = (record.completed_at as string) || (record.status_updated_at as string) || (record.created_at as string);
-    if (ts) dealProperties.closedate = new Date(ts).toISOString();
+  // closedate = campaign end date (default property) so deals are sortable and
+  // filterable by when the campaign ends, directly in HubSpot views.
+  if (record.ends_at) {
+    dealProperties.closedate = new Date(record.ends_at as string).toISOString();
   }
 
   const existingDealId = record.hubspot_deal_id as string | null;

@@ -340,8 +340,8 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 // ── Step 2: Content form on a booked / needs_changes campaign ─────────────────
-const CREATIVE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"];
-const CREATIVE_MAX_BYTES = 20 * 1024 * 1024;
+const CREATIVE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/quicktime"];
+const CREATIVE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB — matches the profile-media bucket limit; room for short ad video
 
 function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
   const fetcher = useFetcher();
@@ -389,11 +389,11 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
 
   async function uploadCreative(file: File) {
     if (!CREATIVE_TYPES.includes(file.type)) {
-      setUploadError("Use a JPG, PNG, WebP, GIF, or MP4.");
+      setUploadError("Use a JPG, PNG, WebP, GIF, MP4, or MOV.");
       return;
     }
     if (file.size > CREATIVE_MAX_BYTES) {
-      setUploadError("File must be under 20 MB.");
+      setUploadError("File must be under 50 MB.");
       return;
     }
     setUploadError(null);
@@ -477,7 +477,7 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
               </div>
             ) : (
               <label style={{ display: "block", border: "2px dashed var(--border)", borderRadius: 10, padding: "16px", textAlign: "center", cursor: uploading ? "default" : "pointer", background: "var(--bg)", fontSize: 13, color: "var(--text-muted)" }}>
-                {uploading ? "Uploading…" : "Upload image or video (JPG, PNG, WebP, GIF, MP4 · max 20 MB)"}
+                {uploading ? "Uploading…" : "Upload image or video (JPG, PNG, WebP, GIF, MP4, MOV · max 50 MB)"}
                 <input type="file" accept={CREATIVE_TYPES.join(",")} style={{ display: "none" }} disabled={uploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCreative(f); e.target.value = ""; }} />
               </label>
             )}
