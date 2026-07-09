@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: campaign } = await supabase
       .from("boost_campaigns")
-      .select("id, status, campaign_type")
+      .select("id, status")
       .eq("hubspot_deal_id", dealId)
       .maybeSingle();
 
@@ -114,10 +114,8 @@ Deno.serve(async (req: Request) => {
       results.push({ dealId, skipped: "no campaign for deal" });
       continue;
     }
-    if (campaign.campaign_type !== "boost") {
-      results.push({ dealId, skipped: "not a boost campaign" });
-      continue;
-    }
+    // Both Boost and Grow reverse-sync — a stage move in the shared pipeline
+    // updates the campaign status either way (grow status is unconstrained).
     // Loop guard: already at the mapped status → skip (avoids a redundant
     // forward PATCH). The forward sync is itself a stage no-op when unchanged,
     // so this is belt-and-suspenders, not the sole protection.
