@@ -251,17 +251,14 @@ export async function action({ request }: ActionFunctionArgs) {
       const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
       const totalDollars = (session.amount_total ?? 0) / 100;
 
-      const isGrowCampaign = campaignType === "grow";
-
       console.log("[webhook] campaign payment received — type:", campaignType, "id:", campaignId, "total:", totalDollars);
 
-      // Boost: payment = 'booked' (paid, artist adds creative/targeting next).
-      // Grow: manual flow untouched -> stays 'preparing'.
-      const paidStatus = isGrowCampaign ? "preparing" : "booked";
+      // Both Boost and Grow land on 'booked' after payment — unified workflow
+      // (paid, artist adds content next). Execution stays manual for Grow.
       const { error: campaignError } = await supabase
         .from("boost_campaigns")
         .update({
-          status: paidStatus,
+          status: "booked",
           status_updated_at: new Date().toISOString(),
           stripe_payment_id: paymentIntent,
           stripe_payment_status: "paid",
@@ -271,7 +268,7 @@ export async function action({ request }: ActionFunctionArgs) {
       if (campaignError) {
         console.error("[webhook] campaign update failed:", campaignError);
       } else {
-        console.log(`[webhook] campaign set to ${paidStatus}:`, campaignId);
+        console.log("[webhook] campaign set to booked:", campaignId);
       }
 
       // Notify will@sqrz.com

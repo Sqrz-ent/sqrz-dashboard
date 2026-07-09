@@ -48,11 +48,11 @@ Deno.serve(async (req: Request) => {
     return new Response("Ignored", { status: 200 });
   }
 
-  // Boost only — Grow is fully manual and must not sync as a deal.
+  // Both Boost and Grow sync as deals in the same "Boost Campaigns" pipeline
+  // (unified visibility). The status→stage gate below still limits this to paid
+  // campaigns (booked onward). Grow ad execution stays fully manual.
   const campaignType = (record.campaign_type as string) ?? "boost";
-  if (campaignType !== "boost") {
-    return new Response("Not a boost campaign — skipping", { status: 200 });
-  }
+  const isGrow = campaignType === "grow";
 
   // Only sync once the campaign has a status that maps to a pipeline stage
   // (a paid booking onward). Unpaid boosts have null status → nothing to sync.
@@ -81,12 +81,18 @@ Deno.serve(async (req: Request) => {
   const goalRaw = (record.goal as string) ?? "";
   const goalLabel = GOAL_LABELS[goalRaw] ?? goalRaw;
 
-  const dealName = ["Boost", artistName, goalLabel].filter(Boolean).join(" — ");
+  const dealName = [isGrow ? "Grow" : "Boost", artistName, goalLabel].filter(Boolean).join(" — ");
 
   // Plain-text description — a human-readable reference block (no custom props).
+  // amount below is the ad spend (budget_amount) for both types; the pricing
+  // model differs (Grow = 20% management fee, Boost = flat activation fee), so
+  // it's spelled out here rather than baked into amount.
   const channelList = Array.isArray(record.channels) ? (record.channels as string[]) : [];
   const channelText = channelList.length ? channelList.join(", ") : (record.channel as string | null) ?? "";
   const descriptionLines = [
+    isGrow
+      ? "Pricing: Grow — 20% management fee on ad spend"
+      : "Pricing: Boost — flat activation fee + ad spend",
     channelText ? `Channels: ${channelText}` : null,
     (record.starts_at && record.ends_at) ? `Campaign dates: ${record.starts_at} – ${record.ends_at}` : null,
     record.target_audience ? `Target audience: ${record.target_audience}` : null,
