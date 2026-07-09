@@ -44,6 +44,9 @@ export async function action({ request }: Route.ActionArgs) {
     promote_link_id?: string | null;
     target_audience?: string | null;
     notes?: string | null;
+    goal?: string | null;
+    duration?: string | null;
+    channels?: string[];
   };
   try {
     body = await request.json();
@@ -77,6 +80,25 @@ export async function action({ request }: Route.ActionArgs) {
       );
     }
     const promoteType = body.promote_type ?? "profile";
+
+    // Channels: valid non-empty subset of the Grow options (satisfies the
+    // boost_campaigns_channels_check constraint).
+    const channels = (Array.isArray(body.channels) ? body.channels : [])
+      .filter((c) => c === "meta" || c === "google");
+    const growChannels = channels.length ? channels : ["meta"];
+
+    // Optional duration → derive campaign dates (same mapping as Boost).
+    const DURATION_DAYS: Record<string, number> = { "1 Week": 7, "2 Weeks": 14, "4 Weeks": 28 };
+    let startsAt: string | null = null;
+    let endsAt: string | null = null;
+    if (body.duration && DURATION_DAYS[body.duration]) {
+      const today = new Date();
+      const end = new Date(today);
+      end.setDate(end.getDate() + DURATION_DAYS[body.duration]);
+      startsAt = today.toISOString().split("T")[0];
+      endsAt = end.toISOString().split("T")[0];
+    }
+
     const { data: inserted, error: insertError } = await supabase
       .from("boost_campaigns")
       .insert({
@@ -89,6 +111,11 @@ export async function action({ request }: Route.ActionArgs) {
         status: "pending",
         campaign_type: "grow",
         notes: body.notes ?? "grow campaign — awaiting payment",
+        goal: body.goal ?? null,
+        duration: body.duration ?? null,
+        channels: growChannels,
+        starts_at: startsAt,
+        ends_at: endsAt,
       })
       .select("id")
       .single();

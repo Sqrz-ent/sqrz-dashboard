@@ -80,6 +80,7 @@ type Campaign = {
   creative_asset_url: string | null;
   status_updated_at: string | null;
   channel: string | null;
+  channels: string[] | null;
   duration: string | null;
   utm_url: string | null;
   utm_source: string | null;
@@ -134,13 +135,20 @@ const STATUS_BADGE: Record<string, { label: string; color: string; bg: string }>
   completed:       { label: "Completed",       color: "#888",    bg: "rgba(136,136,136,0.12)" },
 };
 
-// Boost ad channels. Single option for now; adding Google is a one-line change.
-const CHANNELS = [
+// Ad channels. Boost is fixed to a single channel (meta); Grow may select a
+// subset of the multi-channel options.
+const ALL_CHANNELS = [
   { value: "meta", label: "Meta (Facebook + Instagram)" },
+  { value: "google", label: "Google" },
 ] as const;
+const BOOST_CHANNELS = ["meta"];
+const GROW_CHANNEL_OPTIONS = ALL_CHANNELS; // meta, google
 
-function channelLabel(value: string | null): string {
-  return CHANNELS.find((c) => c.value === value)?.label ?? (value ?? "");
+function channelLabel(value: string): string {
+  return ALL_CHANNELS.find((c) => c.value === value)?.label ?? value;
+}
+function channelsLabel(values: string[] | null | undefined): string {
+  return (values ?? []).map(channelLabel).join(", ");
 }
 
 const GROW_MEETING_URL =
@@ -176,7 +184,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select(`
         id, created_at, profile_id, promote_type, promote_link_id,
         promote_service_id, goal, budget_amount, budget_currency,
-        notes, status, channel, duration, utm_url, utm_source,
+        notes, status, channel, channels, duration, utm_url, utm_source,
         utm_medium, utm_campaign, utm_content, starts_at, ends_at,
         target_audience, campaign_type, fee_pct, fee_amount,
         review_feedback, creative_asset_url, status_updated_at,
@@ -283,7 +291,8 @@ export async function action({ request }: Route.ActionArgs) {
       profile_id: profile.id as string,
       promote_type: promoteType,
       promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
-      channel: (formData.get("channel") as string) || null,
+      channels: ((formData.get("channels") as string) || "meta")
+        .split(",").map((s) => s.trim()).filter(Boolean),
       duration,
       goal: (formData.get("goal") as string) || null,
       budget_amount: newBudget,
@@ -538,8 +547,8 @@ export default function BoostPage() {
   const [targetAudience, setTargetAudience] = useState("");
   const [notes, setNotes] = useState("");
 
-  // Boost-only state — channel defaults to the single available option ('meta').
-  const [channel, setChannel] = useState<string | null>("meta");
+  // Channels — Boost is fixed to ['meta']; Grow multi-selects from meta/google.
+  const [channels, setChannels] = useState<string[]>(["meta"]);
   const [duration, setDuration] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
@@ -633,6 +642,9 @@ export default function BoostPage() {
           promote_link_id: promoteType === "link" ? promoteLinkId : null,
           target_audience: targetAudience || null,
           notes: notes || null,
+          goal: goal || null,
+          duration: duration || null,
+          channels,
         }),
       });
       const data = await res.json();
@@ -656,7 +668,7 @@ export default function BoostPage() {
     setBoostSuccess(true);
     setPromoteType(null);
     setPromoteLinkId("");
-    setChannel("meta");
+    setChannels(["meta"]);
     setDuration(null);
     setGoal(null);
     setBudget(null);
@@ -680,7 +692,6 @@ export default function BoostPage() {
   const boostCanSubmit =
     !!promoteType &&
     (promoteType !== "link" || !!promoteLinkId) &&
-    !!channel &&
     !!duration &&
     !!goal &&
     !!budget;
@@ -688,13 +699,13 @@ export default function BoostPage() {
   const growCanSubmit =
     !!promoteType &&
     (promoteType !== "link" || !!promoteLinkId) &&
+    channels.length >= 1 &&
     growBudgetNum >= growMinBudget;
 
   function handleBoostSubmit() {
     if (!boostCanSubmit) {
       if (!promoteType) setBoostError("Please select what to promote.");
       else if (promoteType === "link" && !promoteLinkId) setBoostError("Please select a link.");
-      else if (!channel) setBoostError("Please select a channel.");
       else if (!duration) setBoostError("Please select a duration.");
       else if (!goal) setBoostError("Please select a goal.");
       else if (!budget) setBoostError("Please select a budget.");
@@ -705,10 +716,11 @@ export default function BoostPage() {
     setRerunSource(null);
     const fd = new FormData();
     // Step 1 is booking only — target audience, creative + notes are collected
-    // after payment (Step 2 content form on the booked campaign).
+    // after payment (Step 2 content form on the booked campaign). Boost is
+    // always a single channel: meta.
     fd.append("promote_type", promoteType!);
     fd.append("promote_link_id", promoteLinkId);
-    fd.append("channel", channel!);
+    fd.append("channels", BOOST_CHANNELS.join(","));
     fd.append("duration", duration!);
     fd.append("goal", goal!);
     fd.append("budget_amount", String(budget));
@@ -719,7 +731,7 @@ export default function BoostPage() {
     setRerunSource(c);
     setPromoteType(c.promote_type);
     setPromoteLinkId(c.promote_link_id ?? "");
-    setChannel(c.channel);
+    setChannels(c.channels?.length ? c.channels : (c.channel ? [c.channel] : ["meta"]));
     setDuration(c.duration);
     setGoal(c.goal);
     setTargetAudience(c.target_audience ?? "");
@@ -864,29 +876,49 @@ export default function BoostPage() {
     </div>
   );
 
-  // ── Boost-only form fields ─────────────────────────────────────────────────
-  const channelField = (
+  // ── Shared channels field ──────────────────────────────────────────────────
+  // Boost: fixed single channel (meta). Grow: multi-select from meta/google.
+  function channelsField(mode: "boost" | "grow") {
+    const grow = mode === "grow";
+    return (
     <div style={{ marginBottom: 20 }}>
-      <label style={labelStyle}>Where do you want to be seen?</label>
-      {rerunSource ? (
+      <label style={labelStyle}>{grow ? "Which channels?" : "Where do you want to be seen?"}</label>
+      {!grow && rerunSource ? (
         <>
           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
             <button type="button" disabled style={{ ...pillStyle(true), opacity: 1, cursor: "default" }}>
-              {channelLabel(channel)}
+              {channelLabel("meta")}
             </button>
           </div>
           <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "5px 0 0" }}>Channel locked — same as original campaign</p>
         </>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-          {CHANNELS.map((ch) => (
-            <button key={ch.value} type="button" onClick={() => setChannel(ch.value)} style={pillStyle(channel === ch.value)}>
-              {ch.label}
-            </button>
-          ))}
+          {(grow ? GROW_CHANNEL_OPTIONS : ALL_CHANNELS.filter((c) => c.value === "meta")).map((ch) => {
+            const selected = grow ? channels.includes(ch.value) : true;
+            return (
+              <button
+                key={ch.value}
+                type="button"
+                onClick={() => {
+                  if (!grow) { setChannels(["meta"]); return; } // Boost is fixed to meta
+                  setChannels((prev) => {
+                    if (prev.includes(ch.value)) {
+                      const next = prev.filter((v) => v !== ch.value);
+                      return next.length ? next : prev; // keep at least one
+                    }
+                    return [...prev, ch.value];
+                  });
+                }}
+                style={pillStyle(selected)}
+              >
+                {ch.label}
+              </button>
+            );
+          })}
         </div>
       )}
-      {!rerunSource && !grow_qualified && (
+      {!grow && !rerunSource && !grow_qualified && (
         <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.5 }}>
           Need LinkedIn, TikTok, Spotify Ads, or a mixed channel strategy?{" "}
           <a
@@ -901,7 +933,8 @@ export default function BoostPage() {
         </p>
       )}
     </div>
-  );
+    );
+  }
 
   const durationField = (
     <div style={{ marginBottom: 20 }}>
@@ -1064,7 +1097,7 @@ export default function BoostPage() {
               type="button"
               onClick={() => {
                 setRerunSource(null);
-                setChannel(null);
+                setChannels(["meta"]);
                 setPromoteType(null);
                 setPromoteLinkId("");
                 setDuration(null);
@@ -1081,7 +1114,7 @@ export default function BoostPage() {
         {/* Step 1 — Booking only. Audience, creative + notes move to Step 2
             (the content form on the booked campaign). */}
         {promoteField}
-        {channelField}
+        {channelsField("boost")}
         {durationField}
         {goalField}
 
@@ -1181,6 +1214,9 @@ export default function BoostPage() {
             ) : (
               <>
                 {promoteField}
+                {channelsField("grow")}
+                {goalField}
+                {durationField}
                 {audienceField}
 
                 <div style={{ marginBottom: 20 }}>
@@ -1377,11 +1413,14 @@ export default function BoostPage() {
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
                         {c.campaign_type === "grow" ? "Grow Campaign" : c.promote_type === "link" ? "Private Link Boost" : "Profile Boost"}
                       </div>
-                      {c.channel && (
-                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                          {c.channel}{c.duration ? ` · ${c.duration}` : ""}
-                        </div>
-                      )}
+                      {(() => {
+                        const chText = c.channels?.length ? channelsLabel(c.channels) : (c.channel ?? "");
+                        return chText ? (
+                          <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                            {chText}{c.duration ? ` · ${c.duration}` : ""}
+                          </div>
+                        ) : null;
+                      })()}
                       {c.target_audience && (
                         <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
                           {c.target_audience}

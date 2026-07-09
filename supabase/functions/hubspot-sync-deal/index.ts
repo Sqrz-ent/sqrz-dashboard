@@ -84,8 +84,10 @@ Deno.serve(async (req: Request) => {
   const dealName = ["Boost", artistName, goalLabel].filter(Boolean).join(" — ");
 
   // Plain-text description — a human-readable reference block (no custom props).
+  const channelList = Array.isArray(record.channels) ? (record.channels as string[]) : [];
+  const channelText = channelList.length ? channelList.join(", ") : (record.channel as string | null) ?? "";
   const descriptionLines = [
-    record.channel ? `Channel: ${record.channel}` : null,
+    channelText ? `Channels: ${channelText}` : null,
     (record.starts_at && record.ends_at) ? `Campaign dates: ${record.starts_at} – ${record.ends_at}` : null,
     record.target_audience ? `Target audience: ${record.target_audience}` : null,
     record.notes ? `Notes: ${record.notes}` : null,
