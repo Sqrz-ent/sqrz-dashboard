@@ -35,9 +35,21 @@ type BoostCampaignStat = {
   budget_currency: string;
   starts_at: string | null;
   ends_at: string | null;
-  live_profile_visits: number | null;
-  live_booking_modal_opens: number | null;
-  live_chat_opens: number | null;
+  utm_campaign: string | null;
+  // SQRZ site-side measurement (profile_views + jitsu_events on our own site)
+  driven_views: number | null;
+  driven_unique: number | null;
+  modal_opens: number | null;
+  chat_opens: number | null;
+  service_clicks: number | null;
+  // Platform-reported (entered from the ad platform, e.g. Meta Ads Manager)
+  stat_impressions: number | null;
+  stat_reach: number | null;
+  stat_link_clicks: number | null;
+  stat_cost_per_click: number | null;
+  stat_cpm: number | null;
+  stat_channel_breakdown: Record<string, unknown> | unknown[] | null;
+  stat_creative_breakdown: Record<string, unknown> | unknown[] | null;
 };
 
 // Cookieless engagement (session_id: null by design) — aggregated straight
@@ -413,6 +425,104 @@ function InlineStat({ label, value }: { label: string; value: number }) {
         {value.toLocaleString()}
       </div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>{label}</div>
+    </div>
+  );
+}
+
+// Defensive flattener for the platform-reported breakdown JSONB. Its exact
+// shape isn't set yet (always null so far), so handle both an array of objects
+// and a plain object map without assuming a schema.
+function breakdownToMetrics(data: unknown): { label: string; value: string | null }[] {
+  if (data == null) return [];
+  if (Array.isArray(data)) {
+    return data.map((item, idx) => {
+      if (item && typeof item === "object") {
+        const o = item as Record<string, unknown>;
+        const label = String(o.name ?? o.label ?? o.channel ?? o.creative ?? `#${idx + 1}`);
+        const val = o.value ?? o.impressions ?? o.clicks ?? o.spend;
+        return { label, value: val != null ? String(val) : JSON.stringify(o) };
+      }
+      return { label: `#${idx + 1}`, value: String(item) };
+    });
+  }
+  if (typeof data === "object") {
+    return Object.entries(data as Record<string, unknown>).map(([k, v]) => ({
+      label: k,
+      value: v != null && typeof v !== "object" ? String(v) : JSON.stringify(v),
+    }));
+  }
+  return [{ label: "value", value: String(data) }];
+}
+
+// A labelled group of metric rows for a boost campaign — used to keep the
+// two measurement sources (SQRZ site-side vs platform-reported) visually
+// separate. Renders a muted empty state when the source has no data yet.
+function CampaignMetricPanel({
+  title,
+  subtitle,
+  accent,
+  metrics,
+}: {
+  title: string;
+  subtitle: string;
+  accent: string;
+  metrics: { label: string; value: string | null }[];
+}) {
+  const shown = metrics.filter((m) => m.value !== null);
+  return (
+    <div
+      style={{
+        flex: "1 1 220px",
+        minWidth: 0,
+        background: "var(--surface-muted)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "12px 14px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            borderRadius: "50%",
+            background: accent,
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.07em",
+            color: "var(--text)",
+          }}
+        >
+          {title}
+        </span>
+      </div>
+      <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 10 }}>{subtitle}</div>
+      {shown.length === 0 ? (
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No data yet</div>
+      ) : (
+        shown.map((m) => (
+          <div
+            key={m.label}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              fontSize: 13,
+              padding: "4px 0",
+              color: "var(--text)",
+            }}
+          >
+            <span style={{ color: "var(--text-muted)" }}>{m.label}</span>
+            <span style={{ fontWeight: 600 }}>{m.value}</span>
+          </div>
+        ))
+      )}
     </div>
   );
 }
@@ -974,47 +1084,49 @@ export default function AnalyticsPage() {
                   cancelled: { color: "#ef4444",   bg: "rgba(239,68,68,0.1)"  },
                 };
                 const sc = statusColors[c.status] ?? statusColors.pending;
-                const statParts = [
-                  (c.live_profile_visits ?? 0) > 0 ? `${(c.live_profile_visits ?? 0).toLocaleString()} views driven` : null,
-                  (c.live_booking_modal_opens ?? 0) > 0 ? `${(c.live_booking_modal_opens ?? 0).toLocaleString()} modal opens` : null,
-                  (c.live_chat_opens ?? 0) > 0 ? `${(c.live_chat_opens ?? 0).toLocaleString()} chat opens` : null,
-                ].filter(Boolean).join(" · ");
+                const cur = (c.budget_currency ?? "").toUpperCase();
+                const money = (v: number | null) =>
+                  v != null ? `${cur} ${Number(v).toLocaleString(undefined, { maximumFractionDigits: 4 })}` : null;
                 const dateRange = c.starts_at
                   ? `${fmtDate(c.starts_at)}${c.ends_at ? ` – ${fmtDate(c.ends_at)}` : ""}`
                   : null;
+
+                // SQRZ site-side — always shown (0 is a real measurement).
+                const siteMetrics = [
+                  { label: "Views driven", value: (c.driven_views ?? 0).toLocaleString() },
+                  { label: "Unique visitors", value: (c.driven_unique ?? 0).toLocaleString() },
+                  { label: "Modal opens", value: (c.modal_opens ?? 0).toLocaleString() },
+                  { label: "Chat opens", value: (c.chat_opens ?? 0).toLocaleString() },
+                  { label: "Service clicks", value: (c.service_clicks ?? 0).toLocaleString() },
+                ];
+                // Platform-reported — shown only when the platform has reported it.
+                const platformMetrics = [
+                  { label: "Impressions", value: c.stat_impressions != null ? c.stat_impressions.toLocaleString() : null },
+                  { label: "Reach", value: c.stat_reach != null ? c.stat_reach.toLocaleString() : null },
+                  { label: "Link clicks", value: c.stat_link_clicks != null ? c.stat_link_clicks.toLocaleString() : null },
+                  { label: "Cost / click", value: money(c.stat_cost_per_click) },
+                  { label: "CPM", value: money(c.stat_cpm) },
+                ];
+
                 return (
                   <div
                     key={c.id}
                     style={{
-                      display: "flex",
-                      alignItems: "flex-start",
-                      justifyContent: "space-between",
-                      gap: 20,
-                      padding: "14px 0",
+                      padding: "16px 0",
                       borderBottom: i < (a?.boost_campaigns?.length ?? 0) - 1 ? "1px solid var(--border)" : "none",
                     }}
                   >
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, minWidth: 0 }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", textTransform: "capitalize" }}>
+                    {/* Header: campaign identity + status */}
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, marginBottom: 12 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", textTransform: "capitalize", marginBottom: 4 }}>
                           {c.promote_type} Campaign
-                        </span>
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                          {c.budget_amount.toLocaleString()} {cur} budget
+                          {dateRange && <span style={{ marginLeft: 8 }}>{dateRange}</span>}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                        {c.budget_amount.toLocaleString()} {c.budget_currency.toUpperCase()} budget
-                        {dateRange && <span style={{ marginLeft: 8 }}>{dateRange}</span>}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-end",
-                        gap: 7,
-                        flexShrink: 0,
-                        textAlign: "right",
-                      }}
-                    >
                       <span style={{
                         fontSize: 10,
                         fontWeight: 700,
@@ -1024,13 +1136,49 @@ export default function AnalyticsPage() {
                         borderRadius: 999,
                         background: sc.bg,
                         color: sc.color,
+                        flexShrink: 0,
                       }}>
                         {c.status}
                       </span>
-                      {statParts && (
-                        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{statParts}</div>
-                      )}
                     </div>
+
+                    {/* Two separate measurement sources — never merged. */}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      <CampaignMetricPanel
+                        title="SQRZ · site-side"
+                        subtitle="Measured on your profile"
+                        accent={ACCENT}
+                        metrics={siteMetrics}
+                      />
+                      <CampaignMetricPanel
+                        title="Meta reports"
+                        subtitle="Platform-reported · may differ from site-side"
+                        accent="#3b82f6"
+                        metrics={platformMetrics}
+                      />
+                    </div>
+
+                    {/* Platform-reported breakdowns (rendered only when present) */}
+                    {(c.stat_channel_breakdown != null || c.stat_creative_breakdown != null) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+                        {c.stat_channel_breakdown != null && (
+                          <CampaignMetricPanel
+                            title="Meta · channels"
+                            subtitle="Platform-reported breakdown"
+                            accent="#3b82f6"
+                            metrics={breakdownToMetrics(c.stat_channel_breakdown)}
+                          />
+                        )}
+                        {c.stat_creative_breakdown != null && (
+                          <CampaignMetricPanel
+                            title="Meta · creatives"
+                            subtitle="Platform-reported breakdown"
+                            accent="#3b82f6"
+                            metrics={breakdownToMetrics(c.stat_creative_breakdown)}
+                          />
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
