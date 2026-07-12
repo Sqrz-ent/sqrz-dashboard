@@ -709,7 +709,7 @@ export default function AnalyticsPage() {
                   {playbackMeasurable ? (
                     <>
                       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                        <InlineStat label="Visible" value={w.visible} />
+                        <InlineStat label="Seen" value={w.visible} />
                         <InlineStat label="Plays" value={w.plays} />
                         <InlineStat label="Pauses" value={w.pauses} />
                         <InlineStat label="Finishes" value={w.finishes} />
@@ -724,7 +724,7 @@ export default function AnalyticsPage() {
                   ) : (
                     <>
                       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                        <InlineStat label="Visible" value={w.visible} />
+                        <InlineStat label="Seen" value={w.visible} />
                       </div>
                       <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
                         Play, pause and listen-through aren’t measurable via Spotify embeds.
