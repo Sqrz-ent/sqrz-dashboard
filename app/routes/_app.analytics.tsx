@@ -40,6 +40,31 @@ type BoostCampaignStat = {
   live_chat_opens: number | null;
 };
 
+// Cookieless engagement (session_id: null by design) — aggregated straight
+// from jitsu_events by profile_id + event_type, no session join.
+type WidgetPlatformStat = {
+  platform: string; // 'spotify' | 'soundcloud'
+  visible: number;
+  plays: number;
+  pauses: number;
+  finishes: number;
+  m25: number;
+  m50: number;
+  m75: number;
+};
+
+type CtaStat = { label: string; url: string; count: number };
+
+type CookielessMetrics = {
+  widgets: WidgetPlatformStat[];
+  page: {
+    exits: number;
+    avg_time_on_page_seconds: number;
+    avg_max_scroll_depth_pct: number;
+  };
+  cta: CtaStat[];
+};
+
 type AnalyticsData = {
   views_total: number;
   views_prev_period: number;
@@ -60,6 +85,94 @@ type AnalyticsData = {
   private_links: PrivateLinkStat[];
   boost_campaigns: BoostCampaignStat[];
 };
+
+// ─── Cookieless aggregation ─────────────────────────────────────────────────
+
+const COOKIELESS_EVENT_TYPES = [
+  "widget_visible",
+  "widget_play",
+  "widget_pause",
+  "widget_finish",
+  "widget_progress",
+  "page_exit",
+  "cta_click",
+] as const;
+
+type RawEvent = { event_type: string; event_properties: Record<string, unknown> | null };
+
+function aggregateCookieless(rows: RawEvent[]): CookielessMetrics {
+  const widgetMap = new Map<string, WidgetPlatformStat>();
+  const getWidget = (platform: string): WidgetPlatformStat => {
+    let w = widgetMap.get(platform);
+    if (!w) {
+      w = { platform, visible: 0, plays: 0, pauses: 0, finishes: 0, m25: 0, m50: 0, m75: 0 };
+      widgetMap.set(platform, w);
+    }
+    return w;
+  };
+
+  let scrollSum = 0;
+  let timeSum = 0;
+  let exits = 0;
+
+  const ctaMap = new Map<string, CtaStat>();
+
+  for (const row of rows) {
+    const p = row.event_properties ?? {};
+    switch (row.event_type) {
+      case "widget_visible":
+        getWidget(String(p.widget_type ?? "unknown")).visible++;
+        break;
+      case "widget_play":
+        getWidget(String(p.widget_type ?? "unknown")).plays++;
+        break;
+      case "widget_pause":
+        getWidget(String(p.widget_type ?? "unknown")).pauses++;
+        break;
+      case "widget_finish":
+        getWidget(String(p.widget_type ?? "unknown")).finishes++;
+        break;
+      case "widget_progress": {
+        const w = getWidget(String(p.widget_type ?? "unknown"));
+        const m = Number(p.milestone_pct);
+        if (m === 25) w.m25++;
+        else if (m === 50) w.m50++;
+        else if (m === 75) w.m75++;
+        break;
+      }
+      case "page_exit": {
+        exits++;
+        timeSum += Number(p.time_on_page_seconds) || 0;
+        scrollSum += Number(p.max_scroll_depth_pct) || 0;
+        break;
+      }
+      case "cta_click": {
+        const url = String(p.link_url ?? "");
+        const label = String(p.link_label ?? url ?? "link");
+        const key = `${label}${url}`;
+        const c = ctaMap.get(key) ?? { label, url, count: 0 };
+        c.count++;
+        ctaMap.set(key, c);
+        break;
+      }
+    }
+  }
+
+  const widgets = [...widgetMap.values()].sort(
+    (a, b) => b.plays + b.visible - (a.plays + a.visible)
+  );
+  const cta = [...ctaMap.values()].sort((a, b) => b.count - a.count);
+
+  return {
+    widgets,
+    page: {
+      exits,
+      avg_time_on_page_seconds: exits ? Math.round(timeSum / exits) : 0,
+      avg_max_scroll_depth_pct: exits ? Math.round(scrollSum / exits) : 0,
+    },
+    cta,
+  };
+}
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -82,8 +195,22 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const analytics = (data as unknown as AnalyticsData) ?? null;
 
+  // New cookieless events are queried directly from jitsu_events (no migration).
+  // They carry session_id: null by design, so we aggregate by profile_id +
+  // event_type within the window — never joining on session_id.
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+  const { data: rawEvents } = await admin
+    .from("jitsu_events")
+    .select("event_type, event_properties")
+    .eq("profile_id", profile.id)
+    .gte("created_at", sinceIso)
+    .in("event_type", COOKIELESS_EVENT_TYPES as unknown as string[])
+    .limit(50_000);
+
+  const cookieless = aggregateCookieless((rawEvents as RawEvent[]) ?? []);
+
   return Response.json(
-    { analytics, days, profile },
+    { analytics, cookieless, days, profile },
     { headers }
   );
 }
@@ -125,6 +252,14 @@ function fmtDate(iso: string): string {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function fmtDuration(totalSeconds: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem ? `${m}m ${rem}s` : `${m}m`;
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -285,9 +420,22 @@ function InlineStat({ label, value }: { label: string; value: number }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, days, profile } = useLoaderData() as { analytics: AnalyticsData | null; days: number; profile: Record<string, unknown> };
+  const { analytics, cookieless, days, profile } = useLoaderData() as {
+    analytics: AnalyticsData | null;
+    cookieless: CookielessMetrics | null;
+    days: number;
+    profile: Record<string, unknown>;
+  };
   const slug = profile.slug as string;
   const navigate = useNavigate();
+
+  const cl = cookieless;
+  const hasWidgetData = (cl?.widgets?.length ?? 0) > 0;
+  const hasPageData = (cl?.page?.exits ?? 0) > 0;
+  const hasCtaData = (cl?.cta?.length ?? 0) > 0;
+  const maxCta = cl?.cta?.[0]?.count ?? 1;
+  const widgetIcon = (platform: string) =>
+    platform === "spotify" ? "🎧" : platform === "soundcloud" ? "🔊" : "🎵";
 
   function setDays(d: number) {
     navigate(`/analytics?days=${d}`, { replace: true });
@@ -529,6 +677,88 @@ export default function AnalyticsPage() {
           <InlineStat label="External Link Clicks" value={a?.external_link_clicks ?? 0} />
           <InlineStat label="Payment Gate Clicks" value={a?.payment_gate_clicks ?? 0} />
           <InlineStat label="Requests Sent" value={a?.requests_sent ?? 0} />
+        </div>
+      </section>
+
+      {/* ── Widget Engagement (cookieless) ─────────────────────────────────── */}
+      <section style={{ marginBottom: 40 }}>
+        <span style={sectionLabel}>Widget Engagement</span>
+        {!hasWidgetData ? (
+          <div style={{ ...card, color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "32px 20px" }}>
+            No music widget engagement yet
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+            {(cl?.widgets ?? []).map((w) => {
+              const maxMilestone = Math.max(w.m25, w.m50, w.m75, 1);
+              return (
+                <div key={w.platform} style={card}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                    <span style={{ fontSize: 16 }}>{widgetIcon(w.platform)}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", textTransform: "capitalize" }}>
+                      {w.platform}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                    <InlineStat label="Visible" value={w.visible} />
+                    <InlineStat label="Plays" value={w.plays} />
+                    <InlineStat label="Pauses" value={w.pauses} />
+                    <InlineStat label="Finishes" value={w.finishes} />
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
+                    Listen-through
+                  </div>
+                  <BarRow label="Reached 25%" count={w.m25} max={maxMilestone} />
+                  <BarRow label="Reached 50%" count={w.m50} max={maxMilestone} />
+                  <BarRow label="Reached 75%" count={w.m75} max={maxMilestone} />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Page Engagement (cookieless) ───────────────────────────────────── */}
+      <section style={{ marginBottom: 40 }}>
+        <span style={sectionLabel}>Page Engagement</span>
+        {!hasPageData ? (
+          <div style={{ ...card, color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "32px 20px" }}>
+            No page engagement data yet
+          </div>
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+            <div style={{ ...card, textAlign: "center", flex: "1 1 0", minWidth: 0, padding: "14px 12px" }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 800, color: "var(--text)", lineHeight: 1, marginBottom: 4 }}>
+                {fmtDuration(cl?.page.avg_time_on_page_seconds ?? 0)}
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>Avg Time on Page</div>
+            </div>
+            <div style={{ ...card, textAlign: "center", flex: "1 1 0", minWidth: 0, padding: "14px 12px" }}>
+              <div style={{ fontFamily: FONT_DISPLAY, fontSize: 28, fontWeight: 800, color: "var(--text)", lineHeight: 1, marginBottom: 4 }}>
+                {cl?.page.avg_max_scroll_depth_pct ?? 0}%
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>Avg Scroll Depth</div>
+            </div>
+            <InlineStat label="Page Exits Tracked" value={cl?.page.exits ?? 0} />
+          </div>
+        )}
+      </section>
+
+      {/* ── CTA Clicks (cookieless) ────────────────────────────────────────── */}
+      <section style={{ marginBottom: 40 }}>
+        <span style={sectionLabel}>CTA Clicks</span>
+        <div style={card}>
+          {!hasCtaData ? (
+            <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "24px 0" }}>
+              No CTA or link clicks yet
+            </div>
+          ) : (
+            (cl?.cta ?? []).slice(0, 15).map((c, i) => (
+              <div key={i} title={c.url}>
+                <BarRow label={c.label || c.url || "link"} count={c.count} max={maxCta} />
+              </div>
+            ))
+          )}
         </div>
       </section>
 
