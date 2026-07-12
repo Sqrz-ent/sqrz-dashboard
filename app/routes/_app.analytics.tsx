@@ -435,7 +435,10 @@ export default function AnalyticsPage() {
   const hasCtaData = (cl?.cta?.length ?? 0) > 0;
   const maxCta = cl?.cta?.[0]?.count ?? 1;
   const widgetIcon = (platform: string) =>
-    platform === "spotify" ? "🎧" : platform === "soundcloud" ? "🔊" : "🎵";
+    platform === "spotify" ? "🎧"
+    : platform === "soundcloud" ? "🔊"
+    : platform === "youtube" ? "▶️"
+    : "🎵";
 
   function setDays(d: number) {
     navigate(`/analytics?days=${d}`, { replace: true });
@@ -691,6 +694,10 @@ export default function AnalyticsPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
             {(cl?.widgets ?? []).map((w) => {
               const maxMilestone = Math.max(w.m25, w.m50, w.m75, 1);
+              // Spotify iframes expose no playback API, so play/pause/finish/
+              // progress are never emitted for them — show only Visible plus a
+              // note so the zeros don't read as broken tracking.
+              const playbackMeasurable = w.platform !== "spotify";
               return (
                 <div key={w.platform} style={card}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -699,18 +706,31 @@ export default function AnalyticsPage() {
                       {w.platform}
                     </span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                    <InlineStat label="Visible" value={w.visible} />
-                    <InlineStat label="Plays" value={w.plays} />
-                    <InlineStat label="Pauses" value={w.pauses} />
-                    <InlineStat label="Finishes" value={w.finishes} />
-                  </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
-                    Listen-through
-                  </div>
-                  <BarRow label="Reached 25%" count={w.m25} max={maxMilestone} />
-                  <BarRow label="Reached 50%" count={w.m50} max={maxMilestone} />
-                  <BarRow label="Reached 75%" count={w.m75} max={maxMilestone} />
+                  {playbackMeasurable ? (
+                    <>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                        <InlineStat label="Visible" value={w.visible} />
+                        <InlineStat label="Plays" value={w.plays} />
+                        <InlineStat label="Pauses" value={w.pauses} />
+                        <InlineStat label="Finishes" value={w.finishes} />
+                      </div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
+                        Listen-through
+                      </div>
+                      <BarRow label="Reached 25%" count={w.m25} max={maxMilestone} />
+                      <BarRow label="Reached 50%" count={w.m50} max={maxMilestone} />
+                      <BarRow label="Reached 75%" count={w.m75} max={maxMilestone} />
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                        <InlineStat label="Visible" value={w.visible} />
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                        Play, pause and listen-through aren’t measurable via Spotify embeds.
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
