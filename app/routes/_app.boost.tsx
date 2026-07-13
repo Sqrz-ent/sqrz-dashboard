@@ -671,14 +671,11 @@ export default function BoostPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionData?.ok, actionData?.campaignId]);
 
-  // Grow with more than one channel is not self-serve — it routes to a call.
-  const isMultichannelGrow = isGrow && channels.length > 1;
-
   const canSubmit = isGrow
     ? (!!promoteType &&
        (promoteType !== "link" || !!promoteLinkId) &&
        !!goal && !!duration &&
-       channels.length === 1 &&
+       channels.length >= 1 &&
        growBudgetNum >= growMinBudget)
     : (!!promoteType &&
        (promoteType !== "link" || !!promoteLinkId) &&
@@ -687,7 +684,6 @@ export default function BoostPage() {
   // Single shared submit for both Boost and Grow — one creation path (the action),
   // one field set. campaign_type is the only branch, and checkout picks the fee.
   function handleSubmit() {
-    if (isMultichannelGrow) return; // routed to a call, not checkout
     if (!canSubmit) {
       if (!promoteType) setBoostError("Please select what to promote.");
       else if (promoteType === "link" && !promoteLinkId) setBoostError("Please select a link.");
@@ -1199,11 +1195,8 @@ export default function BoostPage() {
 
         {isGrow ? (
           <>
-            {isMultichannelGrow && (
-              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
-                Multi-channel campaigns are planned together on a strategy call — book below and we&apos;ll set it up with you. Single-channel campaigns can check out directly.
-              </p>
-            )}
+            {/* Grow always offers both: a consultation call (optional) and direct
+                payment — regardless of how many channels are selected. */}
             <div style={{ display: "flex", gap: 10 }}>
               <a
                 href={GROW_MEETING_URL}
@@ -1213,16 +1206,14 @@ export default function BoostPage() {
               >
                 Book a Call
               </a>
-              {!isMultichannelGrow && (
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={isSubmitting || !canSubmit}
-                  style={{ flex: 1, padding: "13px", background: isSubmitting || !canSubmit ? "var(--surface-muted)" : ACCENT, color: isSubmitting || !canSubmit ? "var(--text-muted)" : "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 500, cursor: isSubmitting || !canSubmit ? "not-allowed" : "pointer", fontFamily: FONT_BODY, transition: "background 0.15s" }}
-                >
-                  {isSubmitting ? "Preparing…" : "Proceed to Payment →"}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting || !canSubmit}
+                style={{ flex: 1, padding: "13px", background: isSubmitting || !canSubmit ? "var(--surface-muted)" : ACCENT, color: isSubmitting || !canSubmit ? "var(--text-muted)" : "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 500, cursor: isSubmitting || !canSubmit ? "not-allowed" : "pointer", fontFamily: FONT_BODY, transition: "background 0.15s" }}
+              >
+                {isSubmitting ? "Preparing…" : "Proceed to Payment →"}
+              </button>
             </div>
           </>
         ) : (
