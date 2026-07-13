@@ -542,9 +542,8 @@ export default function AnalyticsPage() {
 
   const cl = cookieless;
   const hasWidgetData = (cl?.widgets?.length ?? 0) > 0;
+  // Page-exit count still gates the section; the raw count is no longer displayed.
   const hasPageData = (cl?.page?.exits ?? 0) > 0;
-  const hasCtaData = (cl?.cta?.length ?? 0) > 0;
-  const maxCta = cl?.cta?.[0]?.count ?? 1;
   const widgetIcon = (platform: string) =>
     platform === "spotify" ? "🎧"
     : platform === "soundcloud" ? "🔊"
@@ -810,11 +809,21 @@ export default function AnalyticsPage() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
             {(cl?.widgets ?? []).map((w) => {
-              const maxMilestone = Math.max(w.m25, w.m50, w.m75, 1);
-              // Spotify iframes expose no playback API, so play/pause/finish/
-              // progress are never emitted for them — show only Visible plus a
-              // note so the zeros don't read as broken tracking.
+              // Finishes and the 25/50/75% listen-through block are intentionally
+              // not shown: users sample on SQRZ and move to Spotify/SoundCloud to
+              // actually listen through, so low finish/listen-through numbers read
+              // as "broken tracking" rather than the normal behaviour they are.
+              // Spotify iframes expose no playback API at all, so they show only
+              // Seen plus a note.
               const playbackMeasurable = w.platform !== "spotify";
+              // Remaining tiles wrap in a 2-column grid so Spotify's single tile
+              // lines up with SoundCloud/YouTube's tiles instead of looking like a
+              // different card.
+              const tileGrid: React.CSSProperties = {
+                display: "grid",
+                gridTemplateColumns: "repeat(2, 1fr)",
+                gap: 8,
+              };
               return (
                 <div key={w.platform} style={card}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
@@ -824,27 +833,18 @@ export default function AnalyticsPage() {
                     </span>
                   </div>
                   {playbackMeasurable ? (
-                    <>
-                      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                        <InlineStat label="Seen" value={w.visible} />
-                        <InlineStat label="Plays" value={w.plays} />
-                        <InlineStat label="Pauses" value={w.pauses} />
-                        <InlineStat label="Finishes" value={w.finishes} />
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
-                        Listen-through
-                      </div>
-                      <BarRow label="Reached 25%" count={w.m25} max={maxMilestone} />
-                      <BarRow label="Reached 50%" count={w.m50} max={maxMilestone} />
-                      <BarRow label="Reached 75%" count={w.m75} max={maxMilestone} />
-                    </>
+                    <div style={tileGrid}>
+                      <InlineStat label="Seen" value={w.visible} />
+                      <InlineStat label="Plays" value={w.plays} />
+                      <InlineStat label="Pauses" value={w.pauses} />
+                    </div>
                   ) : (
                     <>
-                      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                      <div style={{ ...tileGrid, marginBottom: 12 }}>
                         <InlineStat label="Seen" value={w.visible} />
                       </div>
                       <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-                        Play, pause and listen-through aren’t measurable via Spotify embeds.
+                        Play and pause aren’t measurable via Spotify embeds.
                       </div>
                     </>
                   )}
@@ -876,27 +876,8 @@ export default function AnalyticsPage() {
               </div>
               <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 500 }}>Avg Scroll Depth</div>
             </div>
-            <InlineStat label="Page Exits Tracked" value={cl?.page.exits ?? 0} />
           </div>
         )}
-      </section>
-
-      {/* ── CTA Clicks (cookieless) ────────────────────────────────────────── */}
-      <section style={{ marginBottom: 40 }}>
-        <span style={sectionLabel}>CTA Clicks</span>
-        <div style={card}>
-          {!hasCtaData ? (
-            <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "24px 0" }}>
-              No CTA or link clicks yet
-            </div>
-          ) : (
-            (cl?.cta ?? []).slice(0, 15).map((c, i) => (
-              <div key={i} title={c.url}>
-                <BarRow label={c.label || c.url || "link"} count={c.count} max={maxCta} />
-              </div>
-            ))
-          )}
-        </div>
       </section>
 
       {/* ── Private Links ──────────────────────────────────────────────────── */}
