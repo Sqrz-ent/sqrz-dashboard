@@ -807,7 +807,7 @@ export default function AnalyticsPage() {
             No music widget engagement yet
           </div>
         ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
             {(cl?.widgets ?? []).map((w) => {
               // Finishes and the 25/50/75% listen-through block are intentionally
               // not shown: users sample on SQRZ and move to Spotify/SoundCloud to
