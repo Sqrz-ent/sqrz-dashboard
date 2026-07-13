@@ -262,12 +262,12 @@ export async function action({ request }: Route.ActionArgs) {
       return Response.json({ ok: false, error: "This campaign can't accept content right now." }, { headers });
     }
 
+    // Post-payment step is creative-only. Targeting, goal, budget, channels and
+    // notes were all captured pre-payment during booking.
     const { error: updateError } = await supabase
       .from("boost_campaigns")
       .update({
-        target_audience: (formData.get("target_audience") as string) || null,
         creative_asset_url: (formData.get("creative_asset_url") as string) || null,
-        notes: (formData.get("notes") as string) || null,
       })
       .eq("id", campaignId)
       .eq("profile_id", profile.id as string);
@@ -278,24 +278,43 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: res.ok, error: res.error, contentSaved: res.ok }, { headers });
   }
 
-  // ── Step 1: Booking (goal + budget + channel + duration). Content comes later.
+  // ── Step 1: Booking — the single shared creation path for BOTH Boost and Grow.
+  // Everything except the creative is collected here, pre-payment (goal, budget,
+  // target audience, duration, channels, notes). The only pricing divergence is
+  // campaign_type, which the checkout endpoint uses to pick the fee model.
+  const campaignType = (formData.get("campaign_type") as string) === "grow" ? "grow" : "boost";
   const promoteType = formData.get("promote_type") as string;
   const promoteLinkId = formData.get("promote_link_id") as string | null;
   const duration = (formData.get("duration") as string) || null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
+  // Grow ad spend has a plan-based minimum — enforce server-side, not just in the UI.
+  if (campaignType === "grow") {
+    const planId = profile.plan_id as number | null;
+    const minBudget = planId === null || planId === 4 ? 100 : 250;
+    if (!newBudget || newBudget < minBudget) {
+      return Response.json(
+        { ok: false, error: `Minimum Grow budget is $${minBudget.toLocaleString()}` },
+        { headers }
+      );
+    }
+  }
+
   // Insert with NULL status = created, awaiting payment. The Stripe webhook sets
-  // status='booked' on successful payment; the artist then adds content (Step 2).
+  // status='booked' on successful payment; the artist then uploads creative (Step 2).
   const { data: inserted, error } = await supabase
     .from("boost_campaigns")
     .insert({
       profile_id: profile.id as string,
+      campaign_type: campaignType,
       promote_type: promoteType,
       promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
       channels: ((formData.get("channels") as string) || "meta")
         .split(",").map((s) => s.trim()).filter(Boolean),
       duration,
       goal: (formData.get("goal") as string) || null,
+      target_audience: (formData.get("target_audience") as string) || null,
+      notes: (formData.get("notes") as string) || null,
       budget_amount: newBudget,
       budget_currency: "USD",
       status: null,
@@ -346,7 +365,12 @@ export async function action({ request }: Route.ActionArgs) {
     })
     .eq("id", inserted.id);
 
-  return Response.json({ ok: true, campaignId: inserted.id }, { headers });
+  // Return type + budget so the client kicks off checkout with server-truth values
+  // (avoids a race with form state that resets on success).
+  return Response.json(
+    { ok: true, campaignId: inserted.id, campaign_type: campaignType, budget_amount: newBudget },
+    { headers }
+  );
 }
 
 // ── Step 2: Content form on a booked / needs_changes campaign ─────────────────
@@ -359,8 +383,6 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
   const inReview = c.status === "in_review";
 
   const [open, setOpen] = useState(needsChanges); // needs_changes opens revised view directly
-  const [targetAudience, setTargetAudience] = useState(c.target_audience ?? "");
-  const [notes, setNotes] = useState(c.notes ?? "");
   const [creativeUrl, setCreativeUrl] = useState<string | null>(c.creative_asset_url ?? null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -428,8 +450,6 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
     const fd = new FormData();
     fd.append("intent", "save_content");
     fd.append("campaign_id", c.id);
-    fd.append("target_audience", targetAudience);
-    fd.append("notes", notes);
     if (creativeUrl) fd.append("creative_asset_url", creativeUrl);
     fetcher.submit(fd, { method: "post" });
   }
@@ -466,16 +486,6 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={labelStyle}>Who should we target?</label>
-            <input
-              value={targetAudience}
-              onChange={(e) => setTargetAudience(e.target.value)}
-              placeholder="e.g. Electronic music fans, 18–34, Berlin"
-              style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", fontSize: 14, background: "var(--bg)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, fontFamily: FONT_BODY }}
-            />
-          </div>
-
-          <div>
             <label style={labelStyle}>Creative</label>
             {creativeUrl ? (
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -492,11 +502,6 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
               </label>
             )}
             {uploadError && <p style={{ fontSize: 12, color: "#ef4444", margin: "5px 0 0" }}>{uploadError}</p>}
-          </div>
-
-          <div>
-            <label style={labelStyle}>Anything else we should know?</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional context for our team" style={textareaStyle} />
           </div>
 
           {data?.error && <p style={{ fontSize: 12, color: "#ef4444", margin: 0 }}>{data.error}</p>}
@@ -532,7 +537,6 @@ export default function BoostPage() {
       creatorMonthlyPriceId: string;
       creatorYearlyPriceId: string;
     };
-  const isFirstCampaign = campaign_count === 0;
   const isReactivation = campaigns.some((c) => c.status === "completed");
   const fetcher = useFetcher();
   const [searchParams] = useSearchParams();
@@ -565,14 +569,16 @@ export default function BoostPage() {
   // Grow-only state
   const growMinBudget = plan_id === null || plan_id === 4 ? 100 : 250;
   const [growBudget, setGrowBudget] = useState<string | number>("");
-  const [growLoading, setGrowLoading] = useState(false);
-  const [growError, setGrowError] = useState<string | null>(null);
   const [growSuccess, setGrowSuccess] = useState(searchParams.get("campaign_paid") === "true");
   const [campaignMode, setCampaignMode] = useState<"boost" | "grow">("boost");
 
   useEffect(() => {
     if (searchParams.get("campaign_paid") === "true") setGrowSuccess(true);
   }, [searchParams]);
+
+  // Grow is only ever active for qualified users on the Grow tab; everyone else
+  // is Boost. This single flag drives the shared form's mode-specific bits.
+  const isGrow = grow_qualified && campaignMode === "grow";
 
   const growBudgetNum = Number(growBudget);
   const growFee = Math.round(growBudgetNum * 0.2 * 100) / 100;
@@ -629,41 +635,14 @@ export default function BoostPage() {
     }
   }
 
-  async function handleGrowCheckout() {
-    setGrowLoading(true);
-    setGrowError(null);
-    try {
-      const res = await fetch("/api/campaigns/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          campaign_type: "grow",
-          budget_amount: growBudgetNum,
-          promote_type: promoteType,
-          promote_link_id: promoteType === "link" ? promoteLinkId : null,
-          target_audience: targetAudience || null,
-          notes: notes || null,
-          goal: goal || null,
-          duration: duration || null,
-          channels,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.checkout_url) {
-        setGrowError(data.error ?? "Something went wrong");
-      } else {
-        window.location.href = data.checkout_url;
-      }
-    } catch {
-      setGrowError("Network error — please try again");
-    } finally {
-      setGrowLoading(false);
-    }
-  }
-
   const isSubmitting = fetcher.state !== "idle";
-  const actionData = fetcher.data as { ok?: boolean; message?: string; error?: string; campaignId?: string } | undefined;
+  const actionData = fetcher.data as {
+    ok?: boolean; message?: string; error?: string;
+    campaignId?: string; campaign_type?: "boost" | "grow"; budget_amount?: number;
+  } | undefined;
 
+  // After the shared booking action creates the campaign, kick off checkout using
+  // the server-returned type + budget so the fee model follows campaign_type only.
   useEffect(() => {
     if (!actionData?.ok || boostSuccess || !actionData.campaignId) return;
     setBoostSuccess(true);
@@ -673,15 +652,17 @@ export default function BoostPage() {
     setDuration(null);
     setGoal(null);
     setBudget(null);
-    // Trigger Stripe checkout — $25 activation or $5 reactivation
+    setGrowBudget("");
+    setTargetAudience("");
+    setNotes("");
     fetch("/api/campaigns/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        campaign_type: "boost",
-        budget_amount: budget,
+        campaign_type: actionData.campaign_type ?? "boost",
+        budget_amount: actionData.budget_amount,
         campaign_id: actionData.campaignId,
-        is_reactivation: isReactivation,
+        is_reactivation: actionData.campaign_type === "grow" ? false : isReactivation,
       }),
     })
       .then((r) => r.json())
@@ -690,41 +671,45 @@ export default function BoostPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionData?.ok, actionData?.campaignId]);
 
-  const boostCanSubmit =
-    !!promoteType &&
-    (promoteType !== "link" || !!promoteLinkId) &&
-    !!duration &&
-    !!goal &&
-    !!budget;
+  // Grow with more than one channel is not self-serve — it routes to a call.
+  const isMultichannelGrow = isGrow && channels.length > 1;
 
-  const growCanSubmit =
-    !!promoteType &&
-    (promoteType !== "link" || !!promoteLinkId) &&
-    channels.length >= 1 &&
-    growBudgetNum >= growMinBudget;
+  const canSubmit = isGrow
+    ? (!!promoteType &&
+       (promoteType !== "link" || !!promoteLinkId) &&
+       !!goal && !!duration &&
+       channels.length === 1 &&
+       growBudgetNum >= growMinBudget)
+    : (!!promoteType &&
+       (promoteType !== "link" || !!promoteLinkId) &&
+       !!duration && !!goal && !!budget);
 
-  function handleBoostSubmit() {
-    if (!boostCanSubmit) {
+  // Single shared submit for both Boost and Grow — one creation path (the action),
+  // one field set. campaign_type is the only branch, and checkout picks the fee.
+  function handleSubmit() {
+    if (isMultichannelGrow) return; // routed to a call, not checkout
+    if (!canSubmit) {
       if (!promoteType) setBoostError("Please select what to promote.");
       else if (promoteType === "link" && !promoteLinkId) setBoostError("Please select a link.");
-      else if (!duration) setBoostError("Please select a duration.");
       else if (!goal) setBoostError("Please select a goal.");
-      else if (!budget) setBoostError("Please select a budget.");
+      else if (!duration) setBoostError("Please select a duration.");
+      else if (isGrow && growBudgetNum < growMinBudget) setBoostError(`Minimum Grow budget is $${growMinBudget.toLocaleString()}.`);
+      else if (!isGrow && !budget) setBoostError("Please select a budget.");
       return;
     }
     setBoostError(null);
     setBoostSuccess(false);
     setRerunSource(null);
     const fd = new FormData();
-    // Step 1 is booking only — target audience, creative + notes are collected
-    // after payment (Step 2 content form on the booked campaign). Boost is
-    // always a single channel: meta.
+    fd.append("campaign_type", isGrow ? "grow" : "boost");
     fd.append("promote_type", promoteType!);
     fd.append("promote_link_id", promoteLinkId);
-    fd.append("channels", BOOST_CHANNELS.join(","));
+    fd.append("channels", (isGrow ? channels : BOOST_CHANNELS).join(","));
     fd.append("duration", duration!);
     fd.append("goal", goal!);
-    fd.append("budget_amount", String(budget));
+    fd.append("target_audience", targetAudience);
+    fd.append("notes", notes);
+    fd.append("budget_amount", String(isGrow ? growBudgetNum : budget));
     fetcher.submit(fd, { method: "post" });
   }
 
@@ -967,6 +952,81 @@ export default function BoostPage() {
     </div>
   );
 
+  // ── Shared budget field ────────────────────────────────────────────────────
+  // Same slot in the ordered field list; the control differs only by pricing
+  // model — Boost = fixed tiers (flat fee), Grow = free ad spend (20% fee).
+  function budgetField(mode: "boost" | "grow") {
+    if (mode === "grow") {
+      return (
+        <div style={{ marginBottom: 20 }}>
+          <label style={labelStyle}>Campaign budget (USD)</label>
+          <input
+            type="number"
+            min={growMinBudget}
+            value={growBudget}
+            onChange={(e) => setGrowBudget(e.target.value)}
+            placeholder={`e.g. ${growMinBudget}`}
+            style={{
+              width: "100%", padding: "10px 13px", background: "var(--bg)",
+              border: "1px solid var(--border)", borderRadius: 10, fontSize: 15,
+              color: "var(--text)", outline: "none", boxSizing: "border-box" as const, fontFamily: FONT_BODY,
+            }}
+          />
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
+            Minimum ${growMinBudget.toLocaleString()} — this is your ad spend, separate from the management fee.
+          </p>
+        </div>
+      );
+    }
+    return (
+      <div style={{ marginBottom: 20 }}>
+        <label style={labelStyle}>Budget</label>
+        <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+          {BUDGET_OPTIONS.map((o) => (
+            <button key={o.value} type="button" onClick={() => setBudget(o.value)} style={pillStyle(budget === o.value)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Shared price breakdown ─────────────────────────────────────────────────
+  function priceBreakdown(mode: "boost" | "grow") {
+    if (mode === "grow") {
+      if (growBudgetNum < growMinBudget) return null;
+      return (
+        <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, fontSize: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+            <span>Campaign budget</span><span style={{ fontFamily: "monospace" }}>${growBudgetNum.toLocaleString()}</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+            <span>Management fee (20%)</span><span style={{ fontFamily: "monospace" }}>+${growFee.toLocaleString()}</span>
+          </div>
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+            <span>Total charged</span><span style={{ fontFamily: "monospace" }}>${growTotal.toLocaleString()}</span>
+          </div>
+        </div>
+      );
+    }
+    if (!budget) return null;
+    const fee = isReactivation ? 5 : 25;
+    return (
+      <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", marginBottom: 16, fontSize: 13 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+          <span>Ad budget</span><span style={{ fontFamily: "monospace" }}>${budget}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+          <span>{isReactivation ? "Reactivation fee" : "Activation fee"}</span><span style={{ fontFamily: "monospace" }}>+${fee}</span>
+        </div>
+        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+          <span>Total</span><span style={{ fontFamily: "monospace" }}>${budget + fee}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
@@ -1056,13 +1116,18 @@ export default function BoostPage() {
         </div>
       )}
 
-      {/* ── BOOST section ───────────────────────────────────────────────────── */}
-      {(!grow_qualified || campaignMode === "boost") && (
-      <div ref={formRef} style={card}>
+      {/* ── New Campaign — one shared form for Boost and Grow ─────────────────── */}
+      <div ref={formRef} style={{ ...card, ...(isGrow ? { background: "var(--surface)", border: "1px solid var(--border)" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
-          New Boost Campaign
+          New {isGrow ? "Grow" : "Boost"} Campaign
         </h2>
 
+        {isGrow && growSuccess ? (
+          <div style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.25)", borderRadius: 10, padding: "16px 18px", fontSize: 14, color: "var(--text)", lineHeight: 1.6 }}>
+            Payment received! Will be in touch within 24 hours to schedule your strategy session.
+          </div>
+        ) : (
+        <>
         {boostSuccess && (
           <div style={{
             background: "rgba(34,197,94,0.1)",
@@ -1078,7 +1143,7 @@ export default function BoostPage() {
           </div>
         )}
 
-        {rerunSource && (
+        {!isGrow && rerunSource && (
           <div style={{
             background: "rgba(245,166,35,0.08)",
             border: "1px solid rgba(245,166,35,0.2)",
@@ -1112,237 +1177,67 @@ export default function BoostPage() {
           </div>
         )}
 
-        {/* Step 1 — Booking only. Audience, creative + notes move to Step 2
-            (the content form on the booked campaign). */}
+        {/* One shared ordered field list — everything except the creative is
+            collected here pre-payment for BOTH Boost and Grow. */}
         {promoteField}
-        {channelsField("boost")}
-        {durationField}
+        {channelsField(isGrow ? "grow" : "boost")}
         {goalField}
-
-        {/* Budget pills */}
-        <div style={{ marginBottom: 20 }}>
-          <label style={labelStyle}>Budget</label>
-          <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
-            {BUDGET_OPTIONS.map((o) => (
-              <button key={o.value} type="button" onClick={() => setBudget(o.value)} style={pillStyle(budget === o.value)}>
-                {o.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Price breakdown */}
-        {budget && (
-          <div style={{
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            padding: "14px 16px",
-            marginBottom: 16,
-            fontSize: 13,
-          }}>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
-              <span>Ad budget</span>
-              <span style={{ fontFamily: "monospace" }}>${budget}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
-              <span>{isReactivation ? "Reactivation fee" : "Activation fee"}</span>
-              <span style={{ fontFamily: "monospace" }}>+${isReactivation ? 5 : 25}</span>
-            </div>
-            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-              <span>Total</span>
-              <span style={{ fontFamily: "monospace" }}>${budget + (isReactivation ? 5 : 25)}</span>
-            </div>
-          </div>
-        )}
+        {durationField}
+        {audienceField}
+        {budgetField(isGrow ? "grow" : "boost")}
+        {priceBreakdown(isGrow ? "grow" : "boost")}
+        {notesField}
 
         {actionData?.ok === false && (
           <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
             {actionData.error ?? "Something went wrong. Please try again."}
           </p>
         )}
-
-        <button
-          type="button"
-          onClick={handleBoostSubmit}
-          disabled={isSubmitting}
-          style={{
-            width: "100%",
-            padding: "14px",
-            background: ACCENT,
-            color: "#111",
-            border: "none",
-            borderRadius: 12,
-            fontSize: 15,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: FONT_BODY,
-            letterSpacing: "0.02em",
-            transition: "background 0.15s",
-            opacity: isSubmitting ? 0.7 : 1,
-          }}
-        >
-          {isSubmitting ? "Activating…" : "Activate Boost →"}
-        </button>
-
         {boostError && (
-          <p style={{ fontSize: 13, color: "#ef4444", marginTop: 8, marginBottom: 0 }}>
-            {boostError}
-          </p>
+          <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>{boostError}</p>
+        )}
+
+        {isGrow ? (
+          <>
+            {isMultichannelGrow && (
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.6 }}>
+                Multi-channel campaigns are planned together on a strategy call — book below and we&apos;ll set it up with you. Single-channel campaigns can check out directly.
+              </p>
+            )}
+            <div style={{ display: "flex", gap: 10 }}>
+              <a
+                href={GROW_MEETING_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ flex: 1, padding: "13px", background: "transparent", color: "var(--text)", border: "0.5px solid var(--border)", borderRadius: 12, fontSize: 14, fontWeight: 500, textAlign: "center" as const, textDecoration: "none", fontFamily: FONT_BODY, boxSizing: "border-box" as const }}
+              >
+                Book a Call
+              </a>
+              {!isMultichannelGrow && (
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isSubmitting || !canSubmit}
+                  style={{ flex: 1, padding: "13px", background: isSubmitting || !canSubmit ? "var(--surface-muted)" : ACCENT, color: isSubmitting || !canSubmit ? "var(--text-muted)" : "#fff", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 500, cursor: isSubmitting || !canSubmit ? "not-allowed" : "pointer", fontFamily: FONT_BODY, transition: "background 0.15s" }}
+                >
+                  {isSubmitting ? "Preparing…" : "Proceed to Payment →"}
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            style={{ width: "100%", padding: "14px", background: ACCENT, color: "#111", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, letterSpacing: "0.02em", transition: "background 0.15s", opacity: isSubmitting ? 0.7 : 1 }}
+          >
+            {isSubmitting ? "Activating…" : "Activate Boost →"}
+          </button>
+        )}
+        </>
         )}
       </div>
-      )}
-
-      {/* ── GROW section — shown when grow_qualified + Grow tab selected ─────── */}
-      {grow_qualified && campaignMode === "grow" && (
-        <>
-          <div style={{ ...card, background: "var(--surface)", border: "1px solid var(--border)" }}>
-            <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
-              New Grow Campaign
-            </h2>
-            {growSuccess ? (
-              <div style={{
-                background: "rgba(34,197,94,0.08)",
-                border: "1px solid rgba(34,197,94,0.25)",
-                borderRadius: 10,
-                padding: "16px 18px",
-                fontSize: 14,
-                color: "var(--text)",
-                lineHeight: 1.6,
-              }}>
-                Payment received! Will be in touch within 24 hours to schedule your strategy session.
-              </div>
-            ) : (
-              <>
-                {promoteField}
-                {channelsField("grow")}
-                {goalField}
-                {durationField}
-                {audienceField}
-
-                <div style={{ marginBottom: 20 }}>
-                  <label style={labelStyle}>Campaign budget (USD)</label>
-                  <input
-                    type="number"
-                    min={growMinBudget}
-                    value={growBudget}
-                    onChange={(e) => setGrowBudget(e.target.value)}
-                    placeholder={`e.g. ${growMinBudget}`}
-                    style={{
-                      width: "100%",
-                      padding: "10px 13px",
-                      background: "var(--bg)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 10,
-                      fontSize: 15,
-                      color: "var(--text)",
-                      outline: "none",
-                      boxSizing: "border-box" as const,
-                      fontFamily: FONT_BODY,
-                    }}
-                  />
-                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
-                    Minimum ${growMinBudget.toLocaleString()} — this is your ad spend, separate from the management fee.
-                  </p>
-                </div>
-
-                {growBudgetNum >= growMinBudget && (
-                  <div style={{
-                    background: "var(--bg)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 10,
-                    padding: "14px 16px",
-                    marginBottom: 20,
-                    fontSize: 13,
-                  }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
-                      <span>Campaign budget</span>
-                      <span style={{ fontFamily: "monospace" }}>${growBudgetNum.toLocaleString()}</span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
-                      <span>Management fee (20%)</span>
-                      <span style={{ fontFamily: "monospace" }}>+${growFee.toLocaleString()}</span>
-                    </div>
-                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                      <span>Total charged</span>
-                      <span style={{ fontFamily: "monospace" }}>${growTotal.toLocaleString()}</span>
-                    </div>
-                  </div>
-                )}
-
-                {notesField}
-
-                <ul style={{ listStyle: "none", padding: 0, margin: "0 0 20px", display: "flex", flexDirection: "column" as const, gap: 8 }}>
-                  {[
-                    `You set the budget — minimum $${growMinBudget.toLocaleString()} (your ad spend)`,
-                    "SQRZ adds a 20% management fee for full campaign handling",
-                    "After payment, book a strategy call to align on your channel mix — Google, Meta, LinkedIn, TikTok, Spotify Ads or a combination — based on your goals and audience.",
-                  ].map((point) => (
-                    <li key={point} style={{ display: "flex", gap: 10, fontSize: 13, color: "var(--text-muted)", lineHeight: 1.6 }}>
-                      <span style={{ color: ACCENT, fontWeight: 700, flexShrink: 0 }}>•</span>
-                      {point}
-                    </li>
-                  ))}
-                </ul>
-
-                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.6 }}>
-                  {isFirstCampaign
-                    ? "We recommend a quick call before your first campaign to make sure your budget works as hard as possible."
-                    : "Strategy unchanged? Skip the call and top up directly."}
-                </p>
-
-                {growError && (
-                  <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>{growError}</p>
-                )}
-
-                <div style={{ display: "flex", gap: 10 }}>
-                  <a
-                    href={GROW_MEETING_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      flex: 1,
-                      padding: "13px",
-                      background: "transparent",
-                      color: "var(--text)",
-                      border: "0.5px solid var(--border)",
-                      borderRadius: 12,
-                      fontSize: 14,
-                      fontWeight: 500,
-                      textAlign: "center" as const,
-                      textDecoration: "none",
-                      fontFamily: FONT_BODY,
-                      boxSizing: "border-box" as const,
-                    }}
-                  >
-                    Book a Call
-                  </a>
-                  <button
-                    type="button"
-                    onClick={handleGrowCheckout}
-                    disabled={growLoading || !growCanSubmit}
-                    style={{
-                      flex: 1,
-                      padding: "13px",
-                      background: growLoading || !growCanSubmit ? "var(--surface-muted)" : ACCENT,
-                      color: growLoading || !growCanSubmit ? "var(--text-muted)" : "#fff",
-                      border: "none",
-                      borderRadius: 12,
-                      fontSize: 14,
-                      fontWeight: 500,
-                      cursor: growLoading || !growCanSubmit ? "not-allowed" : "pointer",
-                      fontFamily: FONT_BODY,
-                      transition: "background 0.15s",
-                    }}
-                  >
-                    {growLoading ? "Preparing…" : "Proceed to Payment →"}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </>
-      )}
 
       {/* ── Active Campaigns ─────────────────────────────────────────────────── */}
       <div style={card}>
