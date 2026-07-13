@@ -816,12 +816,9 @@ export default function AnalyticsPage() {
               // Spotify iframes expose no playback API at all, so they show only
               // Seen plus a note.
               const playbackMeasurable = w.platform !== "spotify";
-              // Remaining tiles wrap in a 2-column grid so Spotify's single tile
-              // lines up with SoundCloud/YouTube's tiles instead of looking like a
-              // different card.
-              const tileGrid: React.CSSProperties = {
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
+              // Stat tiles sit in a single row.
+              const tileRow: React.CSSProperties = {
+                display: "flex",
                 gap: 8,
               };
               return (
@@ -833,14 +830,14 @@ export default function AnalyticsPage() {
                     </span>
                   </div>
                   {playbackMeasurable ? (
-                    <div style={tileGrid}>
+                    <div style={tileRow}>
                       <InlineStat label="Seen" value={w.visible} />
                       <InlineStat label="Plays" value={w.plays} />
                       <InlineStat label="Pauses" value={w.pauses} />
                     </div>
                   ) : (
                     <>
-                      <div style={{ ...tileGrid, marginBottom: 12 }}>
+                      <div style={{ ...tileRow, marginBottom: 12 }}>
                         <InlineStat label="Seen" value={w.visible} />
                       </div>
                       <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
