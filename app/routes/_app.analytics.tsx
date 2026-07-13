@@ -45,6 +45,7 @@ type BoostCampaignStat = {
   // Platform-reported (entered from the ad platform, e.g. Meta Ads Manager)
   stat_impressions: number | null;
   stat_reach: number | null;
+  stat_profile_visits: number | null;
   stat_link_clicks: number | null;
   stat_cost_per_click: number | null;
   stat_cpm: number | null;
@@ -555,6 +556,12 @@ export default function AnalyticsPage() {
   }
 
   const a = analytics;
+
+  // Only campaigns that have actually started show stats — approved/
+  // needs_changes/pending haven't run yet.
+  const boostCampaigns = (a?.boost_campaigns ?? []).filter(
+    (c) => c.status === "live" || c.status === "completed"
+  );
 
   const viewsTrend = a ? trendLabel(a.views_total, a.views_prev_period) : null;
 
@@ -1069,13 +1076,13 @@ export default function AnalyticsPage() {
       <section>
         <span style={sectionLabel}>Boost Campaigns</span>
         <div style={card}>
-          {(a?.boost_campaigns?.length ?? 0) === 0 ? (
+          {boostCampaigns.length === 0 ? (
             <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "24px 0" }}>
-              No campaigns yet — start a Boost campaign to track performance
+              No live or completed campaigns yet — stats appear once a Boost campaign starts
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {(a?.boost_campaigns ?? []).map((c, i) => {
+              {boostCampaigns.map((c, i) => {
                 const statusColors: Record<string, { color: string; bg: string }> = {
                   pending:   { color: ACCENT,      bg: "rgba(245,166,35,0.12)" },
                   preparing: { color: ACCENT,      bg: "rgba(245,166,35,0.12)" },
@@ -1092,17 +1099,21 @@ export default function AnalyticsPage() {
                   : null;
 
                 // SQRZ site-side — always shown (0 is a real measurement).
+                // "Booking flow opens" = booking_modal_open, which already
+                // includes every service-listing click (each fires both a
+                // service_click and a modal open), so the two are unified into
+                // this one line rather than double-counted. Chat opens omitted
+                // until the mobile app ships (tracking still recorded).
                 const siteMetrics = [
                   { label: "Views driven", value: (c.driven_views ?? 0).toLocaleString() },
                   { label: "Unique visitors", value: (c.driven_unique ?? 0).toLocaleString() },
-                  { label: "Modal opens", value: (c.modal_opens ?? 0).toLocaleString() },
-                  { label: "Chat opens", value: (c.chat_opens ?? 0).toLocaleString() },
-                  { label: "Service clicks", value: (c.service_clicks ?? 0).toLocaleString() },
+                  { label: "Booking flow opens", value: (c.modal_opens ?? 0).toLocaleString() },
                 ];
                 // Platform-reported — shown only when the platform has reported it.
                 const platformMetrics = [
                   { label: "Impressions", value: c.stat_impressions != null ? c.stat_impressions.toLocaleString() : null },
                   { label: "Reach", value: c.stat_reach != null ? c.stat_reach.toLocaleString() : null },
+                  { label: "Landing page views", value: c.stat_profile_visits != null ? c.stat_profile_visits.toLocaleString() : null },
                   { label: "Link clicks", value: c.stat_link_clicks != null ? c.stat_link_clicks.toLocaleString() : null },
                   { label: "Cost / click", value: money(c.stat_cost_per_click) },
                   { label: "CPM", value: money(c.stat_cpm) },
@@ -1113,7 +1124,7 @@ export default function AnalyticsPage() {
                     key={c.id}
                     style={{
                       padding: "16px 0",
-                      borderBottom: i < (a?.boost_campaigns?.length ?? 0) - 1 ? "1px solid var(--border)" : "none",
+                      borderBottom: i < boostCampaigns.length - 1 ? "1px solid var(--border)" : "none",
                     }}
                   >
                     {/* Header: campaign identity + status */}
