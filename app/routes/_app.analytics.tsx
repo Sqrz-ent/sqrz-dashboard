@@ -42,6 +42,8 @@ type BoostCampaignStat = {
   modal_opens: number | null;
   chat_opens: number | null;
   service_clicks: number | null;
+  cta_clicks: number | null;
+  widget_opens: number | null;
   // Platform-reported (entered from the ad platform, e.g. Meta Ads Manager)
   stat_impressions: number | null;
   stat_reach: number | null;
@@ -1086,6 +1088,8 @@ export default function AnalyticsPage() {
                   { label: "Views driven", value: (c.driven_views ?? 0).toLocaleString() },
                   { label: "Unique visitors", value: (c.driven_unique ?? 0).toLocaleString() },
                   { label: "Booking flow opens", value: (c.modal_opens ?? 0).toLocaleString() },
+                  { label: "CTA clicks", value: (c.cta_clicks ?? 0).toLocaleString() },
+                  { label: "Widget opens", value: (c.widget_opens ?? 0).toLocaleString() },
                 ];
                 // Platform-reported — shown only when the platform has reported it.
                 const platformMetrics = [
