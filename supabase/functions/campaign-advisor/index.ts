@@ -323,17 +323,19 @@ Deno.serve(async (req: Request) => {
     widget_opens: num(sqrzRow?.widget_opens),
   };
 
-  // 3. Retargetable audience — distinct visitors (sessions) with a non-null
-  //    fbclid attributed to this campaign. fbclid lives in event_properties.
+  // 3. Retargetable audience — distinct fbclid values attributed to this
+  //    campaign. Dedup on the fbclid itself, NOT session_id: session_id is
+  //    populated on <20% of rows platform-wide (0% on some campaigns), which
+  //    silently zeroed this real metric. fbclid lives in event_properties and
+  //    is the actual retargetable identifier (Meta re-engages by click id).
   const { data: fbRows } = await admin
     .from("jitsu_events")
-    .select("session_id")
+    .select("fbclid:event_properties->>fbclid")
     .eq("boost_campaign_id", campaignId)
     .not("event_properties->>fbclid", "is", null)
-    .not("session_id", "is", null)
     .limit(100000);
   const retargetableAudience = new Set(
-    (fbRows ?? []).map((r: { session_id: string | null }) => r.session_id),
+    (fbRows ?? []).map((r: { fbclid: string | null }) => r.fbclid),
   ).size;
 
   // 4. Derived metrics (server-side, guarded).
@@ -356,6 +358,10 @@ Deno.serve(async (req: Request) => {
   );
 
   // 5. Compact, currency-explicit payload.
+  //    meta_stats.landing_page_views (Meta-reported stat_profile_visits) and
+  //    sqrz_analytics.views_driven (SQRZ site-side profile_views) are two
+  //    independent measurement sources — kept as separate fields, never summed.
+  //    cost_per_landing_page_view divides ONLY by the Meta stat_profile_visits.
   const payload: AdvisorPayload = {
     currency: (campaign.budget_currency as string | null)?.toUpperCase() ?? null,
     goal: (campaign.goal as string | null) ?? null,
