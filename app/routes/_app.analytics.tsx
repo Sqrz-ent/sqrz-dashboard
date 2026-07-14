@@ -1,4 +1,4 @@
-import { redirect, useLoaderData, useNavigate } from "react-router";
+import { redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -455,6 +455,111 @@ function breakdownToMetrics(data: unknown): { label: string; value: string | nul
     }));
   }
   return [{ label: "value", value: String(data) }];
+}
+
+type AdvisorAction = { action: string; reasoning: string };
+type AdvisorResponse = { summary?: string; actions?: AdvisorAction[]; error?: string };
+
+// AI Advisor card — sits ABOVE the raw metric panels (advice before numbers).
+// Manual trigger only: no auto-run, no polling, no caching. Each press posts the
+// campaign_id to /api/campaign-advisor and renders the returned summary + actions.
+function CampaignAdvisorCard({ campaignId }: { campaignId: string }) {
+  const fetcher = useFetcher<AdvisorResponse>();
+  const loading = fetcher.state !== "idle";
+  const data = fetcher.data;
+  const hasResult = !!data && !data.error && (data.summary || (data.actions?.length ?? 0) > 0);
+
+  function run() {
+    fetcher.submit(
+      { campaign_id: campaignId },
+      { method: "post", action: "/api/campaign-advisor" }
+    );
+  }
+
+  return (
+    <div
+      style={{
+        background: "var(--surface-muted)",
+        border: `1px solid ${ACCENT}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: hasResult || loading ? 12 : 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <span style={{ fontSize: 14 }}>✨</span>
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text)" }}>
+            AI Advisor
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={loading}
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "none",
+            background: ACCENT,
+            color: "#fff",
+            cursor: loading ? "default" : "pointer",
+            opacity: loading ? 0.7 : 1,
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {loading ? "Analyzing…" : hasResult ? "Refresh insights" : "Get advisor insights"}
+        </button>
+      </div>
+
+      {loading && (
+        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+          Reading your campaign numbers…
+        </div>
+      )}
+
+      {!loading && data?.error && (
+        <div style={{ fontSize: 13, color: "#ef4444" }}>
+          Couldn’t generate insights right now. Please try again.
+        </div>
+      )}
+
+      {!loading && hasResult && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {data?.summary && (
+            <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)", whiteSpace: "pre-wrap" }}>
+              {data.summary}
+            </div>
+          )}
+          {(data?.actions?.length ?? 0) > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {data!.actions!.map((a, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
+                    {a.action}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
+                    {a.reasoning}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // A labelled group of metric rows for a boost campaign — used to keep the
@@ -1134,6 +1239,9 @@ export default function AnalyticsPage() {
                         {c.status}
                       </span>
                     </div>
+
+                    {/* AI Advisor — advice before the raw metrics below. */}
+                    <CampaignAdvisorCard campaignId={c.id} />
 
                     {/* Two separate measurement sources — never merged. */}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
