@@ -55,6 +55,9 @@ export default [
   // Campaign checkout (unified Boost + Grow)
   route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
 
+  // Campaign AI advisor (forwards to the campaign-advisor edge function)
+  route("api/campaign-advisor", "routes/api.campaign-advisor.tsx"),
+
   // Stripe API routes (server-only, action handlers)
   route("api/stripe/checkout", "routes/api.stripe.checkout.tsx"),
   route("api/stripe/connect", "routes/api.stripe.connect.tsx"),
