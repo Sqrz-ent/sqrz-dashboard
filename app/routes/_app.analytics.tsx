@@ -224,8 +224,33 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const cookieless = aggregateCookieless((rawEvents as RawEvent[]) ?? []);
 
+  // Latest stored advisor run per campaign — rendered immediately on load so a
+  // prior result is just there (no click-to-reveal). One bounded query per
+  // campaign (there are only a handful of live/completed campaigns).
+  const boostIds = ((analytics?.boost_campaigns ?? []) as Array<{ id: string }>).map(
+    (c) => c.id
+  );
+  const advisorRuns: Record<string, unknown> = {};
+  if (boostIds.length > 0) {
+    const runs = await Promise.all(
+      boostIds.map((id) =>
+        admin
+          .from("campaign_advisor_runs")
+          .select("result")
+          .eq("boost_campaign_id", id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      )
+    );
+    boostIds.forEach((id, i) => {
+      const r = runs[i]?.data?.result;
+      if (r) advisorRuns[id] = r;
+    });
+  }
+
   return Response.json(
-    { analytics, cookieless, days, profile },
+    { analytics, cookieless, days, profile, advisorRuns },
     { headers }
   );
 }
@@ -536,10 +561,18 @@ function AdvisorInsightList({
 // first, then optionally clicks for interpretation. Manual trigger only — no
 // auto-run, no polling, no caching. Renders the structured advisor response
 // (health badge, working/watch, action cards, warnings, numbered next steps).
-function CampaignAdvisorCard({ campaignId }: { campaignId: string }) {
+function CampaignAdvisorCard({
+  campaignId,
+  initialResult,
+}: {
+  campaignId: string;
+  initialResult?: AdvisorResponse;
+}) {
   const fetcher = useFetcher<AdvisorResponse>();
   const loading = fetcher.state !== "idle";
-  const data = fetcher.data;
+  // A stored result renders immediately; once a fresh call returns, its
+  // response takes over. The button below always triggers a new call.
+  const data = fetcher.data ?? initialResult;
   const hasResult =
     !!data &&
     !data.error &&
@@ -774,11 +807,12 @@ function CampaignMetricPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, cookieless, days, profile } = useLoaderData() as {
+  const { analytics, cookieless, days, profile, advisorRuns } = useLoaderData() as {
     analytics: AnalyticsData | null;
     cookieless: CookielessMetrics | null;
     days: number;
     profile: Record<string, unknown>;
+    advisorRuns: Record<string, AdvisorResponse>;
   };
   const slug = profile.slug as string;
   const navigate = useNavigate();
@@ -1415,7 +1449,7 @@ export default function AnalyticsPage() {
                     )}
 
                     {/* AI Advisor — below the raw stats: interpretation on demand. */}
-                    <CampaignAdvisorCard campaignId={c.id} />
+                    <CampaignAdvisorCard campaignId={c.id} initialResult={advisorRuns?.[c.id]} />
                   </div>
                 );
               })}
