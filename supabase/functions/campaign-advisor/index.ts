@@ -14,7 +14,8 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // the get_analytics_page RPC), server-computed cost-efficiency metrics, the
 // retargetable audience size, and the artist's own previous campaigns (the only
 // benchmark source) — then asks one LLM to reason over the whole thing and
-// return structured, goal-aware advice. No caching: computed live on every call.
+// return structured, goal-aware advice. Each result is persisted (append-only)
+// to campaign_advisor_runs. No caching: computed live on every call.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -564,6 +565,16 @@ Deno.serve(async (req: Request) => {
   // 6–8. One LLM call behind the provider boundary; return the parsed result.
   try {
     const result = await getAdvisorRecommendation(payload);
+
+    // Persist (append-only). Fire-and-forget: a storage hiccup must never block
+    // the user from seeing the advice they asked for — log and move on.
+    const { error: persistErr } = await admin
+      .from("campaign_advisor_runs")
+      .insert({ boost_campaign_id: campaignId, result });
+    if (persistErr) {
+      console.error("[campaign-advisor] persist error:", persistErr);
+    }
+
     return json(result);
   } catch (err) {
     console.error("[campaign-advisor] advisor error:", err);
