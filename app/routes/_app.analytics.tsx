@@ -457,17 +457,102 @@ function breakdownToMetrics(data: unknown): { label: string; value: string | nul
   return [{ label: "value", value: String(data) }];
 }
 
-type AdvisorAction = { action: string; reasoning: string };
-type AdvisorResponse = { summary?: string; actions?: AdvisorAction[]; error?: string };
+type AdvisorActionItem = {
+  action: string;
+  reason: string;
+  expected_impact: string;
+  confidence: "high" | "medium" | "low";
+};
+type AdvisorWarning = {
+  type: "tracking" | "pacing" | "anomaly";
+  severity: "low" | "medium" | "high";
+  detail: string;
+};
+type AdvisorResponse = {
+  health?: "excellent" | "good" | "mixed" | "needs_attention";
+  summary?: string;
+  working?: string[];
+  watch?: string[];
+  actions?: AdvisorActionItem[];
+  warnings?: AdvisorWarning[];
+  next_steps?: string[];
+  error?: string;
+};
 
-// AI Advisor card — sits ABOVE the raw metric panels (advice before numbers).
-// Manual trigger only: no auto-run, no polling, no caching. Each press posts the
-// campaign_id to /api/campaign-advisor and renders the returned summary + actions.
+const HEALTH_META: Record<string, { label: string; color: string; bg: string }> = {
+  excellent: { label: "Excellent", color: "#22c55e", bg: "rgba(34,197,94,0.14)" },
+  good: { label: "Good", color: "#22c55e", bg: "rgba(34,197,94,0.10)" },
+  mixed: { label: "Mixed", color: ACCENT, bg: "rgba(245,166,35,0.14)" },
+  needs_attention: { label: "Needs attention", color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
+};
+const CONFIDENCE_COLOR: Record<string, string> = {
+  high: "#22c55e",
+  medium: ACCENT,
+  low: "var(--text-muted)",
+};
+const SEVERITY_META: Record<string, { color: string; bg: string }> = {
+  high: { color: "#ef4444", bg: "rgba(239,68,68,0.10)" },
+  medium: { color: ACCENT, bg: "rgba(245,166,35,0.12)" },
+  low: { color: "var(--text-muted)", bg: "var(--surface)" },
+};
+
+const advisorSubLabel: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: "0.07em",
+  color: "var(--text-muted)",
+  marginBottom: 6,
+};
+
+function AdvisorInsightList({
+  label,
+  items,
+  marker,
+  markerColor,
+}: {
+  label: string;
+  items: string[];
+  marker: string;
+  markerColor: string;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div>
+      <div style={advisorSubLabel}>{label}</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+        {items.map((t, i) => (
+          <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+            <span style={{ color: markerColor, flexShrink: 0 }}>{marker}</span>
+            <span>{t}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// AI Advisor card — sits BELOW the raw metric panels: the user reads the stats
+// first, then optionally clicks for interpretation. Manual trigger only — no
+// auto-run, no polling, no caching. Renders the structured advisor response
+// (health badge, working/watch, action cards, warnings, numbered next steps).
 function CampaignAdvisorCard({ campaignId }: { campaignId: string }) {
   const fetcher = useFetcher<AdvisorResponse>();
   const loading = fetcher.state !== "idle";
   const data = fetcher.data;
-  const hasResult = !!data && !data.error && (data.summary || (data.actions?.length ?? 0) > 0);
+  const hasResult =
+    !!data &&
+    !data.error &&
+    !!(
+      data.summary ||
+      data.health ||
+      data.working?.length ||
+      data.watch?.length ||
+      data.actions?.length ||
+      data.warnings?.length ||
+      data.next_steps?.length
+    );
+  const health = data?.health ? HEALTH_META[data.health] : null;
 
   function run() {
     fetcher.submit(
@@ -483,7 +568,7 @@ function CampaignAdvisorCard({ campaignId }: { campaignId: string }) {
         border: `1px solid ${ACCENT}`,
         borderRadius: 10,
         padding: "14px 16px",
-        marginBottom: 12,
+        marginTop: 10,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: hasResult || loading ? 12 : 0 }}>
@@ -492,6 +577,11 @@ function CampaignAdvisorCard({ campaignId }: { campaignId: string }) {
           <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text)" }}>
             AI Advisor
           </span>
+          {!loading && health && (
+            <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: health.bg, color: health.color, marginLeft: 4 }}>
+              {health.label}
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -528,32 +618,78 @@ function CampaignAdvisorCard({ campaignId }: { campaignId: string }) {
       )}
 
       {!loading && hasResult && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {data?.summary && (
             <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)", whiteSpace: "pre-wrap" }}>
               {data.summary}
             </div>
           )}
+
+          {(data?.warnings?.length ?? 0) > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {data!.warnings!.map((w, i) => {
+                const sev = SEVERITY_META[w.severity] ?? SEVERITY_META.low;
+                return (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", background: sev.bg, border: `1px solid ${sev.color}`, borderRadius: 8, padding: "8px 10px" }}>
+                    <span style={{ fontSize: 12 }}>⚠️</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: sev.color, marginBottom: 2 }}>
+                        {w.type} · {w.severity}
+                      </div>
+                      <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5 }}>{w.detail}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <AdvisorInsightList label="What's working" items={data?.working ?? []} marker="✓" markerColor="#22c55e" />
+          <AdvisorInsightList label="Watch" items={data?.watch ?? []} marker="›" markerColor={ACCENT} />
+
           {(data?.actions?.length ?? 0) > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {data!.actions!.map((a, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)", marginBottom: 3 }}>
-                    {a.action}
+            <div>
+              <div style={advisorSubLabel}>Action required</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {data!.actions!.map((a, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 3 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{a.action}</div>
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: CONFIDENCE_COLOR[a.confidence] ?? "var(--text-muted)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                        {a.confidence} confidence
+                      </span>
+                    </div>
+                    {a.reason && (
+                      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{a.reason}</div>
+                    )}
+                    {a.expected_impact && (
+                      <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5, marginTop: 4 }}>
+                        <span style={{ color: "var(--text-muted)" }}>Expected impact: </span>
+                        {a.expected_impact}
+                      </div>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>
-                    {a.reasoning}
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(data?.next_steps?.length ?? 0) > 0 && (
+            <div>
+              <div style={advisorSubLabel}>Next steps</div>
+              <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+                {data!.next_steps!.map((s, i) => (
+                  <li key={i} style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>{s}</li>
+                ))}
+              </ol>
             </div>
           )}
         </div>
@@ -1240,9 +1376,6 @@ export default function AnalyticsPage() {
                       </span>
                     </div>
 
-                    {/* AI Advisor — advice before the raw metrics below. */}
-                    <CampaignAdvisorCard campaignId={c.id} />
-
                     {/* Two separate measurement sources — never merged. */}
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                       <CampaignMetricPanel
@@ -1280,6 +1413,9 @@ export default function AnalyticsPage() {
                         )}
                       </div>
                     )}
+
+                    {/* AI Advisor — below the raw stats: interpretation on demand. */}
+                    <CampaignAdvisorCard campaignId={c.id} />
                   </div>
                 );
               })}

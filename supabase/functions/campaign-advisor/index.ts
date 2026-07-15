@@ -6,14 +6,15 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // campaign-advisor
 //
 // Input:  { campaign_id: uuid }
-// Output: { summary: string, actions: [{ action, reasoning }] }
+// Output: { health, summary, working[], watch[], actions[], warnings[], next_steps[] }
 //
 // Gathers a compact, currency-explicit picture of a single boost/grow campaign —
 // the manually-entered Meta stats, the SQRZ site-side numbers (reused from the
 // exact same source that powers the campaign Analytics "SQRZ · site-side" panel:
-// the get_analytics_page RPC), server-computed cost-efficiency metrics, and the
-// retargetable audience size — then asks one LLM to reason over the whole thing
-// and return verdict-first advice. No caching: computed live on every call.
+// the get_analytics_page RPC), server-computed cost-efficiency metrics, the
+// retargetable audience size, and the artist's own previous campaigns (the only
+// benchmark source) — then asks one LLM to reason over the whole thing and
+// return structured, goal-aware advice. No caching: computed live on every call.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -43,6 +44,15 @@ type Derived = {
   cost_per_interaction: number | null;
   interactions_total: number;
   flags: Flags;
+};
+
+type PreviousCampaign = {
+  goal: string | null;
+  status: string | null;
+  spend: number | null;
+  impressions: number | null;
+  cpm: number | null;
+  cost_per_landing_page_view: number | null;
 };
 
 type AdvisorPayload = {
@@ -78,10 +88,36 @@ type AdvisorPayload = {
     widget_opens: number;
   };
   retargetable_audience: number;
+  // Benchmark source: the artist's own recent campaigns (empty if none).
+  previous_campaigns: PreviousCampaign[];
 };
 
-type AdvisorAction = { action: string; reasoning: string };
-type AdvisorResult = { summary: string; actions: AdvisorAction[] };
+type AdvisorHealth = "excellent" | "good" | "mixed" | "needs_attention";
+type Confidence = "high" | "medium" | "low";
+
+type AdvisorActionItem = {
+  action: string;
+  reason: string;
+  expected_impact: string;
+  confidence: Confidence;
+};
+
+type AdvisorWarning = {
+  type: "tracking" | "pacing" | "anomaly";
+  severity: "low" | "medium" | "high";
+  detail: string;
+};
+
+type AdvisorResult = {
+  health: AdvisorHealth;
+  summary: string;
+  working: string[];
+  watch: string[];
+  actions: AdvisorActionItem[];
+  warnings: AdvisorWarning[];
+  next_steps: string[];
+};
+
 type AdvisorImpl = (payload: AdvisorPayload) => Promise<AdvisorResult>;
 
 // ─── Derived metrics (Part 4) ─────────────────────────────────────────────────
@@ -145,23 +181,34 @@ function computeDerived(
 
 const ADVISOR_SYSTEM_PROMPT = `You are an advertising advisor for SQRZ, a booking platform for independent creative professionals (musicians, DJs, artists). You receive one JSON payload describing a single ad campaign and must return advice through the advisor_report tool.
 
-Audience: the artist running the campaign is usually new to advertising. Explain, don't just report.
+Open with a 2-3 sentence verdict in the summary field, and a categorical health label in the health field: excellent, good, mixed, or needs_attention. NEVER output a numeric score — a number implies a computed formula that does not exist, which is the same false-precision problem as a fabricated benchmark.
 
-Hard rules — follow every one:
-1. Verdict-first. Every cost metric that is present (not null) must get an explicit good / bad / mixed judgment, not a restated number. Say whether it is good or bad and briefly why.
-2. If meta_stats.spend is null (or derived.flags.spend_null is true), state plainly that cost-efficiency cannot be judged yet because no spend has been entered. Do NOT invent a cost verdict in that case.
-3. Translate jargon into plain terms for a beginner. For example, explain what a "retargetable audience" actually means (people who clicked the ad and can be shown follow-up ads later) rather than only reporting the count.
-4. Be goal-aware. The same numbers must produce meaningfully different advice depending on payload.goal:
-   - bookings: judge success by booking_flow_opens, cta_clicks and cost_per_interaction; raw reach matters less.
-   - audience: judge success by retargetable_audience growth and unique_visitors; building a pool to re-engage is the point.
-   - visibility: judge success by impressions, reach and CPM; awareness matters more than immediate action.
-5. Never fabricate SQRZ-specific benchmarks — there is not enough campaign history yet. You may reference general industry ranges, but clearly frame them as general guidance, not SQRZ's own data.
-6. Every reasoning field must cite the specific number from the payload that drove it.
-7. Never state a fact — status, dates, duration, or any figure — that is not explicitly present in the payload. Ground every claim in the provided JSON. If a value is null or missing, treat it as unknown; do not assume or estimate it.
+Organize findings into three tiers:
+- working: what is going well (short insights).
+- watch: things to keep an eye on (short insights).
+- actions: things that require action. If nothing rises to the level of requiring action, return an empty actions array — do NOT manufacture urgency.
 
-Currency is given in payload.currency — always state amounts with that currency, never a bare number or a different currency.
+Every entry in actions must be action-oriented — what the artist should DO — never a bare restated metric with no action attached. Each action has: action, reason (cites specific numbers from the payload), expected_impact, and confidence (high, medium, or low).
 
-Return a concise verdict-first summary and a short prioritized list of concrete, specific actions.`;
+Benchmarks: compare ONLY against previous_campaigns — the artist's own past campaigns — and only when that array is non-empty. If previous_campaigns is empty, state plainly that a historical comparison is not available yet. NEVER fabricate genre, country, or SQRZ-average comparisons; that data does not exist.
+
+Goal-aware metric weighting — lead with the metrics that match payload.goal; do not weight them all equally:
+- visibility: reach, impressions, CPM, frequency.
+- traffic: landing page views, CTR.
+- bookings: booking flow opens, CTA clicks.
+- streaming: widget engagement.
+
+Actively flag anomalies in the warnings array — unusually low landing page views, CTR dropping, frequency too high, spend pacing off, or tracking mismatches (for example, a large retargetable audience alongside little on-site engagement can indicate consent-gating or lost tracking). Do not just summarize what is normal. Each warning has type (tracking, pacing, or anomaly), severity (low, medium, or high), and detail.
+
+End with next_steps: a prioritized list, maximum 5 items.
+
+Hard rules (unchanged):
+- Never state a fact — status, dates, duration, or any figure — that is not explicitly present in the payload. Ground every claim in the provided JSON; treat null or missing values as unknown.
+- Every reason must cite the specific number from the payload that drove it.
+- If meta_stats.spend is null (or derived.flags.spend_null is true), say cost-efficiency cannot be judged yet — do NOT invent a cost verdict.
+- Currency is in payload.currency — always state amounts with that currency, never a bare number or a different currency.
+
+Do NOT explain what metrics like CPM, CTR, or impressions mean — assume the reader already has that context.`;
 
 const ADVISOR_TOOL = {
   name: "advisor_report",
@@ -171,33 +218,83 @@ const ADVISOR_TOOL = {
     type: "object",
     additionalProperties: false,
     properties: {
+      health: {
+        type: "string",
+        enum: ["excellent", "good", "mixed", "needs_attention"],
+        description: "Categorical health label — NOT a numeric score.",
+      },
       summary: {
         type: "string",
-        description:
-          "Verdict-first overview. Give an explicit good/bad/mixed judgment for each available cost metric, translate jargon for a beginner, and stay grounded strictly in the payload. If spend is null, say cost-efficiency cannot be judged yet.",
+        description: "2-3 sentence verdict, grounded strictly in the payload.",
+      },
+      working: {
+        type: "array",
+        items: { type: "string" },
+        description: "What is going well — short insights.",
+      },
+      watch: {
+        type: "array",
+        items: { type: "string" },
+        description: "Things to keep an eye on — short insights.",
       },
       actions: {
         type: "array",
-        description: "Prioritized, concrete next steps (most important first).",
+        description:
+          "Action-oriented recommendations, most important first. Empty if nothing requires action — do not manufacture urgency.",
         items: {
           type: "object",
           additionalProperties: false,
           properties: {
             action: {
               type: "string",
-              description: "A specific, actionable recommendation.",
+              description: "What the artist should DO (never a bare metric).",
             },
-            reasoning: {
+            reason: {
               type: "string",
               description:
-                "Why this action — must cite the specific number from the payload that drove it.",
+                "Why — must cite the specific number(s) from the payload that drove it.",
+            },
+            expected_impact: {
+              type: "string",
+              description: "What this action is expected to improve.",
+            },
+            confidence: {
+              type: "string",
+              enum: ["high", "medium", "low"],
             },
           },
-          required: ["action", "reasoning"],
+          required: ["action", "reason", "expected_impact", "confidence"],
         },
       },
+      warnings: {
+        type: "array",
+        description: "Anomalies or issues actively flagged (empty if none).",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            type: { type: "string", enum: ["tracking", "pacing", "anomaly"] },
+            severity: { type: "string", enum: ["low", "medium", "high"] },
+            detail: { type: "string" },
+          },
+          required: ["type", "severity", "detail"],
+        },
+      },
+      next_steps: {
+        type: "array",
+        items: { type: "string" },
+        description: "Prioritized next steps, maximum 5.",
+      },
     },
-    required: ["summary", "actions"],
+    required: [
+      "health",
+      "summary",
+      "working",
+      "watch",
+      "actions",
+      "warnings",
+      "next_steps",
+    ],
   },
 } as const;
 
@@ -212,7 +309,7 @@ const anthropicAdvisor: AdvisorImpl = async (payload) => {
 
   const message = await client.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 2048,
+    max_tokens: 4096,
     system: ADVISOR_SYSTEM_PROMPT,
     tools: [ADVISOR_TOOL],
     tool_choice: { type: "tool", name: "advisor_report" },
@@ -224,18 +321,54 @@ const anthropicAdvisor: AdvisorImpl = async (payload) => {
   );
   if (!toolUse) throw new Error("advisor: model returned no tool_use block");
 
-  const input = toolUse.input as Partial<AdvisorResult>;
-  const actions = Array.isArray(input.actions)
+  return normalizeResult(toolUse.input as Record<string, unknown>);
+};
+
+// Defensive normalization — the forced tool schema constrains the shape, but we
+// still coerce/whitelist every field so the UI always receives a valid result.
+function normalizeResult(input: Record<string, unknown>): AdvisorResult {
+  const strArr = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
+    typeof v === "string" && (allowed as readonly string[]).includes(v)
+      ? (v as T)
+      : fallback;
+
+  const actions: AdvisorActionItem[] = Array.isArray(input.actions)
     ? input.actions
-        .filter((a): a is AdvisorAction => !!a && typeof a === "object")
+        .filter((a): a is Record<string, unknown> => !!a && typeof a === "object")
         .map((a) => ({
           action: String(a.action ?? ""),
-          reasoning: String(a.reasoning ?? ""),
+          reason: String(a.reason ?? ""),
+          expected_impact: String(a.expected_impact ?? ""),
+          confidence: oneOf<Confidence>(a.confidence, ["high", "medium", "low"], "medium"),
         }))
     : [];
 
-  return { summary: String(input.summary ?? ""), actions };
-};
+  const warnings: AdvisorWarning[] = Array.isArray(input.warnings)
+    ? input.warnings
+        .filter((w): w is Record<string, unknown> => !!w && typeof w === "object")
+        .map((w) => ({
+          type: oneOf(w.type, ["tracking", "pacing", "anomaly"] as const, "anomaly"),
+          severity: oneOf(w.severity, ["low", "medium", "high"] as const, "low"),
+          detail: String(w.detail ?? ""),
+        }))
+    : [];
+
+  return {
+    health: oneOf<AdvisorHealth>(
+      input.health,
+      ["excellent", "good", "mixed", "needs_attention"],
+      "mixed",
+    ),
+    summary: String(input.summary ?? ""),
+    working: strArr(input.working),
+    watch: strArr(input.watch),
+    actions,
+    warnings,
+    next_steps: strArr(input.next_steps).slice(0, 5),
+  };
+}
 
 const ADVISOR_PROVIDERS: Record<string, AdvisorImpl> = {
   anthropic: anthropicAdvisor,
@@ -300,6 +433,38 @@ Deno.serve(async (req: Request) => {
     (profile?.name as string | null) ||
     [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim() ||
     null;
+
+  // 1b. Previous campaigns — the artist's OWN recent history. This is the only
+  //     benchmark source the advisor is allowed to use (no genre/country/SQRZ
+  //     averages). Empty array when there is no prior history.
+  const { data: priorRows } = await admin
+    .from("boost_campaigns")
+    .select(
+      "id, goal, status, stat_spend, stat_impressions, stat_cpm, stat_profile_visits",
+    )
+    .eq("profile_id", profileId)
+    .in("status", ["completed", "live"])
+    .neq("id", campaignId)
+    .order("starts_at", { ascending: false, nullsFirst: false })
+    .limit(5);
+
+  const previousCampaigns: PreviousCampaign[] = (priorRows ?? []).map((p) => {
+    const pSpend = p.stat_spend == null ? null : Number(p.stat_spend);
+    const pVisits =
+      p.stat_profile_visits == null ? null : Number(p.stat_profile_visits);
+    return {
+      goal: (p.goal as string | null) ?? null,
+      status: (p.status as string | null) ?? null,
+      spend: pSpend,
+      impressions:
+        p.stat_impressions == null ? null : Number(p.stat_impressions),
+      cpm: p.stat_cpm == null ? null : Number(p.stat_cpm),
+      cost_per_landing_page_view:
+        pSpend != null && pVisits != null && pVisits > 0
+          ? round(pSpend / pVisits)
+          : null,
+    };
+  });
 
   // 2. SQRZ site-side numbers — reuse the exact source that powers the campaign
   //    Analytics "SQRZ · site-side" panel (get_analytics_page → boost_campaigns).
@@ -393,6 +558,7 @@ Deno.serve(async (req: Request) => {
     derived,
     sqrz_analytics: sqrz,
     retargetable_audience: retargetableAudience,
+    previous_campaigns: previousCampaigns,
   };
 
   // 6–8. One LLM call behind the provider boundary; return the parsed result.
