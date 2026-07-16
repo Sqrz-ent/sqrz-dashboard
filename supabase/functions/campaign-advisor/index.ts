@@ -83,7 +83,9 @@ type AdvisorPayload = {
   derived: Derived;
   sqrz_analytics: {
     views_driven: number;
-    unique_visitors: number;
+    // null for campaigns — jitsu page_view is cookieless, so unique visitors is
+    // not measurable. Treat null as "unknown", never as zero.
+    unique_visitors: number | null;
     booking_flow_opens: number;
     cta_clicks: number;
     widget_opens: number;
@@ -198,6 +200,8 @@ Goal-aware metric weighting — lead with the metrics that match payload.goal; d
 - streaming: widget engagement.
 
 Benchmarks: compare ONLY against previous_campaigns — the artist's own past campaigns — and only when that array is non-empty. If it is empty, do not compare; historical comparison is not available yet. NEVER fabricate genre, country, or SQRZ-average comparisons; that data does not exist.
+
+Views / unique visitors: sqrz_analytics.views_driven is the trustworthy on-site view count (client-side, matches the platform's own landing-page-view count). sqrz_analytics.unique_visitors is null for campaign traffic because it is tracked cookielessly — treat null as "not measurable", never as zero, and do not fault it. For an audience goal, lean on retargetable_audience and views_driven instead.
 
 Services / bookings gating: if services_active is false, do NOT treat booking_flow_opens or any booking-related metric as a problem. State plainly that booking performance cannot be judged because there is nothing to book yet.
 
@@ -469,7 +473,9 @@ Deno.serve(async (req: Request) => {
 
   const sqrz = {
     views_driven: num(sqrzRow?.driven_views),
-    unique_visitors: num(sqrzRow?.driven_unique),
+    // driven_unique is null for campaigns (cookieless) — pass null through, do
+    // NOT coerce to 0, so the advisor treats it as unknown rather than "zero".
+    unique_visitors: sqrzRow?.driven_unique == null ? null : num(sqrzRow?.driven_unique),
     booking_flow_opens: num(sqrzRow?.modal_opens),
     cta_clicks: num(sqrzRow?.cta_clicks),
     widget_opens: num(sqrzRow?.widget_opens),

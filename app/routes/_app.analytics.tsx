@@ -36,9 +36,12 @@ type BoostCampaignStat = {
   starts_at: string | null;
   ends_at: string | null;
   utm_campaign: string | null;
-  // SQRZ site-side measurement (profile_views + jitsu_events on our own site)
+  // SQRZ site-side measurement. driven_views comes from jitsu page_view (one per
+  // real load — matches Meta). driven_unique is null for campaigns: jitsu is
+  // cookieless, so unique visitors is not measurable (reason carried alongside).
   driven_views: number | null;
   driven_unique: number | null;
+  driven_unique_reason: string | null;
   modal_opens: number | null;
   chat_opens: number | null;
   service_clicks: number | null;
@@ -1284,7 +1287,9 @@ export default function AnalyticsPage() {
                 // until the mobile app ships (tracking still recorded).
                 const siteMetrics = [
                   { label: "Views driven", value: (c.driven_views ?? 0).toLocaleString() },
-                  { label: "Unique visitors", value: (c.driven_unique ?? 0).toLocaleString() },
+                  // Kept as a row (not removed) even though it's null — campaign
+                  // traffic is cookieless, so unique visitors can't be measured.
+                  { label: "Unique visitors", value: c.driven_unique != null ? c.driven_unique.toLocaleString() : "n/a — cookieless" },
                   { label: "Booking flow opens", value: (c.modal_opens ?? 0).toLocaleString() },
                   { label: "CTA clicks", value: (c.cta_clicks ?? 0).toLocaleString() },
                   { label: "Widget opens", value: (c.widget_opens ?? 0).toLocaleString() },
