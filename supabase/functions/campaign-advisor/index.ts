@@ -6,7 +6,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // campaign-advisor
 //
 // Input:  { campaign_id: uuid }
-// Output: { health, summary, working[], watch[], actions[], warnings[], next_steps[] }
+// Output: { health, summary, insights[] (tagged working/watch/action), actions[] }
 //
 // Gathers a compact, currency-explicit picture of a single boost/grow campaign —
 // the manually-entered Meta stats, the SQRZ site-side numbers (reused from the
@@ -83,40 +83,41 @@ type AdvisorPayload = {
   derived: Derived;
   sqrz_analytics: {
     views_driven: number;
-    unique_visitors: number;
+    // null for campaigns — jitsu page_view is cookieless, so unique visitors is
+    // not measurable. Treat null as "unknown", never as zero.
+    unique_visitors: number | null;
     booking_flow_opens: number;
     cta_clicks: number;
     widget_opens: number;
   };
   retargetable_audience: number;
+  // Whether the profile has any active bookable service right now. When false,
+  // booking-related metrics must not be judged (there is nothing to book yet).
+  services_active: boolean;
   // Benchmark source: the artist's own recent campaigns (empty if none).
   previous_campaigns: PreviousCampaign[];
 };
 
 type AdvisorHealth = "excellent" | "good" | "mixed" | "needs_attention";
 type Confidence = "high" | "medium" | "low";
+type InsightType = "working" | "watch" | "action";
+
+type AdvisorInsight = {
+  type: InsightType;
+  text: string;
+};
 
 type AdvisorActionItem = {
   action: string;
   reason: string;
-  expected_impact: string;
   confidence: Confidence;
-};
-
-type AdvisorWarning = {
-  type: "tracking" | "pacing" | "anomaly";
-  severity: "low" | "medium" | "high";
-  detail: string;
 };
 
 type AdvisorResult = {
   health: AdvisorHealth;
   summary: string;
-  working: string[];
-  watch: string[];
+  insights: AdvisorInsight[];
   actions: AdvisorActionItem[];
-  warnings: AdvisorWarning[];
-  next_steps: string[];
 };
 
 type AdvisorImpl = (payload: AdvisorPayload) => Promise<AdvisorResult>;
@@ -182,16 +183,15 @@ function computeDerived(
 
 const ADVISOR_SYSTEM_PROMPT = `You are an advertising advisor for SQRZ, a booking platform for independent creative professionals (musicians, DJs, artists). You receive one JSON payload describing a single ad campaign and must return advice through the advisor_report tool.
 
-Open with a 2-3 sentence verdict in the summary field, and a categorical health label in the health field: excellent, good, mixed, or needs_attention. NEVER output a numeric score — a number implies a computed formula that does not exist, which is the same false-precision problem as a fabricated benchmark.
+Be concise. The whole response is short by design.
 
-Organize findings into three tiers:
-- working: what is going well (short insights).
-- watch: things to keep an eye on (short insights).
-- actions: things that require action. If nothing rises to the level of requiring action, return an empty actions array — do NOT manufacture urgency.
+health: a categorical label — excellent, good, mixed, or needs_attention. NEVER output a numeric score; a number implies a computed formula that does not exist, which is the same false-precision problem as a fabricated benchmark.
 
-Every entry in actions must be action-oriented — what the artist should DO — never a bare restated metric with no action attached. Each action has: action, reason (cites specific numbers from the payload), expected_impact, and confidence (high, medium, or low).
+summary: hard cap of 2 sentences.
 
-Benchmarks: compare ONLY against previous_campaigns — the artist's own past campaigns — and only when that array is non-empty. If previous_campaigns is empty, state plainly that a historical comparison is not available yet. NEVER fabricate genre, country, or SQRZ-average comparisons; that data does not exist.
+insights: ONE combined list, maximum 5 items total (not three separate sections). Each item is { type, text } where type is "working" (going well), "watch" (keep an eye on), or "action" (needs doing). Cap each text at ~20 words. Flag anomalies here as "watch" or "action" items — unusually low landing page views, spend pacing off, or tracking mismatches (e.g. a large retargetable audience alongside little on-site engagement can indicate consent-gating or lost tracking). Do not just summarize what is normal.
+
+actions: maximum 2-3 items, each { action, reason, confidence }. action is what the artist should DO (never a bare restated metric). reason cites the specific number(s) that drove it, capped at ~15 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
 
 Goal-aware metric weighting — lead with the metrics that match payload.goal; do not weight them all equally:
 - visibility: reach, impressions, CPM, frequency.
@@ -199,13 +199,18 @@ Goal-aware metric weighting — lead with the metrics that match payload.goal; d
 - bookings: booking flow opens, CTA clicks.
 - streaming: widget engagement.
 
-Actively flag anomalies in the warnings array — unusually low landing page views, CTR dropping, frequency too high, spend pacing off, or tracking mismatches (for example, a large retargetable audience alongside little on-site engagement can indicate consent-gating or lost tracking). Do not just summarize what is normal. Each warning has type (tracking, pacing, or anomaly), severity (low, medium, or high), and detail.
+Benchmarks: compare ONLY against previous_campaigns — the artist's own past campaigns — and only when that array is non-empty. If it is empty, do not compare; historical comparison is not available yet. NEVER fabricate genre, country, or SQRZ-average comparisons; that data does not exist.
 
-End with next_steps: a prioritized list, maximum 5 items.
+Views / unique visitors: sqrz_analytics.views_driven is the trustworthy on-site view count (client-side, matches the platform's own landing-page-view count). sqrz_analytics.unique_visitors is null for campaign traffic because it is tracked cookielessly — treat null as "not measurable", never as zero, and do not fault it. For an audience goal, lean on retargetable_audience and views_driven instead.
 
-Hard rules (unchanged):
+Services / bookings gating: if services_active is false, do NOT treat booking_flow_opens or any booking-related metric as a problem. State plainly that booking performance cannot be judged because there is nothing to book yet.
+
+Email capture: NEVER recommend "add an email capture" — it is a standard element on every profile, not something that can be missing. If low email capture is worth mentioning at all, frame it ONLY as a positioning/visibility issue relative to scroll depth (e.g. the capture sits below where most visitors actually scroll to) — never as something absent.
+
+Hard rules:
 - Never state a fact — status, dates, duration, or any figure — that is not explicitly present in the payload. Ground every claim in the provided JSON; treat null or missing values as unknown.
-- Every reason must cite the specific number from the payload that drove it.
+- Every reason/insight that makes a claim must cite the specific number from the payload that drove it.
+- Never restate the same specific number in more than one place — pick the single best location for each fact.
 - If meta_stats.spend is null (or derived.flags.spend_null is true), say cost-efficiency cannot be judged yet — do NOT invent a cost verdict.
 - Currency is in payload.currency — always state amounts with that currency, never a bare number or a different currency.
 
@@ -226,22 +231,32 @@ const ADVISOR_TOOL = {
       },
       summary: {
         type: "string",
-        description: "2-3 sentence verdict, grounded strictly in the payload.",
+        description: "Verdict, hard cap of 2 sentences, grounded in the payload.",
       },
-      working: {
+      insights: {
         type: "array",
-        items: { type: "string" },
-        description: "What is going well — short insights.",
-      },
-      watch: {
-        type: "array",
-        items: { type: "string" },
-        description: "Things to keep an eye on — short insights.",
+        description:
+          "One combined list, max 5 items total. Tag each as working / watch / action. Flag anomalies here as watch or action.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            type: {
+              type: "string",
+              enum: ["working", "watch", "action"],
+            },
+            text: {
+              type: "string",
+              description: "~20 words max; cite the number if making a claim.",
+            },
+          },
+          required: ["type", "text"],
+        },
       },
       actions: {
         type: "array",
         description:
-          "Action-oriented recommendations, most important first. Empty if nothing requires action — do not manufacture urgency.",
+          "Max 2-3 concrete actions. Empty if nothing genuinely requires action — do not manufacture urgency.",
         items: {
           type: "object",
           additionalProperties: false,
@@ -253,49 +268,18 @@ const ADVISOR_TOOL = {
             reason: {
               type: "string",
               description:
-                "Why — must cite the specific number(s) from the payload that drove it.",
-            },
-            expected_impact: {
-              type: "string",
-              description: "What this action is expected to improve.",
+                "Cites the specific number(s) that drove it; ~15 words max.",
             },
             confidence: {
               type: "string",
               enum: ["high", "medium", "low"],
             },
           },
-          required: ["action", "reason", "expected_impact", "confidence"],
+          required: ["action", "reason", "confidence"],
         },
-      },
-      warnings: {
-        type: "array",
-        description: "Anomalies or issues actively flagged (empty if none).",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            type: { type: "string", enum: ["tracking", "pacing", "anomaly"] },
-            severity: { type: "string", enum: ["low", "medium", "high"] },
-            detail: { type: "string" },
-          },
-          required: ["type", "severity", "detail"],
-        },
-      },
-      next_steps: {
-        type: "array",
-        items: { type: "string" },
-        description: "Prioritized next steps, maximum 5.",
       },
     },
-    required: [
-      "health",
-      "summary",
-      "working",
-      "watch",
-      "actions",
-      "warnings",
-      "next_steps",
-    ],
+    required: ["health", "summary", "insights", "actions"],
   },
 } as const;
 
@@ -328,12 +312,21 @@ const anthropicAdvisor: AdvisorImpl = async (payload) => {
 // Defensive normalization — the forced tool schema constrains the shape, but we
 // still coerce/whitelist every field so the UI always receives a valid result.
 function normalizeResult(input: Record<string, unknown>): AdvisorResult {
-  const strArr = (v: unknown): string[] =>
-    Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
     typeof v === "string" && (allowed as readonly string[]).includes(v)
       ? (v as T)
       : fallback;
+
+  const insights: AdvisorInsight[] = Array.isArray(input.insights)
+    ? input.insights
+        .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+        .map((x) => ({
+          type: oneOf<InsightType>(x.type, ["working", "watch", "action"], "watch"),
+          text: String(x.text ?? ""),
+        }))
+        .filter((x) => x.text)
+        .slice(0, 5)
+    : [];
 
   const actions: AdvisorActionItem[] = Array.isArray(input.actions)
     ? input.actions
@@ -341,19 +334,10 @@ function normalizeResult(input: Record<string, unknown>): AdvisorResult {
         .map((a) => ({
           action: String(a.action ?? ""),
           reason: String(a.reason ?? ""),
-          expected_impact: String(a.expected_impact ?? ""),
           confidence: oneOf<Confidence>(a.confidence, ["high", "medium", "low"], "medium"),
         }))
-    : [];
-
-  const warnings: AdvisorWarning[] = Array.isArray(input.warnings)
-    ? input.warnings
-        .filter((w): w is Record<string, unknown> => !!w && typeof w === "object")
-        .map((w) => ({
-          type: oneOf(w.type, ["tracking", "pacing", "anomaly"] as const, "anomaly"),
-          severity: oneOf(w.severity, ["low", "medium", "high"] as const, "low"),
-          detail: String(w.detail ?? ""),
-        }))
+        .filter((a) => a.action)
+        .slice(0, 3)
     : [];
 
   return {
@@ -363,11 +347,8 @@ function normalizeResult(input: Record<string, unknown>): AdvisorResult {
       "mixed",
     ),
     summary: String(input.summary ?? ""),
-    working: strArr(input.working),
-    watch: strArr(input.watch),
+    insights,
     actions,
-    warnings,
-    next_steps: strArr(input.next_steps).slice(0, 5),
   };
 }
 
@@ -467,6 +448,15 @@ Deno.serve(async (req: Request) => {
     };
   });
 
+  // 1c. Does the profile have any active bookable service right now? Gates
+  //     booking-metric judgment: nothing to book → don't fault booking numbers.
+  const { count: activeServiceCount } = await admin
+    .from("profile_services")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", profileId)
+    .eq("is_active", true);
+  const servicesActive = (activeServiceCount ?? 0) > 0;
+
   // 2. SQRZ site-side numbers — reuse the exact source that powers the campaign
   //    Analytics "SQRZ · site-side" panel (get_analytics_page → boost_campaigns).
   //    The boost_campaign_stats view's live_* columns are hardcoded NULL and are
@@ -483,7 +473,9 @@ Deno.serve(async (req: Request) => {
 
   const sqrz = {
     views_driven: num(sqrzRow?.driven_views),
-    unique_visitors: num(sqrzRow?.driven_unique),
+    // driven_unique is null for campaigns (cookieless) — pass null through, do
+    // NOT coerce to 0, so the advisor treats it as unknown rather than "zero".
+    unique_visitors: sqrzRow?.driven_unique == null ? null : num(sqrzRow?.driven_unique),
     booking_flow_opens: num(sqrzRow?.modal_opens),
     cta_clicks: num(sqrzRow?.cta_clicks),
     widget_opens: num(sqrzRow?.widget_opens),
@@ -559,6 +551,7 @@ Deno.serve(async (req: Request) => {
     derived,
     sqrz_analytics: sqrz,
     retargetable_audience: retargetableAudience,
+    services_active: servicesActive,
     previous_campaigns: previousCampaigns,
   };
 

@@ -36,9 +36,12 @@ type BoostCampaignStat = {
   starts_at: string | null;
   ends_at: string | null;
   utm_campaign: string | null;
-  // SQRZ site-side measurement (profile_views + jitsu_events on our own site)
+  // SQRZ site-side measurement. driven_views comes from jitsu page_view (one per
+  // real load — matches Meta). driven_unique is null for campaigns: jitsu is
+  // cookieless, so unique visitors is not measurable (reason carried alongside).
   driven_views: number | null;
   driven_unique: number | null;
+  driven_unique_reason: string | null;
   modal_opens: number | null;
   chat_opens: number | null;
   service_clicks: number | null;
@@ -482,25 +485,20 @@ function breakdownToMetrics(data: unknown): { label: string; value: string | nul
   return [{ label: "value", value: String(data) }];
 }
 
+type AdvisorInsight = {
+  type: "working" | "watch" | "action";
+  text: string;
+};
 type AdvisorActionItem = {
   action: string;
   reason: string;
-  expected_impact: string;
   confidence: "high" | "medium" | "low";
-};
-type AdvisorWarning = {
-  type: "tracking" | "pacing" | "anomaly";
-  severity: "low" | "medium" | "high";
-  detail: string;
 };
 type AdvisorResponse = {
   health?: "excellent" | "good" | "mixed" | "needs_attention";
   summary?: string;
-  working?: string[];
-  watch?: string[];
+  insights?: AdvisorInsight[];
   actions?: AdvisorActionItem[];
-  warnings?: AdvisorWarning[];
-  next_steps?: string[];
   error?: string;
 };
 
@@ -515,47 +513,11 @@ const CONFIDENCE_COLOR: Record<string, string> = {
   medium: ACCENT,
   low: "var(--text-muted)",
 };
-const SEVERITY_META: Record<string, { color: string; bg: string }> = {
-  high: { color: "#ef4444", bg: "rgba(239,68,68,0.10)" },
-  medium: { color: ACCENT, bg: "rgba(245,166,35,0.12)" },
-  low: { color: "var(--text-muted)", bg: "var(--surface)" },
+const INSIGHT_META: Record<string, { icon: string; color: string }> = {
+  working: { icon: "✓", color: "#22c55e" },
+  watch: { icon: "⚠", color: ACCENT },
+  action: { icon: "🔴", color: "#ef4444" },
 };
-
-const advisorSubLabel: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  textTransform: "uppercase",
-  letterSpacing: "0.07em",
-  color: "var(--text-muted)",
-  marginBottom: 6,
-};
-
-function AdvisorInsightList({
-  label,
-  items,
-  marker,
-  markerColor,
-}: {
-  label: string;
-  items: string[];
-  marker: string;
-  markerColor: string;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <div>
-      <div style={advisorSubLabel}>{label}</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {items.map((t, i) => (
-          <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
-            <span style={{ color: markerColor, flexShrink: 0 }}>{marker}</span>
-            <span>{t}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // AI Advisor card — sits BELOW the raw metric panels: the user reads the stats
 // first, then optionally clicks for interpretation. Manual trigger only — no
@@ -576,15 +538,7 @@ function CampaignAdvisorCard({
   const hasResult =
     !!data &&
     !data.error &&
-    !!(
-      data.summary ||
-      data.health ||
-      data.working?.length ||
-      data.watch?.length ||
-      data.actions?.length ||
-      data.warnings?.length ||
-      data.next_steps?.length
-    );
+    !!(data.summary || data.health || data.insights?.length || data.actions?.length);
   const health = data?.health ? HEALTH_META[data.health] : null;
 
   function run() {
@@ -651,78 +605,50 @@ function CampaignAdvisorCard({
       )}
 
       {!loading && hasResult && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {data?.summary && (
             <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)", whiteSpace: "pre-wrap" }}>
               {data.summary}
             </div>
           )}
 
-          {(data?.warnings?.length ?? 0) > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {data!.warnings!.map((w, i) => {
-                const sev = SEVERITY_META[w.severity] ?? SEVERITY_META.low;
+          {(data?.insights?.length ?? 0) > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {data!.insights!.map((it, i) => {
+                const meta = INSIGHT_META[it.type] ?? INSIGHT_META.watch;
                 return (
-                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-start", background: sev.bg, border: `1px solid ${sev.color}`, borderRadius: 8, padding: "8px 10px" }}>
-                    <span style={{ fontSize: 12 }}>⚠️</span>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: sev.color, marginBottom: 2 }}>
-                        {w.type} · {w.severity}
-                      </div>
-                      <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5 }}>{w.detail}</div>
-                    </div>
+                  <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
+                    <span style={{ color: meta.color, flexShrink: 0 }}>{meta.icon}</span>
+                    <span>{it.text}</span>
                   </div>
                 );
               })}
             </div>
           )}
 
-          <AdvisorInsightList label="What's working" items={data?.working ?? []} marker="✓" markerColor="#22c55e" />
-          <AdvisorInsightList label="Watch" items={data?.watch ?? []} marker="›" markerColor={ACCENT} />
-
           {(data?.actions?.length ?? 0) > 0 && (
-            <div>
-              <div style={advisorSubLabel}>Action required</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {data!.actions!.map((a, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      background: "var(--surface)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      padding: "10px 12px",
-                    }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 3 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{a.action}</div>
-                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: CONFIDENCE_COLOR[a.confidence] ?? "var(--text-muted)", flexShrink: 0, whiteSpace: "nowrap" }}>
-                        {a.confidence} confidence
-                      </span>
-                    </div>
-                    {a.reason && (
-                      <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{a.reason}</div>
-                    )}
-                    {a.expected_impact && (
-                      <div style={{ fontSize: 12, color: "var(--text)", lineHeight: 1.5, marginTop: 4 }}>
-                        <span style={{ color: "var(--text-muted)" }}>Expected impact: </span>
-                        {a.expected_impact}
-                      </div>
-                    )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {data!.actions!.map((a, i) => (
+                <div
+                  key={i}
+                  style={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 8,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 3 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{a.action}</div>
+                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: CONFIDENCE_COLOR[a.confidence] ?? "var(--text-muted)", flexShrink: 0, whiteSpace: "nowrap" }}>
+                      {a.confidence} confidence
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(data?.next_steps?.length ?? 0) > 0 && (
-            <div>
-              <div style={advisorSubLabel}>Next steps</div>
-              <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
-                {data!.next_steps!.map((s, i) => (
-                  <li key={i} style={{ fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>{s}</li>
-                ))}
-              </ol>
+                  {a.reason && (
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{a.reason}</div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -1361,7 +1287,9 @@ export default function AnalyticsPage() {
                 // until the mobile app ships (tracking still recorded).
                 const siteMetrics = [
                   { label: "Views driven", value: (c.driven_views ?? 0).toLocaleString() },
-                  { label: "Unique visitors", value: (c.driven_unique ?? 0).toLocaleString() },
+                  // Kept as a row (not removed) even though it's null — campaign
+                  // traffic is cookieless, so unique visitors can't be measured.
+                  { label: "Unique visitors", value: c.driven_unique != null ? c.driven_unique.toLocaleString() : "n/a — cookieless" },
                   { label: "Booking flow opens", value: (c.modal_opens ?? 0).toLocaleString() },
                   { label: "CTA clicks", value: (c.cta_clicks ?? 0).toLocaleString() },
                   { label: "Widget opens", value: (c.widget_opens ?? 0).toLocaleString() },
