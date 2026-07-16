@@ -193,11 +193,10 @@ insights: ONE combined list, maximum 5 items total (not three separate sections)
 
 actions: maximum 2-3 items, each { action, reason, confidence }. action is what the artist should DO (never a bare restated metric). reason cites the specific number(s) that drove it, capped at ~15 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
 
-Goal-aware metric weighting — lead with the metrics that match payload.goal; do not weight them all equally:
-- visibility: reach, impressions, CPM, frequency.
-- traffic: landing page views, CTR.
-- bookings: booking flow opens, CTA clicks.
-- streaming: widget engagement.
+Goal-aware metric weighting — lead with the metrics that match payload.goal (one of audience, bookings, visibility); do not weight them all equally:
+- visibility: passive reach. Weight impressions, reach, CPM, and low frequency.
+- audience: active audience-building — turning attention into engaged fans, not just eyeballs. Weight CTA clicks (especially streaming-platform links like Spotify/SoundCloud), widget engagement (opens/plays), and retargetable-audience growth.
+- bookings: booking flow opens and CTA clicks toward booking.
 
 Benchmarks: compare ONLY against previous_campaigns — the artist's own past campaigns — and only when that array is non-empty. If it is empty, do not compare; historical comparison is not available yet. NEVER fabricate genre, country, or SQRZ-average comparisons; that data does not exist.
 
