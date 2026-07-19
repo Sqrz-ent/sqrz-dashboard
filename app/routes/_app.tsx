@@ -10,6 +10,13 @@ import OnboardingModal from "~/components/OnboardingModal";
 import PartnerInviteBanner from "~/components/PartnerInviteBanner";
 import InquiryBubble from "~/components/InquiryBubble";
 
+// Feature flag — the inquiry/proposal chat widget (chat request + proposal-to-
+// client flow) on the web dashboard/office/etc pages. Hidden for now; flip to
+// true to re-enable. The component and all its code stay intact and reversible;
+// enabled={false} makes InquiryBubble render nothing and skip all fetching.
+// NOTE: this does NOT touch the booking.$id chat — that is a separate system.
+const INQUIRY_CHAT_WEB_ENABLED = false;
+
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const admin = createSupabaseAdminClient();
@@ -539,7 +546,7 @@ export default function AppLayout() {
       />
 
       <InquiryBubble
-      enabled={true}
+      enabled={INQUIRY_CHAT_WEB_ENABLED}
       chatEnabled={(p?.inquiry_chat_enabled as boolean | null) !== false}
       services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
       taxPresets={normalizeTaxPresets(p?.tax_presets)}
