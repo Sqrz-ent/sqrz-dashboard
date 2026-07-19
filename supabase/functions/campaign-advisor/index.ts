@@ -187,11 +187,11 @@ Be concise. The whole response is short by design.
 
 health: a categorical label — excellent, good, mixed, or needs_attention. NEVER output a numeric score; a number implies a computed formula that does not exist, which is the same false-precision problem as a fabricated benchmark.
 
-summary: hard cap of 2 sentences.
+summary: a short verdict + reason ONLY — NO specific figures (the numbers belong in the bullets below, not here). Hard cap ~25 words. Target length and style: "Strong, efficient reach campaign — traffic is real and landing well, though budget is pacing under the full spend."
 
-insights: ONE combined list, maximum 5 items total (not three separate sections). Each item is { type, text } where type is "working" (going well), "watch" (keep an eye on), or "action" (needs doing). Cap each text at ~20 words. Flag anomalies here as "watch" or "action" items — unusually low landing page views, spend pacing off, or tracking mismatches (e.g. a large retargetable audience alongside little on-site engagement can indicate consent-gating or lost tracking). Do not just summarize what is normal.
+insights: ONE combined list, maximum 5 items total (not three separate sections). Each item is { type, text } where type is "working" (going well), "watch" (keep an eye on), or "action" (needs doing). Cap each text at ~12 words. Flag anomalies here as "watch" or "action" items — unusually low landing page views, spend pacing off, or tracking mismatches (e.g. a large retargetable audience alongside little on-site engagement can indicate consent-gating or lost tracking). Do not just summarize what is normal.
 
-actions: maximum 2-3 items, each { action, reason, confidence }. action is what the artist should DO (never a bare restated metric). reason cites the specific number(s) that drove it, capped at ~15 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
+actions: maximum 2-3 items, each { action, reason, confidence }. action is what the artist should DO (never a bare restated metric). reason cites the specific number(s) that drove it, capped at ~10 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
 
 Goal-aware metric weighting — lead with the metrics that match payload.goal (one of audience, bookings, visibility); do not weight them all equally:
 - visibility: passive reach. Weight impressions, reach, CPM, and low frequency.
@@ -209,7 +209,7 @@ Email capture: NEVER recommend "add an email capture" — it is a standard eleme
 Hard rules:
 - Never state a fact — status, dates, duration, or any figure — that is not explicitly present in the payload. Ground every claim in the provided JSON; treat null or missing values as unknown.
 - Every reason/insight that makes a claim must cite the specific number from the payload that drove it.
-- Never restate the same specific number in more than one place — pick the single best location for each fact.
+- A specific number may appear in the summary OR in a bullet, never both. The summary states the verdict; the bullets carry the evidence. (Because the summary carries no figures, every specific number lives in a bullet.)
 - If meta_stats.spend is null (or derived.flags.spend_null is true), say cost-efficiency cannot be judged yet — do NOT invent a cost verdict.
 - Currency is in payload.currency — always state amounts with that currency, never a bare number or a different currency.
 
@@ -230,7 +230,7 @@ const ADVISOR_TOOL = {
       },
       summary: {
         type: "string",
-        description: "Verdict, hard cap of 2 sentences, grounded in the payload.",
+        description: "Short verdict + reason, no specific figures, ~25 words max.",
       },
       insights: {
         type: "array",
@@ -246,7 +246,7 @@ const ADVISOR_TOOL = {
             },
             text: {
               type: "string",
-              description: "~20 words max; cite the number if making a claim.",
+              description: "~12 words max; cite the number if making a claim.",
             },
           },
           required: ["type", "text"],
@@ -267,7 +267,7 @@ const ADVISOR_TOOL = {
             reason: {
               type: "string",
               description:
-                "Cites the specific number(s) that drove it; ~15 words max.",
+                "Cites the specific number(s) that drove it; ~10 words max.",
             },
             confidence: {
               type: "string",
@@ -565,6 +565,26 @@ Deno.serve(async (req: Request) => {
       .insert({ boost_campaign_id: campaignId, result });
     if (persistErr) {
       console.error("[campaign-advisor] persist error:", persistErr);
+    }
+
+    // Push-worthy notification when the advisor flags something serious.
+    // The current result schema has no warnings[] (folded into insights during
+    // the schema tightening), so health='needs_attention' — the schema's
+    // strongest severity signal — stands in for the old warnings[] severity=
+    // 'high' condition. Deep link goes straight to the campaign so a future
+    // push can open directly onto it. Fire-and-forget, same as persistence.
+    if (result.health === "needs_attention") {
+      const { error: notifyErr } = await admin.from("notifications").insert({
+        profile_id: profileId,
+        type: "advisor_warning",
+        subtype: "needs_attention",
+        related_id: campaignId,
+        deep_link: `/analytics?campaign=${campaignId}`,
+        push_worthy: true,
+      });
+      if (notifyErr) {
+        console.error("[campaign-advisor] notify error:", notifyErr);
+      }
     }
 
     return json(result);
