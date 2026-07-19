@@ -91,12 +91,24 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   }
 
+  // Unread notifications badge count for the nav bell.
+  let unreadNotifications = 0;
+  if (profile) {
+    const { count } = await admin
+      .from("notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profile.id as string)
+      .is("read_at", null);
+    unreadNotifications = count ?? 0;
+  }
+
   return Response.json(
     {
       user,
       profile,
       services: servicesResult.data ?? [],
       subscriptionData,
+      unreadNotifications,
       creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
       creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
       isPartner: !!(profile?.is_partner as boolean | null),
@@ -129,7 +141,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, services, subscriptionData, creatorMonthlyPriceId, creatorYearlyPriceId, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, services, subscriptionData, unreadNotifications, creatorMonthlyPriceId, creatorYearlyPriceId, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -370,6 +382,46 @@ export default function AppLayout() {
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+            {/* Notifications bell + unread badge */}
+            <NavLink
+              to="/notifications"
+              aria-label="Notifications"
+              style={({ isActive }) => ({
+                position: "relative",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                textDecoration: "none",
+                fontSize: 16,
+                background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
+              })}
+            >
+              🔔
+              {(unreadNotifications as number) > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    right: 0,
+                    minWidth: 15,
+                    height: 15,
+                    borderRadius: 999,
+                    background: "#F5A623",
+                    color: "#111111",
+                    fontSize: 9,
+                    fontWeight: 800,
+                    lineHeight: "15px",
+                    textAlign: "center",
+                    padding: "0 3px",
+                  }}
+                >
+                  {(unreadNotifications as number) > 99 ? "99+" : (unreadNotifications as number)}
+                </span>
+              )}
+            </NavLink>
             {!!p?.is_beta && (
               <span style={{
                 background: "var(--accent, #F5A623)",

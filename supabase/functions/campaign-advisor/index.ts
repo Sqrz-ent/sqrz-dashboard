@@ -567,6 +567,26 @@ Deno.serve(async (req: Request) => {
       console.error("[campaign-advisor] persist error:", persistErr);
     }
 
+    // Push-worthy notification when the advisor flags something serious.
+    // The current result schema has no warnings[] (folded into insights during
+    // the schema tightening), so health='needs_attention' — the schema's
+    // strongest severity signal — stands in for the old warnings[] severity=
+    // 'high' condition. Deep link goes straight to the campaign so a future
+    // push can open directly onto it. Fire-and-forget, same as persistence.
+    if (result.health === "needs_attention") {
+      const { error: notifyErr } = await admin.from("notifications").insert({
+        profile_id: profileId,
+        type: "advisor_warning",
+        subtype: "needs_attention",
+        related_id: campaignId,
+        deep_link: `/analytics?campaign=${campaignId}`,
+        push_worthy: true,
+      });
+      if (notifyErr) {
+        console.error("[campaign-advisor] notify error:", notifyErr);
+      }
+    }
+
     return json(result);
   } catch (err) {
     console.error("[campaign-advisor] advisor error:", err);
