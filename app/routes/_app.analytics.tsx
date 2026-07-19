@@ -1036,7 +1036,6 @@ export default function AnalyticsPage() {
                     <div style={tileRow}>
                       <InlineStat label="Seen" value={w.visible} />
                       <InlineStat label="Plays" value={w.plays} />
-                      <InlineStat label="Pauses" value={w.pauses} />
                     </div>
                   ) : (
                     <>
