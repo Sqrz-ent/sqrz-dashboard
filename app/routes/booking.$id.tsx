@@ -320,9 +320,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposal: proposal ?? null,
         bookingToken: token,   // keep so buyer actions still work via token path
         wallet,
-        profileId: (profile?.id as string) ?? null,
         planId: (profile?.plan_id as number | null) ?? null,
-        isBeta: (profile?.is_beta as boolean) ?? false,
         proposalFeePct,
         memberInfo,
         stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
@@ -401,9 +399,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         wallet: tokenWallet ?? null,
         proposalFeePct,
         memberInfo: memberInfoToken,
-        profileId: null,
         planId: null,
-        isBeta: false,
         senderName,
         memberEmail: (ownerPlan?.email as string | null) ?? null,
         messagingProvider,
@@ -510,9 +506,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposal: proposal ?? null,
         bookingToken: null,
         wallet,
-        profileId: (profile?.id as string) ?? null,
         planId: (profile?.plan_id as number | null) ?? null,
-        isBeta: (profile?.is_beta as boolean) ?? false,
         taxPresets: normalizeTaxPresets((profile as Record<string, unknown> | null)?.tax_presets),
         proposalFeePct: sessionProposalFeePct,
         memberInfo: sessionMemberInfo,
@@ -556,51 +550,6 @@ export async function action({ request, params }: Route.ActionArgs) {
 
   if (!bkCheck || bkCheck.owner_id !== profile.id) {
     return Response.json({ error: "Unauthorized" }, { headers, status: 403 });
-  }
-
-  // ── Add Participant (beta) ──────────────────────────────────────────────────
-  if (intent === "search_profiles") {
-    const raw = (formData.get("q") as string) ?? "";
-    // Strip characters that would break a PostgREST .or() filter.
-    const q = raw.replace(/[,()*%]/g, "").trim();
-    if (q.length < 2) return Response.json({ results: [] }, { headers });
-    const admin = createSupabaseAdminClient();
-    const { data: results } = await admin
-      .from("profiles")
-      .select("id, user_id, slug, name, email, avatar_url")
-      .eq("is_published", true)
-      .not("user_id", "is", null)
-      .neq("id", profile.id as string)
-      .or(`slug.ilike.%${q}%,name.ilike.%${q}%,email.ilike.%${q}%`)
-      .limit(8);
-    return Response.json({ results: results ?? [] }, { headers });
-  }
-
-  if (intent === "add_participant") {
-    const participantUserId = (formData.get("user_id") as string) || null;
-    const role = ((formData.get("role") as string) ?? "").trim();
-    if (!participantUserId) {
-      // DB CHECK requires user_id for any non-buyer participant.
-      return Response.json({ error: "Selected profile has no linked account." }, { status: 400, headers });
-    }
-    if (!role) {
-      return Response.json({ error: "Role is required." }, { status: 400, headers });
-    }
-    const admin = createSupabaseAdminClient();
-    const { error: insertError } = await admin
-      .from("booking_participants")
-      .insert({
-        booking_id: params.id,
-        user_id: participantUserId,
-        name: (formData.get("name") as string) || null,
-        email: (formData.get("email") as string) || null,
-        role,
-        is_admin: false,
-      });
-    if (insertError) {
-      return Response.json({ error: insertError.message }, { status: 400, headers });
-    }
-    return Response.json({ ok: true }, { headers });
   }
 
   if (intent === "decline_request") {
@@ -1104,157 +1053,6 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 }
 
 // ─── Member view sections ─────────────────────────────────────────────────────
-
-type ProfileSearchResult = {
-  id: string;
-  user_id: string | null;
-  slug: string | null;
-  name: string | null;
-  email: string | null;
-  avatar_url: string | null;
-};
-
-// Owner-only, beta-gated. Lets the owner search published members and add them as
-// booking participants (crew). Inserts via the booking action; loader revalidates the list.
-function ParticipantsSection({ booking, ownerProfileId }: { booking: Booking; ownerProfileId: string | null }) {
-  const searchFetcher = useFetcher<{ results?: ProfileSearchResult[] }>();
-  const addFetcher = useFetcher<{ ok?: boolean; error?: string }>();
-
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<ProfileSearchResult | null>(null);
-  const [role, setRole] = useState("");
-
-  const participants = ((booking.booking_participants ?? []) as Array<Record<string, unknown>>)
-    .filter((p) => (p.role as string | null) !== "buyer");
-
-  // Reset the form after a successful add.
-  useEffect(() => {
-    if (addFetcher.state === "idle" && addFetcher.data?.ok) {
-      setOpen(false);
-      setQuery("");
-      setSelected(null);
-      setRole("");
-    }
-  }, [addFetcher.state, addFetcher.data]);
-
-  function runSearch(q: string) {
-    setQuery(q);
-    setSelected(null);
-    if (q.trim().length < 2) return;
-    const fd = new FormData();
-    fd.append("intent", "search_profiles");
-    fd.append("q", q.trim());
-    searchFetcher.submit(fd, { method: "post" });
-  }
-
-  function add() {
-    if (!selected || !selected.user_id || !role.trim()) return;
-    const fd = new FormData();
-    fd.append("intent", "add_participant");
-    fd.append("user_id", selected.user_id);
-    fd.append("name", selected.name ?? "");
-    fd.append("email", selected.email ?? "");
-    fd.append("role", role.trim());
-    addFetcher.submit(fd, { method: "post" });
-  }
-
-  const results = searchFetcher.data?.results ?? [];
-
-  return (
-    <div style={{ ...card, marginBottom: 16 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: participants.length ? 12 : 0 }}>
-        <p style={{ ...lbl, margin: 0 }}>Participants</p>
-        {!open && (
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            style={{ background: "none", border: `1px solid ${ACCENT}`, color: ACCENT, borderRadius: 9, fontSize: 12, fontWeight: 700, padding: "6px 12px", cursor: "pointer", fontFamily: FONT_BODY }}
-          >
-            + Add Participant
-          </button>
-        )}
-      </div>
-
-      {participants.map((p, i) => (
-        <div key={(p.id as number | string | undefined) ?? i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderTop: i === 0 ? "1px solid var(--border)" : "none" }}>
-          <span style={{ ...val, fontWeight: 600 }}>{(p.name as string | null) || (p.email as string | null) || "Member"}</span>
-          <span style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{(p.role as string | null) ?? ""}</span>
-        </div>
-      ))}
-
-      {open && (
-        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--border)" }}>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => runSearch(e.target.value)}
-            placeholder="Search members by name, @slug, or email…"
-            style={{ width: "100%", padding: "10px 12px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT_BODY }}
-          />
-
-          {query.trim().length >= 2 && !selected && (
-            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
-              {searchFetcher.state !== "idle" ? (
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0" }}>Searching…</p>
-              ) : results.length === 0 ? (
-                <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "4px 0" }}>No published members found.</p>
-              ) : (
-                results.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSelected(r)}
-                    style={{ textAlign: "left", display: "flex", flexDirection: "column", gap: 1, padding: "8px 10px", background: "var(--surface-muted)", border: "1px solid var(--border)", borderRadius: 8, cursor: "pointer", fontFamily: FONT_BODY }}
-                  >
-                    <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{r.name || r.slug || "Member"}</span>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{[r.slug ? `@${r.slug}` : null, r.email].filter(Boolean).join(" · ")}</span>
-                  </button>
-                ))
-              )}
-            </div>
-          )}
-
-          {selected && (
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{selected.name || selected.slug}</span>
-                <button type="button" onClick={() => setSelected(null)} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY }}>Change</button>
-              </div>
-              <input
-                type="text"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                placeholder="Role (e.g. Vocalist, Sound Tech)"
-                style={{ width: "100%", padding: "10px 12px", background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 9, color: "var(--text)", fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FONT_BODY }}
-              />
-              {addFetcher.data?.error && (
-                <p style={{ fontSize: 12, color: "#ef4444", margin: "8px 0 0" }}>{addFetcher.data.error}</p>
-              )}
-              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <button
-                  type="button"
-                  onClick={add}
-                  disabled={!role.trim() || addFetcher.state !== "idle"}
-                  style={{ flex: 1, padding: "10px", background: ACCENT, color: "#111", border: "none", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: (!role.trim() || addFetcher.state !== "idle") ? "default" : "pointer", opacity: (!role.trim() || addFetcher.state !== "idle") ? 0.6 : 1, fontFamily: FONT_BODY }}
-                >
-                  {addFetcher.state !== "idle" ? "Adding…" : "Add to Booking"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setOpen(false); setQuery(""); setSelected(null); setRole(""); }}
-                  style={{ padding: "10px 18px", background: "transparent", border: "1px solid var(--border)", borderRadius: 9, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Booking; memberInfo?: MemberInfo; buyerParticipant?: BuyerParticipant }) {
   const b = booking;
@@ -2484,13 +2282,11 @@ function MemberView({
   stripeConnectStatus,
   stripeConnectIdTest,
   stripeConnectStatusTest,
-  isBeta,
   taxPresets = [],
   memberInfo,
   proposalFeePct,
   proposal,
   buyerParticipant,
-  ownerProfileId,
   showMobileOfficeBack = false,
   onMobileOfficeBack,
 }: {
@@ -2505,13 +2301,11 @@ function MemberView({
   stripeConnectStatus: string | null;
   stripeConnectIdTest: string | null;
   stripeConnectStatusTest: string | null;
-  isBeta: boolean;
   taxPresets?: TaxPreset[];
   memberInfo?: MemberInfo;
   proposalFeePct?: number | null;
   proposal: Proposal | null;
   buyerParticipant: BuyerParticipant;
-  ownerProfileId: string | null;
   showMobileOfficeBack?: boolean;
   onMobileOfficeBack?: () => void;
 }) {
@@ -2637,8 +2431,6 @@ function MemberView({
         </div>
 
         <DetailsSection booking={b} memberInfo={memberInfo} buyerParticipant={buyerParticipant} />
-
-        {isBeta && <ParticipantsSection booking={b} ownerProfileId={ownerProfileId} />}
 
         {(b.status as string) === "cancelled" && (
           <div style={{ ...card, marginBottom: 16 }}>
@@ -2845,8 +2637,6 @@ export default function BookingAccessPage() {
     bookingToken,
     wallet,
     planId,
-    profileId,
-    isBeta,
     taxPresets,
     proposalFeePct,
     memberInfo,
@@ -2869,8 +2659,6 @@ export default function BookingAccessPage() {
     bookingToken: string | null;
     wallet: WalletData | null;
     planId: number | null;
-    profileId: string | null;
-    isBeta: boolean;
     taxPresets?: TaxPreset[];
     proposalFeePct?: number | null;
     memberInfo?: MemberInfo;
@@ -2905,13 +2693,11 @@ export default function BookingAccessPage() {
           stripeConnectStatus={stripeConnectStatus ?? null}
           stripeConnectIdTest={stripeConnectIdTest ?? null}
           stripeConnectStatusTest={stripeConnectStatusTest ?? null}
-          isBeta={isBeta}
           taxPresets={taxPresets ?? []}
           memberInfo={memberInfo}
           proposalFeePct={proposalFeePct}
           proposal={proposal ?? null}
           buyerParticipant={buyerParticipant ?? null}
-          ownerProfileId={profileId ?? null}
           showMobileOfficeBack={fromOffice && isStandalonePwa && isMobileBookingNav}
           onMobileOfficeBack={goBackToOffice}
         />
