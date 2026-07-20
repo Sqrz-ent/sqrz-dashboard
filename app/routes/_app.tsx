@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { redirect, Outlet, useLoaderData, NavLink, Link, useFetcher, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
 import { NotificationList, type NotificationRow } from "~/components/NotificationList";
@@ -186,23 +187,39 @@ export default function AppLayout() {
 
   // ── Notifications bell popover ────────────────────────────────────────────
   // Anchored dropdown under the bell (same small panel on every screen size).
+  // The panel is rendered through a portal to document.body (like AttachmentSheet
+  // / BookingChat) so it escapes the sticky nav's overflow clip — the nav sets
+  // overflowX:auto, which forces overflow-y to auto too and would otherwise clip
+  // this dropdown to a thin sliver regardless of z-index. Position is fixed and
+  // anchored to the bell via getBoundingClientRect().
   // Data is loaded from the existing /notifications route loader via fetcher —
   // no duplicated query. Rows render through the shared NotificationList.
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifAnchor, setNotifAnchor] = useState<{ top: number; right: number } | null>(null);
   const notifBellRef = useRef<HTMLButtonElement>(null);
   const notifPopoverRef = useRef<HTMLDivElement>(null);
   const notifFetcher = useFetcher<{ notifications: NotificationRow[] }>();
   const NOTIF_POPOVER_LIMIT = 6;
 
-  // Load (or refresh) the list each time the popover opens.
+  // Position the panel just below the bell, right-aligned to it.
+  function positionNotifPopover() {
+    const rect = notifBellRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setNotifAnchor({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+  }
+
+  // Load (or refresh) the list and position the panel each time it opens.
   useEffect(() => {
-    if (notifOpen && notifFetcher.state === "idle") {
+    if (!notifOpen) return;
+    positionNotifPopover();
+    if (notifFetcher.state === "idle") {
       notifFetcher.load("/notifications");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifOpen]);
 
-  // Close on click-outside or Escape — neither navigates.
+  // Close on click-outside or Escape — neither navigates. Reposition on
+  // scroll/resize so the fixed panel stays anchored to the bell.
   useEffect(() => {
     if (!notifOpen) return;
     function onPointerDown(e: MouseEvent) {
@@ -216,11 +233,16 @@ export default function AppLayout() {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setNotifOpen(false);
     }
+    const reposition = () => positionNotifPopover();
     document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
     return () => {
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
     };
   }, [notifOpen]);
 
@@ -479,15 +501,15 @@ export default function AppLayout() {
                 )}
               </button>
 
-              {notifOpen && (
+              {notifOpen && notifAnchor && createPortal(
                 <div
                   ref={notifPopoverRef}
                   role="dialog"
                   aria-label="Notifications"
                   style={{
-                    position: "absolute",
-                    top: "calc(100% + 8px)",
-                    right: 0,
+                    position: "fixed",
+                    top: notifAnchor.top,
+                    right: notifAnchor.right,
                     width: 340,
                     maxWidth: "calc(100vw - 24px)",
                     maxHeight: "min(70vh, 480px)",
@@ -497,7 +519,7 @@ export default function AppLayout() {
                     border: "1px solid var(--border)",
                     borderRadius: 14,
                     boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
-                    zIndex: 1000,
+                    zIndex: 2147483000,
                     overflow: "hidden",
                   }}
                 >
@@ -526,7 +548,8 @@ export default function AppLayout() {
                   >
                     See all
                   </Link>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
             {!!p?.is_beta && (
