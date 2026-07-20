@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, Link, useFetcher, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
+import { NotificationList, type NotificationRow } from "~/components/NotificationList";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { normalizeTaxPresets } from "~/lib/tax-presets";
@@ -182,6 +183,48 @@ export default function AppLayout() {
       }
     }
   }
+
+  // ── Notifications bell popover ────────────────────────────────────────────
+  // Anchored dropdown under the bell (same small panel on every screen size).
+  // Data is loaded from the existing /notifications route loader via fetcher —
+  // no duplicated query. Rows render through the shared NotificationList.
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifBellRef = useRef<HTMLButtonElement>(null);
+  const notifPopoverRef = useRef<HTMLDivElement>(null);
+  const notifFetcher = useFetcher<{ notifications: NotificationRow[] }>();
+  const NOTIF_POPOVER_LIMIT = 6;
+
+  // Load (or refresh) the list each time the popover opens.
+  useEffect(() => {
+    if (notifOpen && notifFetcher.state === "idle") {
+      notifFetcher.load("/notifications");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifOpen]);
+
+  // Close on click-outside or Escape — neither navigates.
+  useEffect(() => {
+    if (!notifOpen) return;
+    function onPointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (
+        notifPopoverRef.current?.contains(target) ||
+        notifBellRef.current?.contains(target)
+      ) return;
+      setNotifOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setNotifOpen(false);
+    }
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [notifOpen]);
+
+  const notifItems = (notifFetcher.data?.notifications ?? []).slice(0, NOTIF_POPOVER_LIMIT);
 
   useEffect(() => {
     if (p !== null && p.onboarding_completed === false) {
@@ -389,46 +432,103 @@ export default function AppLayout() {
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {/* Notifications bell + unread badge */}
-            <NavLink
-              to="/notifications"
-              aria-label="Notifications"
-              style={({ isActive }) => ({
-                position: "relative",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                textDecoration: "none",
-                fontSize: 16,
-                background: isActive ? "rgba(245,166,35,0.12)" : "transparent",
-              })}
-            >
-              🔔
-              {(unreadNotifications as number) > 0 && (
-                <span
+            {/* Notifications bell + unread badge — toggles an anchored popover */}
+            <div style={{ position: "relative" }}>
+              <button
+                ref={notifBellRef}
+                type="button"
+                onClick={() => setNotifOpen((v) => !v)}
+                aria-label="Notifications"
+                aria-haspopup="dialog"
+                aria-expanded={notifOpen}
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 16,
+                  background: notifOpen ? "rgba(245,166,35,0.12)" : "transparent",
+                }}
+              >
+                🔔
+                {(unreadNotifications as number) > 0 && (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      right: 0,
+                      minWidth: 15,
+                      height: 15,
+                      borderRadius: 999,
+                      background: "#F5A623",
+                      color: "#111111",
+                      fontSize: 9,
+                      fontWeight: 800,
+                      lineHeight: "15px",
+                      textAlign: "center",
+                      padding: "0 3px",
+                    }}
+                  >
+                    {(unreadNotifications as number) > 99 ? "99+" : (unreadNotifications as number)}
+                  </span>
+                )}
+              </button>
+
+              {notifOpen && (
+                <div
+                  ref={notifPopoverRef}
+                  role="dialog"
+                  aria-label="Notifications"
                   style={{
                     position: "absolute",
-                    top: 0,
+                    top: "calc(100% + 8px)",
                     right: 0,
-                    minWidth: 15,
-                    height: 15,
-                    borderRadius: 999,
-                    background: "#F5A623",
-                    color: "#111111",
-                    fontSize: 9,
-                    fontWeight: 800,
-                    lineHeight: "15px",
-                    textAlign: "center",
-                    padding: "0 3px",
+                    width: 340,
+                    maxWidth: "calc(100vw - 24px)",
+                    maxHeight: "min(70vh, 480px)",
+                    display: "flex",
+                    flexDirection: "column",
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 14,
+                    boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+                    zIndex: 1000,
+                    overflow: "hidden",
                   }}
                 >
-                  {(unreadNotifications as number) > 99 ? "99+" : (unreadNotifications as number)}
-                </span>
+                  <div style={{ overflowY: "auto", padding: "2px 16px" }}>
+                    {notifFetcher.state === "loading" && !notifFetcher.data ? (
+                      <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "32px 0" }}>
+                        Loading…
+                      </div>
+                    ) : (
+                      <NotificationList notifications={notifItems} onNavigate={() => setNotifOpen(false)} />
+                    )}
+                  </div>
+                  <Link
+                    to="/notifications"
+                    onClick={() => setNotifOpen(false)}
+                    style={{
+                      display: "block",
+                      textAlign: "center",
+                      padding: "12px 16px",
+                      borderTop: "1px solid var(--border)",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      color: "#F5A623",
+                      textDecoration: "none",
+                    }}
+                  >
+                    See all
+                  </Link>
+                </div>
               )}
-            </NavLink>
+            </div>
             {!!p?.is_beta && (
               <span style={{
                 background: "var(--accent, #F5A623)",
