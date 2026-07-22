@@ -5,6 +5,16 @@ import type { ActionFunctionArgs } from "react-router";
 import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
 import { persistMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
 
+// Escape user-supplied / external values before interpolating them into email HTML.
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -159,7 +169,7 @@ export async function action({ request }: ActionFunctionArgs) {
     const emailTaxAmt = emailTaxPct > 0 ? Math.round(emailNet * emailTaxPct / 100 * 100) / 100 : 0;
     // SQRZ fee removed — total = net + tax.
     const emailTotal = Math.round((emailNet + emailTaxAmt) * 100) / 100;
-    const currStr = (currency ?? "EUR").toUpperCase();
+    const currStr = escapeHtml((currency ?? "EUR").toUpperCase());
     const row = (label: string, value: string, bold = false, muted = false) =>
       `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #eee;">` +
       `<span style="font-size:13px;color:${muted ? "#999" : "#0a0a0a"};font-weight:${bold ? 700 : 400};">${label}</span>` +
@@ -185,14 +195,14 @@ export async function action({ request }: ActionFunctionArgs) {
       <img src="https://sqrz.com/brand/sqrz_logo.png" alt="SQRZ" style="height:32px;" />
     </div>
     <div style="padding:32px;">
-      <p style="color:#666;font-size:14px;margin:0 0 8px;">Hi ${client_name},</p>
+      <p style="color:#666;font-size:14px;margin:0 0 8px;">Hi ${escapeHtml(client_name)},</p>
       <h1 style="font-size:22px;font-weight:700;margin:0 0 20px;color:#0a0a0a;">
-        ${memberName} has prepared a booking for you
+        ${escapeHtml(memberName)} has prepared a booking for you
       </h1>
       <div style="background:#f9f9f9;border-radius:8px;padding:20px;margin-bottom:24px;">
         <p style="margin:0 0 8px;font-size:13px;color:#999;text-transform:uppercase;letter-spacing:0.06em;">Project</p>
-        <p style="margin:0 0 16px;font-size:18px;font-weight:700;color:#0a0a0a;">${title}</p>
-        ${service ? `<p style="margin:0 0 8px;font-size:13px;color:#999;text-transform:uppercase;letter-spacing:0.06em;">Service</p><p style="margin:0 0 16px;font-size:14px;color:#0a0a0a;">${service}</p>` : ""}
+        <p style="margin:0 0 16px;font-size:18px;font-weight:700;color:#0a0a0a;">${escapeHtml(title)}</p>
+        ${service ? `<p style="margin:0 0 8px;font-size:13px;color:#999;text-transform:uppercase;letter-spacing:0.06em;">Service</p><p style="margin:0 0 16px;font-size:14px;color:#0a0a0a;">${escapeHtml(service)}</p>` : ""}
         ${proposalLine}
       </div>
       <div style="text-align:center;margin:32px 0;">

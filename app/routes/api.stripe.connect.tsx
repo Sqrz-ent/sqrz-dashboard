@@ -6,6 +6,7 @@ import {
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getStripeClient, resolveStripeMode, type StripeMode } from "~/lib/stripe-mode.server";
+import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 
 // Native callers (sqrz-ios) authenticate with a Bearer access token. This loader runs
 // before anything tries to treat the request as a browser navigation: a Bearer request
@@ -80,6 +81,17 @@ export async function action({ request }: Route.ActionArgs) {
       isBeta
     );
     returnTo = url.searchParams.get("returnTo") ?? "payments";
+  }
+
+  // Server-side feature gate: onboarding a Connect account to receive booking
+  // payouts requires Creator+. Enforced independently of the client-side `locked`
+  // gate on the payments page so a free user can't reach account creation by
+  // POSTing directly. The partners onboarding path (returnTo=partners) is gated
+  // by is_partner, not plan tier, so it is exempt.
+  if (returnTo !== "partners" && getPlanLevel(profile.plan_id as number | null) < FEATURE_GATES.payments) {
+    return isNative
+      ? Response.json({ error: "Payments require a paid plan" }, { status: 403 })
+      : Response.json({ ok: false, error: "Payments require a paid plan" }, { status: 403, headers });
   }
 
   const stripeConnect = getStripeClient(mode);

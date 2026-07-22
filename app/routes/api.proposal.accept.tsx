@@ -25,7 +25,7 @@ export async function action({ request }: { request: Request }) {
   // 2. Get proposal details including line_items and tax_pct
   const { data: proposal } = await adminClient
     .from("booking_proposals")
-    .select("rate, currency, requires_payment, sqrz_fee_pct, stripe_mode, booking_id, line_items, tax_pct, tax_label, bookings(title, owner_id, profiles(name))")
+    .select("id, status, sent_by, version, rate, currency, requires_payment, sqrz_fee_pct, stripe_mode, booking_id, line_items, tax_pct, tax_label, bookings(title, owner_id, status, profiles(name))")
     .eq("id", proposal_id)
     .eq("booking_id", booking_id)
     .single();
@@ -34,7 +34,51 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Proposal not found" }, { status: 404 });
   }
 
-  const bk = proposal.bookings as unknown as { title: string; owner_id: string; profiles?: { name?: string } | null };
+  const bk = proposal.bookings as unknown as { title: string; owner_id: string; status: string; profiles?: { name?: string } | null };
+
+  // ── State validation ──────────────────────────────────────────────────────
+  // Idempotency: booking already confirmed/completed → repeat accept is a no-op.
+  // Return the existing state; never re-run status updates or wallet writes.
+  if (bk.status === "confirmed" || bk.status === "completed") {
+    return Response.json({ confirmed: true, idempotent: true });
+  }
+
+  // Accept is only valid while the booking is awaiting a proposal decision.
+  if (bk.status !== "pending") {
+    return Response.json(
+      { error: `Booking is '${bk.status}' — proposal can no longer be accepted` },
+      { status: 409 }
+    );
+  }
+
+  // The target proposal must be the ACTIVE one: latest version for this booking,
+  // still 'sent', and sent by the member (a buyer cannot accept their own counter).
+  const { data: latestProposal } = await adminClient
+    .from("booking_proposals")
+    .select("id")
+    .eq("booking_id", booking_id)
+    .order("version", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!latestProposal || latestProposal.id !== proposal.id) {
+    return Response.json(
+      { error: "A newer proposal version exists — refresh and review the latest proposal" },
+      { status: 409 }
+    );
+  }
+  if (proposal.status !== "sent") {
+    return Response.json(
+      { error: `Proposal is '${proposal.status}' — only a sent proposal can be accepted` },
+      { status: 409 }
+    );
+  }
+  if (proposal.sent_by !== "member") {
+    return Response.json(
+      { error: "Only the member's proposal can be accepted" },
+      { status: 409 }
+    );
+  }
 
   // 3. Fetch member's Connect account + plan fee percentage
   const { data: ownerProfile } = await adminClient
@@ -97,7 +141,7 @@ export async function action({ request }: { request: Request }) {
       let walletId: string | null = existingWallet?.id ?? null;
 
       if (!walletId) {
-        const { data: newWallet } = await adminClient
+        const { data: newWallet, error: walletInsertError } = await adminClient
           .from("booking_wallets")
           .insert({
             booking_id,
@@ -117,6 +161,13 @@ export async function action({ request }: { request: Request }) {
           })
           .select("id")
           .single();
+        if (walletInsertError?.code === "23505") {
+          // Unique violation on booking_wallets.booking_id: a concurrent accept
+          // created the wallet between the existingWallet check and this insert.
+          // The winning request owns wallet + allocation creation — treat this
+          // request as a replay and return the confirmed state.
+          return Response.json({ confirmed: true, idempotent: true });
+        }
         walletId = newWallet?.id ?? null;
       } else {
         await adminClient
