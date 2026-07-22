@@ -20,14 +20,48 @@ export async function action({ request }: { request: Request }) {
 
   if (!participant) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Get current proposal version
+  // ── State validation ──────────────────────────────────────────────────────
+  // Counter is only valid while the booking is awaiting a proposal decision.
+  const { data: booking } = await adminClient
+    .from("bookings")
+    .select("id, status")
+    .eq("id", booking_id)
+    .single();
+
+  if (!booking) return Response.json({ error: "Booking not found" }, { status: 404 });
+  if (booking.status !== "pending") {
+    return Response.json(
+      { error: `Booking is '${booking.status}' — proposal can no longer be countered` },
+      { status: 409 }
+    );
+  }
+
+  // Get current proposal version — the proposal being countered must be the
+  // latest version FOR THIS BOOKING and still awaiting a decision. This also
+  // prevents the update below from touching a proposal on another booking.
   const { data: current } = await adminClient
     .from("booking_proposals")
-    .select("version, id")
+    .select("version, id, status")
     .eq("booking_id", booking_id)
     .order("version", { ascending: false })
     .limit(1)
     .single();
+
+  if (!current) {
+    return Response.json({ error: "No proposal to counter" }, { status: 409 });
+  }
+  if (current.id !== proposal_id) {
+    return Response.json(
+      { error: "A newer proposal version exists — refresh and review the latest proposal" },
+      { status: 409 }
+    );
+  }
+  if (current.status !== "sent") {
+    return Response.json(
+      { error: `Proposal is '${current.status}' — only a sent proposal can be countered` },
+      { status: 409 }
+    );
+  }
 
   // Mark current proposal as countered
   await adminClient

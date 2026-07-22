@@ -18,21 +18,47 @@ export async function action({ request }: { request: Request }) {
 
   if (!participant) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
-  // Get latest proposal ID to decline
+  // ── State validation ──────────────────────────────────────────────────────
+  // Decline is only valid while the booking is awaiting a proposal decision.
+  // Confirmed/completed/cancelled/archived bookings must not be flipped to
+  // 'cancelled' by a stale or replayed link action.
+  const { data: booking } = await adminClient
+    .from("bookings")
+    .select("id, status")
+    .eq("id", booking_id)
+    .single();
+
+  if (!booking) return Response.json({ error: "Booking not found" }, { status: 404 });
+  if (booking.status !== "pending") {
+    return Response.json(
+      { error: `Booking is '${booking.status}' — proposal can no longer be declined` },
+      { status: 409 }
+    );
+  }
+
+  // Get latest proposal to decline — it must still be awaiting a decision.
   const { data: latest } = await adminClient
     .from("booking_proposals")
-    .select("id")
+    .select("id, status")
     .eq("booking_id", booking_id)
     .order("version", { ascending: false })
     .limit(1)
     .single();
 
-  if (latest) {
-    await adminClient
-      .from("booking_proposals")
-      .update({ status: "declined" })
-      .eq("id", latest.id);
+  if (!latest) {
+    return Response.json({ error: "No proposal to decline" }, { status: 409 });
   }
+  if (latest.status !== "sent") {
+    return Response.json(
+      { error: `Proposal is '${latest.status}' — only a sent proposal can be declined` },
+      { status: 409 }
+    );
+  }
+
+  await adminClient
+    .from("booking_proposals")
+    .update({ status: "declined" })
+    .eq("id", latest.id);
 
   await adminClient
     .from("bookings")

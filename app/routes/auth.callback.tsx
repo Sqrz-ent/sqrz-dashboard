@@ -4,6 +4,26 @@ import { createServerClient, createBrowserClient, parseCookieHeader, serializeCo
 import { createClient } from "@supabase/supabase-js";
 import type { Route } from "./+types/auth.callback";
 
+// Only same-origin relative paths are allowed as post-auth redirect targets.
+// Rejects absolute URLs (https://evil.com), protocol-relative (//evil.com),
+// scheme'd values (javascript:…), and backslash variants (/\evil.com — browsers
+// normalize \ to /). A bad `next` falls back to null (→ "/") instead of failing
+// the login.
+function safeNextPath(raw: string | null): string | null {
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+  if (!decoded.startsWith("/")) return null;
+  if (decoded.startsWith("//")) return null;
+  if (decoded.includes("\\")) return null;
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(decoded)) return null;
+  return decoded;
+}
+
 // ─── Server loader — handles query-param flows (PKCE, token_hash) ─────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -80,7 +100,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // If neither was present, fall through to the client component which
   // handles the #access_token= / #error= hash fragment.
   if (code || (token_hash && type)) {
-    const decodedNext = next ? decodeURIComponent(next) : null;
+    const decodedNext = safeNextPath(next);
 
     const { data: { user: authedUser } } = await supabase.auth.getUser();
     if (authedUser) {
@@ -147,7 +167,7 @@ export default function AuthCallback() {
 
     const params = new URLSearchParams(hash.replace(/^#/, ""));
     const next = searchParams.get("next");
-    const destination = next ? decodeURIComponent(next) : "/";
+    const destination = safeNextPath(next) ?? "/";
 
     // Hash contains an error (e.g. expired invite link)
     if (params.get("error")) {

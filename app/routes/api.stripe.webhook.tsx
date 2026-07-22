@@ -121,12 +121,24 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const toISO = (ts: number | null | undefined) =>
   ts ? new Date(ts * 1000).toISOString() : null;
 
+// Verbose diagnostic logging (full metadata dumps, raw emails, access tokens) is
+// gated behind this flag — off by default so PII/credentials never hit prod logs.
+const WEBHOOK_DEBUG = process.env.WEBHOOK_DEBUG === "true";
+
+// Escape user-supplied / external values before interpolating them into email HTML.
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function action({ request }: ActionFunctionArgs) {
   const signature = request.headers.get("stripe-signature");
 
   console.log("[webhook] received — signature present:", !!signature);
-  console.log("[webhook] STRIPE_WEBHOOK_SECRET present:", !!process.env.STRIPE_WEBHOOK_SECRET);
-  console.log("[webhook] STRIPE_WEBHOOK_SECRET prefix:", process.env.STRIPE_WEBHOOK_SECRET?.slice(0, 12));
 
   if (!signature) {
     console.error("[webhook] missing stripe-signature header");
@@ -161,21 +173,22 @@ export async function action({ request }: ActionFunctionArgs) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // Idempotency check
-  const { data: alreadyProcessed } = await supabase
-    .from("stripe_events")
-    .select("id")
-    .eq("event_id", event.id)
-    .maybeSingle();
-
-  if (alreadyProcessed) {
-    console.log("[webhook] duplicate event, skipping:", event.id);
-    return Response.json({ received: true });
-  }
-
-  await supabase
+  // Idempotency: insert-first. event_id is UNIQUE, so a concurrent duplicate
+  // delivery fails here with a 23505 unique violation — treat that as
+  // already-processed. This is atomic, unlike a separate check-then-insert that
+  // two simultaneous deliveries could both pass before either writes.
+  const { error: idempotencyError } = await supabase
     .from("stripe_events")
     .insert({ event_id: event.id });
+
+  if (idempotencyError) {
+    if (idempotencyError.code === "23505") {
+      console.log("[webhook] duplicate event, skipping:", event.id);
+      return Response.json({ received: true });
+    }
+    // Unexpected insert failure — log and continue so a legitimate event still processes.
+    console.error("[webhook] stripe_events insert error:", idempotencyError);
+  }
 
   console.log("[webhook] processing event:", event.type, event.id);
 
@@ -183,9 +196,11 @@ export async function action({ request }: ActionFunctionArgs) {
     const session = event.data.object as Stripe.Checkout.Session;
 
     console.log("[webhook] checkout.session.completed — session.id:", session.id);
-    console.log("[webhook] full metadata:", JSON.stringify(session.metadata));
-    console.log("[webhook] booking_type:", session.metadata?.booking_type, "| booking_id:", session.metadata?.booking_id, "| invite_token:", session.metadata?.invite_token);
-    console.log("[webhook] subscription:", session.subscription, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
+    if (WEBHOOK_DEBUG) {
+      console.log("[webhook] full metadata:", JSON.stringify(session.metadata));
+      console.log("[webhook] booking_type:", session.metadata?.booking_type, "| booking_id:", session.metadata?.booking_id, "| invite_token:", session.metadata?.invite_token);
+      console.log("[webhook] subscription:", session.subscription, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
+    }
 
     // ── Private link payment (PaymentGateCta on sqrz-profiles) ───────────────
     // A payment-gated private booking link was paid. Record the use + capture the
@@ -282,10 +297,10 @@ export async function action({ request }: ActionFunctionArgs) {
           subject: `New ${isGrow ? "Grow" : "Boost"} campaign payment — $${session.metadata.total}`,
           html: `
             <p>A new SQRZ ${isGrow ? "Grow" : "Boost"} campaign payment has been received.</p>
-            <p><strong>Ad budget:</strong> $${session.metadata.budget_amount}</p>
-            <p><strong>${isGrow ? "Management fee (20%)" : "Activation fee"}:</strong> $${session.metadata.fee}</p>
-            <p><strong>Total charged:</strong> $${session.metadata.total}</p>
-            <p><strong>Customer:</strong> ${customerEmail}</p>
+            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)}</p>
+            <p><strong>${isGrow ? "Management fee (20%)" : "Activation fee"}:</strong> $${escapeHtml(session.metadata.fee)}</p>
+            <p><strong>Total charged:</strong> $${escapeHtml(session.metadata.total)}</p>
+            <p><strong>Customer:</strong> ${escapeHtml(customerEmail)}</p>
             <p><strong>Campaign ID:</strong> ${campaignId}</p>
             <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
             ${isGrow ? "<p>Contact the client within 24 hours to schedule their strategy session.</p>" : "<p>Log in to the dashboard to review and activate the campaign.</p>"}
@@ -419,9 +434,9 @@ export async function action({ request }: ActionFunctionArgs) {
             from: "SQRZ <noreply@sqrz.com>",
             to: buyer.email,
             subject: "Your booking is confirmed",
-            html: `<p>Hi ${buyer.name ?? "there"},</p><p>Payment received — your booking is confirmed.</p><p><a href="${accessUrl}">View your booking</a></p><p>— The SQRZ Team</p>`,
+            html: `<p>Hi ${escapeHtml(buyer.name ?? "there")},</p><p>Payment received — your booking is confirmed.</p><p><a href="${accessUrl}">View your booking</a></p><p>— The SQRZ Team</p>`,
           });
-          console.log("[webhook] instant_booking confirmation email sent to:", buyer.email);
+          if (WEBHOOK_DEBUG) console.log("[webhook] instant_booking confirmation email sent to:", buyer.email);
         } catch (emailErr) {
           console.error("[webhook] instant_booking confirmation email failed:", emailErr);
         }
@@ -603,9 +618,9 @@ export async function action({ request }: ActionFunctionArgs) {
             from: "SQRZ <noreply@sqrz.com>",
             to: buyer.email,
             subject: "Your booking is confirmed",
-            html: `<p>Hi ${buyer.name ?? "there"},</p><p>Payment received — your booking is confirmed.</p><p><a href="${accessUrl}">View your booking</a></p><p>— The SQRZ Team</p>`,
+            html: `<p>Hi ${escapeHtml(buyer.name ?? "there")},</p><p>Payment received — your booking is confirmed.</p><p><a href="${accessUrl}">View your booking</a></p><p>— The SQRZ Team</p>`,
           });
-          console.log("[webhook] confirmation email sent to:", buyer.email, "url:", accessUrl);
+          if (WEBHOOK_DEBUG) console.log("[webhook] confirmation email sent to:", buyer.email, "url:", accessUrl);
         } catch (emailErr) {
           console.error("[webhook] confirmation email failed:", emailErr);
         }
@@ -651,7 +666,7 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     if (!profileId) {
-      console.error("[webhook] could not find profile for email:", customerEmail);
+      console.error("[webhook] could not find profile for subscription customer");
       return Response.json({ received: true });
     }
 
@@ -728,9 +743,9 @@ export async function action({ request }: ActionFunctionArgs) {
     if (subRow?.profile_id) {
       await supabase
         .from("profiles")
-        .update({ plan_id: 1 })
+        .update({ plan_id: null })
         .eq("id", subRow.profile_id as string);
-      console.log("[webhook] plan reset to Creator for profile:", subRow.profile_id);
+      console.log("[webhook] plan reset to free (null) for profile:", subRow.profile_id);
     }
     console.log("[webhook] subscription deleted:", sub.id);
   }

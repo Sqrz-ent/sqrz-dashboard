@@ -92,12 +92,22 @@ export async function action({ request }: Route.ActionArgs) {
     const domain = (formData.get("domain") as string).trim().toLowerCase();
 
     if (!domain) {
-      // Clear domain
+      // Clear domain — always allowed, even for downgraded/free users.
       await supabase
         .from("profiles")
         .update({ custom_domain: null, custom_domain_verified: false })
         .eq("id", profile.id as string);
       return Response.json({ ok: true, cleared: true }, { headers });
+    }
+
+    // Server-side feature gate: setting a custom domain requires Creator+.
+    // Enforced independently of the client-side `domainLocked` render gate so a
+    // free user can't reach the Vercel registration by POSTing directly.
+    if (getPlanLevel(profile.plan_id as number | null) < FEATURE_GATES.domain) {
+      return Response.json(
+        { ok: false, error: "Custom domains require a paid plan" },
+        { status: 403, headers }
+      );
     }
 
     // Register with Vercel

@@ -20,6 +20,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -383,9 +384,40 @@ Deno.serve(async (req: Request) => {
   }
   if (!campaignId) return json({ error: "campaign_id required" }, 400);
 
+  // ── Authentication ──────────────────────────────────────────────────────
+  // Validate the caller with a user-scoped client (anon key + the request's
+  // bearer token) BEFORE any service-role work. This endpoint makes a paid LLM
+  // call, so it must never run for an unauthenticated or unauthorized caller.
+  const authHeader = req.headers.get("Authorization") ?? "";
+  if (!authHeader.startsWith("Bearer ")) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const {
+    data: { user },
+    error: userErr,
+  } = await authClient.auth.getUser();
+  if (userErr || !user) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // Caller's own profile — the identity ownership is checked against.
+  const { data: callerProfile } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!callerProfile?.id) {
+    return json({ error: "Forbidden" }, 403);
+  }
+  const callerProfileId = callerProfile.id as string;
 
   // 1. Campaign row.
   const { data: campaign, error: campaignErr } = await admin
@@ -401,6 +433,35 @@ Deno.serve(async (req: Request) => {
   }
 
   const profileId = campaign.profile_id as string;
+
+  // ── Authorization ───────────────────────────────────────────────────────
+  // The caller may only run the advisor on their OWN campaigns.
+  if (profileId !== callerProfileId) {
+    return json({ error: "Forbidden" }, 403);
+  }
+
+  // ── Rate limit ──────────────────────────────────────────────────────────
+  // Cap advisor runs per profile per hour. Each run is a paid LLM call, so this
+  // bounds cost/abuse even for an authenticated, authorized caller. Counts runs
+  // across all of the caller's campaigns (campaign_advisor_runs has no
+  // profile_id column, so we scope by the caller's campaign IDs).
+  const RATE_LIMIT_PER_HOUR = 20;
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  const { data: ownCampaignRows } = await admin
+    .from("boost_campaigns")
+    .select("id")
+    .eq("profile_id", callerProfileId);
+  const ownCampaignIds = (ownCampaignRows ?? []).map((r) => r.id as string);
+  if (ownCampaignIds.length) {
+    const { count: recentRuns } = await admin
+      .from("campaign_advisor_runs")
+      .select("id", { count: "exact", head: true })
+      .in("boost_campaign_id", ownCampaignIds)
+      .gte("created_at", oneHourAgo);
+    if ((recentRuns ?? 0) >= RATE_LIMIT_PER_HOUR) {
+      return json({ error: "Rate limit exceeded. Try again later." }, 429);
+    }
+  }
 
   // Artist context (best-effort; genre/country are not stored, so stay null).
   const { data: profile } = await admin
