@@ -43,6 +43,8 @@ export default [
   route("api/dashboard/home-summary", "routes/api.dashboard.home-summary.ts"),
   route("api/booking/create", "routes/api.booking.create.tsx"),
   route("api/booking/deliver", "routes/api.booking.deliver.tsx"),
+  route("api/invoices/upload", "routes/api.invoices.upload.ts"),
+  route("api/invoices/download", "routes/api.invoices.download.ts"),
   route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
   route("api/proposal/counter", "routes/api.proposal.counter.tsx"),
   route("api/proposal/decline", "routes/api.proposal.decline.tsx"),

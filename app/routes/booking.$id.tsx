@@ -40,6 +40,14 @@ type GuestParticipant = {
   user_id: string | null;
 };
 
+export type InvoiceRow = {
+  id: string;
+  file_name: string;
+  file_size_bytes: number | null;
+  uploaded_at: string;
+  uploaded_by: string;
+};
+
 type Proposal = {
   id: string;
   booking_id: string;
@@ -185,6 +193,22 @@ async function getOrCreateBookingWallet(input: {
 }
 
 
+// Most-recent uploaded invoice for a booking (or null). Uses the admin client — the
+// loader already gates booking access, and buyers reach this via invite token.
+async function getBookingInvoice(
+  admin: ReturnType<typeof createSupabaseAdminClient>,
+  bookingId: string
+): Promise<InvoiceRow | null> {
+  const { data } = await admin
+    .from("invoices")
+    .select("id, file_name, file_size_bytes, uploaded_at, uploaded_by")
+    .eq("booking_id", bookingId)
+    .order("uploaded_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as InvoiceRow | null) ?? null;
+}
+
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request, params }: Route.LoaderArgs) {
@@ -309,6 +333,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       } : null;
     }
 
+    const invoice = await getBookingInvoice(admin, params.id!);
+
     return Response.json(
       {
         accessType: "authenticated",
@@ -318,6 +344,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         userEmail: (profile?.email as string) ?? user.email ?? "",
         isOwner,
         proposal: proposal ?? null,
+        invoice,
         bookingToken: token,   // keep so buyer actions still work via token path
         wallet,
         planId: (profile?.plan_id as number | null) ?? null,
@@ -386,6 +413,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     const senderName = (tokenRow.name as string | null) ||
       ((tokenRow.email as string | null)?.split("@")[0] ?? null);
 
+    const invoice = await getBookingInvoice(admin, params.id!);
+
     return Response.json(
       {
         accessType: "token",
@@ -395,6 +424,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         userEmail: (tokenRow.email as string) ?? "",
         isOwner: false,
         proposal: proposal ?? null,
+        invoice,
         bookingToken: token,
         wallet: tokenWallet ?? null,
         proposalFeePct,
@@ -494,6 +524,8 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       } : null;
     }
 
+    const invoice = await getBookingInvoice(admin, params.id!);
+
     return Response.json(
       {
         accessType: "authenticated",
@@ -504,6 +536,7 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         isOwner,
         canManageBilling,
         proposal: proposal ?? null,
+        invoice,
         bookingToken: null,
         wallet,
         planId: (profile?.plan_id as number | null) ?? null,
@@ -2268,6 +2301,124 @@ type BuyerParticipant = {
   billing_confirmed: boolean | null;
 } | null;
 
+// ─── Invoice (upload + download) ──────────────────────────────────────────────
+// Simple invoice surface on a confirmed booking. Owner/talent side gets a PDF upload
+// button; both parties get the filename as a download link (fresh signed URL on click).
+// No generation, no void, no status states.
+function InvoiceSection({
+  bookingId,
+  invoice,
+  canUpload,
+  bookingToken,
+}: {
+  bookingId: string;
+  invoice: InvoiceRow | null;
+  canUpload: boolean;
+  bookingToken: string | null;
+}) {
+  const uploadFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const downloadFetcher = useFetcher<{ signed_url?: string; error?: string }>();
+  const uploading = uploadFetcher.state !== "idle";
+
+  // Open the signed URL as soon as the download endpoint returns it.
+  useEffect(() => {
+    const url = downloadFetcher.data?.signed_url;
+    if (downloadFetcher.state === "idle" && url) {
+      window.open(url, "_blank", "noopener");
+    }
+  }, [downloadFetcher.state, downloadFetcher.data]);
+
+  function download() {
+    downloadFetcher.submit(
+      { invoice_id: invoice!.id, booking_token: bookingToken ?? "" },
+      { method: "post", action: "/api/invoices/download", encType: "application/json" }
+    );
+  }
+
+  // Nothing to show to the buyer until an invoice exists.
+  if (!invoice && !canUpload) return null;
+
+  return (
+    <div id="invoice" style={{ ...card }}>
+      <p style={{ ...lbl }}>Invoice</p>
+
+      {invoice ? (
+        <button
+          type="button"
+          onClick={download}
+          disabled={downloadFetcher.state !== "idle"}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            background: "none",
+            border: "none",
+            padding: 0,
+            cursor: downloadFetcher.state !== "idle" ? "default" : "pointer",
+            color: ACCENT,
+            fontSize: 14,
+            fontWeight: 600,
+            fontFamily: FONT_BODY,
+            textAlign: "left",
+          }}
+        >
+          <span style={{ fontSize: 16 }}>📄</span>
+          <span style={{ textDecoration: "underline" }}>
+            {downloadFetcher.state !== "idle" ? "Opening…" : invoice.file_name}
+          </span>
+        </button>
+      ) : (
+        <p style={{ ...val, color: "var(--text-muted)", fontSize: 13, marginBottom: canUpload ? 12 : 0 }}>
+          No invoice uploaded yet.
+        </p>
+      )}
+
+      {downloadFetcher.data?.error && (
+        <p style={{ fontSize: 12, color: "#ef4444", margin: "8px 0 0" }}>{downloadFetcher.data.error}</p>
+      )}
+
+      {canUpload && (
+        <uploadFetcher.Form
+          method="post"
+          action="/api/invoices/upload"
+          encType="multipart/form-data"
+          style={{ marginTop: invoice ? 14 : 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}
+        >
+          <input type="hidden" name="booking_id" value={bookingId} />
+          <input
+            type="file"
+            name="file"
+            accept="application/pdf"
+            required
+            style={{ fontSize: 13, color: "var(--text)", fontFamily: FONT_BODY, maxWidth: "100%" }}
+          />
+          <button
+            type="submit"
+            disabled={uploading}
+            style={{
+              background: ACCENT,
+              color: "#111",
+              border: "none",
+              borderRadius: 9,
+              padding: "9px 16px",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: uploading ? "default" : "pointer",
+              opacity: uploading ? 0.6 : 1,
+              fontFamily: FONT_BODY,
+            }}
+          >
+            {uploading ? "Uploading…" : invoice ? "Replace Invoice (PDF)" : "Upload Invoice (PDF)"}
+          </button>
+          {uploadFetcher.data?.error && (
+            <span style={{ fontSize: 12, color: "#ef4444", width: "100%" }}>{uploadFetcher.data.error}</span>
+          )}
+        </uploadFetcher.Form>
+      )}
+    </div>
+  );
+}
+
 // ─── Member view wrapper ──────────────────────────────────────────────────────
 
 function MemberView({
@@ -2287,6 +2438,7 @@ function MemberView({
   proposalFeePct,
   proposal,
   buyerParticipant,
+  invoice,
   showMobileOfficeBack = false,
   onMobileOfficeBack,
 }: {
@@ -2306,6 +2458,7 @@ function MemberView({
   proposalFeePct?: number | null;
   proposal: Proposal | null;
   buyerParticipant: BuyerParticipant;
+  invoice: InvoiceRow | null;
   showMobileOfficeBack?: boolean;
   onMobileOfficeBack?: () => void;
 }) {
@@ -2317,6 +2470,7 @@ function MemberView({
     { id: "details",  label: "Details" },
     ...(showProposal ? [{ id: "proposal", label: "Proposal" }] : []),
     ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
+    ...(showPayments ? [{ id: "invoice", label: "Invoice" }] : []),
   ];
 
   const [activeSection, setActiveSection] = useState(sections[0].id);
@@ -2450,6 +2604,15 @@ function MemberView({
             wallet={wallet}
             bookingStatus={b.status as string}
             requiresPayment={proposal?.requires_payment ?? null}
+          />
+        )}
+
+        {showPayments && (
+          <InvoiceSection
+            bookingId={b.id as string}
+            invoice={invoice}
+            canUpload={true}
+            bookingToken={bookingToken ?? null}
           />
         )}
       </div>
@@ -2647,6 +2810,7 @@ export default function BookingAccessPage() {
     senderName,
     memberEmail,
     buyerParticipant,
+    invoice,
     messagingProvider,
   } = data as {
     booking: Booking;
@@ -2669,6 +2833,7 @@ export default function BookingAccessPage() {
     senderName: string | null;
     memberEmail?: string | null;
     buyerParticipant?: BuyerParticipant;
+    invoice?: InvoiceRow | null;
     messagingProvider: BookingMessagingProvider;
   };
 
@@ -2698,6 +2863,7 @@ export default function BookingAccessPage() {
           proposalFeePct={proposalFeePct}
           proposal={proposal ?? null}
           buyerParticipant={buyerParticipant ?? null}
+          invoice={invoice ?? null}
           showMobileOfficeBack={fromOffice && isStandalonePwa && isMobileBookingNav}
           onMobileOfficeBack={goBackToOffice}
         />
@@ -2767,6 +2933,18 @@ export default function BookingAccessPage() {
                   ✓ Your booking is confirmed
                   {(b.date_start as string) ? ` · ${formatDate(b.date_start as string)}` : ""}
                 </p>
+              </div>
+            )}
+
+            {/* 5. Invoice — download link once the talent has uploaded one */}
+            {isConfirmedOrCompleted && (
+              <div style={{ marginTop: 8 }}>
+                <InvoiceSection
+                  bookingId={b.id as string}
+                  invoice={invoice ?? null}
+                  canUpload={false}
+                  bookingToken={bookingToken}
+                />
               </div>
             )}
 
