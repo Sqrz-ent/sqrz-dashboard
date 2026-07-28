@@ -91,16 +91,9 @@ export async function action({ request }: Route.ActionArgs) {
   const duration = (formData.get("duration") as string) || null;
   const newBudget = parseFloat(formData.get("budget_amount") as string);
 
-  // Grow ad spend has a plan-based minimum — enforce server-side, not just in the UI.
-  if (campaignType === "grow") {
-    const planId = profile.plan_id as number | null;
-    const minBudget = planId === null || planId === 4 ? 100 : 250;
-    if (!newBudget || newBudget < minBudget) {
-      return Response.json(
-        { ok: false, error: `Minimum Grow budget is $${minBudget.toLocaleString()}` },
-        { headers }
-      );
-    }
+  // Any positive budget is valid — no minimum, no plan-based split.
+  if (!newBudget || newBudget <= 0) {
+    return Response.json({ ok: false, error: "Invalid budget amount" }, { headers });
   }
 
   // Insert with NULL status = created, awaiting payment. The Stripe webhook sets
