@@ -154,6 +154,11 @@ function channelsLabel(values: string[] | null | undefined): string {
 const GROW_MEETING_URL =
   "https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b";
 
+// Campaign creation (Boost + Grow) is moving to the native SQRZ app. The web
+// dashboard only gates access and points users to the app. Placeholder link —
+// swap for the real public TestFlight invite when the beta is published.
+const TESTFLIGHT_URL = "https://testflight.apple.com/join/PLACEHOLDER";
+
 const DURATION_DAYS: Record<string, number> = {
   "1 Week":  7,
   "2 Weeks": 14,
@@ -1112,7 +1117,46 @@ export default function BoostPage() {
         </div>
       )}
 
-      {/* ── New Campaign — one shared form for Boost and Grow ─────────────────── */}
+      {/* ── New Campaign — creation is gated. Campaign creation is moving to the
+          native SQRZ app: the web dashboard only lets grow-qualified users create
+          Boost campaigns; everyone else sees an app-download prompt, and Grow
+          creation is app-only for everyone. Viewing existing campaigns (below)
+          stays available on web. ─────────────────────────────────────────────── */}
+      {!grow_qualified ? (
+        <div style={{ ...card, textAlign: "center" as const }}>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase" as const, letterSpacing: "0.04em", margin: "0 0 10px" }}>
+            Campaigns are in the app
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, margin: "0 0 18px" }}>
+            Download the SQRZ app to access campaigns.
+          </p>
+          <a
+            href={TESTFLIGHT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-block", padding: "13px 22px", background: ACCENT, color: "#111", borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: "none", fontFamily: FONT_BODY, letterSpacing: "0.02em" }}
+          >
+            Get the SQRZ App →
+          </a>
+        </div>
+      ) : isGrow ? (
+        <div style={{ ...card, textAlign: "center" as const }}>
+          <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase" as const, letterSpacing: "0.04em", margin: "0 0 10px" }}>
+            SQRZ Grow
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.6, margin: "0 0 18px" }}>
+            SQRZ Grow is available exclusively through the SQRZ app.
+          </p>
+          <a
+            href={TESTFLIGHT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-block", padding: "13px 22px", background: ACCENT, color: "#111", borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: "none", fontFamily: FONT_BODY, letterSpacing: "0.02em" }}
+          >
+            Get the SQRZ App →
+          </a>
+        </div>
+      ) : (
       <div ref={formRef} style={{ ...card, ...(isGrow ? { background: "var(--surface)", border: "1px solid var(--border)" } : {}) }}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 22, fontWeight: 800, color: "var(--text)", textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 14px" }}>
           New {isGrow ? "Grow" : "Boost"} Campaign
@@ -1229,6 +1273,7 @@ export default function BoostPage() {
         </>
         )}
       </div>
+      )}
 
       {/* ── Active Campaigns ─────────────────────────────────────────────────── */}
       <div style={card}>
