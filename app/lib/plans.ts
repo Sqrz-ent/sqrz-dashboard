@@ -3,9 +3,9 @@
 // plan_id 1                    → level 1 (Creator)
 // plan_id 2 (legacy Boost)     → level 1 (treat as Creator)
 //
-// Boost is no longer a subscription plan — it's a pay-per-campaign feature
-// available to all Creator users. grow_qualified activates the Grow form
-// within the Boost panel but is not a plan gate.
+// Boost is no longer a subscription plan — it's a pay-per-campaign feature.
+// Campaign creation (Boost + Grow) lives in the native SQRZ app; the web
+// dashboard shows an app-download prompt plus the existing-campaign list.
 
 export function getPlanLevel(plan_id: number | null | undefined): number {
   if (plan_id === 1) return 1;  // Creator

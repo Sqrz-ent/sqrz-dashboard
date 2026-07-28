@@ -130,14 +130,13 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
-// Boost is replaced by "Grow" here — campaign creation + list now live inside
-// the Grow page (the renamed /analytics route, which leads with BOOST/GROW/
-// PARTNER sections above the analytics RESULTS), mirroring the iOS restructure.
+// No Boost/Grow item here — Boost and Grow live exclusively in the Grow nav
+// section (the /analytics route, reached via the main dashboard nav). This
+// profile-builder menu is profile setup only.
 const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
   { to: "/service", label: "Business" },
-  { to: "/analytics", label: "Grow" },
   { to: "/domain", label: "Domain" },
   { to: "/links", label: "Links" },
   { to: "/payments", label: "Payments" },

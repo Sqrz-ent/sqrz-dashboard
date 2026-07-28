@@ -60,12 +60,11 @@ export type Campaign = {
 };
 
 // Shape consumed by <BoostSection> — returned by the Boost route loader and the
-// Grow page loader alike, so both render the identical Boost UI (creation gated
-// by grow_qualified inside the component). One query set, no drift.
+// Grow page loader alike, so both render the identical Boost UI (app-download
+// prompt + existing-campaign list). One query set, no drift.
 export type BoostSectionData = {
   plan_id: number | null;
   is_beta: boolean;
-  grow_qualified: boolean;
   campaign_count: number;
   campaigns: Campaign[];
   privateLinks: PrivateLink[];
@@ -124,7 +123,6 @@ export async function loadBoostSectionData(
   return {
     plan_id: (profile.plan_id as number | null) ?? null,
     is_beta: (profile.is_beta as boolean) ?? false,
-    grow_qualified: (profile.grow_qualified as boolean) ?? false,
     campaign_count: campaignCount ?? 0,
     campaigns: (campaigns ?? []) as unknown as Campaign[],
     privateLinks: (privateLinks ?? []) as unknown as PrivateLink[],
