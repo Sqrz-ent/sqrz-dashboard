@@ -38,7 +38,6 @@ export async function action({ request }: Route.ActionArgs) {
     campaign_type?: "boost" | "grow";
     budget_amount?: number;
     campaign_id?: string | null;
-    is_reactivation?: boolean;
     // Grow-only fields for new campaign creation
     promote_type?: string | null;
     promote_link_id?: string | null;
@@ -54,7 +53,7 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Invalid request body" }, { status: 400, headers });
   }
 
-  const { campaign_type, is_reactivation = false } = body;
+  const { campaign_type } = body;
   const budget = Number(body.budget_amount);
 
   if (!campaign_type || !["boost", "grow"].includes(campaign_type)) {
@@ -70,15 +69,8 @@ export async function action({ request }: Route.ActionArgs) {
   if (body.campaign_id) {
     campaignId = body.campaign_id;
   } else if (campaign_type === "grow") {
-    // Grow: create campaign row now (no prior action step)
-    const planId = profile.plan_id as number | null;
-    const minBudget = planId === null || planId === 4 ? 100 : 250;
-    if (budget < minBudget) {
-      return Response.json(
-        { error: `Minimum Grow budget is $${minBudget.toLocaleString()}` },
-        { status: 400, headers }
-      );
-    }
+    // Grow: create campaign row now (no prior action step). Any positive budget
+    // is valid — no minimum, no plan-based split.
     const promoteType = body.promote_type ?? "profile";
 
     // Channels: valid non-empty subset of the Grow options (satisfies the
@@ -129,18 +121,16 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   // ── Calculate fee and total ────────────────────────────────────────────────
-  const fee = campaign_type === "boost"
-    ? (is_reactivation ? 5 : 25)
-    : Math.round(budget * 0.20 * 100) / 100;
+  // Flat 20% SQRZ fee on the ad budget for every campaign — no activation fee,
+  // no minimum, no plan-based split. total = budget + budget * 0.20.
+  const fee = Math.round(budget * 0.20 * 100) / 100;
   const total = budget + fee;
 
   const productName = campaign_type === "boost"
     ? `SQRZ Boost Campaign — $${budget} ad budget`
     : `SQRZ Grow Campaign — $${budget} ad budget`;
 
-  const description = campaign_type === "boost"
-    ? `Includes $${is_reactivation ? 5 : 25} ${is_reactivation ? "reactivation" : "activation"} fee`
-    : `Includes 20% management fee ($${Math.round(budget * 0.20)})`;
+  const description = `Includes 20% SQRZ fee ($${Math.round(budget * 0.20)})`;
 
   // ── Stripe checkout session ────────────────────────────────────────────────
   const session = await stripe.checkout.sessions.create({

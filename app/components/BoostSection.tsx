@@ -246,20 +246,19 @@ export default function BoostSection({
   const [showPixelUpgrade, setShowPixelUpgrade] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  // Resume payment for an unpaid campaign created in the app. Reads the campaign's
-  // real type so the server applies the correct fee: Grow = 20% management fee,
-  // Boost = flat $25 activation fee.
+  // Resume payment for an unpaid campaign created in the app. The server applies
+  // a flat 20% SQRZ fee on the ad budget for every campaign type.
   async function handleRetryPayment(campaign: Campaign) {
     setRetryingId(campaign.id);
     try {
       const res = await fetch("/api/campaigns/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          campaign.campaign_type === "grow"
-            ? { campaign_type: "grow", budget_amount: campaign.budget_amount, campaign_id: campaign.id }
-            : { campaign_type: "boost", budget_amount: campaign.budget_amount, campaign_id: campaign.id, is_reactivation: false }
-        ),
+        body: JSON.stringify({
+          campaign_type: campaign.campaign_type ?? "boost",
+          budget_amount: campaign.budget_amount,
+          campaign_id: campaign.id,
+        }),
       });
       const data = await res.json();
       if (res.ok && data.checkout_url) {
@@ -364,14 +363,11 @@ export default function BoostSection({
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
                 : null;
 
-              // Pending payment breakdown — mirror the server fee logic so the card
-              // shows the real total before checkout: Grow = 20% management fee,
-              // Boost = flat $25 activation fee.
-              const pendingFee = c.campaign_type === "grow"
-                ? Math.round(c.budget_amount * 0.20 * 100) / 100
-                : 25;
+              // Pending payment breakdown — mirror the server fee: a flat 20% SQRZ
+              // fee on the ad budget for every campaign (no activation fee, no min).
+              const pendingFee = Math.round(c.budget_amount * 0.20 * 100) / 100;
               const pendingTotal = c.budget_amount + pendingFee;
-              const pendingFeeLabel = c.campaign_type === "grow" ? "Management fee (20%)" : "Activation fee";
+              const pendingFeeLabel = "SQRZ fee (20%)";
 
               return (
                 <div

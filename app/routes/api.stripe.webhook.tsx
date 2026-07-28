@@ -298,7 +298,7 @@ export async function action({ request }: ActionFunctionArgs) {
           html: `
             <p>A new SQRZ ${isGrow ? "Grow" : "Boost"} campaign payment has been received.</p>
             <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)}</p>
-            <p><strong>${isGrow ? "Management fee (20%)" : "Activation fee"}:</strong> $${escapeHtml(session.metadata.fee)}</p>
+            <p><strong>SQRZ fee (20%):</strong> $${escapeHtml(session.metadata.fee)}</p>
             <p><strong>Total charged:</strong> $${escapeHtml(session.metadata.total)}</p>
             <p><strong>Customer:</strong> ${escapeHtml(customerEmail)}</p>
             <p><strong>Campaign ID:</strong> ${campaignId}</p>
