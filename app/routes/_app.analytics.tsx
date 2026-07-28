@@ -2,6 +2,11 @@ import { redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { loadBoostSectionData, type BoostSectionData } from "~/lib/boost.server";
+import { loadPartnerSectionData, type PartnerSectionData } from "~/lib/partner.server";
+import BoostSection from "~/components/BoostSection";
+import PartnerSection from "~/components/PartnerSection";
+import GrowTeaser, { InviteOnlyBadge } from "~/components/GrowTeaser";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -252,8 +257,17 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
+  // The Grow page composes BOOST + PARTNER sections alongside the analytics
+  // RESULTS. Load the same data those standalone routes use, via shared helpers
+  // (RLS server client, matching their loaders). Partner data only when a partner.
+  const isPartner = !!(profile.is_partner as boolean | null);
+  const [boost, partner] = await Promise.all([
+    loadBoostSectionData(supabase, profile),
+    isPartner ? loadPartnerSectionData(supabase, profile) : Promise.resolve(null),
+  ]);
+
   return Response.json(
-    { analytics, cookieless, days, profile, advisorRuns },
+    { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner },
     { headers }
   );
 }
@@ -323,6 +337,18 @@ const sectionLabel: React.CSSProperties = {
   color: "var(--text-muted)",
   marginBottom: 12,
   display: "block",
+};
+
+// Top-level group header for the four Grow-page sections (BOOST / GROW / PARTNER
+// / RESULTS) — larger + accent, distinct from the muted per-subsection labels.
+const groupLabel: React.CSSProperties = {
+  fontFamily: FONT_DISPLAY,
+  fontSize: 22,
+  fontWeight: 800,
+  letterSpacing: "0.04em",
+  textTransform: "uppercase",
+  color: ACCENT,
+  marginBottom: 14,
 };
 
 const card: React.CSSProperties = {
@@ -733,12 +759,15 @@ function CampaignMetricPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, cookieless, days, profile, advisorRuns } = useLoaderData() as {
+  const { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner } = useLoaderData() as {
     analytics: AnalyticsData | null;
     cookieless: CookielessMetrics | null;
     days: number;
     profile: Record<string, unknown>;
     advisorRuns: Record<string, AdvisorResponse>;
+    boost: BoostSectionData;
+    partner: PartnerSectionData | null;
+    isPartner: boolean;
   };
   const slug = profile.slug as string;
   const navigate = useNavigate();
@@ -779,31 +808,57 @@ export default function AnalyticsPage() {
 
   return (
     <div style={page}>
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* ── Page title ─────────────────────────────────────────────────────── */}
+      <h1
+        style={{
+          fontFamily: FONT_DISPLAY,
+          fontSize: 38,
+          fontWeight: 800,
+          color: ACCENT,
+          textTransform: "uppercase",
+          letterSpacing: "0.03em",
+          margin: "0 0 32px",
+          lineHeight: 1,
+        }}
+      >
+        Grow
+      </h1>
+
+      {/* ── BOOST — campaign creation (gated by grow_qualified) + list ──────── */}
+      <section style={{ marginBottom: 48 }}>
+        <div style={groupLabel}>Boost</div>
+        <BoostSection embedded {...boost} />
+      </section>
+
+      {/* ── GROW — invite-only teaser for the managed campaign-partner features ─ */}
+      <section style={{ marginBottom: 48 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+          <div style={{ ...groupLabel, marginBottom: 0 }}>Grow</div>
+          <InviteOnlyBadge />
+        </div>
+        <GrowTeaser />
+      </section>
+
+      {/* ── PARTNER — partner dashboard, partners only ─────────────────────── */}
+      {isPartner && partner && (
+        <section style={{ marginBottom: 48 }}>
+          <div style={groupLabel}>Partner</div>
+          <PartnerSection embedded {...partner} />
+        </section>
+      )}
+
+      {/* ── RESULTS — analytics, with time-range control ───────────────────── */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 32,
+          marginBottom: 20,
           flexWrap: "wrap",
           gap: 12,
         }}
       >
-        <h1
-          style={{
-            fontFamily: FONT_DISPLAY,
-            fontSize: 38,
-            fontWeight: 800,
-            color: ACCENT,
-            textTransform: "uppercase",
-            letterSpacing: "0.03em",
-            margin: 0,
-            lineHeight: 1,
-          }}
-        >
-          Analytics
-        </h1>
+        <div style={{ ...groupLabel, marginBottom: 0 }}>Results</div>
 
         <div style={{ display: "flex", gap: 6 }}>
           {[1, 7, 30, 90].map((d) => (

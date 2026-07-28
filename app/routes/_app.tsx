@@ -130,21 +130,24 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
+// Boost was removed here — campaign creation + list now live inside the Grow
+// page (the renamed Analytics route), mirroring the iOS tab restructure.
 const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
   { to: "/service", label: "Business" },
-  { to: "/boost", label: "Boost" },
   { to: "/domain", label: "Domain" },
   { to: "/links", label: "Links" },
   { to: "/payments", label: "Payments" },
   { to: "/account", label: "Account" },
 ];
 
+// "Analytics" → "Grow": the /analytics route now leads with BOOST/GROW/PARTNER
+// sections above the analytics RESULTS. Route path kept as /analytics.
 const bottomNavItems = [
   { to: "/", label: "Dashboard", icon: "⊞", end: true },
   { to: "/office", label: "Office", icon: "📋" },
-  { to: "/analytics", label: "Analytics", icon: "📊" },
+  { to: "/analytics", label: "Grow", icon: "📊" },
 ];
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
