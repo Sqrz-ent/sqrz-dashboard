@@ -276,7 +276,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       plan_id: (profile.plan_id as number | null) ?? null,
       is_beta: (profile.is_beta as boolean) ?? false,
-      grow_qualified: (profile.grow_qualified as boolean) ?? false,
       username: profile.slug as string,
       profileId: profile.id as string,
       stripeConnectStatus: (profile.stripe_connect_status as string | null) ?? null,
@@ -1094,10 +1093,9 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, is_beta, grow_qualified, username: usernameRaw, profileId, stripeConnectStatus, links, services, eventBookings } = useLoaderData<typeof loader>() as {
+  const { plan_id, is_beta, username: usernameRaw, profileId, stripeConnectStatus, links, services, eventBookings } = useLoaderData<typeof loader>() as {
     plan_id: number | null;
     is_beta: boolean;
-    grow_qualified: boolean;
     username: string;
     profileId: string;
     stripeConnectStatus: string | null;

@@ -824,7 +824,7 @@ export default function AnalyticsPage() {
         Grow
       </h1>
 
-      {/* ── BOOST — campaign creation (gated by grow_qualified) + list ──────── */}
+      {/* ── BOOST — app-download prompt + existing-campaign list ───────────── */}
       <section style={{ marginBottom: 48 }}>
         <div style={groupLabel}>Boost</div>
         <BoostSection embedded {...boost} />
