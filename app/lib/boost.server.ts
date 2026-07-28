@@ -63,7 +63,6 @@ export type Campaign = {
 // Grow page loader alike, so both render the identical Boost UI (app-download
 // prompt + existing-campaign list). One query set, no drift.
 export type BoostSectionData = {
-  plan_id: number | null;
   is_beta: boolean;
   campaign_count: number;
   campaigns: Campaign[];
@@ -72,8 +71,6 @@ export type BoostSectionData = {
   profile_id: string;
   profile_slug: string;
   referredByCode: string | null;
-  creatorMonthlyPriceId: string;
-  creatorYearlyPriceId: string;
 };
 
 /**
@@ -121,7 +118,6 @@ export async function loadBoostSectionData(
     ]);
 
   return {
-    plan_id: (profile.plan_id as number | null) ?? null,
     is_beta: (profile.is_beta as boolean) ?? false,
     campaign_count: campaignCount ?? 0,
     campaigns: (campaigns ?? []) as unknown as Campaign[],
@@ -130,8 +126,6 @@ export async function loadBoostSectionData(
     profile_id: profile.id as string,
     profile_slug: (profile.slug as string) ?? "",
     referredByCode: (profile.referred_by_code as string | null) ?? null,
-    creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
-    creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
   };
 }
 

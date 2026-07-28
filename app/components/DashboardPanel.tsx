@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useFetcher } from "react-router";
 import { supabase } from "~/lib/supabase.client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -8,20 +7,11 @@ export type PanelKey = "profile" | "service" | "media" | "domain" | "account";
 
 type Profile = Record<string, unknown>;
 
-export type SubscriptionData = {
-  planName: string;
-  planDescription: string | null;
-  status: string | null;
-  currentPeriodEnd: string | null;
-};
-
 interface DashboardPanelProps {
   panel: PanelKey | null;
   profile: Profile | null;
   userId: string;
   onClose: () => void;
-  subscription: SubscriptionData;
-  onUpgrade: () => void;
 }
 
 // ─── Panel titles ─────────────────────────────────────────────────────────────
@@ -31,7 +21,7 @@ const panelTitles: Record<PanelKey, string> = {
   service: "Services",
   media: "Media Library",
   domain: "Custom Domain",
-  account: "Account & Billing",
+  account: "Account",
 };
 
 // ─── Shared input styles ──────────────────────────────────────────────────────
@@ -357,124 +347,9 @@ function ProfilePanel({ userId }: { userId: string }) {
 
 // ─── AccountPanel ─────────────────────────────────────────────────────────────
 
-function formatPeriodEnd(iso: string | null): string | null {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-function AccountPanel({
-  profile,
-  subscription,
-  onUpgrade,
-}: {
-  profile: Profile | null;
-  subscription: SubscriptionData;
-  onUpgrade: () => void;
-}) {
-  const connectFetcher = useFetcher();
-  const loginFetcher = useFetcher();
-
-  const connectStatus = (profile?.stripe_connect_status as string | undefined) ?? "not_connected";
-  const isActive = connectStatus === "active";
-  const isPending = connectStatus === "pending";
-
-  const isConnecting = connectFetcher.state !== "idle";
-  const isOpeningDashboard = loginFetcher.state !== "idle";
-
-  useEffect(() => {
-    const url = (loginFetcher.data as { url?: string } | null)?.url;
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-  }, [loginFetcher.data]);
-
-  const planId = profile?.plan_id as number | null | undefined;
-  const showUpgrade = !planId || planId === 0;
-
-  const subStatusLabel =
-    subscription.status === "active" ? "Active"
-    : subscription.status === "trialing" ? "Trialing"
-    : subscription.status === "past_due" ? "Past due"
-    : subscription.status === "cancelled" ? "Cancelled"
-    : subscription.status
-      ? subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)
-      : "Free";
-
-  const subStatusColor =
-    subscription.status === "active" || subscription.status === "trialing"
-      ? "#4ade80"
-      : subscription.status === "past_due"
-      ? "#fb923c"
-      : subscription.status === "cancelled"
-      ? "#ef4444"
-      : "var(--text-muted)";
-
-  const renewsOn = formatPeriodEnd(subscription.currentPeriodEnd);
-
+function AccountPanel({ profile: _profile }: { profile: Profile | null }) {
   return (
     <div>
-      {/* ── Subscription ── */}
-      <p style={sectionHeadingStyle}>Subscription</p>
-
-      <div
-        style={{
-          background: "var(--bg)",
-          border: "1px solid var(--border)",
-          borderRadius: 12,
-          padding: "16px 18px",
-          marginBottom: 24,
-        }}
-      >
-        {/* Plan name + status */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 600 }}>
-            {subscription.planName}
-          </span>
-          <span style={{ color: subStatusColor, fontSize: 12, fontWeight: 600 }}>
-            {subStatusLabel}
-          </span>
-        </div>
-
-        {/* Plan description */}
-        {subscription.planDescription && (
-          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 10px" }}>
-            {subscription.planDescription}
-          </p>
-        )}
-
-        {/* Renewal date */}
-        {renewsOn && (
-          <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 14px" }}>
-            Renews on {renewsOn}
-          </p>
-        )}
-
-        {/* Upgrade button */}
-        {showUpgrade && (
-          <button
-            onClick={onUpgrade}
-            style={{
-              marginTop: !subscription.planDescription && !renewsOn ? 12 : 0,
-              padding: "10px 18px",
-              background: "#F5A623",
-              color: "#111111",
-              border: "none",
-              borderRadius: 10,
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            Upgrade plan →
-          </button>
-        )}
-      </div>
-
-      {/* ── Payments / Stripe Connect ── */}
-      <p style={{ ...sectionHeadingStyle, marginTop: 8 }}>Payments</p>
-
       <div
         style={{
           background: "var(--bg)",
@@ -483,83 +358,9 @@ function AccountPanel({
           padding: "16px 18px",
         }}
       >
-        {isActive ? (
-          /* ── Active ── */
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <p style={{ color: "#4ade80", fontSize: 13, margin: 0, fontWeight: 600 }}>
-              ✓ Payments active
-            </p>
-            <loginFetcher.Form method="post" action="/api/stripe/connect/login">
-              <button
-                type="submit"
-                disabled={isOpeningDashboard}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: isOpeningDashboard ? "var(--text-muted)" : "var(--text)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: isOpeningDashboard ? "default" : "pointer",
-                  padding: 0,
-                  textDecoration: "underline",
-                }}
-              >
-                {isOpeningDashboard ? "Opening…" : "Manage payouts →"}
-              </button>
-            </loginFetcher.Form>
-          </div>
-        ) : isPending ? (
-          /* ── Pending ── */
-          <>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 12px" }}>
-              Onboarding in progress…
-            </p>
-            <connectFetcher.Form method="post" action="/api/stripe/connect">
-              <button
-                type="submit"
-                disabled={isConnecting}
-                style={{
-                  padding: "10px 18px",
-                  background: "var(--surface-muted)",
-                  color: isConnecting ? "var(--text-muted)" : "var(--text)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: isConnecting ? "default" : "pointer",
-                }}
-              >
-                {isConnecting ? "Redirecting…" : "Continue setup →"}
-              </button>
-            </connectFetcher.Form>
-          </>
-        ) : (
-          /* ── Not connected ── */
-          <>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: "0 0 12px" }}>
-              Connect your bank account to receive payments from bookings.
-            </p>
-            <connectFetcher.Form method="post" action="/api/stripe/connect">
-              <button
-                type="submit"
-                disabled={isConnecting}
-                style={{
-                  padding: "10px 18px",
-                  background: "#F5A623",
-                  color: "#111111",
-                  border: "none",
-                  borderRadius: 10,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: isConnecting ? "default" : "pointer",
-                  opacity: isConnecting ? 0.6 : 1,
-                }}
-              >
-                {isConnecting ? "Redirecting…" : "Connect Bank Account →"}
-              </button>
-            </connectFetcher.Form>
-          </>
-        )}
+        <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.55 }}>
+          Account settings live in the Account tab. Booking payments are handled manually during beta.
+        </p>
       </div>
     </div>
   );
@@ -572,8 +373,6 @@ export default function DashboardPanel({
   profile: _profile,
   userId,
   onClose,
-  subscription,
-  onUpgrade,
 }: DashboardPanelProps) {
   const modalRef = useRef<HTMLDivElement>(null);
 
@@ -608,7 +407,7 @@ export default function DashboardPanel({
       case "domain":
         return <PlaceholderPanel title="Custom Domain" />;
       case "account":
-        return <AccountPanel profile={_profile} subscription={subscription} onUpgrade={onUpgrade} />;
+        return <AccountPanel profile={_profile} />;
       default:
         return null;
     }

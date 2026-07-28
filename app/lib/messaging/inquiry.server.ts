@@ -134,7 +134,7 @@ export async function listOpenInquiryThreadsForProfile(profileId: string) {
   const [{ data: profile }, { data: threads }] = await Promise.all([
     admin
       .from("profiles")
-      .select("id, slug, plan_id, name, brand_name, first_name, last_name")
+      .select("id, slug, name, brand_name, first_name, last_name")
       .eq("id", profileId)
       .maybeSingle(),
     admin
@@ -146,9 +146,7 @@ export async function listOpenInquiryThreadsForProfile(profileId: string) {
       .limit(10),
   ]);
 
-  const hasPremiumAccess = profile?.plan_id != null && Number(profile.plan_id) > 0;
-
-  if (!profile?.id || !hasPremiumAccess || !threads?.length) {
+  if (!profile?.id || !threads?.length) {
     return null;
   }
 

@@ -13,7 +13,7 @@ export default function DashboardHome() {
       <div style={{ maxWidth: 1100, margin: "0 auto" }}>
         <h1 style={{ fontSize: 36, marginBottom: 8 }}>SQRZ Dashboard</h1>
         <p style={{ opacity: 0.75, marginBottom: 32 }}>
-          Manage your profile, bookings, and payouts.
+          Manage your profile, bookings, and campaigns.
         </p>
 
         <section
@@ -32,8 +32,8 @@ export default function DashboardHome() {
             description="View upcoming and past bookings."
           />
           <Card
-            title="💳 Payments"
-            description="Manage payouts and Stripe connection."
+            title="📣 Grow"
+            description="Activate campaigns and drive traffic."
           />
         </section>
 
@@ -78,4 +78,3 @@ function Card({
     </div>
   );
 }
-

@@ -3,7 +3,6 @@ import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { normalizeTaxPresets, type TaxPreset } from "~/lib/tax-presets";
 import Modal from "~/components/Modal";
 import {
   DndContext,
@@ -275,20 +274,6 @@ export async function action({ request }: Route.ActionArgs) {
       external_privacy_url: (formData.get("external_privacy_url") as string) || null,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "update_tax_presets") {
-    // Full-array replace of profiles.tax_presets. Client sends the normalized JSON.
-    let presets: unknown = [];
-    try {
-      presets = JSON.parse((formData.get("tax_presets") as string) || "[]");
-    } catch { /* keep [] */ }
-    const clean = normalizeTaxPresets(presets);
-    const { error } = await supabase
-      .from("profiles")
-      .update({ tax_presets: clean })
-      .eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message, tax_presets: clean }, { headers });
   }
 
   if (intent === "update_service") {
@@ -637,43 +622,6 @@ export default function ServicePage() {
   const activeFetcher = useFetcher();
   const reorderFetcher = useFetcher();
   const businessFetcher = useFetcher();
-  const taxPresetsFetcher = useFetcher();
-
-  // Tax presets (profiles.tax_presets) — edited locally, saved as a full-array replace.
-  const [taxPresets, setTaxPresets] = useState<TaxPreset[]>(() => normalizeTaxPresets(profile.tax_presets));
-  const [newTaxLabel, setNewTaxLabel] = useState("");
-  const [newTaxRate, setNewTaxRate] = useState("");
-  const [newTaxDefault, setNewTaxDefault] = useState(false);
-
-  function persistTaxPresets(next: TaxPreset[]) {
-    setTaxPresets(next);
-    const fd = new FormData();
-    fd.append("intent", "update_tax_presets");
-    fd.append("tax_presets", JSON.stringify(next));
-    taxPresetsFetcher.submit(fd, { method: "post" });
-  }
-
-  function addTaxPreset() {
-    const label = newTaxLabel.trim();
-    const rate = parseFloat(newTaxRate);
-    if (!label || isNaN(rate) || rate < 0 || rate > 100) return;
-    const next = [
-      ...taxPresets.map((p) => (newTaxDefault ? { ...p, is_default: false } : p)),
-      { label, rate, is_default: newTaxDefault },
-    ];
-    persistTaxPresets(next);
-    setNewTaxLabel("");
-    setNewTaxRate("");
-    setNewTaxDefault(false);
-  }
-
-  function deleteTaxPreset(idx: number) {
-    persistTaxPresets(taxPresets.filter((_, i) => i !== idx));
-  }
-
-  function setTaxPresetDefault(idx: number) {
-    persistTaxPresets(taxPresets.map((p, i) => ({ ...p, is_default: i === idx })));
-  }
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -1011,98 +959,6 @@ export default function ServicePage() {
           </button>
         </businessFetcher.Form>
       </div>
-
-      {/* ── TAX RATES ──────────────────────────────────────────────────────── */}
-      <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 6 }}>Tax rates</h2>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px", lineHeight: 1.5 }}>
-          Define reusable tax rates (e.g. MwSt 19%). They appear as a dropdown when you create proposals.
-        </p>
-
-        {taxPresets.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
-            {taxPresets.map((p, i) => (
-              <div key={i} style={{ ...subtleCard, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)", fontFamily: FONT_BODY }}>{p.label}</span>
-                  <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{p.rate}%</span>
-                  {p.is_default && (
-                    <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#111", background: ACCENT, borderRadius: 999, padding: "2px 8px" }}>
-                      Default
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  {!p.is_default && (
-                    <button
-                      type="button"
-                      onClick={() => setTaxPresetDefault(i)}
-                      style={{ background: "none", border: "none", color: ACCENT, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FONT_BODY }}
-                    >
-                      Set as default
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => deleteTaxPreset(i)}
-                    style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px" }}>No tax rates yet.</p>
-        )}
-
-        <div style={{ ...subtleCard }}>
-          <p style={{ ...labelStyle, marginBottom: 10 }}>Add tax rate</p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-            <div style={{ flex: "1 1 160px" }}>
-              <label style={labelStyle}>Label</label>
-              <input
-                style={inputStyle}
-                value={newTaxLabel}
-                onChange={(e) => setNewTaxLabel(e.target.value)}
-                placeholder="e.g. MwSt"
-              />
-            </div>
-            <div style={{ flex: "0 1 120px" }}>
-              <label style={labelStyle}>Rate %</label>
-              <input
-                style={inputStyle}
-                type="number"
-                min={0}
-                max={100}
-                step={0.1}
-                value={newTaxRate}
-                onChange={(e) => setNewTaxRate(e.target.value)}
-                placeholder="19"
-              />
-            </div>
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", margin: "12px 0" }}>
-            <input
-              type="checkbox"
-              checked={newTaxDefault}
-              onChange={(e) => setNewTaxDefault(e.target.checked)}
-              style={{ accentColor: ACCENT, width: 15, height: 15 }}
-            />
-            <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: FONT_BODY }}>Set as default</span>
-          </label>
-          <button
-            type="button"
-            onClick={addTaxPreset}
-            disabled={!newTaxLabel.trim() || newTaxRate === "" || taxPresetsFetcher.state !== "idle"}
-            style={{ ...saveBtn, opacity: (!newTaxLabel.trim() || newTaxRate === "") ? 0.6 : 1 }}
-          >
-            Add tax rate
-          </button>
-        </div>
-      </div>
-
 
       <ServiceModal
         isOpen={serviceModal.open}

@@ -4,10 +4,8 @@ import type { Route } from "./+types/_app.links";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { getPlanLevel, FEATURE_GATES } from "~/lib/plans";
 import { normalizeImageUrl } from "~/lib/image-url";
 import Modal from "~/components/Modal";
-import UpgradeBanner from "~/components/UpgradeBanner";
 import LinkCoverUploader from "~/components/LinkCoverUploader";
 
 const ACCENT = "#F5A623";
@@ -83,9 +81,6 @@ type PrivateLink = {
   lead_gate: boolean;
   lead_count: number;
   video_url: string | null;
-  payment_gate: boolean;
-  price: number | null;
-  currency: string | null;
   cta_label: string | null;
 };
 
@@ -124,7 +119,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const [linksRes, servicesRes, ownerBookingsRes, participantRowsRes] = await Promise.all([
     supabase
       .from("private_booking_links")
-      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url, payment_gate, price, currency, cta_label")
+      .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url, cta_label")
       .eq("profile_id", profile.id as string)
       .order("created_at", { ascending: false }),
     // Use the admin client (not the RLS-scoped `supabase`): the owner reads ALL of
@@ -274,11 +269,9 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   return Response.json(
     {
-      plan_id: (profile.plan_id as number | null) ?? null,
       is_beta: (profile.is_beta as boolean) ?? false,
       username: profile.slug as string,
       profileId: profile.id as string,
-      stripeConnectStatus: (profile.stripe_connect_status as string | null) ?? null,
       links,
       services: servicesRes.data ?? [],
       eventBookings,
@@ -350,7 +343,6 @@ export async function action({ request }: Route.ActionArgs) {
 
   if (intent === "create") {
     const titleVal = (fd.get("title") as string) || null;
-    const paid = fd.get("payment_gate") === "true";
     const externalUrlRaw = (fd.get("external_url") as string) || null;
     const prefillServiceVal = (fd.get("prefill_service") as string) || null;
     const { error } = await admin.from("private_booking_links").insert({
@@ -368,9 +360,6 @@ export async function action({ request }: Route.ActionArgs) {
       external_url_label: null,
       prefill_service: prefillServiceVal || null,
       cta_label: (fd.get("cta_label") as string) || null,
-      payment_gate: paid,
-      price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
-      currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
       expires_at: null,
     });
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -401,7 +390,6 @@ export async function action({ request }: Route.ActionArgs) {
   if (intent === "update") {
     const id = fd.get("id") as string;
     const titleVal = (fd.get("title") as string) || null;
-    const paid = fd.get("payment_gate") === "true";
     const externalUrlRaw = (fd.get("external_url") as string) || null;
     const prefillServiceVal = (fd.get("prefill_service") as string) || null;
     const { error } = await admin.from("private_booking_links").update({
@@ -417,9 +405,6 @@ export async function action({ request }: Route.ActionArgs) {
       external_url_label: null,
       prefill_service: prefillServiceVal || null,
       cta_label: (fd.get("cta_label") as string) || null,
-      payment_gate: paid,
-      price: paid ? (parseFloat(fd.get("price") as string) || null) : null,
-      currency: paid ? ((fd.get("currency") as string) || "EUR") : null,
       expires_at: null,
     })
     .eq("id", id)
@@ -493,7 +478,6 @@ function CreateLinkModal({
   fetcher,
   username,
   profileId,
-  stripeConnectStatus,
   existingSlugs,
   services,
   eventBookings,
@@ -504,7 +488,6 @@ function CreateLinkModal({
   fetcher: ReturnType<typeof useFetcher>;
   username: string;
   profileId: string;
-  stripeConnectStatus: string | null;
   existingSlugs: string[];
   services: ProfileService[];
   eventBookings: EventBooking[];
@@ -524,9 +507,6 @@ function CreateLinkModal({
   const [prefillService, setPrefillService] = useState("");
   const [ctaLabel, setCtaLabel] = useState("");
   const [showOnProfile, setShowOnProfile] = useState(false);
-  const [paymentGate, setPaymentGate] = useState(false);
-  const [price, setPrice] = useState("");
-  const [currency, setCurrency] = useState("EUR");
   const [coverUploading, setCoverUploading] = useState(false);
   const [pendingCoverKey, setPendingCoverKey] = useState(createPendingCoverKey);
   const [toast, setToast] = useState<string | null>(null);
@@ -545,9 +525,6 @@ function CreateLinkModal({
       setPrefillService(editingLink.prefill_service || "");
       setCtaLabel(editingLink.cta_label || "");
       setShowOnProfile(editingLink.show_on_profile ?? false);
-      setPaymentGate(editingLink.payment_gate ?? false);
-      setPrice(editingLink.price != null ? String(editingLink.price) : "");
-      setCurrency(editingLink.currency || "EUR");
       setSlugError(null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -573,7 +550,6 @@ function CreateLinkModal({
     setVideoUrl("");
     setIsExternal(false); setExternalUrl(""); setPrefillService(""); setCtaLabel("");
     setShowOnProfile(false);
-    setPaymentGate(false); setPrice(""); setCurrency("EUR");
     setCoverUploading(false);
     setPendingCoverKey(createPendingCoverKey());
   }
@@ -607,11 +583,6 @@ function CreateLinkModal({
     if (isExternal) fd.append("external_url", externalUrl);
     if (!isExternal && prefillService) fd.append("prefill_service", prefillService);
     fd.append("cta_label", ctaLabel);
-    fd.append("payment_gate", String(paymentGate));
-    if (paymentGate) {
-      fd.append("price", price);
-      fd.append("currency", currency);
-    }
     fetcher.submit(fd, { method: "post" });
   }
 
@@ -662,7 +633,7 @@ function CreateLinkModal({
               autoFocus
             />
             <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
-              Visitors go here directly from the hero pill (unless the payment gate is on — then they pay first).
+              Visitors go here directly from the hero pill.
             </p>
           </div>
         )}
@@ -693,7 +664,7 @@ function CreateLinkModal({
           </button>
         </div>
 
-        {/* Page fields — title, slug, content, connect-to, payment */}
+        {/* Page fields — title, slug, content, connect-to */}
         <>
             <div>
               <label style={labelStyle}>Title</label>
@@ -779,63 +750,6 @@ function CreateLinkModal({
               />
             </div>
 
-            {/* Payment Gate toggle */}
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <span style={{ ...labelStyle, marginBottom: 2 }}>Payment Gate</span>
-                <span style={{ display: "block", fontSize: 12, color: "var(--text-muted)" }}>Visitors must pay before they can access this link</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPaymentGate(v => !v)}
-                style={{
-                  width: 38, height: 22, borderRadius: 11, border: "none",
-                  background: paymentGate ? "#22c55e" : "var(--border)",
-                  cursor: "pointer", position: "relative", flexShrink: 0,
-                  transition: "background 0.15s", marginTop: 2,
-                }}
-              >
-                <span style={{
-                  position: "absolute", top: 3, left: paymentGate ? 19 : 3,
-                  width: 16, height: 16, borderRadius: "50%", background: "#fff",
-                  transition: "left 0.15s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
-                  pointerEvents: "none",
-                }} />
-              </button>
-            </div>
-
-            {paymentGate && stripeConnectStatus !== "active" && (
-              <div style={{
-                display: "flex", gap: 8, padding: "10px 12px", borderRadius: 8,
-                background: "rgba(245,166,35,0.1)", border: "1px solid rgba(245,166,35,0.3)",
-                fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5,
-              }}>
-                <span style={{ flexShrink: 0 }} aria-hidden>⚠️</span>
-                <span>
-                  You need to connect Stripe to collect payments. Set up Stripe in your{" "}
-                  <Link to="/payments" style={{ color: ACCENT, fontWeight: 600, textDecoration: "none" }}>Payments tab</Link>.
-                </span>
-              </div>
-            )}
-
-            {paymentGate && (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 10 }}>
-                <div>
-                  <label style={labelStyle}>
-                    Price <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank = pay what you want)</span>
-                  </label>
-                  <input type="number" min={0} style={inputStyle} value={price} onChange={e => setPrice(e.target.value)} placeholder="50" />
-                </div>
-                <div>
-                  <label style={labelStyle}>Currency</label>
-                  <select style={{ ...inputStyle }} value={currency} onChange={e => setCurrency(e.target.value)}>
-                    <option value="EUR">EUR</option>
-                    <option value="USD">USD</option>
-                    <option value="GBP">GBP</option>
-                  </select>
-                </div>
-              </div>
-            )}
         </>
 
         {(fetcher.data as { error?: string } | undefined)?.error && (
@@ -1093,12 +1007,10 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { plan_id, is_beta, username: usernameRaw, profileId, stripeConnectStatus, links, services, eventBookings } = useLoaderData<typeof loader>() as {
-    plan_id: number | null;
+  const { is_beta, username: usernameRaw, profileId, links, services, eventBookings } = useLoaderData<typeof loader>() as {
     is_beta: boolean;
     username: string;
     profileId: string;
-    stripeConnectStatus: string | null;
     links: PrivateLink[];
     services: ProfileService[];
     eventBookings: EventBooking[];
@@ -1106,7 +1018,6 @@ export default function LinksPage() {
 
   const createFetcher = useFetcher();
   const cardFetcher = useFetcher();
-  const locked = getPlanLevel(plan_id) < FEATURE_GATES.links;
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLink, setEditingLink] = useState<PrivateLink | null>(null);
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null);
@@ -1165,10 +1076,6 @@ export default function LinksPage() {
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1 style={sectionTitle}>Private Links</h1>
 
-      {locked && (
-        <UpgradeBanner planName="Creator plan" upgradeParam="creator" />
-      )}
-
       {toast && (
         <div style={{
           background: toast.ok ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.1)",
@@ -1184,7 +1091,7 @@ export default function LinksPage() {
       )}
 
       {/* Active links */}
-      <div style={{ ...card, ...(locked ? { opacity: 0.45, pointerEvents: "none" } : {}) }}>
+      <div style={card}>
         <h2 style={{ fontFamily: FONT_DISPLAY, fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--text)", margin: "0 0 16px" }}>
           Your Links
         </h2>
@@ -1222,7 +1129,6 @@ export default function LinksPage() {
         fetcher={createFetcher}
         username={username}
         profileId={profileId}
-        stripeConnectStatus={stripeConnectStatus}
         existingSlugs={existingSlugs}
         services={services}
         eventBookings={eventBookings}

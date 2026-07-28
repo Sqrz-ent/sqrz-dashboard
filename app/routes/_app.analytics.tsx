@@ -3,7 +3,7 @@ import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { loadBoostSectionData, type BoostSectionData } from "~/lib/boost.server";
-import { loadPartnerSectionData, type PartnerSectionData } from "~/lib/partner.server";
+import { loadBetaInviteSectionData, type BetaInviteSectionData } from "~/lib/partner.server";
 import BoostSection from "~/components/BoostSection";
 import PartnerSection from "~/components/PartnerSection";
 import GrowTeaser, { InviteOnlyBadge } from "~/components/GrowTeaser";
@@ -101,8 +101,6 @@ type AnalyticsData = {
   service_clicks: number;
   booking_modal_opens: number;
   external_link_clicks: number;
-  payment_gate_clicks: number;
-  payment_gate_unlocks: number;
   requests_sent: number;
   leads: LeadRow[];
   private_links: PrivateLinkStat[];
@@ -257,13 +255,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  // The Grow page composes BOOST + PARTNER sections alongside the analytics
+  // The Grow page composes BOOST + BETA INVITES sections alongside the analytics
   // RESULTS. Load the same data those standalone routes use, via shared helpers
   // (RLS server client, matching their loaders). Partner data only when a partner.
   const isPartner = !!(profile.is_partner as boolean | null);
   const [boost, partner] = await Promise.all([
     loadBoostSectionData(supabase, profile),
-    isPartner ? loadPartnerSectionData(supabase, profile) : Promise.resolve(null),
+    isPartner ? loadBetaInviteSectionData(supabase, profile) : Promise.resolve(null),
   ]);
 
   return Response.json(
@@ -766,7 +764,7 @@ export default function AnalyticsPage() {
     profile: Record<string, unknown>;
     advisorRuns: Record<string, AdvisorResponse>;
     boost: BoostSectionData;
-    partner: PartnerSectionData | null;
+    partner: BetaInviteSectionData | null;
     isPartner: boolean;
   };
   const slug = profile.slug as string;
@@ -839,10 +837,10 @@ export default function AnalyticsPage() {
         <GrowTeaser />
       </section>
 
-      {/* ── PARTNER — partner dashboard, partners only ─────────────────────── */}
+      {/* ── BETA INVITES — invite dashboard, invite-enabled profiles only ──── */}
       {isPartner && partner && (
         <section style={{ marginBottom: 48 }}>
-          <div style={groupLabel}>Partner</div>
+          <div style={groupLabel}>Beta Invites</div>
           <PartnerSection embedded {...partner} />
         </section>
       )}
@@ -1052,7 +1050,6 @@ export default function AnalyticsPage() {
         >
           <InlineStat label="Booking Modal Opens" value={a?.booking_modal_opens ?? 0} />
           <InlineStat label="External Link Clicks" value={a?.external_link_clicks ?? 0} />
-          <InlineStat label="Payment Gate Clicks" value={a?.payment_gate_clicks ?? 0} />
           <InlineStat label="Requests Sent" value={a?.requests_sent ?? 0} />
         </div>
       </section>

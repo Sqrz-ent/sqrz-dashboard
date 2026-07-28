@@ -32,7 +32,7 @@ export async function action({ request }: { request: Request }) {
 
   const { data: profile } = await admin
     .from("profiles")
-    .select("id, plan_id")
+    .select("id")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -40,9 +40,6 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Profile not found" }, { status: 404, headers });
   }
 
-  if (profile.plan_id == null || Number(profile.plan_id) <= 0) {
-    return Response.json({ error: "Premium plan required" }, { status: 403, headers });
-  }
   const { data: thread } = await admin
     .from("profile_inquiry_threads")
     .select("id, profile_id")

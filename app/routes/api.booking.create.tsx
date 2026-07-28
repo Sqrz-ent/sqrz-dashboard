@@ -2,8 +2,8 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import type { ActionFunctionArgs } from "react-router";
-import { resolveLockedSqrzFeePct } from "~/lib/proposal-pricing";
 import { persistMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
+import { isStreamConfigured } from "~/lib/messaging/stream.server";
 
 // Escape user-supplied / external values before interpolating them into email HTML.
 function escapeHtml(value: unknown): string {
@@ -50,14 +50,7 @@ export async function action({ request }: ActionFunctionArgs) {
     include_proposal,
     rate,
     currency,
-    line_items,
     proposal_message,
-    requires_payment,
-    tax_pct,
-    tax_label,
-    require_hotel,
-    require_travel,
-    require_food,
   } = body;
 
   if (!client_name || !client_email || !title) {
@@ -68,12 +61,6 @@ export async function action({ request }: ActionFunctionArgs) {
     process.env.SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-  const { data: ownerPlan } = await admin
-    .from("profiles")
-    .select("plans(booking_fee_pct)")
-    .eq("id", profile.id as string)
-    .maybeSingle();
-  const fallbackFeePct = (ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0;
 
   // a. Insert booking
   const { data: booking, error: bookingError } = await admin
@@ -98,8 +85,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const bookingId = booking.id;
 
-  const ownerPlanId = profile.plan_id as number | null | undefined;
-  const messagingProvider = ownerPlanId != null && Number(ownerPlanId) > 0 ? "stream" : "supabase";
+  const messagingProvider = isStreamConfigured() ? "stream" : "supabase";
 
   try {
     await persistMessagingProviderForBooking({
@@ -140,18 +126,15 @@ export async function action({ request }: ActionFunctionArgs) {
       rate: parseFloat(String(rate)),
       currency: currency ?? "EUR",
       message: proposal_message || null,
-      line_items: line_items?.length ? line_items : null,
+      line_items: null,
       // Payment is never collected at the proposal stage — always non-payment.
       requires_payment: false,
-      tax_pct: tax_pct ? (parseFloat(String(tax_pct)) || null) : null,
-      tax_label: (typeof tax_label === "string" && tax_label.trim()) ? tax_label.trim() : null,
-      require_hotel: require_hotel ?? false,
-      require_travel: require_travel ?? false,
-      require_food: require_food ?? false,
-      sqrz_fee_pct: resolveLockedSqrzFeePct({
-        requiresPayment: false,
-        fallbackFeePct,
-      }),
+      tax_pct: null,
+      tax_label: null,
+      require_hotel: false,
+      require_travel: false,
+      require_food: false,
+      sqrz_fee_pct: 0,
       status: "sent",
       sent_by: "member",
       version: 1,
@@ -164,25 +147,14 @@ export async function action({ request }: ActionFunctionArgs) {
 
   let proposalLine = "";
   if (include_proposal && rate) {
-    const emailNet = parseFloat(String(rate));
-    const emailTaxPct = tax_pct ? parseFloat(String(tax_pct)) : 0;
-    const emailTaxAmt = emailTaxPct > 0 ? Math.round(emailNet * emailTaxPct / 100 * 100) / 100 : 0;
-    // SQRZ fee removed — total = net + tax.
-    const emailTotal = Math.round((emailNet + emailTaxAmt) * 100) / 100;
+    const emailAmount = parseFloat(String(rate));
     const currStr = escapeHtml((currency ?? "EUR").toUpperCase());
-    const row = (label: string, value: string, bold = false, muted = false) =>
-      `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #eee;">` +
-      `<span style="font-size:13px;color:${muted ? "#999" : "#0a0a0a"};font-weight:${bold ? 700 : 400};">${label}</span>` +
-      `<span style="font-size:13px;color:${muted ? "#999" : "#0a0a0a"};font-weight:${bold ? 700 : 400};">${value}</span>` +
-      `</div>`;
     proposalLine = `
       <p style="margin:0 0 8px;font-size:13px;color:#999;text-transform:uppercase;letter-spacing:0.06em;">Proposal</p>
       <div style="margin-bottom:16px;">
-        ${row("Rate (net)", `${currStr} ${emailNet.toLocaleString()}`)}
-        ${emailTaxAmt > 0 ? row(`Tax (${emailTaxPct}%)`, `+${currStr} ${emailTaxAmt.toLocaleString()}`, false, true) : ""}
         <div style="display:flex;justify-content:space-between;padding:7px 0;">
-          <span style="font-size:14px;color:#0a0a0a;font-weight:700;">You pay</span>
-          <span style="font-size:14px;color:#0a0a0a;font-weight:700;">${currStr} ${emailTotal.toLocaleString()}</span>
+          <span style="font-size:14px;color:#0a0a0a;font-weight:700;">Amount</span>
+          <span style="font-size:14px;color:#0a0a0a;font-weight:700;">${currStr} ${emailAmount.toLocaleString()}</span>
         </div>
       </div>`;
   }

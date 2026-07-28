@@ -30,7 +30,7 @@ export async function loader({ request }: { request: Request }) {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, plan_id")
+      .select("id")
       .eq("user_id", user.id)
       .maybeSingle();
 
@@ -40,10 +40,6 @@ export async function loader({ request }: { request: Request }) {
 
     if (!profile?.id) {
       return Response.json({ error: "Profile not found" }, { status: 404, headers });
-    }
-
-    if (profile.plan_id == null || Number(profile.plan_id) <= 0) {
-      return Response.json({ threads: [] }, { headers });
     }
 
     const session = await listOpenInquiryThreadsForProfile(profile.id as string);

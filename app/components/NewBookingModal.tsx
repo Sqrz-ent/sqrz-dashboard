@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
 import Modal from "~/components/Modal";
-import type { TaxPreset } from "~/lib/tax-presets";
 
 export type NewBookingService = {
   id: string;
   title: string;
   booking_type: string;
 };
-
-type LineItem = { label: string; amount: number };
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const ACCENT = "#F5A623";
@@ -36,37 +33,22 @@ const lbl: React.CSSProperties = {
   display: "block",
 };
 
-const checkRow: React.CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  gap: 10,
-  cursor: "pointer",
-};
-
 export default function NewBookingModal({
   isOpen,
   onClose,
   services,
   onSuccess,
   prefill,
-  taxPresets = [],
 }: {
   isOpen: boolean;
   onClose: () => void;
   services: NewBookingService[];
   onSuccess: (clientEmail: string, bookingId: string) => void;
   prefill?: { client_name?: string; client_email?: string; description?: string };
-  taxPresets?: TaxPreset[];
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [lineItems, setLineItems] = useState<LineItem[]>([{ label: "Artist Fee", amount: 0 }]);
-
-  // Tax: preset dropdown when the profile has presets, else the free-text fallback below.
-  const hasTaxPresets = taxPresets.length > 0;
-  const defaultTaxIdx = taxPresets.findIndex((p) => p.is_default);
-  const [selectedTaxIdx, setSelectedTaxIdx] = useState<number | null>(defaultTaxIdx >= 0 ? defaultTaxIdx : null);
 
   const [form, setForm] = useState({
     // Step 1
@@ -81,11 +63,6 @@ export default function NewBookingModal({
     // Step 2
     rate: "",
     currency: "EUR",
-    requires_payment: false,
-    tax_pct: "",
-    require_hotel: false,
-    require_travel: false,
-    require_food: false,
     proposal_message: "",
   });
 
@@ -102,8 +79,6 @@ export default function NewBookingModal({
     if (!isOpen) {
       setStep(1);
       setError(null);
-      setLineItems([{ label: "Artist Fee", amount: 0 }]);
-      setSelectedTaxIdx(defaultTaxIdx >= 0 ? defaultTaxIdx : null);
       setForm({
         client_name: "",
         client_email: "",
@@ -115,11 +90,6 @@ export default function NewBookingModal({
         description: "",
         rate: "",
         currency: "EUR",
-        requires_payment: false,
-        tax_pct: "",
-        require_hotel: false,
-        require_travel: false,
-        require_food: false,
         proposal_message: "",
       });
     }
@@ -128,12 +98,6 @@ export default function NewBookingModal({
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
-
-  const selectedTaxPreset = selectedTaxIdx != null ? (taxPresets[selectedTaxIdx] ?? null) : null;
-  const effectiveTaxPct = hasTaxPresets
-    ? (selectedTaxPreset?.rate ?? 0)
-    : (form.tax_pct ? parseFloat(form.tax_pct) || 0 : 0);
-  const effectiveTaxLabel = hasTaxPresets ? (selectedTaxPreset?.label ?? null) : null;
 
   function handleNext(e: React.FormEvent) {
     e.preventDefault();
@@ -161,14 +125,7 @@ export default function NewBookingModal({
           include_proposal: true,
           rate: parseFloat(form.rate),
           currency: form.currency,
-          line_items: lineItems.filter((i) => i.label && i.amount > 0),
           proposal_message: form.proposal_message || null,
-          requires_payment: form.requires_payment,
-          tax_pct: effectiveTaxPct > 0 ? effectiveTaxPct : null,
-          tax_label: effectiveTaxLabel,
-          require_hotel: form.require_hotel,
-          require_travel: form.require_travel,
-          require_food: form.require_food,
         }),
       });
       const json = await res.json();
@@ -393,154 +350,9 @@ export default function NewBookingModal({
             </div>
           </div>
 
-          {/* Tax */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={lbl}>Tax</label>
-            {hasTaxPresets ? (
-              <select
-                style={inputStyle}
-                value={selectedTaxIdx == null ? "" : String(selectedTaxIdx)}
-                onChange={(e) => setSelectedTaxIdx(e.target.value === "" ? null : Number(e.target.value))}
-              >
-                <option value="">No tax</option>
-                {taxPresets.map((p, i) => (
-                  <option key={i} value={String(i)}>
-                    {p.label} ({p.rate}%)
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <>
-                <input
-                  style={inputStyle}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  placeholder="e.g. 19"
-                  value={form.tax_pct}
-                  onChange={(e) => set("tax_pct", e.target.value)}
-                />
-                <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0" }}>
-                  Add tax presets in your profile settings to pick from a dropdown.
-                </p>
-              </>
-            )}
-          </div>
-
-          {/* Breakdown */}
-          <div style={{ marginBottom: 10 }}>
-            <label style={lbl}>Breakdown (optional)</label>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {lineItems.map((item, idx) => (
-                <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 90px 30px", gap: 6, alignItems: "center" }}>
-                  <input
-                    type="text"
-                    style={{ ...inputStyle, padding: "8px 10px" }}
-                    placeholder="e.g. Artist Fee"
-                    value={item.label}
-                    onChange={(e) => {
-                      const next = [...lineItems];
-                      next[idx] = { ...item, label: e.target.value };
-                      setLineItems(next);
-                    }}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    style={{ ...inputStyle, padding: "8px 10px", textAlign: "right" }}
-                    placeholder="0"
-                    value={item.amount || ""}
-                    onChange={(e) => {
-                      const next = [...lineItems];
-                      next[idx] = { ...item, amount: parseFloat(e.target.value) || 0 };
-                      setLineItems(next);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setLineItems(lineItems.filter((_, i) => i !== idx))}
-                    style={{
-                      background: "none",
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      color: "var(--text-muted)",
-                      fontSize: 13,
-                      cursor: "pointer",
-                      padding: "5px 7px",
-                      lineHeight: 1,
-                      fontFamily: FONT_BODY,
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => setLineItems([...lineItems, { label: "", amount: 0 }])}
-              style={{
-                marginTop: 6,
-                background: "none",
-                border: "1px dashed var(--border)",
-                borderRadius: 8,
-                color: "var(--text-muted)",
-                fontSize: 12,
-                cursor: "pointer",
-                padding: "6px 12px",
-                fontFamily: FONT_BODY,
-                width: "100%",
-              }}
-            >
-              + Add Line Item
-            </button>
-          </div>
-
-          {/* Rider requirements */}
-          <div
-            style={{
-              padding: "12px 14px",
-              background: "var(--bg)",
-              borderRadius: 10,
-              border: "1px solid var(--border)",
-              marginBottom: 10,
-              display: "flex",
-              flexDirection: "column",
-              gap: 10,
-            }}
-          >
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text-muted)" }}>
-              Rider requirements
-            </span>
-            <label style={checkRow}>
-              <input
-                type="checkbox"
-                checked={form.require_hotel}
-                onChange={(e) => set("require_hotel", e.target.checked)}
-                style={{ accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, marginTop: 1 }}
-              />
-              <span style={{ fontSize: 13, color: "var(--text)" }}>Hotel accommodation</span>
-            </label>
-            <label style={checkRow}>
-              <input
-                type="checkbox"
-                checked={form.require_travel}
-                onChange={(e) => set("require_travel", e.target.checked)}
-                style={{ accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, marginTop: 1 }}
-              />
-              <span style={{ fontSize: 13, color: "var(--text)" }}>Travel / transport</span>
-            </label>
-            <label style={checkRow}>
-              <input
-                type="checkbox"
-                checked={form.require_food}
-                onChange={(e) => set("require_food", e.target.checked)}
-                style={{ accentColor: ACCENT, width: 15, height: 15, flexShrink: 0, marginTop: 1 }}
-              />
-              <span style={{ fontSize: 13, color: "var(--text)" }}>Food / catering</span>
-            </label>
-          </div>
+          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "0 0 14px", lineHeight: 1.5 }}>
+            Keep this as the agreed proposal amount. Tax and payment details belong on the invoice.
+          </p>
 
           {/* Message */}
           <div style={{ marginBottom: 10 }}>

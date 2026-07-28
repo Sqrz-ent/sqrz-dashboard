@@ -4,17 +4,10 @@ import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
-import UpgradeBanner from "~/components/UpgradeBanner";
 import { useTheme, writeThemeCookie } from "~/lib/theme";
 
 const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
-
-// Inquiry chat is an iOS-first feature — it works on the PWA but not well enough
-// to expose on web yet. Flag the web dashboard config UI off (kept, not deleted).
-// The DB column, action handler, and the iOS app are untouched, so existing users
-// keep their setting and the feature keeps working for them.
-const SHOW_INQUIRY_CHAT_SETTING = false;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +39,6 @@ async function getDashboardAnalytics(profileId: string) {
     viewsPrev7dRes,
     uniqueVisitorsRes,
     bookingModalOpensRes,
-    chatOpensRes,
   ] = await Promise.all([
     admin
       .from("profile_views")
@@ -75,12 +67,6 @@ async function getDashboardAnalytics(profileId: string) {
       .eq("profile_id", profileId)
       .eq("event_type", "booking_modal_open")
       .gte("created_at", sevenDaysAgo),
-    admin
-      .from("jitsu_events")
-      .select("id", { count: "exact", head: true })
-      .eq("profile_id", profileId)
-      .eq("event_type", "chat_opened")
-      .gte("created_at", sevenDaysAgo),
   ]);
 
   const uniqueVisitors = new Set(
@@ -95,7 +81,6 @@ async function getDashboardAnalytics(profileId: string) {
     views_prev_7d: viewsPrev7dRes.count ?? 0,
     unique_visitors_7d: uniqueVisitors,
     booking_modal_opens_7d: bookingModalOpensRes.count ?? 0,
-    chat_opens_7d: chatOpensRes.count ?? 0,
   };
 }
 
@@ -203,15 +188,6 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  if (intent === "toggle_inquiry_chat_enabled") {
-    const enabled = formData.get("enabled") === "true";
-    const { error } = await supabase
-      .from("profiles")
-      .update({ inquiry_chat_enabled: enabled })
-      .eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   return Response.json({ ok: false }, { headers });
 }
 
@@ -238,7 +214,6 @@ export default function DashboardIndex() {
     ?? (p.name as string | null)?.split(" ")[0]
     ?? slug
     ?? "there";
-  const planId = p.plan_id as number | null | undefined;
 
   const a = (analytics ?? {}) as Record<string, unknown>;
   const views          = ((a.views_7d                  ?? 0) as number);
@@ -248,7 +223,6 @@ export default function DashboardIndex() {
     ? Math.round(((views - (a.views_prev_7d as number)) / (a.views_prev_7d as number)) * 100)
     : null;
   const trendUp = trend !== null && trend >= 0;
-  const isPaid = !!planId && planId > 0;
 
   // Profile completion
   const richProfile: RichProfile = {
@@ -263,12 +237,9 @@ export default function DashboardIndex() {
 
   // Theme picker
   const templateFetcher = useFetcher();
-  const inquiryChatFetcher = useFetcher();
   const [selectedTemplate, setSelectedTemplate] = useState<string>(
     (p.template_id as string) || "midnight"
   );
-  const [inquiryChatEnabled, setInquiryChatEnabled] = useState<boolean>((p.inquiry_chat_enabled as boolean | null) !== false);
-  const [toggleError, setToggleError] = useState<string | null>(null);
 
   // Availability
   const blockFetcher = useFetcher();
@@ -291,24 +262,6 @@ export default function DashboardIndex() {
 
   // Share button
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    setInquiryChatEnabled((p.inquiry_chat_enabled as boolean | null) !== false);
-  }, [p.inquiry_chat_enabled]);
-
-  useEffect(() => {
-    if (inquiryChatFetcher.state !== "idle") return;
-    const data = inquiryChatFetcher.data as { ok?: boolean; error?: string } | undefined;
-    if (!data) return;
-    if (!data.ok) {
-      setInquiryChatEnabled((p.inquiry_chat_enabled as boolean | null) !== false);
-      setToggleError(data.error ?? "Failed to update");
-      const t = setTimeout(() => setToggleError(null), 2500);
-      return () => clearTimeout(t);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inquiryChatFetcher.state, inquiryChatFetcher.data]);
-
 
   function copyLink() {
     if (!slug) return;
@@ -562,101 +515,6 @@ export default function DashboardIndex() {
           </div>
         )}
       </div>
-
-      {SHOW_INQUIRY_CHAT_SETTING && (
-      <div style={{ ...card, marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, marginBottom: 14 }}>
-          <div>
-            <p style={{ ...metaLabel, margin: "0 0 8px" }}>Communications</p>
-            <h2 style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
-              Creator messaging controls
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "8px 0 0" }}>
-              Control whether new inquiries can reach you.
-            </p>
-          </div>
-          {!isPaid && (
-            <span style={{ fontSize: 11, fontWeight: 700, padding: "6px 10px", borderRadius: 999, background: "rgba(245,166,35,0.14)", color: ACCENT }}>
-              Creator
-            </span>
-          )}
-        </div>
-
-        {!isPaid && <UpgradeBanner planName="Creator plan" upgradeParam="creator" />}
-
-        <div style={{ display: "grid", gap: 12 }}>
-          <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 12, padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-              <div>
-                <p style={{ ...metaLabel, margin: "0 0 8px" }}>Profile Inquiry Chat</p>
-                <p style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 6px" }}>
-                  Allow new inquiries
-                </p>
-                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 620 }}>
-                  Show the premium chat bubble on your profile and private link pages. Turn this off if you do not want to receive new inquiries right now.
-                </p>
-              </div>
-              <div style={{ flexShrink: 0, textAlign: "right" }}>
-                {isPaid ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInquiryChatEnabled((value) => !value);
-                        const fd = new FormData();
-                        fd.append("intent", "toggle_inquiry_chat_enabled");
-                        fd.append("enabled", String(!inquiryChatEnabled));
-                        inquiryChatFetcher.submit(fd, { method: "post" });
-                      }}
-                      disabled={inquiryChatFetcher.state !== "idle"}
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "8px 12px",
-                        borderRadius: 999,
-                        border: "1px solid var(--border)",
-                        background: "var(--surface)",
-                        cursor: inquiryChatFetcher.state !== "idle" ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      <span style={{ fontSize: 12, fontWeight: 700, color: inquiryChatEnabled ? ACCENT : "var(--text-muted)" }}>
-                        {inquiryChatEnabled ? "On" : "Off"}
-                      </span>
-                      <span style={{ width: 36, height: 20, borderRadius: 999, background: inquiryChatEnabled ? ACCENT : "var(--surface-muted)", position: "relative", display: "inline-block" }}>
-                        <span style={{ width: 14, height: 14, borderRadius: "50%", background: inquiryChatEnabled ? "#111" : "var(--text-muted)", position: "absolute", top: 3, left: inquiryChatEnabled ? 19 : 3 }} />
-                      </span>
-                    </button>
-                    <p style={{ fontSize: 11, color: ACCENT, margin: "8px 0 0", fontWeight: 700 }}>
-                      Included in your plan
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <div style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--surface)", opacity: 0.75 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text-muted)" }}>Off</span>
-                      <span style={{ width: 36, height: 20, borderRadius: 999, background: "var(--surface-muted)", position: "relative", display: "inline-block" }}>
-                        <span style={{ width: 14, height: 14, borderRadius: "50%", background: "var(--text-muted)", position: "absolute", top: 3, left: 3 }} />
-                      </span>
-                    </div>
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", fontWeight: 700 }}>
-                      Upgrade to unlock
-                    </p>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-        </div>
-
-        {toggleError && (
-          <p style={{ color: "#f87171", fontSize: 12, margin: "12px 0 0", fontWeight: 700 }}>
-            {toggleError}
-          </p>
-        )}
-      </div>
-      )}
 
       {/* Theme picker */}
       <div style={{ ...card, marginBottom: 16 }}>

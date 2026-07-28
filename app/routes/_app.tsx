@@ -5,19 +5,9 @@ import type { Route } from "./+types/_app";
 import { NotificationList, type NotificationRow } from "~/components/NotificationList";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { normalizeTaxPresets } from "~/lib/tax-presets";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
-import UpgradeModal from "~/components/UpgradeModal";
 import OnboardingModal from "~/components/OnboardingModal";
 import PartnerInviteBanner from "~/components/PartnerInviteBanner";
-import InquiryBubble from "~/components/InquiryBubble";
-
-// Feature flag — the inquiry/proposal chat widget (chat request + proposal-to-
-// client flow) on the web dashboard/office/etc pages. Hidden for now; flip to
-// true to re-enable. The component and all its code stay intact and reversible;
-// enabled={false} makes InquiryBubble render nothing and skip all fetching.
-// NOTE: this does NOT touch the booking.$id chat — that is a separate system.
-const INQUIRY_CHAT_WEB_ENABLED = false;
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -46,60 +36,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect('/dashboard');
   }
 
-  // Fetch subscription + services in parallel; plan query follows subscription result
-  let subscriptionData: {
-    planName: string;
-    planDescription: string | null;
-    status: string | null;
-    currentPeriodEnd: string | null;
-  } = { planName: "No plan", planDescription: null, status: null, currentPeriodEnd: null };
-
-  const [subQueryResult, servicesResult] = profile
-    ? await Promise.all([
-        supabase
-          .from("subscriptions")
-          .select("status, current_period_end, stripe_price_id")
-          .eq("profile_id", profile.id as string)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        // Use the admin client (not the RLS-scoped `supabase`): the owner reads their
-        // own services here regardless of is_published. The profile_services RLS owner
-        // policy compares auth.uid() to profile_id (= profiles.id), which never matches
-        // for migrated users (profiles.id != auth.users.id), and public_read is gated on
-        // is_published — so the RLS path returns nothing for unpublished owners.
-        admin
-          .from("profile_services")
-          .select("id, title, booking_type")
-          .eq("profile_id", profile.id as string)
-          .eq("is_active", true)
-          .order("sort_order"),
-      ])
-    : [{ data: null }, { data: [] as Array<{ id: string; title: string; booking_type: string }> }];
-
-  if (profile) {
-    const planId = profile.plan_id as number | null | undefined;
-    const sub = subQueryResult.data as Record<string, unknown> | null;
-    const priceId = sub?.stripe_price_id as string | null;
-
-    const planResult = priceId
-      ? await supabase
-          .from("plans")
-          .select("name, description")
-          .or(`stripe_price_monthly.eq.${priceId},stripe_price_yearly.eq.${priceId}`)
-          .maybeSingle()
-      : planId
-        ? await supabase.from("plans").select("name, description").eq("id", planId).maybeSingle()
-        : { data: null };
-
-    subscriptionData = {
-      planName: (planResult.data as Record<string, unknown> | null)?.name as string ?? "No plan",
-      planDescription: (planResult.data as Record<string, unknown> | null)?.description as string ?? null,
-      status: sub?.status as string ?? null,
-      currentPeriodEnd: sub?.current_period_end as string ?? null,
-    };
-  }
-
   // Unread notifications badge count for the nav bell.
   let unreadNotifications = 0;
   if (profile) {
@@ -115,11 +51,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       user,
       profile,
-      services: servicesResult.data ?? [],
-      subscriptionData,
       unreadNotifications,
-      creatorMonthlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_MONTHLY ?? "",
-      creatorYearlyPriceId: process.env.STRIPE_CREATOR_PRICE_ID_YEARLY ?? "",
       isPartner: !!(profile?.is_partner as boolean | null),
       partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
       partnerInvitedAt: (profile?.partner_invited_at as string | null) ?? null,
@@ -139,7 +71,6 @@ const topNavItems = [
   { to: "/service", label: "Business" },
   { to: "/domain", label: "Domain" },
   { to: "/links", label: "Links" },
-  { to: "/payments", label: "Payments" },
   { to: "/account", label: "Account" },
 ];
 
@@ -154,16 +85,16 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, services, subscriptionData, unreadNotifications, creatorMonthlyPriceId, creatorYearlyPriceId, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, unreadNotifications, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
 
-  // 4th bottom-nav slot — partner takes precedence, then beta crew, else own profile
+  // 4th bottom-nav slot — beta invite access takes precedence, then beta crew, else own profile
   const isBeta = !!(p?.is_beta as boolean | null);
   const profileSlug = (p?.slug as string | null) ?? "";
   const fourthNav = isPartner
-    ? { to: "/partners", external: false, icon: "🤝", label: "Partners" }
+    ? { to: "/invites", external: false, icon: "✦", label: "Invites" }
     : isBeta
     ? { to: "/crew", external: false, icon: "👥", label: "Crew" }
     : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👤", label: "Profile" };
@@ -171,28 +102,10 @@ export default function AppLayout() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
-  const upgradeParam = searchParams.get("upgrade");
-  const [upgradeContext, setUpgradeContext] = useState<string | null>(upgradeParam);
-  const upgradeOpen = !!upgradeContext;
-  function openUpgrade(context = "1") {
-    setUpgradeContext(context);
-  }
-  function closeUpgrade() {
-    setUpgradeContext(null);
-    if (typeof window !== "undefined") {
-      const url = new URL(window.location.href);
-      if (url.searchParams.has("upgrade")) {
-        url.searchParams.delete("upgrade");
-        const next = `${url.pathname}${url.search}${url.hash}`;
-        window.history.replaceState(window.history.state, "", next);
-      }
-    }
-  }
 
   // ── Notifications bell popover ────────────────────────────────────────────
   // Anchored dropdown under the bell (same small panel on every screen size).
-  // The panel is rendered through a portal to document.body (like AttachmentSheet
-  // / BookingChat) so it escapes the sticky nav's overflow clip — the nav sets
+  // The panel is rendered through a portal to document.body so it escapes the sticky nav's overflow clip — the nav sets
   // overflowX:auto, which forces overflow-y to auto too and would otherwise clip
   // this dropdown to a thin sliver regardless of z-index. Position is fixed and
   // anchored to the bell via getBoundingClientRect().
@@ -259,31 +172,6 @@ export default function AppLayout() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (upgradeParam) {
-      setUpgradeContext(upgradeParam);
-      if (typeof window !== "undefined") {
-        const url = new URL(window.location.href);
-        url.searchParams.delete("upgrade");
-        const next = `${url.pathname}${url.search}${url.hash}`;
-        window.history.replaceState(window.history.state, "", next);
-      }
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    function handleOpenUpgrade(event: Event) {
-      const customEvent = event as CustomEvent<{ context?: string }>;
-      setUpgradeContext(customEvent.detail?.context ?? "1");
-    }
-
-    window.addEventListener("sqrz:open-upgrade", handleOpenUpgrade as EventListener);
-    return () => {
-      window.removeEventListener("sqrz:open-upgrade", handleOpenUpgrade as EventListener);
-    };
-  }, []);
-
   const navigation = useNavigation();
   const isNavigating = navigation.state === "loading";
   const [isCompleting, setIsCompleting] = useState(false);
@@ -318,8 +206,8 @@ export default function AppLayout() {
 
   // Derive work mode title + breadcrumb from pathname
   function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
-    if (pathname === "/partners") return { title: "Partners", breadcrumb: null };
-    if (pathname === "/partner-onboarding") return { title: "Partner Program", breadcrumb: null };
+    if (pathname === "/invites" || pathname === "/partners") return { title: "Beta Invites", breadcrumb: null };
+    if (pathname === "/invite-onboarding" || pathname === "/partner-onboarding") return { title: "Beta Invites", breadcrumb: null };
     if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
     if (pathname === "/office") return { title: "Office", breadcrumb: null };
     if (pathname.startsWith("/crew/")) return { title: "Crew", breadcrumb: "Crew" };
@@ -338,12 +226,7 @@ export default function AppLayout() {
     setSearchParams({});
   }
 
-  // Show Upgrade button only when user has no plan (null or 0)
-  const planId = p?.plan_id as number | null | undefined;
-  const showUpgrade = !planId || planId === 0;
-
   // Compliance banner
-  const isPaid = planId != null && planId >= 1;
   const hasCustomPixels = !!(
     (p?.pixel_google as string) ||
     (p?.pixel_facebook as string) ||
@@ -351,7 +234,7 @@ export default function AppLayout() {
     (p?.pixel_hubspot as string)
   );
   const impressumMissing = !(p?.responsible_person as string);
-  const shouldShowCompliance = isPaid && hasCustomPixels && impressumMissing;
+  const shouldShowCompliance = hasCustomPixels && impressumMissing;
 
   const DISMISS_KEY = "sqrz_compliance_dismissed_until";
   const [complianceDismissed, setComplianceDismissed] = useState(true); // start hidden, reveal after mount
@@ -571,24 +454,6 @@ export default function AppLayout() {
                 Beta
               </span>
             )}
-            {showUpgrade && (
-              <button
-                onClick={() => openUpgrade()}
-                style={{
-                  background: "transparent",
-                  border: "1px solid rgba(245,166,35,0.5)",
-                  color: "#F5A623",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  borderRadius: 20,
-                  padding: "5px 13px",
-                  cursor: "pointer",
-                  letterSpacing: "0.02em",
-                }}
-              >
-                Upgrade
-              </button>
-            )}
           </div>
         </nav>
       )}
@@ -720,15 +585,6 @@ export default function AppLayout() {
         profile={profile as Record<string, unknown> | null}
         userId={(user as { id: string }).id}
         onClose={closePanel}
-        subscription={subscriptionData}
-        onUpgrade={() => openUpgrade()}
-      />
-
-      <InquiryBubble
-      enabled={INQUIRY_CHAT_WEB_ENABLED}
-      chatEnabled={(p?.inquiry_chat_enabled as boolean | null) !== false}
-      services={(services as Array<{ id: string; title: string; booking_type: string }>) ?? []}
-      taxPresets={normalizeTaxPresets(p?.tax_presets)}
       />
 
       {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
@@ -740,17 +596,6 @@ export default function AppLayout() {
           initialLastName={(p.last_name as string) ?? ""}
           initialAvatarUrl={(p.avatar_url as string) ?? ""}
           onComplete={() => { setShowOnboarding(false); revalidator.revalidate(); }}
-        />
-      )}
-
-      {/* ── Upgrade modal ────────────────────────────────────────────────────── */}
-      {upgradeOpen && upgradeContext && (
-        <UpgradeModal
-          onClose={closeUpgrade}
-          upgradeContext={upgradeContext}
-          monthlyPriceId={creatorMonthlyPriceId}
-          yearlyPriceId={creatorYearlyPriceId}
-          referredByCode={p?.referred_by_code as string | null ?? null}
         />
       )}
 

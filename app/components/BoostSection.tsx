@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useFetcher, useNavigate } from "react-router";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
-import UpgradeModal from "~/components/UpgradeModal";
 import type { Campaign, BoostSectionData } from "~/lib/boost.server";
 
 // Presentational Boost UI — a single-type campaign creation form (flat 20% SQRZ
@@ -253,16 +252,11 @@ function BoostContentSection({ campaign: c }: { campaign: Campaign }) {
 export default function BoostSection({
   campaigns,
   privateLinks,
-  plan_id,
   email,
   profile_slug,
-  referredByCode,
-  creatorMonthlyPriceId,
-  creatorYearlyPriceId,
   embedded = false,
 }: BoostSectionProps) {
   const navigate = useNavigate();
-  const [showPixelUpgrade, setShowPixelUpgrade] = useState(false);
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
   // Resume payment for an unpaid campaign created in the app. The server applies
@@ -289,9 +283,6 @@ export default function BoostSection({
   }
 
   // ── Campaign creation form (single type · flat 20% fee) ────────────────────
-  const isFreeUser = !plan_id;
-  const [showLinkUpgrade, setShowLinkUpgrade] = useState(false);
-
   const [promoteType, setPromoteType] = useState<string | null>(null);
   const [promoteLinkId, setPromoteLinkId] = useState<string>("");
   const [targetAudience, setTargetAudience] = useState("");
@@ -388,45 +379,9 @@ export default function BoostSection({
         <button type="button" onClick={() => setPromoteType("profile")} style={pillStyle(promoteType === "profile")}>
           My Profile
         </button>
-        {isFreeUser ? (
-          <button
-            type="button"
-            onClick={() => setShowLinkUpgrade(true)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "7px 14px",
-              borderRadius: 20,
-              border: "1px solid var(--border)",
-              background: "var(--surface-muted)",
-              color: "var(--text-muted)",
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: "pointer",
-              fontFamily: FONT_BODY,
-              opacity: 0.75,
-            }}
-          >
-            A Private Link
-            <span style={{
-              fontSize: 10,
-              fontWeight: 700,
-              background: "rgba(245,166,35,0.15)",
-              color: ACCENT,
-              borderRadius: 20,
-              padding: "2px 7px",
-              letterSpacing: "0.04em",
-              textTransform: "uppercase" as const,
-            }}>
-              Creator
-            </span>
-          </button>
-        ) : (
-          <button type="button" onClick={() => setPromoteType("link")} style={pillStyle(promoteType === "link")}>
-            A Private Link
-          </button>
-        )}
+        <button type="button" onClick={() => setPromoteType("link")} style={pillStyle(promoteType === "link")}>
+          A Private Link
+        </button>
       </div>
       {promoteType === "link" && (
         <select
@@ -571,7 +526,7 @@ export default function BoostSection({
         )}
         <button
           type="button"
-          onClick={() => plan_id ? navigate("/domain") : setShowPixelUpgrade(true)}
+          onClick={() => navigate("/domain")}
           style={{
             display: "inline-flex",
             alignItems: "center",
@@ -579,8 +534,8 @@ export default function BoostSection({
             padding: "6px 12px",
             borderRadius: 20,
             border: "1px solid var(--border)",
-            background: plan_id ? "var(--surface)" : "rgba(245,166,35,0.07)",
-            color: plan_id ? "var(--text-muted)" : ACCENT,
+            background: "var(--surface)",
+            color: "var(--text-muted)",
             fontSize: 12,
             fontWeight: 600,
             cursor: "pointer",
@@ -589,21 +544,7 @@ export default function BoostSection({
             marginTop: 4,
           }}
         >
-          🎯 {plan_id ? "Pixel Settings →" : "Add Retargeting Pixel"}
-          {!plan_id && (
-            <span style={{
-              fontSize: 10,
-              fontWeight: 700,
-              background: "rgba(245,166,35,0.15)",
-              color: ACCENT,
-              borderRadius: 20,
-              padding: "1px 6px",
-              letterSpacing: "0.04em",
-              textTransform: "uppercase" as const,
-            }}>
-              Creator
-            </span>
-          )}
+          🎯 Pixel Settings →
         </button>
       </div>
 
@@ -804,7 +745,7 @@ export default function BoostSection({
                         </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                        Ad budget is separate from your SQRZ subscription. It goes directly toward running your campaigns.
+                        Your payment combines the ad budget and the SQRZ handling fee for running the campaign.
                       </p>
                     </div>
                   )}
@@ -849,24 +790,6 @@ export default function BoostSection({
       </div>
     </div>
 
-    {showPixelUpgrade && (
-      <UpgradeModal
-        onClose={() => setShowPixelUpgrade(false)}
-        upgradeContext="creator"
-        monthlyPriceId={creatorMonthlyPriceId}
-        yearlyPriceId={creatorYearlyPriceId}
-        referredByCode={referredByCode}
-      />
-    )}
-    {showLinkUpgrade && (
-      <UpgradeModal
-        onClose={() => setShowLinkUpgrade(false)}
-        upgradeContext="creator"
-        monthlyPriceId={creatorMonthlyPriceId}
-        yearlyPriceId={creatorYearlyPriceId}
-        referredByCode={referredByCode}
-      />
-    )}
     </>
   );
 }

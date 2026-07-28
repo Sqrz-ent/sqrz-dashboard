@@ -33,7 +33,7 @@
       "routes/_app.links": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.account": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/_app.analytics": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
-      "routes/api.crew.create-profile": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/_app.notifications": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-token": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inbox": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.messaging.stream-inquiry": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -42,6 +42,8 @@
       "routes/api.dashboard.home-summary": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.booking.create": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.booking.deliver": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoices.upload": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.invoices.download": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.accept": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.counter": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.proposal.decline": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -49,6 +51,7 @@
       "routes/api.wallet.allocation": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.links.$linkId.leads-csv": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.campaigns.checkout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
+      "routes/api.campaign-advisor": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.stripe.checkout": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.stripe.connect": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
       "routes/api.stripe.connect.login": "nodejs_eyJydW50aW1lIjoibm9kZWpzIn0",
@@ -227,11 +230,11 @@
         "path": "analytics",
         "config": {}
       },
-      "routes/api.crew.create-profile": {
-        "id": "routes/api.crew.create-profile",
-        "parentId": "root",
-        "file": "app/routes/api.crew.create-profile.ts",
-        "path": "api/crew/create-profile",
+      "routes/_app.notifications": {
+        "id": "routes/_app.notifications",
+        "parentId": "routes/_app",
+        "file": "app/routes/_app.notifications.tsx",
+        "path": "notifications",
         "config": {}
       },
       "routes/api.messaging.stream-token": {
@@ -290,6 +293,20 @@
         "path": "api/booking/deliver",
         "config": {}
       },
+      "routes/api.invoices.upload": {
+        "id": "routes/api.invoices.upload",
+        "parentId": "root",
+        "file": "app/routes/api.invoices.upload.ts",
+        "path": "api/invoices/upload",
+        "config": {}
+      },
+      "routes/api.invoices.download": {
+        "id": "routes/api.invoices.download",
+        "parentId": "root",
+        "file": "app/routes/api.invoices.download.ts",
+        "path": "api/invoices/download",
+        "config": {}
+      },
       "routes/api.proposal.accept": {
         "id": "routes/api.proposal.accept",
         "parentId": "root",
@@ -337,6 +354,13 @@
         "parentId": "root",
         "file": "app/routes/api.campaigns.checkout.tsx",
         "path": "api/campaigns/checkout",
+        "config": {}
+      },
+      "routes/api.campaign-advisor": {
+        "id": "routes/api.campaign-advisor",
+        "parentId": "root",
+        "file": "app/routes/api.campaign-advisor.tsx",
+        "path": "api/campaign-advisor",
         "config": {}
       },
       "routes/api.stripe.checkout": {
@@ -552,11 +576,11 @@
         "file": "routes/_app.analytics.tsx",
         "path": "analytics"
       },
-      "routes/api.crew.create-profile": {
-        "id": "routes/api.crew.create-profile",
-        "parentId": "root",
-        "file": "routes/api.crew.create-profile.ts",
-        "path": "api/crew/create-profile"
+      "routes/_app.notifications": {
+        "id": "routes/_app.notifications",
+        "parentId": "routes/_app",
+        "file": "routes/_app.notifications.tsx",
+        "path": "notifications"
       },
       "routes/api.messaging.stream-token": {
         "id": "routes/api.messaging.stream-token",
@@ -606,6 +630,18 @@
         "file": "routes/api.booking.deliver.tsx",
         "path": "api/booking/deliver"
       },
+      "routes/api.invoices.upload": {
+        "id": "routes/api.invoices.upload",
+        "parentId": "root",
+        "file": "routes/api.invoices.upload.ts",
+        "path": "api/invoices/upload"
+      },
+      "routes/api.invoices.download": {
+        "id": "routes/api.invoices.download",
+        "parentId": "root",
+        "file": "routes/api.invoices.download.ts",
+        "path": "api/invoices/download"
+      },
       "routes/api.proposal.accept": {
         "id": "routes/api.proposal.accept",
         "parentId": "root",
@@ -647,6 +683,12 @@
         "parentId": "root",
         "file": "routes/api.campaigns.checkout.tsx",
         "path": "api/campaigns/checkout"
+      },
+      "routes/api.campaign-advisor": {
+        "id": "routes/api.campaign-advisor",
+        "parentId": "root",
+        "file": "routes/api.campaign-advisor.tsx",
+        "path": "api/campaign-advisor"
       },
       "routes/api.stripe.checkout": {
         "id": "routes/api.stripe.checkout",
@@ -801,12 +843,12 @@
               {
                 "file": "routes/_app.analytics.tsx",
                 "path": "analytics"
+              },
+              {
+                "file": "routes/_app.notifications.tsx",
+                "path": "notifications"
               }
             ]
-          },
-          {
-            "file": "routes/api.crew.create-profile.ts",
-            "path": "api/crew/create-profile"
           },
           {
             "file": "routes/api.messaging.stream-token.ts",
@@ -841,6 +883,14 @@
             "path": "api/booking/deliver"
           },
           {
+            "file": "routes/api.invoices.upload.ts",
+            "path": "api/invoices/upload"
+          },
+          {
+            "file": "routes/api.invoices.download.ts",
+            "path": "api/invoices/download"
+          },
+          {
             "file": "routes/api.proposal.accept.tsx",
             "path": "api/proposal/accept"
           },
@@ -867,6 +917,10 @@
           {
             "file": "routes/api.campaigns.checkout.tsx",
             "path": "api/campaigns/checkout"
+          },
+          {
+            "file": "routes/api.campaign-advisor.tsx",
+            "path": "api/campaign-advisor"
           },
           {
             "file": "routes/api.stripe.checkout.tsx",

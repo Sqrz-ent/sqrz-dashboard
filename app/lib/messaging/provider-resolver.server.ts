@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { MessagingProvider } from "~/lib/messaging/types";
-import { toStreamMainChannelId } from "~/lib/messaging/stream.server";
+import { isStreamConfigured, toStreamMainChannelId } from "~/lib/messaging/stream.server";
 
 function toSupabaseMainChannelId(bookingId: string) {
   return `booking_${bookingId}_main`;
@@ -73,14 +73,7 @@ export async function resolveMessagingProviderForBooking(input: {
 
   if (!booking?.owner_id) return "supabase";
 
-  const { data: ownerProfile } = await admin
-    .from("profiles")
-    .select("plan_id")
-    .eq("id", booking.owner_id as string)
-    .maybeSingle();
-
-  const provider =
-    ownerProfile?.plan_id != null && Number(ownerProfile.plan_id) > 0 ? "stream" : "supabase";
+  const provider = isStreamConfigured() ? "stream" : "supabase";
 
   await persistMessagingProviderForBooking({
     admin,

@@ -39,7 +39,7 @@ export async function loader({ request }: { request: Request }) {
     const bookingId = url.searchParams.get("bookingId");
     const inviteToken = url.searchParams.get("token");
 
-    // No bookingId — return a user-level token only (used by Office for client-level subscriptions).
+    // No bookingId — return a user-level token only (used by native inbox/event streams).
     if (!bookingId) {
       const { supabase } = createSupabaseServerClient(request);
       const { data: { user } } = await supabase.auth.getUser();

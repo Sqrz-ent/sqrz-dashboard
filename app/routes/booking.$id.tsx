@@ -6,30 +6,11 @@ import {
   createSupabaseAdminClient,
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { canManageBookingBilling } from "~/lib/delegate.server";
-import { normalizeTaxPresets, type TaxPreset } from "~/lib/tax-presets";
-import { resolveMessagingProviderForBooking } from "~/lib/messaging/provider-resolver.server";
-import type { MessagingProvider } from "~/lib/messaging/types";
-import { getPlanLevel } from "~/lib/plans";
-import { handleBookingReferral } from "~/lib/booking-referral.server";
-import {
-  resolveLockedSqrzFeePct,
-  roundCurrency,
-} from "~/lib/proposal-pricing";
-import { getStripeClient } from "~/lib/stripe-mode.server";
 import { supabase as browserClient } from "~/lib/supabase.client";
-import BookingWallet, { type WalletData } from "~/components/BookingWallet";
-import BookingChat from "~/components/BookingChat";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Booking = Record<string, unknown>;
-type ProposalStripeMode = "live" | "test";
-
-export type LineItem = {
-  label: string;
-  amount: number;
-};
 
 type GuestParticipant = {
   id: string;
@@ -55,19 +36,10 @@ type Proposal = {
   currency: string | null;
   message: string | null;
   status: string | null;
-  require_hotel: boolean | null;
-  require_travel: boolean | null;
-  require_food: boolean | null;
   payment_method?: string | null;
   version?: number | null;
   sent_by?: string | null;
   parent_proposal_id?: string | null;
-  requires_payment?: boolean | null;
-  line_items?: LineItem[] | null;
-  tax_pct?: number | null;
-  tax_label?: string | null;
-  sqrz_fee_pct?: number | null;
-  stripe_mode?: ProposalStripeMode | null;
 } | null;
 
 type MemberInfo = {
@@ -79,119 +51,12 @@ type MemberInfo = {
   responsible_person: string | null;
 } | null;
 
-type BookingMessagingProvider = MessagingProvider;
-
 function getLatestProposalRecord(proposals: unknown): NonNullable<Proposal> | null {
   if (!Array.isArray(proposals)) return null;
   return (proposals as Array<NonNullable<Proposal>>)
     .slice()
     .sort((a, b) => ((b.version ?? 0) - (a.version ?? 0)))[0] ?? null;
 }
-
-async function syncWalletFromProposal(input: {
-  admin: ReturnType<typeof createSupabaseAdminClient>;
-  walletId: string;
-  proposal: NonNullable<Proposal> | null;
-  clientPaid?: boolean | null;
-}) {
-  const { admin, walletId, proposal, clientPaid } = input;
-  if (!proposal || !walletId) return;
-
-  // ── Data-integrity guards: never clobber real wallet figures ─────────────────
-  // 1. Only an ACCEPTED proposal may drive wallet amounts. A draft/sent/countered
-  //    proposal must never overwrite the wallet.
-  if (proposal.status !== "accepted") return;
-  // 2. Once a wallet is funded by a real Stripe payment it is the source of truth —
-  //    never overwrite its amounts.
-  if (clientPaid === true) return;
-
-  const proposalNet = Number(proposal.rate ?? 0);
-  const proposalTaxPct = Number(proposal.tax_pct ?? 0);
-  const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
-  const proposalFeePct = resolveLockedSqrzFeePct({
-    requiresPayment: proposal.requires_payment,
-    proposalFeePct: proposal.sqrz_fee_pct,
-    fallbackFeePct: 0,
-  });
-  const proposalFeeAmount = roundCurrency(proposalNet * proposalFeePct / 100);
-  const proposalTotal = roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount);
-
-  await admin
-    .from("booking_wallets")
-    .update({
-      secured_amount: proposalNet,
-      total_budget: proposalTotal,
-      currency: proposal.currency ?? "EUR",
-      stripe_mode: proposal.requires_payment && proposal.stripe_mode === "test" ? "test" : "live",
-      sqrz_fee_pct: proposalFeePct,
-      tax_pct: proposalTaxPct || null,
-      tax_amount: proposalTaxAmount || null,
-      tax_label: (proposal as { tax_label?: string | null }).tax_label ?? null,
-    })
-    .eq("id", walletId);
-}
-
-// Single source of truth for loading the owner's wallet on a bookable status.
-// Creates the wallet from the latest proposal if missing, otherwise syncs it,
-// and returns the fresh row. Replaces the duplicated create/sync blocks that
-// previously lived inline in each loader branch.
-async function getOrCreateBookingWallet(input: {
-  admin: ReturnType<typeof createSupabaseAdminClient>;
-  booking: { id: string; owner_id: string; booking_proposals?: unknown };
-}): Promise<WalletData | null> {
-  const { admin, booking } = input;
-
-  const { data: existingWallet } = await admin
-    .from("booking_wallets")
-    .select("*")
-    .eq("booking_id", booking.id)
-    .maybeSingle();
-
-  if (!existingWallet) {
-    const latestProposal = getLatestProposalRecord(booking.booking_proposals);
-    const proposalNet = Number(latestProposal?.rate ?? 0);
-    const proposalTaxPct = Number(latestProposal?.tax_pct ?? 0);
-    const proposalTaxAmount = proposalTaxPct > 0 ? roundCurrency(proposalNet * proposalTaxPct / 100) : 0;
-    const lockedFeePct = resolveLockedSqrzFeePct({
-      requiresPayment: latestProposal?.requires_payment,
-      proposalFeePct: latestProposal?.sqrz_fee_pct,
-      fallbackFeePct: 0,
-    });
-    const proposalFeeAmount = roundCurrency(proposalNet * lockedFeePct / 100);
-    const { data: newWallet } = await admin
-      .from("booking_wallets")
-      .insert({
-        booking_id: booking.id,
-        owner_profile_id: booking.owner_id,
-        total_budget: roundCurrency(proposalNet + proposalTaxAmount + proposalFeeAmount),
-        secured_amount: proposalNet,
-        currency: latestProposal?.currency ?? "EUR",
-        sqrz_fee_pct: lockedFeePct,
-        tax_pct: proposalTaxPct || null,
-        tax_amount: proposalTaxAmount || null,
-        tax_label: (latestProposal as { tax_label?: string | null } | null)?.tax_label ?? null,
-        status: "pending",
-      })
-      .select("*")
-      .single();
-    return (newWallet as WalletData | null) ?? null;
-  }
-
-  const latestProposal = getLatestProposalRecord(booking.booking_proposals);
-  await syncWalletFromProposal({
-    admin,
-    walletId: (existingWallet as { id: string }).id,
-    proposal: latestProposal,
-    clientPaid: (existingWallet as { client_paid?: boolean | null }).client_paid,
-  });
-  const { data: refreshedWallet } = await admin
-    .from("booking_wallets")
-    .select("*")
-    .eq("id", (existingWallet as { id: string }).id)
-    .maybeSingle();
-  return ((refreshedWallet ?? existingWallet) as WalletData | null) ?? null;
-}
-
 
 // Most-recent uploaded invoice for a booking (or null). Uses the admin client — the
 // loader already gates booking access, and buyers reach this via invite token.
@@ -271,43 +136,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (!booking) return Response.json({ accessType: "invalid_token" }, { headers });
 
     const isOwner = !!(profile && booking.owner_id === profile.id);
-    const messagingProvider = await resolveMessagingProviderForBooking({
-      admin,
-      bookingId: params.id!,
-    });
-
-    const [{ data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
-      admin
-        .from("booking_wallets")
-        .select("id, sqrz_fee_pct, tax_pct, tax_amount, client_paid, payout_status, total_budget, currency")
-        .eq("booking_id", params.id)
-        .maybeSingle(),
-      admin
-        .from("profiles")
-        .select("plan_id, email, name, brand_name, company_name, legal_form, vat_id, company_address, responsible_person, plans(booking_fee_pct)")
-        .eq("id", booking.owner_id)
-        .maybeSingle(),
-    ]);
-    const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
-    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0);
-    const memberInfo: MemberInfo = ownerPlan ? {
-      name: (ownerPlan.brand_name as string | null) ?? (ownerPlan.name as string | null) ?? null,
-      company_name: (ownerPlan.company_name as string | null) ?? null,
-      legal_form: (ownerPlan.legal_form as string | null) ?? null,
-      vat_id: (ownerPlan.vat_id as string | null) ?? null,
-      company_address: (ownerPlan.company_address as string | null) ?? null,
-      responsible_person: (ownerPlan.responsible_person as string | null) ?? null,
-    } : null;
-
-    let wallet: WalletData | null = null;
-    if (isOwner) {
-      const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
-      if (showPaymentsTab) {
-        wallet = await getOrCreateBookingWallet({ admin, booking });
-      }
-    } else {
-      wallet = tokenWallet as WalletData | null;
-    }
 
     const proposal = getLatestProposalRecord(booking.booking_proposals);
 
@@ -346,18 +174,10 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposal: proposal ?? null,
         invoice,
         bookingToken: token,   // keep so buyer actions still work via token path
-        wallet,
-        planId: (profile?.plan_id as number | null) ?? null,
-        proposalFeePct,
-        memberInfo,
-        stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
-        stripeConnectStatus: (profile?.stripe_connect_status as string | null) ?? null,
-        stripeConnectIdTest: (profile?.stripe_connect_id_test as string | null) ?? null,
-        stripeConnectStatusTest: (profile?.stripe_connect_status_test as string | null) ?? null,
+        memberInfo: null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
-        memberEmail: (ownerPlan?.email as string | null) ?? null,
+        memberEmail: null,
         buyerParticipant: tokenBuyerParticipant,
-        messagingProvider,
       },
       { headers }
     );
@@ -366,10 +186,6 @@ export async function loader({ request, params }: Route.LoaderArgs) {
   // ── TOKEN ONLY (no session) ────────────────────────────────────────────────
   if (tokenRow) {
     const booking = tokenRow.bookings as Booking;
-    const messagingProvider = await resolveMessagingProviderForBooking({
-      admin,
-      bookingId: params.id!,
-    });
     const participant: GuestParticipant = {
       id: tokenRow.id as string,
       booking_id: tokenRow.booking_id as string,
@@ -379,35 +195,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
       user_id: tokenRow.user_id as string | null,
     };
 
-    const [{ data: proposal }, { data: tokenWallet }, { data: ownerPlan }] = await Promise.all([
-      admin
-        .from("booking_proposals")
-        .select("*")
-        .eq("booking_id", params.id)
-        .order("version", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      admin
-        .from("booking_wallets")
-        .select("id, sqrz_fee_pct, tax_pct, tax_amount, client_paid, payout_status, total_budget, currency")
-        .eq("booking_id", params.id)
-        .maybeSingle(),
-      admin
-        .from("profiles")
-        .select("plan_id, email, name, brand_name, company_name, legal_form, vat_id, company_address, responsible_person, plans(booking_fee_pct)")
-        .eq("id", (booking as any).owner_id)
-        .maybeSingle(),
-    ]);
-    const ownerPlanId = (ownerPlan?.plan_id as number | null) ?? null;
-    const proposalFeePct: number = ownerPlanId === null ? 0 : ((ownerPlan?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0);
-    const memberInfoToken: MemberInfo = ownerPlan ? {
-      name: (ownerPlan.brand_name as string | null) ?? (ownerPlan.name as string | null) ?? null,
-      company_name: (ownerPlan.company_name as string | null) ?? null,
-      legal_form: (ownerPlan.legal_form as string | null) ?? null,
-      vat_id: (ownerPlan.vat_id as string | null) ?? null,
-      company_address: (ownerPlan.company_address as string | null) ?? null,
-      responsible_person: (ownerPlan.responsible_person as string | null) ?? null,
-    } : null;
+    const { data: proposal } = await admin
+      .from("booking_proposals")
+      .select("*")
+      .eq("booking_id", params.id)
+      .order("version", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
     // Sender name: use participant name field; fall back to email prefix (no domain)
     const senderName = (tokenRow.name as string | null) ||
@@ -426,13 +220,9 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         proposal: proposal ?? null,
         invoice,
         bookingToken: token,
-        wallet: tokenWallet ?? null,
-        proposalFeePct,
-        memberInfo: memberInfoToken,
-        planId: null,
+        memberInfo: null,
         senderName,
-        memberEmail: (ownerPlan?.email as string | null) ?? null,
-        messagingProvider,
+        memberEmail: null,
       },
       { headers }
     );
@@ -451,56 +241,14 @@ export async function loader({ request, params }: Route.LoaderArgs) {
     if (!booking) return Response.json({ accessType: "invalid_token" }, { headers });
 
     const isOwner = !!(profile && booking.owner_id === profile.id);
-    // Booking access + wallet management is granted to the owner OR an active agent
-    // delegate of the owner, acting on the owner's behalf.
-    const canManageBilling = profile
-      ? await canManageBookingBilling(admin, profile.id as string, booking.owner_id as string)
-      : false;
-    const messagingProvider = await resolveMessagingProviderForBooking({
-      admin,
-      bookingId: params.id!,
-    });
-
     if (!isOwner) {
       const isParticipant = (booking.booking_participants ?? []).some(
         (p: { user_id: string | null }) => p.user_id === user.id
       );
-      if (!isParticipant && !canManageBilling) return Response.json({ accessType: "no_access" }, { headers });
-    }
-
-    // Wallet for the owner (or a billing delegate) on bookable statuses
-    let wallet: WalletData | null = null;
-    const showPaymentsTab = ["pending", "confirmed", "completed"].includes(booking.status);
-    if (canManageBilling && showPaymentsTab) {
-      wallet = await getOrCreateBookingWallet({ admin, booking });
+      if (!isParticipant) return Response.json({ accessType: "no_access" }, { headers });
     }
 
     const proposal = getLatestProposalRecord(booking.booking_proposals);
-
-    // Fetch owner's plan + business info (for non-owner participants; owner uses their own profile)
-    let sessionProposalFeePct: number | null = null;
-    let sessionMemberInfo: MemberInfo = null;
-    let sessionMemberEmail: string | null = null;
-    if (!isOwner || true) {
-      // Always fetch — member wants to see their own biz info too
-      const ownerId = isOwner ? profile!.id : booking.owner_id;
-      const { data: ownerPlanSess } = await admin
-        .from("profiles")
-        .select("plan_id, email, name, brand_name, company_name, legal_form, vat_id, company_address, responsible_person, plans(booking_fee_pct)")
-        .eq("id", ownerId)
-        .maybeSingle();
-      const ownerPlanIdSess = (ownerPlanSess?.plan_id as number | null) ?? null;
-      sessionProposalFeePct = ownerPlanIdSess === null ? 0 : ((ownerPlanSess?.plans as { booking_fee_pct?: number } | null)?.booking_fee_pct ?? 0);
-      sessionMemberEmail = (ownerPlanSess?.email as string | null) ?? null;
-      sessionMemberInfo = ownerPlanSess ? {
-        name: (ownerPlanSess.brand_name as string | null) ?? (ownerPlanSess.name as string | null) ?? null,
-        company_name: (ownerPlanSess.company_name as string | null) ?? null,
-        legal_form: (ownerPlanSess.legal_form as string | null) ?? null,
-        vat_id: (ownerPlanSess.vat_id as string | null) ?? null,
-        company_address: (ownerPlanSess.company_address as string | null) ?? null,
-        responsible_person: (ownerPlanSess.responsible_person as string | null) ?? null,
-      } : null;
-    }
 
     // Load buyer participant for owner
     let sessionBuyerParticipant: BuyerParticipant = null;
@@ -534,23 +282,13 @@ export async function loader({ request, params }: Route.LoaderArgs) {
         role: isOwner ? "owner" : "member",
         userEmail: (profile?.email as string) ?? user.email ?? "",
         isOwner,
-        canManageBilling,
         proposal: proposal ?? null,
         invoice,
         bookingToken: null,
-        wallet,
-        planId: (profile?.plan_id as number | null) ?? null,
-        taxPresets: normalizeTaxPresets((profile as Record<string, unknown> | null)?.tax_presets),
-        proposalFeePct: sessionProposalFeePct,
-        memberInfo: sessionMemberInfo,
-        memberEmail: sessionMemberEmail,
-        stripeConnectId: (profile?.stripe_connect_id as string | null) ?? null,
-        stripeConnectStatus: (profile?.stripe_connect_status as string | null) ?? null,
-        stripeConnectIdTest: (profile?.stripe_connect_id_test as string | null) ?? null,
-        stripeConnectStatusTest: (profile?.stripe_connect_status_test as string | null) ?? null,
+        memberInfo: null,
+        memberEmail: null,
         senderName: profileSenderName(profile as Record<string, unknown> | null),
         buyerParticipant: sessionBuyerParticipant,
-        messagingProvider,
       },
       { headers }
     );
@@ -598,34 +336,10 @@ export async function action({ request, params }: Route.ActionArgs) {
     const rateRaw = parseFloat(formData.get("rate") as string) || null;
     const currency = (formData.get("currency") as string) || "EUR";
     const message = (formData.get("message") as string) || "";
-    const requireHotel = formData.get("require_hotel") === "true";
-    const requireTravel = formData.get("require_travel") === "true";
-    const requireFood = formData.get("require_food") === "true";
-    // Payment is never collected at the proposal stage. Proposals are always non-payment;
-    // invoicing and any Stripe payment link happen post-confirmation on the booking page.
-    const requiresPayment = false;
     const existingProposalId = (formData.get("existing_proposal_id") as string) || null;
-    const lineItemsRaw = (formData.get("line_items") as string) || null;
-    const taxPctRaw = formData.get("tax_pct") as string | null;
-    const taxPct = taxPctRaw ? (parseFloat(taxPctRaw) || null) : null;
-    const taxLabel = ((formData.get("tax_label") as string) || "").trim() || null;
-
-    let lineItems: LineItem[] | null = null;
     const rate = rateRaw;
-    try {
-      if (lineItemsRaw) {
-        lineItems = JSON.parse(lineItemsRaw) as LineItem[];
-      }
-    } catch { /* ignore parse error */ }
 
     const admin = createSupabaseAdminClient();
-    // Payment is never collected at the proposal stage, so the SQRZ fee is always 0
-    // and no Stripe account/mode gating applies here.
-    const lockedFeePct = resolveLockedSqrzFeePct({ requiresPayment });
-    const normalizedRate = Number(rate ?? 0);
-    const normalizedTaxPct = taxPct ?? 0;
-    const normalizedTaxAmount = normalizedTaxPct > 0 ? roundCurrency(normalizedRate * normalizedTaxPct / 100) : 0;
-    const normalizedFeeAmount = roundCurrency(normalizedRate * lockedFeePct / 100);
     const { error: bookingError } = await supabase
       .from("bookings")
       .update({ status: "pending" })
@@ -660,40 +374,25 @@ export async function action({ request, params }: Route.ActionArgs) {
         booking_id: params.id,
         rate,
         currency,
-        require_hotel: requireHotel,
-        require_travel: requireTravel,
-        require_food: requireFood,
-        requires_payment: requiresPayment,
+        require_hotel: false,
+        require_travel: false,
+        require_food: false,
+        requires_payment: false,
         message: message || null,
         status: "sent",
         sent_by: "member",
         version: newVersion,
         parent_proposal_id: parentProposalId,
-        line_items: lineItems ?? null,
-        tax_pct: taxPct,
-        tax_label: taxLabel,
-        sqrz_fee_pct: lockedFeePct,
-        stripe_mode: "live",
+        line_items: null,
+        tax_pct: null,
+        tax_label: null,
+        sqrz_fee_pct: 0,
       })
       .select();
 
     if (insertError) {
       console.error("[proposal insert] error:", insertError);
     }
-
-    await admin
-      .from("booking_wallets")
-      .update({
-        secured_amount: normalizedRate,
-        total_budget: roundCurrency(normalizedRate + normalizedTaxAmount + normalizedFeeAmount),
-        currency,
-        stripe_mode: "live",
-        sqrz_fee_pct: lockedFeePct,
-        tax_pct: normalizedTaxPct || null,
-        tax_amount: normalizedTaxAmount || null,
-        tax_label: taxLabel,
-      })
-      .eq("booking_id", params.id);
 
     try {
       const { data: bkData } = await supabase
@@ -725,14 +424,6 @@ export async function action({ request, params }: Route.ActionArgs) {
         ? `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token}`
         : `https://dashboard.sqrz.com/booking/${params.id}`;
 
-      const riderItems = [
-        requireHotel && "🏨 Hotel",
-        requireTravel && "✈️ Travel",
-        requireFood && "🍽️ Catering",
-      ]
-        .filter(Boolean)
-        .join(" · ");
-
       const emailHtml = `<!DOCTYPE html>
 <html>
 <body style="margin:0;padding:0;background:#f5f5f5;font-family:sans-serif;">
@@ -753,7 +444,6 @@ export async function action({ request, params }: Route.ActionArgs) {
           <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Proposed Rate</span>
           <p style="margin:4px 0 0;font-size:28px;font-weight:700;color:#0a0a0a;">${currency.toUpperCase()} ${rate}</p>
         </div>
-        ${riderItems ? `<div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;"><span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Rider</span><p style="margin:4px 0 0;color:#0a0a0a;">${riderItems}</p></div>` : ""}
         ${message ? `<div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;"><span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Note from ${ownerName}</span><p style="margin:4px 0 0;color:#0a0a0a;">${message}</p></div>` : ""}
       </div>
       <div style="text-align:center;margin:32px 0;">
@@ -793,185 +483,6 @@ export async function action({ request, params }: Route.ActionArgs) {
       .update({ status: "completed" })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
-    const admin = createSupabaseAdminClient();
-    await admin
-      .from("booking_wallets")
-      .update({
-        payout_status: "approved",
-        delivery_confirmed_at: new Date().toISOString(),
-        auto_release_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-      })
-      .eq("booking_id", params.id);
-    try {
-      const { data: wallet } = await admin
-        .from("booking_wallets")
-        .select("secured_amount, stripe_mode")
-        .eq("booking_id", params.id)
-        .maybeSingle();
-      if (wallet?.secured_amount) {
-        await handleBookingReferral({
-          supabase: admin,
-          bookingId: params.id!,
-          bookingValue: Number(wallet.secured_amount),
-          stripeMode: (wallet.stripe_mode as ProposalStripeMode | null) ?? "live",
-        });
-      }
-    } catch (err) {
-      console.error("[mark_as_delivered] referral commission failed:", err);
-    }
-    return Response.json({ ok: true }, { headers });
-  }
-
-  if (intent === "wallet_mark_paid") {
-    const admin = createSupabaseAdminClient();
-    await admin.from("booking_wallets").update({ client_paid: true, client_payment_method: "manual" }).eq("booking_id", params.id);
-    return Response.json({ ok: true }, { headers });
-  }
-
-  if (intent === "add_wallet_allocation") {
-    const walletId       = formData.get("wallet_id") as string;
-    const allocationType = formData.get("allocation_type") as string;
-    const allocLabel     = formData.get("label") as string;
-    const allocAmount    = parseFloat(formData.get("amount") as string) || 0;
-    const currency       = formData.get("currency") as string;
-    const billableToClient = formData.get("billable_to_client") === "true";
-    const admin = createSupabaseAdminClient();
-    await admin.from("wallet_allocations").insert({
-      wallet_id: walletId,
-      allocation_type: allocationType,
-      label: allocLabel,
-      role: allocLabel,
-      amount: allocAmount,
-      currency,
-      status: "pending",
-      billable_to_client: billableToClient,
-    });
-
-    // Recompute wallet totals. base_rate is frozen at creation; secured_amount =
-    // base_rate + sum of income allocations. tax tracks secured_amount.
-    // (billable expense → V2; crew/promo → no effect on totals.)
-    // SQRZ fee removed — total = secured + tax only.
-    const { data: w } = await admin
-      .from("booking_wallets")
-      .select("base_rate, tax_pct")
-      .eq("id", walletId)
-      .maybeSingle();
-
-    if (w) {
-      const { data: incomeRows } = await admin
-        .from("wallet_allocations")
-        .select("amount")
-        .eq("wallet_id", walletId)
-        .eq("allocation_type", "income")
-        .neq("status", "void");
-
-      const incomeTotal = (incomeRows ?? []).reduce(
-        (sum, r) => sum + Number(r.amount ?? 0),
-        0
-      );
-
-      const baseRate = Number(w.base_rate ?? 0);
-      const taxPct   = Number(w.tax_pct ?? 0);
-
-      const newSecured = roundCurrency(baseRate + incomeTotal);
-      const newTax     = roundCurrency(newSecured * taxPct / 100);
-      const newTotal   = roundCurrency(newSecured + newTax);
-
-      await admin
-        .from("booking_wallets")
-        .update({
-          secured_amount: newSecured,
-          tax_amount: newTax,
-          total_budget: newTotal,
-        })
-        .eq("id", walletId);
-    }
-
-    return Response.json({ ok: true }, { headers });
-  }
-
-  if (intent === "wallet_request_payment") {
-    const allocationId = formData.get("allocation_id") as string;
-    const amount       = parseFloat(formData.get("amount") as string) || 0;
-    const currency     = (formData.get("currency") as string) || "EUR";
-
-    const admin = createSupabaseAdminClient();
-
-    const { data: buyer } = await admin
-      .from("booking_participants")
-      .select("email, invite_token, name")
-      .eq("booking_id", params.id)
-      .eq("role", "buyer")
-      .maybeSingle();
-
-    if (!buyer?.email) {
-      return Response.json({ error: "No buyer found" }, { status: 422, headers });
-    }
-
-    const { data: bkMeta } = await admin
-      .from("bookings")
-      .select("title")
-      .eq("id", params.id)
-      .maybeSingle();
-
-    const { data: allocation } = await admin
-      .from("wallet_allocations")
-      .select("wallet_id")
-      .eq("id", allocationId)
-      .maybeSingle();
-
-    const { data: wallet } = allocation?.wallet_id
-      ? await admin
-          .from("booking_wallets")
-          .select("stripe_mode")
-          .eq("id", allocation.wallet_id)
-          .maybeSingle()
-      : { data: null };
-
-    const stripeMode: ProposalStripeMode = wallet?.stripe_mode === "test" ? "test" : "live";
-    const stripe = getStripeClient(stripeMode);
-    if (!stripe) {
-      return Response.json({ error: `Stripe ${stripeMode} mode is not configured.` }, { status: 500, headers });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      line_items: [{
-        price_data: {
-          currency: currency.toLowerCase(),
-          unit_amount: Math.round(amount * 100),
-          product_data: { name: bkMeta?.title ?? "Payment Request" },
-        },
-        quantity: 1,
-      }],
-      success_url: `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token ?? ""}&payment=success`,
-      cancel_url: `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token ?? ""}`,
-      customer_email: buyer.email,
-      metadata: {
-        booking_id: params.id,
-        wallet_allocation_id: allocationId,
-        booking_type: "allocation_payment",
-        stripe_mode: stripeMode,
-      },
-    });
-
-    await admin
-      .from("wallet_allocations")
-      .update({ stripe_payment_link_url: session.url })
-      .eq("id", allocationId);
-
-    try {
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const sym2 = currency.toUpperCase() === "EUR" ? "€" : currency.toUpperCase() === "GBP" ? "£" : "$";
-      await resend.emails.send({
-        from: "SQRZ <bookings@sqrz.com>",
-        to: buyer.email,
-        subject: `Payment request: ${sym2}${amount.toLocaleString()}`,
-        html: `<p>Hi ${buyer.name ?? "there"},</p><p>A payment of ${sym2}${amount.toLocaleString()} has been requested for booking: ${bkMeta?.title ?? ""}.</p><p><a href="${session.url}">Pay now →</a></p><p>— The SQRZ Team</p>`,
-      });
-    } catch { /* non-fatal */ }
-
     return Response.json({ ok: true }, { headers });
   }
 
@@ -1204,13 +715,7 @@ function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Bo
   );
 }
 
-function ProposalSection({
-  booking,
-  taxPresets = [],
-}: {
-  booking: Booking;
-  taxPresets?: TaxPreset[];
-}) {
+function ProposalSection({ booking }: { booking: Booking }) {
   const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
   const declineFetcher = useFetcher<{ ok?: boolean }>();
 
@@ -1232,31 +737,6 @@ function ProposalSection({
     currency: latestProposal?.currency ?? "EUR",
     message: "",
   });
-
-  // Tax: preset dropdown when the profile has tax_presets, else free-text fallback.
-  const hasTaxPresets = taxPresets.length > 0;
-  const defaultTaxIdx = taxPresets.findIndex((p) => p.is_default);
-  const [selectedTaxIdx, setSelectedTaxIdx] = useState<number | null>(() => {
-    const lp = latestProposal;
-    if (lp && (lp.tax_pct ?? 0) > 0) {
-      const byLabel = lp.tax_label ? taxPresets.findIndex((p) => p.label === lp.tax_label) : -1;
-      if (byLabel >= 0) return byLabel;
-      const byRate = taxPresets.findIndex((p) => p.rate === lp.tax_pct);
-      if (byRate >= 0) return byRate;
-      return null; // had tax but no matching preset
-    }
-    if (lp) return null; // existing proposal, no tax
-    return defaultTaxIdx >= 0 ? defaultTaxIdx : null; // new proposal → default preset
-  });
-  // Free-text fallback (only used when the profile has no presets).
-  const [taxEnabled, setTaxEnabled] = useState(!hasTaxPresets && !!(latestProposal?.tax_pct));
-  const [taxPct, setTaxPct] = useState(String(latestProposal?.tax_pct ?? ""));
-
-  const selectedPreset = selectedTaxIdx != null ? (taxPresets[selectedTaxIdx] ?? null) : null;
-  const effectiveTaxPct = hasTaxPresets
-    ? (selectedPreset?.rate ?? 0)
-    : (taxEnabled ? (parseFloat(taxPct) || 0) : 0);
-  const effectiveTaxLabel = hasTaxPresets ? (selectedPreset?.label ?? null) : null;
 
   const sent = fetcher.state === "idle" && fetcher.data?.ok;
   const sym = currencySym(latestProposal?.currency ?? "EUR");
@@ -1281,56 +761,21 @@ function ProposalSection({
               {/* Sent proposal — full breakdown (read-only) */}
               {latestProposal!.rate != null && (() => {
                 const p = latestProposal!;
-                const net = p.rate ?? 0;
-                const tPct = p.tax_pct ?? 0;
-                const tAmt = tPct > 0 ? Math.round(net * tPct / 100 * 100) / 100 : 0;
-                const bookerPays2 = Math.round((net + tAmt) * 100) / 100;
-                const youReceiveGross2 = Math.round((net + tAmt) * 100) / 100;
-                const yourNetIncome2 = net;
                 const symP = currencySym(p.currency);
                 return (
                   <div style={card}>
                     <p style={{ ...lbl, marginBottom: 10 }}>Sent Proposal</p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>Rate (net)</span>
-                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 700 }}>{symP}{net.toLocaleString()} <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>{p.currency ?? "EUR"}</span></span>
+                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>Amount</span>
+                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 700 }}>{symP}{(p.rate ?? 0).toLocaleString()} <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>{p.currency ?? "EUR"}</span></span>
                       </div>
-                      {tAmt > 0 && (
-                        <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Tax ({tPct}%)</span>
-                          <span style={{ fontSize: 13, color: "var(--text-muted)" }}>+{symP}{tAmt.toLocaleString()}</span>
-                        </div>
-                      )}
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>{symP}{bookerPays2.toLocaleString()}</span>
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: tAmt > 0 ? "1px solid var(--border)" : "none" }}>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>You receive gross (before Stripe fees)</span>
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{youReceiveGross2.toLocaleString()}</span>
-                      </div>
-                      {tAmt > 0 && (
-                        <>
-                          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                            <span style={{ fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>of which tax ({tPct}%) — remit to authority</span>
-                            <span style={{ fontSize: 13, color: "var(--text-muted)", fontStyle: "italic" }}>−{symP}{tAmt.toLocaleString()}</span>
-                          </div>
-                          <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
-                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Your net income</span>
-                            <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{symP}{yourNetIncome2.toLocaleString()}</span>
-                          </div>
-                        </>
-                      )}
                     </div>
                     {p.message && (
                       <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "12px 0 0", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
                         {p.message}
                       </p>
                     )}
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "12px 0 0", lineHeight: 1.55 }}>
-                      You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
-                    </p>
                   </div>
                 );
               })()}
@@ -1434,98 +879,9 @@ function ProposalSection({
                 </div>
               </div>
 
-              {/* Tax */}
-              <div style={{ marginBottom: 14 }}>
-                <p style={{ ...lbl, marginBottom: 6 }}>Tax</p>
-                {hasTaxPresets ? (
-                  <select
-                    style={inputStyle}
-                    value={selectedTaxIdx == null ? "" : String(selectedTaxIdx)}
-                    onChange={(e) => setSelectedTaxIdx(e.target.value === "" ? null : Number(e.target.value))}
-                  >
-                    <option value="">No tax</option>
-                    {taxPresets.map((p, i) => (
-                      <option key={i} value={String(i)}>
-                        {p.label} ({p.rate}%)
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <>
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: taxEnabled ? 10 : 0 }}>
-                      <input
-                        type="checkbox"
-                        checked={taxEnabled}
-                        onChange={(e) => {
-                          setTaxEnabled(e.target.checked);
-                          if (!e.target.checked) setTaxPct("");
-                        }}
-                        style={{ accentColor: ACCENT, width: 15, height: 15 }}
-                      />
-                      <span style={{ fontSize: 13, color: "var(--text-muted)", fontFamily: FONT_BODY }}>Add Tax</span>
-                    </label>
-                    {taxEnabled && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 23 }}>
-                        <p style={{ ...lbl, marginBottom: 0, whiteSpace: "nowrap" }}>Tax rate</p>
-                        <input
-                          type="number"
-                          min={0}
-                          max={100}
-                          step="any"
-                          style={{ ...inputStyle, width: 80, padding: "8px 10px", textAlign: "right" as const }}
-                          value={taxPct}
-                          onChange={(e) => setTaxPct(e.target.value)}
-                          placeholder="e.g. 19 (VAT/USt/IVA/GST)"
-                        />
-                        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>%</span>
-                      </div>
-                    )}
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
-                      Add tax presets in your profile settings to pick from a dropdown.
-                    </p>
-                  </>
-                )}
-              </div>
-
               <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 14px", lineHeight: 1.5 }}>
-                Enter the flat fee. Use the breakdown below to show how the budget is allocated — for transparency only.
+                Enter the proposal amount. Taxes, payment terms, and final invoice details stay on your invoice.
               </p>
-
-              {/* Fee preview */}
-              {form.rate && parseFloat(form.rate) > 0 && (
-                (() => {
-                  const net = parseFloat(form.rate) || 0;
-                  const taxRate = effectiveTaxPct;
-                  const taxRowLabel = effectiveTaxLabel ?? "Tax";
-                  const taxAmt = Math.round(net * taxRate / 100 * 100) / 100;
-                  const symLive = currencySym(form.currency);
-                  const bookerPays = Math.round((net + taxAmt) * 100) / 100;
-                  return (
-                    <div style={{ marginBottom: 16, padding: "12px 14px", background: "var(--bg)", borderRadius: 8 }}>
-                      <p style={{ ...lbl, marginBottom: 8 }}>Fee Preview</p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                          <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Total budget (net)</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text)" }}>{symLive}{net.toLocaleString()}</span>
-                        </div>
-                        {taxAmt > 0 && (
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{taxRowLabel} ({taxRate}%)</span>
-                            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>+{symLive}{taxAmt.toLocaleString()}</span>
-                          </div>
-                        )}
-                        <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 5 }}>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Booker pays</span>
-                          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--text)" }}>{symLive}{bookerPays.toLocaleString()}</span>
-                        </div>
-                      </div>
-                      <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 0", lineHeight: 1.55 }}>
-                        You are responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on your behalf.
-                      </p>
-                    </div>
-                  );
-                })()
-              )}
 
               {/* Message */}
               <div style={{ marginBottom: 16 }}>
@@ -1551,10 +907,6 @@ function ProposalSection({
                     fd.append("rate", form.rate);
                     fd.append("currency", form.currency);
                     fd.append("message", form.message);
-                    if (effectiveTaxPct > 0) {
-                      fd.append("tax_pct", String(effectiveTaxPct));
-                      if (effectiveTaxLabel) fd.append("tax_label", effectiveTaxLabel);
-                    }
                     if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
                     fetcher.submit(fd, { method: "post" });
                   }}
@@ -1675,43 +1027,6 @@ function ProposalSection({
   );
 }
 
-
-// ─── Payment success banner ───────────────────────────────────────────────────
-
-function PaymentSuccessBanner() {
-  const [searchParams] = useSearchParams();
-  const [dismissed, setDismissed] = useState(false);
-
-  if (dismissed || searchParams.get("payment") !== "success") return null;
-
-  return (
-    <div
-      style={{
-        background: "rgba(74,222,128,0.12)",
-        border: "1px solid rgba(74,222,128,0.4)",
-        borderRadius: 10,
-        margin: "12px 24px",
-        padding: "12px 16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        fontFamily: FONT_BODY,
-      }}
-    >
-      <span style={{ color: "#4ade80", fontSize: 14, fontWeight: 600 }}>
-        ✓ Payment received — booking confirmed
-      </span>
-      <button
-        onClick={() => setDismissed(true)}
-        style={{ background: "none", border: "none", color: "#4ade80", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0 }}
-      >
-        ✕
-      </button>
-    </div>
-  );
-}
-
 // ─── Guest view components ────────────────────────────────────────────────────
 
 function GuestDetailsCard({ b, memberInfo }: { b: Booking; memberInfo?: MemberInfo }) {
@@ -1800,25 +1115,15 @@ function GuestProposalCard({ proposal }: { proposal: Proposal }) {
   }
   return (
     <div style={card}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginBottom: proposal.message ? 18 : 0 }}>
+      <div style={{ marginBottom: proposal.message ? 18 : 0 }}>
         {proposal.rate != null && (
           <div>
-            <p style={guestMetaLabel}>Rate</p>
+            <p style={guestMetaLabel}>Amount</p>
             <p style={{ color: "var(--text)", fontSize: 20, fontWeight: 700, margin: 0 }}>
               {proposal.rate} {proposal.currency ?? "EUR"}
             </p>
           </div>
         )}
-        <div>
-          <p style={guestMetaLabel}>Requirements</p>
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.6 }}>
-            {[
-              proposal.require_travel && "Travel",
-              proposal.require_hotel && "Hotel",
-              proposal.require_food && "Catering",
-            ].filter(Boolean).join(" · ") || "None"}
-          </p>
-        </div>
       </div>
       {proposal.message && (
         <div style={{ paddingTop: 18, borderTop: "1px solid var(--border)" }}>
@@ -1834,15 +1139,11 @@ function GuestBuyerProposalCard({
   proposal,
   bookingId,
   bookingToken,
-  walletFeePct,
-  proposalFeePct,
   memberEmail,
 }: {
   proposal: Proposal;
   bookingId: string;
   bookingToken: string | null;
-  walletFeePct?: number | null;
-  proposalFeePct?: number | null;
   memberEmail?: string | null;
 }) {
   const [loading, setLoading] = useState<"accept" | "counter" | "decline" | null>(null);
@@ -1873,21 +1174,7 @@ function GuestBuyerProposalCard({
   const isAccepted = bookingConfirmed || proposal.status === "accepted";
   const version = proposal.version ?? 1;
   const sym = currencySym(proposal.currency);
-  const riderItems = [
-    proposal.require_hotel && "Hotel",
-    proposal.require_travel && "Travel",
-    proposal.require_food && "Catering",
-  ].filter(Boolean) as string[];
-
-  const net = proposal.rate ?? 0;
-  const taxRate = proposal.tax_pct ?? 0;
-  const taxRowLabel = proposal.tax_label ?? "Tax";
-  const taxAmt = taxRate > 0 ? Math.round(net * taxRate / 100 * 100) / 100 : 0;
-  // SQRZ fee removed — total = net + tax.
-  const totalCharged = Math.round((net + taxAmt) * 100) / 100;
-
-  const proposalLineItems = proposal.line_items ?? [];
-  const hasBreakdown = proposalLineItems.length > 0;
+  const amount = proposal.rate ?? 0;
 
   const showActions = !isAccepted &&
     proposal.sent_by !== "buyer" &&
@@ -1903,9 +1190,7 @@ function GuestBuyerProposalCard({
         body: JSON.stringify({ booking_id: bookingId, proposal_id: proposal!.id, invite_token: bookingToken }),
       });
       const json = await res.json();
-      if (json.checkout_url) {
-        window.location.href = json.checkout_url;
-      } else if (json.confirmed) {
+      if (json.confirmed) {
         setBookingConfirmed(true);
         setLoading(null);
         window.location.reload();
@@ -1962,20 +1247,12 @@ function GuestBuyerProposalCard({
   return (
     <>
       {/* Confirmed banner — shown without hiding the details below */}
-      {isAccepted && proposal.requires_payment && (
-        <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", marginBottom: 8 }}>
-          <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-            ✓ Payment received — booking confirmed
-          </p>
-        </div>
-      )}
-      {isAccepted && !proposal.requires_payment && (
+      {isAccepted && (
         <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)", marginBottom: 8 }}>
           <p style={{ color: "#4ade80", fontSize: 14, margin: "0 0 14px", fontWeight: 600 }}>✓ Booking accepted</p>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>Payment information</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.07em", margin: "0 0 8px" }}>Next step</p>
           <p style={{ fontSize: 13, color: "var(--text)", margin: "0 0 10px", lineHeight: 1.55 }}>
-            This booking uses manual payment — not processed through SQRZ.<br />
-            Contact the seller directly to arrange payment:
+            The seller will handle invoice and payment details directly.
           </p>
           {memberEmail && (
             <a href={`mailto:${memberEmail}`} style={{ fontSize: 13, fontWeight: 600, color: ACCENT, textDecoration: "none", wordBreak: "break-all" }}>
@@ -1994,62 +1271,18 @@ function GuestBuyerProposalCard({
         {proposal.rate != null && (
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Your rate (net)</span>
+              <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>Proposal amount</span>
               <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 700 }}>
-                {sym}{net.toLocaleString()}
+                {sym}{amount.toLocaleString()}
                 <span style={{ fontSize: 12, fontWeight: 400, color: "var(--text-muted)", marginLeft: 5 }}>{proposal.currency ?? "EUR"}</span>
               </span>
             </div>
-
-            {taxAmt > 0 && (
-              <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>{taxRowLabel} ({taxRate}%)</span>
-                <span style={{ color: "var(--text-muted)", fontSize: 13 }}>+{sym}{taxAmt.toLocaleString()}</span>
-              </div>
-            )}
-
-            {proposal.requires_payment && totalCharged != null && (
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0 4px" }}>
-                <span style={{ color: "var(--text)", fontSize: 14, fontWeight: 700 }}>Total charged</span>
-                <span style={{ color: ACCENT, fontSize: 18, fontWeight: 800 }}>{sym}{totalCharged.toLocaleString()}</span>
-              </div>
-            )}
           </div>
         )}
 
-        {proposal.requires_payment && (
-          <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "8px 0 4px", lineHeight: 1.55 }}>
-            Stripe payment processing fees (typically 1.5–3%) are deducted from the payout and may vary by card type and country.
-          </p>
-        )}
         <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "6px 0 4px", lineHeight: 1.55 }}>
-          The seller is responsible for invoicing and local tax compliance. SQRZ does not collect or remit taxes on their behalf.
+          Payment and tax details are handled directly on the seller&apos;s invoice.
         </p>
-
-        {/* Optional breakdown (for transparency) */}
-        {hasBreakdown && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)", paddingBottom: 4 }}>
-            <p style={{ ...guestMetaLabel, marginBottom: 8 }}>Breakdown (for transparency)</p>
-            {proposalLineItems.map((item, idx) => (
-              <div key={idx} style={{ display: "flex", justifyContent: "space-between", padding: "7px 0", borderBottom: "1px solid var(--border)" }}>
-                <span style={{ color: "var(--text)", fontSize: 13 }}>{item.label}</span>
-                <span style={{ color: "var(--text)", fontSize: 13, fontWeight: 600 }}>{sym}{(item.amount || 0).toLocaleString()}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* FIX 5: Rider requirements as muted text rows */}
-        {riderItems.length > 0 && (
-          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
-            {riderItems.map((item) => (
-              <div key={item} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
-                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{item}</span>
-                <span style={{ fontSize: 13, color: "var(--text-muted)" }}>Required</span>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* Message */}
         {proposal.message && (
@@ -2064,14 +1297,6 @@ function GuestBuyerProposalCard({
         <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "12px 0 0" }}>
           Proposal v{version}
         </p>
-        {proposal.requires_payment && proposal.stripe_mode === "test" && (
-          <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 8, background: "rgba(245,166,35,0.08)", border: "1px solid rgba(245,166,35,0.28)" }}>
-            <p style={{ fontSize: 12, fontWeight: 700, color: ACCENT, margin: "0 0 3px" }}>Stripe Test Payment</p>
-            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-              This acceptance button opens a Stripe sandbox checkout for rehearsal only. Use Stripe test card details.
-            </p>
-          </div>
-        )}
       </div>
 
       {/* Waiting banner — buyer's own counter is pending */}
@@ -2105,8 +1330,8 @@ function GuestBuyerProposalCard({
           >
             {loading === "accept"
               ? "Processing…"
-              : net > 0
-                ? `Accept — ${sym}${net.toLocaleString()} ${proposal.currency ?? "EUR"}`
+              : amount > 0
+                ? `Accept — ${sym}${amount.toLocaleString()} ${proposal.currency ?? "EUR"}`
                 : "Accept"}
           </button>
 
@@ -2423,19 +1648,8 @@ function InvoiceSection({
 
 function MemberView({
   booking,
-  wallet,
-  planLevel,
-  userEmail,
-  senderName,
-  messagingProvider,
   bookingToken,
-  stripeConnectId,
-  stripeConnectStatus,
-  stripeConnectIdTest,
-  stripeConnectStatusTest,
-  taxPresets = [],
   memberInfo,
-  proposalFeePct,
   proposal,
   buyerParticipant,
   invoice,
@@ -2443,19 +1657,8 @@ function MemberView({
   onMobileOfficeBack,
 }: {
   booking: Booking;
-  wallet: WalletData | null;
-  planLevel: number;
-  userEmail: string;
-  senderName: string | null;
-  messagingProvider: BookingMessagingProvider;
   bookingToken?: string | null;
-  stripeConnectId: string | null;
-  stripeConnectStatus: string | null;
-  stripeConnectIdTest: string | null;
-  stripeConnectStatusTest: string | null;
-  taxPresets?: TaxPreset[];
   memberInfo?: MemberInfo;
-  proposalFeePct?: number | null;
   proposal: Proposal | null;
   buyerParticipant: BuyerParticipant;
   invoice: InvoiceRow | null;
@@ -2464,13 +1667,12 @@ function MemberView({
 }) {
   const b = booking;
   const showProposal = ["requested", "pending"].includes(b.status as string);
-  const showPayments = ["confirmed", "completed"].includes(b.status as string);
+  const showInvoice = ["confirmed", "completed"].includes(b.status as string);
 
   const sections = [
     { id: "details",  label: "Details" },
     ...(showProposal ? [{ id: "proposal", label: "Proposal" }] : []),
-    ...(showPayments ? [{ id: "payments", label: "Payments" }] : []),
-    ...(showPayments ? [{ id: "invoice", label: "Invoice" }] : []),
+    ...(showInvoice ? [{ id: "invoice", label: "Invoice" }] : []),
   ];
 
   const [activeSection, setActiveSection] = useState(sections[0].id);
@@ -2592,22 +1794,9 @@ function MemberView({
           </div>
         )}
 
-        {showProposal && (
-          <ProposalSection
-            booking={b}
-            taxPresets={taxPresets}
-          />
-        )}
+        {showProposal && <ProposalSection booking={b} />}
 
-        {showPayments && wallet && (
-          <BookingWallet
-            wallet={wallet}
-            bookingStatus={b.status as string}
-            requiresPayment={proposal?.requires_payment ?? null}
-          />
-        )}
-
-        {showPayments && (
+        {showInvoice && (
           <InvoiceSection
             bookingId={b.id as string}
             invoice={invoice}
@@ -2616,16 +1805,6 @@ function MemberView({
           />
         )}
       </div>
-
-      <BookingChat
-        bookingId={b.id as string}
-        currentUserEmail={userEmail}
-        isOwner={true}
-        messagingProvider={messagingProvider}
-        bookingToken={bookingToken}
-        senderName={senderName ?? undefined}
-        participantName={buyerParticipant?.name ?? buyerParticipant?.email?.split("@")[0] ?? undefined}
-      />
     </>
   );
 }
@@ -2791,76 +1970,38 @@ export default function BookingAccessPage() {
 
   const {
     booking,
-    userEmail,
     isOwner,
-    canManageBilling,
     accessType,
     role,
     proposal,
     bookingToken,
-    wallet,
-    planId,
-    taxPresets,
-    proposalFeePct,
     memberInfo,
-    stripeConnectId,
-    stripeConnectStatus,
-    stripeConnectIdTest,
-    stripeConnectStatusTest,
-    senderName,
     memberEmail,
     buyerParticipant,
     invoice,
-    messagingProvider,
   } = data as {
     booking: Booking;
-    userEmail: string;
     isOwner: boolean;
-    canManageBilling?: boolean;
     accessType: string;
     role: string;
     proposal: Proposal;
     bookingToken: string | null;
-    wallet: WalletData | null;
-    planId: number | null;
-    taxPresets?: TaxPreset[];
-    proposalFeePct?: number | null;
     memberInfo?: MemberInfo;
-    stripeConnectId?: string | null;
-    stripeConnectStatus?: string | null;
-    stripeConnectIdTest?: string | null;
-    stripeConnectStatusTest?: string | null;
-    senderName: string | null;
     memberEmail?: string | null;
     buyerParticipant?: BuyerParticipant;
     invoice?: InvoiceRow | null;
-    messagingProvider: BookingMessagingProvider;
   };
 
   const b = booking;
-  const planLevel = getPlanLevel(planId);
-
   // ── Owner / authenticated member (or billing delegate) — full rich UI ───────
-  if (isOwner || canManageBilling) {
+  if (isOwner) {
     return (
       <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>
         {themeToggle}
-        <PaymentSuccessBanner />
         <MemberView
           booking={b}
-          wallet={wallet}
-          planLevel={planLevel}
-          userEmail={userEmail}
-          senderName={senderName}
-          messagingProvider={messagingProvider}
           bookingToken={bookingToken}
-          stripeConnectId={stripeConnectId ?? null}
-          stripeConnectStatus={stripeConnectStatus ?? null}
-          stripeConnectIdTest={stripeConnectIdTest ?? null}
-          stripeConnectStatusTest={stripeConnectStatusTest ?? null}
-          taxPresets={taxPresets ?? []}
           memberInfo={memberInfo}
-          proposalFeePct={proposalFeePct}
           proposal={proposal ?? null}
           buyerParticipant={buyerParticipant ?? null}
           invoice={invoice ?? null}
@@ -2916,8 +2057,6 @@ export default function BookingAccessPage() {
                   proposal={proposal}
                   bookingId={b.id as string}
                   bookingToken={bookingToken}
-                  walletFeePct={(wallet as { sqrz_fee_pct?: number } | null)?.sqrz_fee_pct ?? null}
-                  proposalFeePct={proposalFeePct ?? null}
                   memberEmail={memberEmail ?? null}
                 />
               </div>
@@ -2951,17 +2090,6 @@ export default function BookingAccessPage() {
           </>
         )}
       </div>
-
-      {/* Chat bubble — works for both token buyers (anon) and authenticated participants */}
-      <BookingChat
-        bookingId={b.id as string}
-        currentUserEmail={userEmail}
-        isOwner={false}
-        messagingProvider={messagingProvider}
-        bookingToken={bookingToken}
-        senderName={senderName ?? undefined}
-        participantName={memberInfo?.company_name ?? memberInfo?.name ?? undefined}
-      />
     </div>
   );
 }

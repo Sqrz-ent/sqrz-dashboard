@@ -18,16 +18,16 @@ export default function PartnerInviteBanner({ invitedAt }: { invitedAt: string |
         <span style={{ fontSize: 20, marginTop: 1, color: "#F5A623" }}>✦</span>
         <div>
           <p style={{ fontSize: 14, fontWeight: 500, color: "var(--text)", margin: "0 0 4px" }}>
-            You&apos;re invited to join the SQRZ Partner Program
+            You&apos;re invited to share SQRZ beta access
           </p>
           <p style={{ fontSize: 13, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-            Partners earn a share of revenue by bringing relevant creatives into the network.
+            Get an invite link for trusted people who should test the iOS app.
           </p>
         </div>
       </div>
 
       <a
-        href="/partner-onboarding"
+        href="/invite-onboarding"
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -43,7 +43,7 @@ export default function PartnerInviteBanner({ invitedAt }: { invitedAt: string |
           flexShrink: 0,
         }}
       >
-        View invitation →
+        View invite →
       </a>
     </div>
   );
