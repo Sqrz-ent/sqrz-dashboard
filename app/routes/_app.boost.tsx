@@ -155,9 +155,8 @@ const GROW_MEETING_URL =
   "https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call?uuid=59eefc62-6d81-476a-9c7e-2aa4167f927b";
 
 // Campaign creation (Boost + Grow) is moving to the native SQRZ app. The web
-// dashboard only gates access and points users to the app. Placeholder link —
-// swap for the real public TestFlight invite when the beta is published.
-const TESTFLIGHT_URL = "https://testflight.apple.com/join/PLACEHOLDER";
+// dashboard only gates access and points users to the app's public TestFlight beta.
+const TESTFLIGHT_URL = "https://testflight.apple.com/join/qSyFdnSd";
 
 const DURATION_DAYS: Record<string, number> = {
   "1 Week":  7,
