@@ -20,7 +20,6 @@ export default [
     route("invite-onboarding", "routes/_app.invite-onboarding.tsx"),
     route("partners", "routes/_app.partners.tsx"),
     route("partner-onboarding", "routes/_app.partner-onboarding.tsx"),
-    route("crew", "routes/_app.crew.tsx"),
     route("profile", "routes/_app.profile.tsx"),
     route("service", "routes/_app.service.tsx"),
     route("boost", "routes/_app.boost.tsx"),

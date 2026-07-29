@@ -4,14 +4,13 @@ import {
   createSupabaseBearerClient,
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { canManageBookingBilling } from "~/lib/delegate.server";
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB
 
 // Upload a talent/provider-supplied PDF invoice for a confirmed booking and email the
 // buyer that it's ready. No generation, no e-invoicing — just a stored PDF + notification.
-// Gated to the booking owner (or an active billing delegate). Web callers authenticate via
-// cookie session; native (sqrz-ios) callers send a Bearer token.
+// Gated to the booking owner. Web callers authenticate via cookie session; native
+// (sqrz-ios) callers send a Bearer token.
 export async function action({ request }: { request: Request }) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -54,9 +53,10 @@ export async function action({ request }: { request: Request }) {
 
   const ownerProfileId = booking.owner_id as string;
 
-  // Gate: owner or active delegate, and only on a confirmed/completed booking.
-  const allowed = await canManageBookingBilling(admin, viewerProfile.id as string, ownerProfileId);
-  if (!allowed) return Response.json({ error: "Not authorized for this booking" }, { status: 403 });
+  // Gate: booking owner only, and only on a confirmed/completed booking.
+  if (viewerProfile.id !== ownerProfileId) {
+    return Response.json({ error: "Not authorized for this booking" }, { status: 403 });
+  }
   if (!["confirmed", "completed"].includes(booking.status as string)) {
     return Response.json({ error: "Invoice can only be uploaded on a confirmed booking" }, { status: 400 });
   }

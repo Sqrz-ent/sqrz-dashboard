@@ -1485,7 +1485,7 @@ export default function BookingAccessPage() {
   };
 
   const b = booking;
-  // ── Owner / authenticated member (or billing delegate) — full rich UI ───────
+  // ── Owner / authenticated member — full rich UI ─────────────────────────────
   if (isOwner) {
     return (
       <div style={{ background: "var(--bg)", minHeight: "100vh", fontFamily: FONT_BODY, color: "var(--text)" }}>

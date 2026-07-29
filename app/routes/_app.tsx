@@ -90,13 +90,10 @@ export default function AppLayout() {
 
   const p = profile as Record<string, unknown> | null;
 
-  // 4th bottom-nav slot — beta invite access takes precedence, then beta crew, else own profile
-  const isBeta = !!(p?.is_beta as boolean | null);
+  // 4th bottom-nav slot — beta invite access takes precedence, else own profile
   const profileSlug = (p?.slug as string | null) ?? "";
   const fourthNav = isPartner
     ? { to: "/invites", external: false, icon: "✦", label: "Invites" }
-    : isBeta
-    ? { to: "/crew", external: false, icon: "👥", label: "Crew" }
     : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👤", label: "Profile" };
 
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -201,7 +198,7 @@ export default function AppLayout() {
   const navigate = useNavigate();
   const pathname = location.pathname;
 
-  const workModeRoutes = ["/office", "/crew"];
+  const workModeRoutes = ["/office"];
   const isWorkMode = workModeRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
   // Derive work mode title + breadcrumb from pathname
@@ -210,8 +207,6 @@ export default function AppLayout() {
     if (pathname === "/invite-onboarding" || pathname === "/partner-onboarding") return { title: "Beta Invites", breadcrumb: null };
     if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
     if (pathname === "/office") return { title: "Office", breadcrumb: null };
-    if (pathname.startsWith("/crew/")) return { title: "Crew", breadcrumb: "Crew" };
-    if (pathname === "/crew") return { title: "Crew", breadcrumb: null };
     return { title: "Dashboard", breadcrumb: null };
   }
   const { title: workTitle, breadcrumb } = getWorkModeTitle();
