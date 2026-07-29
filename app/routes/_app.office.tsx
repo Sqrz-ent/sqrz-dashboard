@@ -1,5 +1,5 @@
 import { Link, useLoaderData } from "react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { redirect } from "react-router";
 import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -32,76 +32,6 @@ const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const ACCENT = "#F5A623";
-const OFFICE_BOOKING_NAV_EVENT = "sqrz:office-booking-navigation";
-
-function withOfficeReturn(href: string) {
-  const separator = href.includes("?") ? "&" : "?";
-  return `${href}${separator}from=office`;
-}
-
-function useIsStandalonePwa() {
-  const [isStandalone, setIsStandalone] = useState(false);
-
-  useEffect(() => {
-    const compute = () => {
-      const standalone = typeof window !== "undefined" && (
-        window.matchMedia?.("(display-mode: standalone)")?.matches ||
-        (window.navigator as Navigator & { standalone?: boolean }).standalone === true
-      );
-      setIsStandalone(Boolean(standalone));
-    };
-
-    compute();
-    const media = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(display-mode: standalone)")
-      : null;
-    media?.addEventListener?.("change", compute);
-
-    return () => {
-      media?.removeEventListener?.("change", compute);
-    };
-  }, []);
-
-  return isStandalone;
-}
-
-function OfficeBookingLink({
-  href,
-  children,
-  style,
-}: {
-  href: string;
-  children: React.ReactNode;
-  style?: React.CSSProperties;
-}) {
-  const isStandalone = useIsStandalonePwa();
-  const finalHref = withOfficeReturn(href);
-
-  return (
-    <Link
-      to={finalHref}
-      target={isStandalone ? undefined : "_blank"}
-      rel={isStandalone ? undefined : "noopener noreferrer"}
-      onClick={(event) => {
-        if (
-          !isStandalone ||
-          event.defaultPrevented ||
-          event.button !== 0 ||
-          event.metaKey ||
-          event.altKey ||
-          event.ctrlKey ||
-          event.shiftKey
-        ) {
-          return;
-        }
-        window.dispatchEvent(new CustomEvent(OFFICE_BOOKING_NAV_EVENT));
-      }}
-      style={style}
-    >
-      {children}
-    </Link>
-  );
-}
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -176,8 +106,10 @@ function StatusBadge({ status }: { status: string }) {
 
 function BookingRow({ booking, muted }: { booking: Booking; muted: boolean }) {
   return (
-    <OfficeBookingLink
-      href={`/booking/${booking.id}`}
+    <Link
+      to={`/booking/${booking.id}`}
+      target="_blank"
+      rel="noopener noreferrer"
       style={{
         display: "flex",
         alignItems: "center",
@@ -206,7 +138,7 @@ function BookingRow({ booking, muted }: { booking: Booking; muted: boolean }) {
         {formatDate(booking.created_at)}
       </span>
       <StatusBadge status={booking.status} />
-    </OfficeBookingLink>
+    </Link>
   );
 }
 
@@ -230,75 +162,13 @@ export default function OfficePage() {
     ownerBookings: Booking[];
   };
 
-  const [openingBooking, setOpeningBooking] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
 
   const openBookings = ownerBookings.filter((b) => OPEN_STATUSES.includes(b.status));
   const doneBookings = ownerBookings.filter((b) => DONE_STATUSES.includes(b.status));
 
-  useEffect(() => {
-    function handleBookingNavigation() {
-      setOpeningBooking(true);
-    }
-
-    window.addEventListener(OFFICE_BOOKING_NAV_EVENT, handleBookingNavigation);
-    return () => window.removeEventListener(OFFICE_BOOKING_NAV_EVENT, handleBookingNavigation);
-  }, []);
-
-  useEffect(() => {
-    if (!openingBooking) return;
-    const timeout = setTimeout(() => setOpeningBooking(false), 8000);
-    return () => clearTimeout(timeout);
-  }, [openingBooking]);
-
   return (
     <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
-      {openingBooking && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background:
-              "radial-gradient(circle at 50% 16%, rgba(245, 166, 35, 0.22), transparent 42%), color-mix(in srgb, var(--bg) 92%, transparent)",
-            backdropFilter: "blur(6px)",
-            WebkitBackdropFilter: "blur(6px)",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 16,
-              textAlign: "center",
-              color: "var(--text)",
-            }}
-          >
-            <img
-              src="/sqrz-logo-mark.png"
-              alt="SQRZ"
-              style={{ width: 88, height: 88, objectFit: "contain", display: "block" }}
-            />
-            <div style={{ color: "var(--text-muted)", fontSize: 14, fontWeight: 600 }}>
-              Opening booking...
-            </div>
-            <div
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 999,
-                border: "3px solid rgba(245,166,35,0.22)",
-                borderTopColor: ACCENT,
-                animation: "sqrz-pwa-spin 900ms linear infinite",
-              }}
-            />
-          </div>
-        </div>
-      )}
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>

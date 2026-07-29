@@ -31,8 +31,6 @@ export default [
   ]),
 
   // API routes (server-only, action handlers)
-  route("api/messaging/stream-token", "routes/api.messaging.stream-token.ts"),
-  route("api/messaging/stream-inbox", "routes/api.messaging.stream-inbox.ts"),
   route("api/messaging/stream-inquiry", "routes/api.messaging.stream-inquiry.ts"),
   route("api/messaging/stream-inquiry-convert", "routes/api.messaging.stream-inquiry-convert.ts"),
   route("api/messaging/stream-inquiry-status", "routes/api.messaging.stream-inquiry-status.ts"),

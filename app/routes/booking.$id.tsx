@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLoaderData, useFetcher, useSearchParams } from "react-router";
+import { useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
   createSupabaseServerClient,
@@ -1218,59 +1218,14 @@ function InvoiceSection({
 function MemberView({
   booking,
   buyerParticipant,
-  showMobileOfficeBack = false,
-  onMobileOfficeBack,
 }: {
   booking: Booking;
   buyerParticipant: BuyerParticipant;
-  showMobileOfficeBack?: boolean;
-  onMobileOfficeBack?: () => void;
 }) {
   const b = booking;
 
   return (
     <>
-      {/* Sticky header — just the office-back affordance now that there's a single section */}
-      <div style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        background: "var(--surface)",
-        borderBottom: "0.5px solid var(--border)",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        minHeight: 50,
-        padding: "0 24px",
-      }}>
-        {showMobileOfficeBack && (
-          <button
-            onClick={onMobileOfficeBack}
-            aria-label="Back to Office"
-            style={{
-              position: "absolute",
-              left: 18,
-              top: "50%",
-              transform: "translateY(-50%)",
-              background: "none",
-              border: "none",
-              color: "var(--text)",
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-              lineHeight: "22px",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "14px 0",
-              fontFamily: FONT_BODY,
-            }}
-          >
-            ← Office
-          </button>
-        )}
-      </div>
-
       {/* Content — title + single details section */}
       <div style={{ padding: "24px 24px 0", maxWidth: 720, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
@@ -1305,52 +1260,6 @@ function MemberView({
 
 export default function BookingAccessPage() {
   const data = useLoaderData<typeof loader>() as Record<string, unknown>;
-  const [searchParams] = useSearchParams();
-  const fromOffice = searchParams.get("from") === "office";
-  const [isStandalonePwa, setIsStandalonePwa] = useState(false);
-  const [isMobileBookingNav, setIsMobileBookingNav] = useState(false);
-
-  useEffect(() => {
-    const compute = () => {
-      const standalone = typeof window !== "undefined" && (
-        window.matchMedia?.("(display-mode: standalone)")?.matches ||
-        (window.navigator as Navigator & { standalone?: boolean }).standalone === true
-      );
-      setIsStandalonePwa(Boolean(standalone));
-    };
-
-    compute();
-    const media = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(display-mode: standalone)")
-      : null;
-    media?.addEventListener?.("change", compute);
-
-    return () => {
-      media?.removeEventListener?.("change", compute);
-    };
-  }, []);
-
-  useEffect(() => {
-    const media = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(max-width: 767px)")
-      : null;
-    const compute = () => setIsMobileBookingNav(Boolean(media?.matches));
-
-    compute();
-    media?.addEventListener?.("change", compute);
-
-    return () => {
-      media?.removeEventListener?.("change", compute);
-    };
-  }, []);
-
-  function goBackToOffice() {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.href = "/office";
-  }
 
   // ── Dark mode (mirrors _app.tsx — same key, same class) ────────────────────
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -1370,33 +1279,6 @@ export default function BookingAccessPage() {
   }
   const themeToggle = (
     <>
-      {fromOffice && isStandalonePwa && !isMobileBookingNav && (
-        <button
-          onClick={goBackToOffice}
-          aria-label="Back to Office"
-          style={{
-            position: "fixed",
-            top: 16,
-            left: 16,
-            zIndex: 9999,
-            background: "var(--surface)",
-            border: "1px solid var(--border)",
-            color: "var(--text)",
-            fontSize: 13,
-            fontWeight: 700,
-            cursor: "pointer",
-            lineHeight: 1,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "10px 12px",
-            borderRadius: 999,
-            boxShadow: "0 12px 30px rgba(0,0,0,0.16)",
-          }}
-        >
-          ← Office
-        </button>
-      )}
       <button
         onClick={toggleTheme}
         aria-label="Toggle theme"
@@ -1493,8 +1375,6 @@ export default function BookingAccessPage() {
         <MemberView
           booking={b}
           buyerParticipant={buyerParticipant ?? null}
-          showMobileOfficeBack={fromOffice && isStandalonePwa && isMobileBookingNav}
-          onMobileOfficeBack={goBackToOffice}
         />
       </div>
     );
