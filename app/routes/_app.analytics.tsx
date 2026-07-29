@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
@@ -6,7 +7,7 @@ import { loadBoostSectionData, type BoostSectionData } from "~/lib/boost.server"
 import { loadBetaInviteSectionData, type BetaInviteSectionData } from "~/lib/partner.server";
 import BoostSection from "~/components/BoostSection";
 import PartnerSection from "~/components/PartnerSection";
-import GrowTeaser, { InviteOnlyBadge } from "~/components/GrowTeaser";
+import GetTheAppSection from "~/components/GetTheAppSection";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -337,17 +338,15 @@ const sectionLabel: React.CSSProperties = {
   display: "block",
 };
 
-// Top-level group header for the four Grow-page sections (BOOST / GROW / PARTNER
-// / RESULTS) — larger + accent, distinct from the muted per-subsection labels.
-const groupLabel: React.CSSProperties = {
-  fontFamily: FONT_DISPLAY,
-  fontSize: 22,
-  fontWeight: 800,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-  color: ACCENT,
-  marginBottom: 14,
-};
+// The four Grow-page tabs. "invites" is filtered out of the tab bar for
+// non-partners (Beta Invites stays invite-only, mirroring iOS).
+type GrowTab = "campaigns" | "results" | "invites" | "app";
+const growTabs: { key: GrowTab; label: string }[] = [
+  { key: "campaigns", label: "Campaigns" },
+  { key: "results", label: "Results" },
+  { key: "invites", label: "Invites" },
+  { key: "app", label: "Get the App" },
+];
 
 const card: React.CSSProperties = {
   background: "var(--surface)",
@@ -769,6 +768,7 @@ export default function AnalyticsPage() {
   };
   const slug = profile.slug as string;
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<GrowTab>("campaigns");
 
   const cl = cookieless;
   const hasWidgetData = (cl?.widgets?.length ?? 0) > 0;
@@ -822,42 +822,68 @@ export default function AnalyticsPage() {
         Grow
       </h1>
 
-      {/* ── BOOST — app-download prompt + existing-campaign list ───────────── */}
-      <section style={{ marginBottom: 48 }}>
-        <div style={groupLabel}>Boost</div>
-        <BoostSection embedded {...boost} />
-      </section>
+      {/* ── Tab bar ────────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+          borderBottom: "1px solid var(--border)",
+          marginBottom: 32,
+        }}
+      >
+        {growTabs
+          .filter((t) => t.key !== "invites" || isPartner)
+          .map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              style={{
+                padding: "10px 16px",
+                fontFamily: FONT_BODY,
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "0.03em",
+                textTransform: "uppercase",
+                color: activeTab === t.key ? ACCENT : "var(--text-muted)",
+                background: "transparent",
+                border: "none",
+                borderBottom: activeTab === t.key ? `2px solid ${ACCENT}` : "2px solid transparent",
+                cursor: "pointer",
+                transition: "color 0.15s",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+      </div>
 
-      {/* ── GROW — invite-only teaser for the managed campaign-partner features ─ */}
-      <section style={{ marginBottom: 48 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
-          <div style={{ ...groupLabel, marginBottom: 0 }}>Grow</div>
-          <InviteOnlyBadge />
-        </div>
-        <GrowTeaser />
-      </section>
+      {/* ── CAMPAIGNS — creation form + active/past campaigns list ─────────── */}
+      {activeTab === "campaigns" && <BoostSection embedded {...boost} />}
 
-      {/* ── BETA INVITES — invite dashboard, invite-enabled profiles only ──── */}
-      {isPartner && partner && (
-        <section style={{ marginBottom: 48 }}>
-          <div style={groupLabel}>Beta Invites</div>
-          <PartnerSection embedded {...partner} />
-        </section>
+      {/* ── INVITES — beta invite dashboard, invite-enabled profiles only ──── */}
+      {activeTab === "invites" && isPartner && partner && (
+        <PartnerSection embedded {...partner} />
       )}
 
+      {/* ── GET THE APP ──────────────────────────────────────────────────── */}
+      {activeTab === "app" && <GetTheAppSection />}
+
       {/* ── RESULTS — analytics, with time-range control ───────────────────── */}
+      {activeTab === "results" && (
+        <>
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           marginBottom: 20,
           flexWrap: "wrap",
           gap: 12,
         }}
       >
-        <div style={{ ...groupLabel, marginBottom: 0 }}>Results</div>
-
         <div style={{ display: "flex", gap: 6 }}>
           {[1, 7, 30, 90].map((d) => (
             <button
@@ -1436,6 +1462,8 @@ export default function AnalyticsPage() {
           )}
         </div>
       </section>
+        </>
+      )}
     </div>
   );
 }
