@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useLoaderData, useFetcher, useSearchParams, redirect } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { useLoaderData, useFetcher, useSearchParams } from "react-router";
 import type { Route } from "./+types/booking.$id";
 import {
   createSupabaseServerClient,
@@ -323,166 +323,38 @@ export async function action({ request, params }: Route.ActionArgs) {
     return Response.json({ error: "Unauthorized" }, { headers, status: 403 });
   }
 
-  if (intent === "decline_request") {
-    await supabase
+  if (intent === "save_notes") {
+    const notes = (formData.get("notes") as string) ?? "";
+    const { error } = await supabase
       .from("bookings")
-      .update({ status: "cancelled" })
+      .update({ notes })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
-    return redirect("/office", { headers });
-  }
-
-  if (intent === "send_proposal") {
-    const rateRaw = parseFloat(formData.get("rate") as string) || null;
-    const currency = (formData.get("currency") as string) || "EUR";
-    const message = (formData.get("message") as string) || "";
-    const existingProposalId = (formData.get("existing_proposal_id") as string) || null;
-    const rate = rateRaw;
-
-    const admin = createSupabaseAdminClient();
-    const { error: bookingError } = await supabase
-      .from("bookings")
-      .update({ status: "pending" })
-      .eq("id", params.id)
-      .eq("owner_id", profile.id as string);
-
-    if (bookingError) return Response.json({ error: bookingError.message }, { status: 500, headers });
-
-    // Versioning: if revising an existing proposal, increment version and mark old as countered
-    let newVersion = 1;
-    let parentProposalId: string | null = null;
-
-    if (existingProposalId) {
-      const { data: prev } = await admin
-        .from("booking_proposals")
-        .select("version")
-        .eq("id", existingProposalId)
-        .single();
-
-      newVersion = (prev?.version ?? 1) + 1;
-      parentProposalId = existingProposalId;
-
-      await admin
-        .from("booking_proposals")
-        .update({ status: "countered" })
-        .eq("id", existingProposalId);
-    }
-
-    const { error: insertError } = await admin
-      .from("booking_proposals")
-      .insert({
-        booking_id: params.id,
-        rate,
-        currency,
-        require_hotel: false,
-        require_travel: false,
-        require_food: false,
-        requires_payment: false,
-        message: message || null,
-        status: "sent",
-        sent_by: "member",
-        version: newVersion,
-        parent_proposal_id: parentProposalId,
-        line_items: null,
-        tax_pct: null,
-        tax_label: null,
-        sqrz_fee_pct: 0,
-      })
-      .select();
-
-    if (insertError) {
-      console.error("[proposal insert] error:", insertError);
-    }
-
-    try {
-      const { data: bkData } = await supabase
-        .from("bookings")
-        .select("service, date_start, city, venue")
-        .eq("id", params.id)
-        .maybeSingle();
-
-      const { data: buyer } = await admin
-        .from("booking_participants")
-        .select("email, name, user_id, invite_token")
-        .eq("booking_id", params.id)
-        .eq("role", "buyer")
-        .maybeSingle();
-
-      const guestEmail = buyer?.email;
-      const guestName = buyer?.name;
-
-      if (!guestEmail) {
-        console.error("[proposal] no buyer found for booking", params.id);
-        return Response.json({ error: "No requester found for this booking" }, { status: 422, headers });
-      }
-
-      const ownerName =
-        (profile.name as string | null) ??
-        (profile.first_name as string | null) ??
-        "Your booking partner";
-      const accessUrl = buyer?.invite_token
-        ? `https://dashboard.sqrz.com/booking/${params.id}?token=${buyer.invite_token}`
-        : `https://dashboard.sqrz.com/booking/${params.id}`;
-
-      const emailHtml = `<!DOCTYPE html>
-<html>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:sans-serif;">
-  <div style="max-width:560px;margin:40px auto;background:#fff;border-radius:12px;overflow:hidden;">
-    <div style="background:#0a0a0a;padding:32px;text-align:center;">
-      <img src="https://sqrz.com/brand/sqrz_logo.png" alt="SQRZ" style="height:32px;" />
-    </div>
-    <div style="padding:32px;">
-      <p style="color:#666;font-size:14px;margin:0 0 8px;">Hi ${guestName ?? "there"},</p>
-      <h1 style="font-size:24px;font-weight:700;margin:0 0 24px;color:#0a0a0a;">
-        You have a proposal from ${ownerName}
-      </h1>
-      <div style="background:#f9f9f9;border-radius:8px;padding:20px;margin-bottom:24px;">
-        ${bkData?.service ? `<div style="margin-bottom:12px;"><span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Service</span><p style="margin:4px 0 0;font-weight:600;color:#0a0a0a;">${bkData.service}</p></div>` : ""}
-        ${bkData?.date_start ? `<div style="margin-bottom:12px;"><span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Date</span><p style="margin:4px 0 0;font-weight:600;color:#0a0a0a;">${new Date(bkData.date_start).toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}</p></div>` : ""}
-        ${bkData?.city ? `<div style="margin-bottom:12px;"><span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Location</span><p style="margin:4px 0 0;font-weight:600;color:#0a0a0a;">${bkData.venue ? `${bkData.venue}, ` : ""}${bkData.city}</p></div>` : ""}
-        <div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;">
-          <span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Proposed Rate</span>
-          <p style="margin:4px 0 0;font-size:28px;font-weight:700;color:#0a0a0a;">${currency.toUpperCase()} ${rate}</p>
-        </div>
-        ${message ? `<div style="border-top:1px solid #eee;margin-top:16px;padding-top:16px;"><span style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#999;">Note from ${ownerName}</span><p style="margin:4px 0 0;color:#0a0a0a;">${message}</p></div>` : ""}
-      </div>
-      <div style="text-align:center;margin:32px 0;">
-        <a href="${accessUrl}" style="background:#F3B130;color:#000;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block;">
-          View Full Proposal →
-        </a>
-      </div>
-      <p style="color:#999;font-size:12px;text-align:center;">
-        This link gives you direct access to your booking — no login needed.
-      </p>
-    </div>
-    <div style="padding:20px 32px;border-top:1px solid #eee;text-align:center;">
-      <p style="color:#ccc;font-size:11px;margin:0;">Powered by <a href="https://sqrz.com" style="color:#F3B130;text-decoration:none;">SQRZ</a></p>
-    </div>
-  </div>
-</body>
-</html>`;
-
-      const { Resend } = await import("resend");
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({
-        from: "SQRZ <bookings@sqrz.com>",
-        to: guestEmail,
-        subject: `${ownerName} sent you a proposal on SQRZ`,
-        html: emailHtml,
-      });
-    } catch (err) {
-      console.error("[proposal] email send failed:", err);
-    }
-
+    if (error) return Response.json({ error: error.message }, { status: 500, headers });
     return Response.json({ ok: true }, { headers });
   }
 
-  if (intent === "mark_as_delivered") {
-    await supabase
+  if (intent === "mark_as_done") {
+    const { error } = await supabase
       .from("bookings")
       .update({ status: "completed" })
       .eq("id", params.id)
       .eq("owner_id", profile.id as string);
+    if (error) return Response.json({ error: error.message }, { status: 500, headers });
+    return Response.json({ ok: true }, { headers });
+  }
+
+  if (intent === "decline") {
+    // enforce_booking_status_transition only allows declining from
+    // lead/requested/pending_payment/pending — the UI already hides the button
+    // outside that range, but a stale client (e.g. two tabs) can still hit this,
+    // so surface the trigger's own error message rather than a generic one.
+    const { error } = await supabase
+      .from("bookings")
+      .update({ status: "declined" })
+      .eq("id", params.id)
+      .eq("owner_id", profile.id as string);
+    if (error) return Response.json({ error: error.message }, { status: 500, headers });
     return Response.json({ ok: true }, { headers });
   }
 
@@ -508,12 +380,6 @@ function formatDateTime(iso: string | null): string {
   const m = d.getUTCMinutes();
   if (h === 0 && m === 0) return datePart;
   return `${datePart} · ${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-}
-
-function formatRate(rate: number | null, currency: string | null): string {
-  if (!rate) return "—";
-  const sym = currency?.toUpperCase() === "EUR" ? "€" : currency?.toUpperCase() === "GBP" ? "£" : "$";
-  return `${sym}${rate.toLocaleString()}`;
 }
 
 function currencySym(c: string | null) {
@@ -596,430 +462,133 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ─── Member view sections ─────────────────────────────────────────────────────
+// ─── Member view section (owner) ───────────────────────────────────────────────
 
-function DetailsSection({ booking, memberInfo, buyerParticipant }: { booking: Booking; memberInfo?: MemberInfo; buyerParticipant?: BuyerParticipant }) {
+const OPEN_STATUSES = ["requested", "pending", "confirmed"];
+
+function MemberBookingSection({ booking, buyerParticipant }: { booking: Booking; buyerParticipant?: BuyerParticipant }) {
   const b = booking;
+  const status = (b.status as string) ?? "requested";
+  const isTerminal = !OPEN_STATUSES.includes(status);
+  const canDecline = status === "requested" || status === "pending";
+
+  const notesFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const statusFetcher = useFetcher<{ ok?: boolean; error?: string }>();
+  const [notes, setNotes] = useState((b.notes as string | null) ?? "");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function scheduleSaveNotes(value: string) {
+    setNotes(value);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const fd = new FormData();
+      fd.append("intent", "save_notes");
+      fd.append("notes", value);
+      notesFetcher.submit(fd, { method: "post" });
+    }, 600);
+  }
+
+  function updateStatus(newStatus: "completed" | "declined") {
+    const fd = new FormData();
+    fd.append("intent", newStatus === "completed" ? "mark_as_done" : "decline");
+    statusFetcher.submit(fd, { method: "post" });
+  }
 
   return (
     <section id="details" style={{ paddingBottom: 40 }}>
       <SectionHeading>Details</SectionHeading>
 
-      {!!buyerParticipant && (
+      {!!buyerParticipant && (buyerParticipant.name || buyerParticipant.email) && (
         <div style={card}>
-          <p style={lbl}>Buyer</p>
+          <p style={lbl}>Requester</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
             {buyerParticipant.name && <p style={{ ...val, fontWeight: 600 }}>{buyerParticipant.name}</p>}
-            {buyerParticipant.email && <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{buyerParticipant.email}</p>}
-            {buyerParticipant.phone && <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{buyerParticipant.phone}</p>}
-          </div>
-        </div>
-      )}
-
-      <div style={card}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: b.service ? 14 : 0 }}>
-          <StatusBadge status={(b.status as string) ?? "pending"} />
-        </div>
-        {!!b.service && (
-          <div>
-            <p style={lbl}>Service</p>
-            <p style={val}>{b.service as string}</p>
-          </div>
-        )}
-      </div>
-
-      <div style={card}>
-        {!!(b.date_end && b.date_end !== b.date_start) ? (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div>
-              <p style={lbl}>Start</p>
-              <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <p style={{ ...lbl, textAlign: "right" }}>End</p>
-              <p style={{ ...val, textAlign: "right" }}>{formatDateTime(b.date_end as string | null)}</p>
-            </div>
-          </div>
-        ) : (
-          <div>
-            <p style={lbl}>Date</p>
-            <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
-          </div>
-        )}
-      </div>
-
-      {!!(b.venue_address || b.venue_city || b.venue_zip || b.venue_country) && (
-        <div style={card}>
-          <p style={{ ...lbl, marginBottom: 14 }}>Location</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px 16px" }}>
-            {!!b.venue_address && (
-              <div>
-                <p style={lbl}>Street</p>
-                <p style={val}>{b.venue_address as string}</p>
-              </div>
-            )}
-            {!!b.venue_city && (
-              <div>
-                <p style={lbl}>City</p>
-                <p style={val}>{b.venue_city as string}</p>
-              </div>
-            )}
-            {!!b.venue_zip && (
-              <div>
-                <p style={lbl}>ZIP</p>
-                <p style={val}>{b.venue_zip as string}</p>
-              </div>
-            )}
-            {!!b.venue_country && (
-              <div>
-                <p style={lbl}>Country</p>
-                <p style={val}>{b.venue_country as string}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Rate is shown in full detail in the Proposal section — not duplicated here */}
-
-      {(booking as { description?: string | null }).description && (
-        <div style={card}>
-          <p style={lbl}>Message from requester</p>
-          <p style={{ ...val, color: "var(--text-muted)", fontSize: 13, lineHeight: 1.65 }}>
-            {(booking as { description: string }).description}
-          </p>
-        </div>
-      )}
-
-      {memberInfo && (memberInfo.company_name || memberInfo.legal_form || memberInfo.vat_id || memberInfo.responsible_person) && (
-        <div style={card}>
-          <p style={lbl}>Seller Information</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
-            {(memberInfo.company_name || memberInfo.name) && (
-              <p style={{ ...val, fontWeight: 600 }}>{memberInfo.company_name ?? memberInfo.name}</p>
-            )}
-            {memberInfo.legal_form && (
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.legal_form}</p>
-            )}
-            {memberInfo.company_address && (
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>{memberInfo.company_address}</p>
-            )}
-            {memberInfo.vat_id && (
-              <p style={{ ...val, color: "var(--text-muted)", fontSize: 13 }}>VAT: {memberInfo.vat_id}</p>
-            )}
-          </div>
-        </div>
-      )}
-
-    </section>
-  );
-}
-
-function ProposalSection({ booking }: { booking: Booking }) {
-  const fetcher = useFetcher<{ ok?: boolean; error?: string }>();
-  const declineFetcher = useFetcher<{ ok?: boolean }>();
-
-  // All proposals sorted by version desc — latest first
-  const allProposals = ((booking as { booking_proposals?: Array<NonNullable<Proposal>> }).booking_proposals ?? [])
-    .slice()
-    .sort((a, b) => ((b.version ?? 0) - (a.version ?? 0)));
-  const latestProposal = allProposals[0] ?? null;
-  const buyerCounted = latestProposal?.sent_by === "buyer";
-  const memberSentAndWaiting = latestProposal?.sent_by === "member" && latestProposal?.status === "sent";
-  const isRevise = !!latestProposal;
-
-  // Hide form when member is waiting for buyer response, or buyer has countered
-  const [showForm, setShowForm] = useState(!buyerCounted && !memberSentAndWaiting);
-  const [showHistory, setShowHistory] = useState(false);
-
-  const [form, setForm] = useState({
-    rate: String(latestProposal?.rate ?? ""),
-    currency: latestProposal?.currency ?? "EUR",
-    message: "",
-  });
-
-  const sent = fetcher.state === "idle" && fetcher.data?.ok;
-  const sym = currencySym(latestProposal?.currency ?? "EUR");
-
-  return (
-    <section id="proposal" style={{ paddingBottom: 40 }}>
-      <SectionHeading>
-        {buyerCounted ? "Counter Offer" : (showForm && isRevise) ? "Revise Proposal" : "Proposal"}
-      </SectionHeading>
-
-      {sent ? (
-        <div style={{ ...card, border: "1px solid rgba(74,222,128,0.3)", background: "rgba(74,222,128,0.06)" }}>
-          <p style={{ color: "#4ade80", fontSize: 14, margin: 0, fontWeight: 600 }}>
-            ✓ {isRevise ? "Revised proposal sent." : "Proposal sent — booking is now pending."}
-          </p>
-        </div>
-      ) : (
-        <>
-          {/* Member sent proposal — waiting for buyer response */}
-          {memberSentAndWaiting && !showForm && (
-            <>
-              {/* Sent proposal — full breakdown (read-only) */}
-              {latestProposal!.rate != null && (() => {
-                const p = latestProposal!;
-                const symP = currencySym(p.currency);
-                return (
-                  <div style={card}>
-                    <p style={{ ...lbl, marginBottom: 10 }}>Sent Proposal</p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 600 }}>Amount</span>
-                        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 700 }}>{symP}{(p.rate ?? 0).toLocaleString()} <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>{p.currency ?? "EUR"}</span></span>
-                      </div>
-                    </div>
-                    {p.message && (
-                      <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: "12px 0 0", borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-                        {p.message}
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Waiting banner */}
-              <div style={{ ...card, background: "rgba(245,166,35,0.06)", border: "1px solid rgba(245,166,35,0.2)" }}>
-                <p style={{ color: ACCENT, fontSize: 14, margin: 0, fontWeight: 600 }}>
-                  Proposal sent — waiting for buyer response
-                </p>
-              </div>
-
-              {/* Revise button */}
-              <button
-                onClick={() => setShowForm(true)}
-                style={{
-                  background: "none",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                  color: "var(--text-muted)",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  padding: "10px 18px",
-                  fontFamily: FONT_BODY,
-                  marginTop: 4,
-                }}
+            {buyerParticipant.email && (
+              <a
+                href={`mailto:${buyerParticipant.email}`}
+                style={{ ...val, color: ACCENT, fontSize: 13, textDecoration: "underline" }}
               >
-                Revise Proposal
-              </button>
-            </>
-          )}
-
-          {/* Buyer counter banner */}
-          {buyerCounted && (
-            <div style={{ ...card, background: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.25)", marginBottom: 4 }}>
-              <p style={{ color: "#60a5fa", fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", margin: "0 0 6px" }}>
-                Buyer countered
-              </p>
-              <p style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 8px" }}>
-                {sym}{(latestProposal!.rate ?? 0).toLocaleString()}
-                <span style={{ fontSize: 14, fontWeight: 400, color: "var(--text-muted)", marginLeft: 6 }}>
-                  {latestProposal!.currency ?? "EUR"}
-                </span>
-              </p>
-              {latestProposal?.message && (
-                <p style={{ color: "var(--text-muted)", fontSize: 13, lineHeight: 1.6, margin: 0 }}>
-                  "{latestProposal.message}"
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Revise button — shown when buyer countered and form is collapsed */}
-          {buyerCounted && !showForm && (
-            <button
-              onClick={() => setShowForm(true)}
-              style={{
-                width: "100%",
-                padding: "13px",
-                background: ACCENT,
-                color: "#111",
-                border: "none",
-                borderRadius: 10,
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: FONT_BODY,
-                marginBottom: 12,
-              }}
-            >
-              Revise Proposal
-            </button>
-          )}
-
-          {/* Proposal form */}
-          {showForm && (
-            <div style={card}>
-              {/* Rate + Currency */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: 12, marginBottom: 6 }}>
-                <div>
-                  <p style={{ ...lbl, marginBottom: 6 }}>Total Budget (what the booker pays)</p>
-                  <input
-                    type="number"
-                    style={inputStyle}
-                    value={form.rate}
-                    onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))}
-                    placeholder="1500"
-                  />
-                </div>
-                <div>
-                  <p style={{ ...lbl, marginBottom: 6 }}>Currency</p>
-                  <select
-                    style={{ ...inputStyle }}
-                    value={form.currency}
-                    onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-                  >
-                    <option value="EUR">EUR</option>
-                    <option value="USD">USD</option>
-                    <option value="GBP">GBP</option>
-                  </select>
-                </div>
-              </div>
-
-              <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 14px", lineHeight: 1.5 }}>
-                Enter the proposal amount. Taxes, payment terms, and final invoice details stay on your invoice.
-              </p>
-
-              {/* Message */}
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ ...lbl, marginBottom: 6 }}>Message (optional)</p>
-                <textarea
-                  rows={3}
-                  style={{ ...inputStyle, resize: "vertical" }}
-                  value={form.message}
-                  onChange={(e) => setForm((f) => ({ ...f, message: e.target.value }))}
-                  placeholder="Add a note to your proposal…"
-                />
-              </div>
-
-              {fetcher.data?.error && (
-                <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{fetcher.data.error}</p>
-              )}
-
-              <div style={{ display: "flex", gap: 10 }}>
-                <button
-                  onClick={() => {
-                    const fd = new FormData();
-                    fd.append("intent", "send_proposal");
-                    fd.append("rate", form.rate);
-                    fd.append("currency", form.currency);
-                    fd.append("message", form.message);
-                    if (latestProposal?.id) fd.append("existing_proposal_id", latestProposal.id);
-                    fetcher.submit(fd, { method: "post" });
-                  }}
-                  disabled={fetcher.state !== "idle"}
-                  style={{
-                    flex: 1,
-                    padding: "13px",
-                    background: ACCENT,
-                    color: "#111",
-                    border: "none",
-                    borderRadius: 10,
-                    fontSize: 14,
-                    fontWeight: 700,
-                    cursor: fetcher.state !== "idle" ? "default" : "pointer",
-                    opacity: fetcher.state !== "idle" ? 0.7 : 1,
-                    fontFamily: FONT_BODY,
-                  }}
-                >
-                  {fetcher.state !== "idle" ? "Sending…" : isRevise ? "Send Revised Proposal" : "Send Proposal"}
-                </button>
-                {isRevise && (
-                  <button
-                    onClick={() => setShowForm(false)}
-                    style={{
-                      padding: "13px 16px",
-                      background: "none",
-                      border: "1px solid var(--border)",
-                      borderRadius: 10,
-                      color: "var(--text-muted)",
-                      fontSize: 13,
-                      cursor: "pointer",
-                      fontFamily: FONT_BODY,
-                    }}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-
-      {/* Decline request — only shown for member when status is still requested */}
-      {(booking.status as string) === "requested" && (
-        <div style={{ textAlign: "center", marginTop: 12 }}>
-          <button
-            onClick={() => {
-              if (!window.confirm("Decline this booking request?")) return;
-              const fd = new FormData();
-              fd.append("intent", "decline_request");
-              declineFetcher.submit(fd, { method: "post" });
-            }}
-            disabled={declineFetcher.state !== "idle"}
-            style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 12, cursor: "pointer", fontFamily: FONT_BODY, padding: "4px 0" }}
-          >
-            Decline Request
-          </button>
+                {buyerParticipant.email}
+              </a>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Negotiation history toggle — only shown when multiple versions exist */}
-      {allProposals.length > 1 && (
-        <div style={{ marginTop: 16 }}>
+      <div style={card}>
+        <div>
+          <p style={lbl}>Date</p>
+          <p style={val}>{formatDateTime(b.date_start as string | null)}</p>
+        </div>
+        {!!b.venue_city && (
+          <div style={{ marginTop: 14 }}>
+            <p style={lbl}>City</p>
+            <p style={val}>{b.venue_city as string}</p>
+          </div>
+        )}
+      </div>
+
+      <div style={card}>
+        <p style={{ ...lbl, marginBottom: 8 }}>Notes</p>
+        <textarea
+          rows={4}
+          style={{ ...inputStyle, resize: "vertical" }}
+          value={notes}
+          onChange={(e) => scheduleSaveNotes(e.target.value)}
+          placeholder="Add a private note…"
+        />
+        {notesFetcher.data?.error && (
+          <p style={{ color: "#ef4444", fontSize: 12, margin: "8px 0 0" }}>{notesFetcher.data.error}</p>
+        )}
+      </div>
+
+      {statusFetcher.data?.error && (
+        <p style={{ color: "#ef4444", fontSize: 12, margin: "0 0 12px" }}>{statusFetcher.data.error}</p>
+      )}
+
+      {!isTerminal && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <button
-            onClick={() => setShowHistory((h) => !h)}
+            onClick={() => updateStatus("completed")}
+            disabled={statusFetcher.state !== "idle"}
             style={{
-              background: "none",
+              width: "100%",
+              padding: "13px",
+              background: ACCENT,
+              color: "#111",
               border: "none",
-              color: "var(--text-muted)",
-              fontSize: 12,
-              cursor: "pointer",
-              padding: 0,
+              borderRadius: 10,
+              fontSize: 14,
+              fontWeight: 700,
+              cursor: statusFetcher.state !== "idle" ? "default" : "pointer",
+              opacity: statusFetcher.state !== "idle" ? 0.7 : 1,
               fontFamily: FONT_BODY,
             }}
           >
-            {showHistory
-              ? "Hide negotiation history ▲"
-              : `View negotiation history (${allProposals.length} versions) ▼`}
+            Mark as Done
           </button>
-          {showHistory && (
-            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-              {allProposals.map((p) => (
-                <div
-                  key={p.id}
-                  style={{
-                    ...card,
-                    marginBottom: 0,
-                    borderColor: p.sent_by === "buyer" ? "rgba(96,165,250,0.25)" : "var(--border)",
-                    background: p.sent_by === "buyer" ? "rgba(96,165,250,0.04)" : "var(--surface)",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div>
-                      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.06em", color: p.sent_by === "buyer" ? "#60a5fa" : ACCENT, marginRight: 8 }}>
-                        v{p.version ?? 1} · {p.sent_by === "buyer" ? "Buyer" : "You"}
-                      </span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text)" }}>
-                        {currencySym(p.currency)}{(p.rate ?? 0).toLocaleString()} {p.currency}
-                      </span>
-                    </div>
-                    <span style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "capitalize" as const }}>
-                      {p.status}
-                    </span>
-                  </div>
-                  {p.message && (
-                    <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
-                      {p.message}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+          {canDecline && (
+            <button
+              onClick={() => {
+                if (!window.confirm("Decline this booking?")) return;
+                updateStatus("declined");
+              }}
+              disabled={statusFetcher.state !== "idle"}
+              style={{
+                width: "100%",
+                padding: "12px",
+                background: "none",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                color: "#ef4444",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: statusFetcher.state !== "idle" ? "default" : "pointer",
+                fontFamily: FONT_BODY,
+              }}
+            >
+              Decline
+            </button>
           )}
         </div>
       )}
@@ -1648,59 +1217,20 @@ function InvoiceSection({
 
 function MemberView({
   booking,
-  bookingToken,
-  memberInfo,
-  proposal,
   buyerParticipant,
-  invoice,
   showMobileOfficeBack = false,
   onMobileOfficeBack,
 }: {
   booking: Booking;
-  bookingToken?: string | null;
-  memberInfo?: MemberInfo;
-  proposal: Proposal | null;
   buyerParticipant: BuyerParticipant;
-  invoice: InvoiceRow | null;
   showMobileOfficeBack?: boolean;
   onMobileOfficeBack?: () => void;
 }) {
   const b = booking;
-  const showProposal = ["requested", "pending"].includes(b.status as string);
-  const showInvoice = ["confirmed", "completed"].includes(b.status as string);
-
-  const sections = [
-    { id: "details",  label: "Details" },
-    ...(showProposal ? [{ id: "proposal", label: "Proposal" }] : []),
-    ...(showInvoice ? [{ id: "invoice", label: "Invoice" }] : []),
-  ];
-
-  const [activeSection, setActiveSection] = useState(sections[0].id);
-
-  useEffect(() => {
-    const OFFSET = 120;
-    function onScroll() {
-      let current = sections[0].id;
-      for (const { id } of sections) {
-        const el = document.getElementById(id);
-        if (el && el.getBoundingClientRect().top <= OFFSET) current = id;
-      }
-      setActiveSection(current);
-    }
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [b.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function scrollToSection(id: string) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY - 116;
-    window.scrollTo({ top, behavior: "smooth" });
-  }
 
   return (
     <>
-      {/* Sticky tab nav — first element, nothing above it */}
+      {/* Sticky header — just the office-back affordance now that there's a single section */}
       <div style={{
         position: "sticky",
         top: 0,
@@ -1710,7 +1240,7 @@ function MemberView({
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        gap: 8,
+        minHeight: 50,
         padding: "0 24px",
       }}>
         {showMobileOfficeBack && (
@@ -1739,30 +1269,9 @@ function MemberView({
             ← Office
           </button>
         )}
-        {sections.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => scrollToSection(id)}
-            style={{
-              background: "none",
-              border: "none",
-              borderBottom: activeSection === id ? `2px solid ${ACCENT}` : "2px solid transparent",
-              color: activeSection === id ? ACCENT : "var(--text-muted)",
-              fontSize: 13,
-              fontWeight: activeSection === id ? 700 : 500,
-              padding: "14px 14px",
-              cursor: "pointer",
-              transition: "color 0.15s",
-              fontFamily: FONT_BODY,
-              lineHeight: "22px",
-            }}
-          >
-            {label}
-          </button>
-        ))}
       </div>
 
-      {/* Content — title + sections */}
+      {/* Content — title + single details section */}
       <div style={{ padding: "24px 24px 0", maxWidth: 720, margin: "0 auto" }}>
         <div style={{ textAlign: "center", marginBottom: 24 }}>
           <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px", lineHeight: 1.3 }}>
@@ -1786,24 +1295,7 @@ function MemberView({
           </div>
         </div>
 
-        <DetailsSection booking={b} memberInfo={memberInfo} buyerParticipant={buyerParticipant} />
-
-        {(b.status as string) === "cancelled" && (
-          <div style={{ ...card, marginBottom: 16 }}>
-            <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>This booking was declined.</p>
-          </div>
-        )}
-
-        {showProposal && <ProposalSection booking={b} />}
-
-        {showInvoice && (
-          <InvoiceSection
-            bookingId={b.id as string}
-            invoice={invoice}
-            canUpload={true}
-            bookingToken={bookingToken ?? null}
-          />
-        )}
+        <MemberBookingSection booking={b} buyerParticipant={buyerParticipant} />
       </div>
     </>
   );
@@ -2000,11 +1492,7 @@ export default function BookingAccessPage() {
         {themeToggle}
         <MemberView
           booking={b}
-          bookingToken={bookingToken}
-          memberInfo={memberInfo}
-          proposal={proposal ?? null}
           buyerParticipant={buyerParticipant ?? null}
-          invoice={invoice ?? null}
           showMobileOfficeBack={fromOffice && isStandalonePwa && isMobileBookingNav}
           onMobileOfficeBack={goBackToOffice}
         />

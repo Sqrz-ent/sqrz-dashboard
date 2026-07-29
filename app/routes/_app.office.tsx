@@ -1,5 +1,6 @@
-import { Link, redirect, useLoaderData } from "react-router";
+import { Link, useLoaderData } from "react-router";
 import { useEffect, useState } from "react";
+import { redirect } from "react-router";
 import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -11,12 +12,8 @@ type Booking = {
   title: string | null;
   service: string | null;
   status: string;
-  date_start: string | null;
-  date_end: string | null;
-  venue_address: string | null;
   venue_city: string | null;
-  venue_zip: string | null;
-  venue_country: string | null;
+  created_at: string | null;
   buyer_name: string | null;
 };
 
@@ -33,31 +30,20 @@ type BuyerBooking = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const COLUMNS = [
-  { key: "requested", label: "Requested" },
-  { key: "pending",   label: "Pending"   },
-  { key: "confirmed", label: "Confirmed" },
-  { key: "completed", label: "Completed" },
-] as const;
+const OPEN_STATUSES = ["requested", "pending", "confirmed"];
+const DONE_STATUSES = ["completed", "declined"];
 
 const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  requested:       { bg: "rgba(245,166,35,0.12)",  text: "#F5A623" },
-  pending:         { bg: "rgba(96,165,250,0.12)",  text: "#60a5fa" },
-  confirmed:       { bg: "rgba(74,222,128,0.12)",  text: "#4ade80" },
-  completed:       { bg: "var(--surface-muted)", text: "var(--text-muted)" },
-  archived:        { bg: "var(--surface-muted)", text: "var(--text-muted)" },
+  requested:  { bg: "rgba(245,166,35,0.12)", text: "#F5A623" },
+  pending:    { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
+  confirmed:  { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
+  completed:  { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
+  declined:   { bg: "rgba(239,68,68,0.12)",  text: "#ef4444" },
 };
 
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const ACCENT = "#F5A623";
 const OFFICE_BOOKING_NAV_EVENT = "sqrz:office-booking-navigation";
-
-const COLUMN_EMPTY_TEXT: Record<string, string> = {
-  requested: "New booking requests will appear here. Share your profile to get started.",
-  pending: "When you send a proposal it lands here, waiting for the client to respond.",
-  confirmed: "Accepted proposals move here. This is your active work.",
-  completed: "Finished bookings live here. Your track record.",
-};
 
 function withOfficeReturn(href: string) {
   const separator = href.includes("?") ? "&" : "?";
@@ -88,26 +74,6 @@ function useIsStandalonePwa() {
   }, []);
 
   return isStandalone;
-}
-
-function useIsMobileOfficeViewport() {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const media = typeof window !== "undefined" && window.matchMedia
-      ? window.matchMedia("(max-width: 767px)")
-      : null;
-    const compute = () => setIsMobile(Boolean(media?.matches));
-
-    compute();
-    media?.addEventListener?.("change", compute);
-
-    return () => {
-      media?.removeEventListener?.("change", compute);
-    };
-  }, []);
-
-  return isMobile;
 }
 
 function OfficeBookingLink({
@@ -167,12 +133,12 @@ export async function loader({ request }: Route.LoaderArgs) {
   ] = await Promise.all([
     supabase
       .from("bookings")
-      .select("id, title, service, status, date_start, date_end, venue_address, venue_city, venue_zip, venue_country, booking_participants(name, role)")
+      .select("id, title, service, status, venue_city, created_at, booking_participants(name, role)")
       .eq("owner_id", profile.id as string)
       .order("created_at", { ascending: false }),
     admin
       .from("booking_participants")
-      .select("invite_token, bookings(id, title, service, status, date_start, date_end, created_at, owner_id)")
+      .select("invite_token, bookings(id, title, service, status, date_start, created_at, owner_id)")
       .eq("user_id", user.id)
       .eq("role", "buyer"),
   ]);
@@ -184,12 +150,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       title: b.title,
       service: b.service,
       status: b.status,
-      date_start: b.date_start,
-      date_end: b.date_end,
-      venue_address: b.venue_address ?? null,
       venue_city: b.venue_city ?? null,
-      venue_zip: b.venue_zip ?? null,
-      venue_country: b.venue_country ?? null,
+      created_at: b.created_at,
       buyer_name: buyer?.name ?? null,
     };
   });
@@ -200,7 +162,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     service: string | null;
     status: string;
     date_start: string | null;
-    date_end: string | null;
     created_at: string | null;
     owner_id: string;
   };
@@ -253,61 +214,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
-export async function action({ request }: Route.ActionArgs) {
-  const { supabase, headers } = createSupabaseServerClient(request);
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
-
-  const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return Response.json({ error: "Not found" }, { status: 404, headers });
-
-  const formData = await request.formData();
-  const intent = formData.get("intent") as string;
-  const bookingId = formData.get("booking_id") as string;
-
-  if (intent === "accept") {
-    await supabase
-      .from("bookings")
-      .update({ status: "pending" })
-      .eq("id", bookingId)
-      .eq("owner_id", profile.id as string);
-
-    try {
-      const admin = createSupabaseAdminClient();
-      const { data: buyer } = await admin
-        .from("booking_participants")
-        .select("email")
-        .eq("booking_id", bookingId)
-        .eq("role", "buyer")
-        .maybeSingle();
-
-      const recipientEmail = buyer?.email ?? null;
-      if (recipientEmail) {
-        await admin.auth.admin.generateLink({
-          type: "magiclink",
-          email: recipientEmail,
-          options: {
-            redirectTo: `https://dashboard.sqrz.com/auth/callback?next=/booking/${bookingId}`,
-          },
-        });
-      }
-    } catch {
-      // Non-fatal
-    }
-  } else if (intent === "decline") {
-    await supabase
-      .from("bookings")
-      .update({ status: "archived" })
-      .eq("id", bookingId)
-      .eq("owner_id", profile.id as string);
-  }
-
-  return Response.json({ ok: true }, { headers });
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatDate(iso: string | null): string {
@@ -319,22 +225,10 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function formatDateRange(start: string | null, end: string | null): string {
-  if (!start) return "—";
-  const s = new Date(start);
-  if (!end || end === start) {
-    return s.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  }
-  const e = new Date(end);
-  const startStr = s.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const endStr = e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  return `${startStr} – ${endStr}`;
-}
-
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? STATUS_COLORS.archived;
+  const c = STATUS_COLORS[status] ?? STATUS_COLORS.completed;
   return (
     <span
       style={{
@@ -353,48 +247,54 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ─── Booking card (My Bookings kanban) ────────────────────────────────────────
+// ─── Booking row (flat OPEN/DONE list) ────────────────────────────────────────
 
-function BookingCard({ booking }: { booking: Booking }) {
-  const venueParts = [booking.venue_city, booking.venue_address, booking.venue_zip, booking.venue_country].filter(Boolean);
+function BookingRow({ booking, muted }: { booking: Booking; muted: boolean }) {
   return (
     <OfficeBookingLink
       href={`/booking/${booking.id}`}
       style={{
-        display: "block",
-        width: "100%",
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        padding: "12px 14px",
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 16px",
         textDecoration: "none",
-        marginBottom: 8,
-        cursor: "pointer",
       }}
     >
-      <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: "0 0 2px", lineHeight: 1.35 }}>
-        {booking.title ?? booking.service ?? "Untitled"}
-      </p>
-      {booking.title && booking.service && (
-        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 2px" }}>
-          {booking.service}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{
+          color: muted ? "var(--text-muted)" : "var(--text)",
+          fontSize: 14,
+          fontWeight: 600,
+          margin: "0 0 3px",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}>
+          {booking.title ?? booking.service ?? "Untitled"}
         </p>
-      )}
-      {booking.buyer_name && (
-        <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 5px" }}>
-          {booking.buyer_name}
+        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {[booking.service, booking.buyer_name, booking.venue_city].filter(Boolean).join(" · ")}
         </p>
-      )}
-      {venueParts.length > 0 && (
-        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "0 0 5px" }}>
-          📍 {venueParts.join(" · ")}
-        </p>
-      )}
-      <p style={{ color: "var(--text-muted)", fontSize: 11, margin: "0 0 10px" }}>
-        {formatDateRange(booking.date_start, booking.date_end)}
-      </p>
+      </div>
+      <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
+        {formatDate(booking.created_at)}
+      </span>
       <StatusBadge status={booking.status} />
     </OfficeBookingLink>
+  );
+}
+
+function BookingList({ bookings, muted }: { bookings: Booking[]; muted: boolean }) {
+  return (
+    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
+      {bookings.map((booking, i) => (
+        <div key={booking.id}>
+          <BookingRow booking={booking} muted={muted} />
+          {i !== bookings.length - 1 && <div style={{ borderTop: "1px solid var(--border)" }} />}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -446,7 +346,10 @@ export default function OfficePage() {
   };
 
   const [openingBooking, setOpeningBooking] = useState(false);
-  const isMobileOfficeViewport = useIsMobileOfficeViewport();
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  const openBookings = ownerBookings.filter((b) => OPEN_STATUSES.includes(b.status));
+  const doneBookings = ownerBookings.filter((b) => DONE_STATUSES.includes(b.status));
 
   useEffect(() => {
     function handleBookingNavigation() {
@@ -464,7 +367,7 @@ export default function OfficePage() {
   }, [openingBooking]);
 
   return (
-    <div style={{ padding: isMobileOfficeViewport ? "28px 0" : "28px 24px", fontFamily: FONT_BODY }}>
+    <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
       {openingBooking && (
         <div
           style={{
@@ -512,7 +415,7 @@ export default function OfficePage() {
         </div>
       )}
       {/* Header */}
-      <div style={{ marginBottom: 28, padding: isMobileOfficeViewport ? "0 24px" : 0 }}>
+      <div style={{ marginBottom: 28 }}>
         <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
           Office
         </h1>
@@ -521,98 +424,50 @@ export default function OfficePage() {
         </p>
       </div>
 
-      {/* ─── SECTION 1: My Bookings (kanban) ─────────────────────────────────── */}
-      <div
-        style={{
-          display: "flex",
-          gap: 14,
-          overflowX: "auto",
-          padding: isMobileOfficeViewport ? "0 16px 16px" : "0 0 16px",
-          alignItems: "flex-start",
-          width: "100%",
-          WebkitOverflowScrolling: "touch",
-          scrollPaddingInline: isMobileOfficeViewport ? 16 : 0,
-        }}
-      >
-        {COLUMNS.map((col) => {
-          const colBookings = ownerBookings.filter((b) => b.status === col.key);
-          return (
-            <div
-              key={col.key}
+      {/* ─── SECTION 1: My Bookings (OPEN / DONE) ────────────────────────────── */}
+      <div style={{ maxWidth: 720 }}>
+        <div style={{ marginBottom: 10 }}>
+          <span style={{ color: "var(--text)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Open
+          </span>
+        </div>
+
+        {openBookings.length === 0 ? (
+          <div style={{ background: "var(--surface-muted)", border: "1px dashed var(--border)", borderRadius: 12, padding: "20px 16px" }}>
+            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.55 }}>
+              New booking requests will appear here. Share your profile to get started.
+            </p>
+          </div>
+        ) : (
+          <BookingList bookings={openBookings} muted={false} />
+        )}
+
+        {doneBookings.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <button
+              onClick={() => setShowCompleted((v) => !v)}
               style={{
-                minWidth: 200,
-                flex: "1 1 0",
-                background: "var(--surface-muted)",
-                border: "1px solid var(--border)",
-                borderRadius: 14,
-                padding: "14px 12px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                width: "100%",
+                background: "none",
+                border: "none",
+                padding: "0 0 10px",
+                cursor: "pointer",
+                fontFamily: FONT_BODY,
               }}
             >
-              {/* Column header */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  marginBottom: 12,
-                }}
-              >
-                <span
-                  style={{
-                    color: "var(--text)",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  {col.label}
-                </span>
-                {colBookings.length > 0 && (
-                  <span
-                    style={{
-                      background: "#F5A623",
-                      color: "#fff",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      borderRadius: 20,
-                      padding: "1px 7px",
-                    }}
-                  >
-                    {colBookings.length}
-                  </span>
-                )}
-              </div>
-
-              {/* Cards */}
-              {colBookings.length === 0 ? (
-                <div
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px dashed var(--border)",
-                    borderRadius: 10,
-                    padding: "12px 14px",
-                  }}
-                >
-                  <p
-                    style={{
-                      color: "var(--text-muted)",
-                      fontSize: 12,
-                      margin: 0,
-                      lineHeight: 1.55,
-                    }}
-                  >
-                    {COLUMN_EMPTY_TEXT[col.key]}
-                  </p>
-                </div>
-              ) : (
-                colBookings.map((booking) => (
-                  <BookingCard key={booking.id} booking={booking} />
-                ))
-              )}
-            </div>
-          );
-        })}
+              <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                Done
+              </span>
+              <span style={{ color: ACCENT, fontSize: 12, fontWeight: 700 }}>
+                {showCompleted ? "Hide" : `Show ${doneBookings.length} completed`}
+              </span>
+            </button>
+            {showCompleted && <BookingList bookings={doneBookings} muted={true} />}
+          </div>
+        )}
       </div>
 
       {/* ─── SECTION 2: My Requests (list, only if any) ───────────────────────── */}
