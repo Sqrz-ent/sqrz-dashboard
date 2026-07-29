@@ -3,13 +3,19 @@ import { useFetcher, useNavigate } from "react-router";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 import type { Campaign, BoostSectionData } from "~/lib/boost.server";
 
-// Presentational Boost UI — a single-type campaign creation form (flat 20% SQRZ
-// fee, no minimum, no activation fee) visible to every logged-in user on web,
-// plus the list of existing campaigns (payment-resume + creative upload).
+// Presentational Boost UI — a single-type campaign creation form visible to
+// every logged-in user on web, plus the list of existing campaigns
+// (payment-resume + creative upload). Two pricing tiers:
+//   - Small Boost (self-serve): flat $25 campaign fee via Stripe — the ad
+//     budget itself is billed separately, not part of this charge.
+//   - Large Boost / Managed (toggle below the budget pills): wire transfer,
+//     no Stripe checkout — creates a `pending` + `is_managed` campaign row and
+//     notifies SQRZ to follow up directly.
 // Rendered by both `_app.boost` (standalone route) and `_app.analytics` (the Grow
 // page's BOOST section). All data arrives via props; the create + content-save
 // fetchers post to the `/boost` route action, and checkout is kicked off client-
-// side against `/api/campaigns/checkout`.
+// side against `/api/campaigns/checkout` (itself a thin wrapper around
+// `campaignPayments.server.ts`, the one place that calls Stripe).
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -59,12 +65,19 @@ const textareaStyle: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
-// Budget preset pills (unchanged) — the ad-spend amount the flat 20% fee applies to.
+// Budget preset pills — the ad-spend amount, billed separately from the flat
+// $25 SQRZ campaign fee.
 const BUDGET_OPTIONS = [
   { value: 50, label: "$50" },
   { value: 100, label: "$100" },
   { value: 150, label: "$150" },
+  { value: 200, label: "$200" },
+  { value: 250, label: "$250" },
 ] as const;
+
+// Flat campaign fee for self-serve (Small) Boost, charged alone via Stripe —
+// the ad budget is handled separately, not part of this charge.
+const BOOST_FLAT_FEE = 25;
 
 export type BoostSectionProps = BoostSectionData & {
   // When true, renders content-only (no centered page wrapper, no big "Boost"
@@ -260,7 +273,7 @@ export default function BoostSection({
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
   // Resume payment for an unpaid campaign created in the app. The server applies
-  // a flat 20% SQRZ fee on the ad budget for every campaign type.
+  // a flat $25 campaign fee for Boost, or a flat 20% ad-budget fee for Grow.
   async function handleRetryPayment(campaign: Campaign) {
     setRetryingId(campaign.id);
     try {
@@ -282,7 +295,7 @@ export default function BoostSection({
     }
   }
 
-  // ── Campaign creation form (single type · flat 20% fee) ────────────────────
+  // ── Campaign creation form (Small Boost: flat $25 fee · Large/Managed: wire) ─
   const [promoteType, setPromoteType] = useState<string | null>(null);
   const [promoteLinkId, setPromoteLinkId] = useState<string>("");
   const [targetAudience, setTargetAudience] = useState("");
@@ -290,7 +303,9 @@ export default function BoostSection({
   const [duration, setDuration] = useState<string | null>(null);
   const [goal, setGoal] = useState<string | null>(null);
   const [budget, setBudget] = useState<number | null>(null);
+  const [isManagedRequest, setIsManagedRequest] = useState(false);
   const [boostSuccess, setBoostSuccess] = useState(false);
+  const [managedSuccess, setManagedSuccess] = useState(false);
   const [boostError, setBoostError] = useState<string | null>(null);
 
   const createFetcher = useFetcher();
@@ -299,11 +314,13 @@ export default function BoostSection({
     ok?: boolean; error?: string; campaignId?: string; budget_amount?: number;
   } | undefined;
 
-  // After the /boost action creates the campaign row, kick off Stripe checkout
-  // with the server-returned budget. The server computes the flat 20% fee.
-  useEffect(() => {
-    if (!actionData?.ok || boostSuccess || !actionData.campaignId) return;
-    setBoostSuccess(true);
+  const managedFetcher = useFetcher();
+  const isRequestingManaged = managedFetcher.state !== "idle";
+  const managedActionData = managedFetcher.data as {
+    ok?: boolean; error?: string; managed?: boolean; campaignId?: string;
+  } | undefined;
+
+  function resetForm() {
     setPromoteType(null);
     setPromoteLinkId("");
     setDuration(null);
@@ -311,6 +328,15 @@ export default function BoostSection({
     setBudget(null);
     setTargetAudience("");
     setNotes("");
+    setIsManagedRequest(false);
+  }
+
+  // After the /boost action creates the campaign row, kick off Stripe checkout
+  // with the server-returned budget. The server computes the flat $25 fee.
+  useEffect(() => {
+    if (!actionData?.ok || boostSuccess || !actionData.campaignId) return;
+    setBoostSuccess(true);
+    resetForm();
     fetch("/api/campaigns/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -326,22 +352,30 @@ export default function BoostSection({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actionData?.ok, actionData?.campaignId]);
 
+  // Managed-request submit doesn't touch Stripe at all — just show the
+  // "we'll be in touch" success state once the row is created.
+  useEffect(() => {
+    if (!managedActionData?.ok || !managedActionData.managed || managedSuccess) return;
+    setManagedSuccess(true);
+    resetForm();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managedActionData?.ok, managedActionData?.managed]);
+
   const canSubmit =
     !!promoteType &&
     (promoteType !== "link" || !!promoteLinkId) &&
     !!duration && !!goal && budget != null;
 
-  function handleSubmit() {
-    if (!canSubmit) {
-      if (!promoteType) setBoostError("Please select what to promote.");
-      else if (promoteType === "link" && !promoteLinkId) setBoostError("Please select a link.");
-      else if (!goal) setBoostError("Please select a goal.");
-      else if (!duration) setBoostError("Please select a duration.");
-      else if (budget == null) setBoostError("Please select a budget.");
-      return;
-    }
-    setBoostError(null);
-    setBoostSuccess(false);
+  function validateForm(): boolean {
+    if (!promoteType) { setBoostError("Please select what to promote."); return false; }
+    if (promoteType === "link" && !promoteLinkId) { setBoostError("Please select a link."); return false; }
+    if (!goal) { setBoostError("Please select a goal."); return false; }
+    if (!duration) { setBoostError("Please select a duration."); return false; }
+    if (budget == null) { setBoostError("Please select a budget."); return false; }
+    return true;
+  }
+
+  function buildCampaignFormData(): FormData {
     const fd = new FormData();
     fd.append("campaign_type", "boost");
     fd.append("promote_type", promoteType!);
@@ -352,8 +386,24 @@ export default function BoostSection({
     fd.append("target_audience", targetAudience);
     fd.append("notes", notes);
     fd.append("budget_amount", String(budget));
+    return fd;
+  }
+
+  function handleSubmit() {
+    if (!canSubmit) { validateForm(); return; }
+    setBoostError(null);
+    setBoostSuccess(false);
     // Post to the /boost action regardless of which page hosts this component.
-    createFetcher.submit(fd, { method: "post", action: "/boost" });
+    createFetcher.submit(buildCampaignFormData(), { method: "post", action: "/boost" });
+  }
+
+  function handleRequestManaged() {
+    if (!canSubmit) { validateForm(); return; }
+    setBoostError(null);
+    setManagedSuccess(false);
+    const fd = buildCampaignFormData();
+    fd.append("intent", "request_managed");
+    managedFetcher.submit(fd, { method: "post", action: "/boost" });
   }
 
   function pillStyle(selected: boolean): React.CSSProperties {
@@ -483,18 +533,35 @@ export default function BoostSection({
     </div>
   );
 
-  // Flat 20% SQRZ fee on the ad budget — no activation fee, no minimum.
-  const priceBreakdown = budget == null ? null : (
+  // Toggle for Large Boost / Managed campaigns — larger budget or multi-campaign,
+  // handled via wire transfer instead of self-serve Stripe checkout.
+  const managedToggle = (
+    <div style={{ marginBottom: 20 }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+        <input
+          type="checkbox"
+          checked={isManagedRequest}
+          onChange={(e) => { setIsManagedRequest(e.target.checked); setBoostError(null); }}
+          style={{ width: 18, height: 18, accentColor: ACCENT, cursor: "pointer" }}
+        />
+        <span style={{ fontSize: 13, color: "var(--text)", fontWeight: 500 }}>
+          Larger budget or multi-campaign? Contact us directly
+        </span>
+      </label>
+    </div>
+  );
+
+  // Flat $25 SQRZ campaign fee, charged alone — the ad budget is billed
+  // separately, not part of this Stripe charge. Only shown for the self-serve
+  // (non-managed) flow; managed campaigns are priced directly with SQRZ.
+  const priceBreakdown = budget == null || isManagedRequest ? null : (
     <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", marginBottom: 16, fontSize: 13 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
-        <span>Ad budget</span><span style={{ fontFamily: "monospace" }}>${budget.toLocaleString()}</span>
+      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14, marginBottom: 6 }}>
+        <span>Campaign fee</span><span style={{ fontFamily: "monospace" }}>${BOOST_FLAT_FEE}</span>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
-        <span>SQRZ fee (20%)</span><span style={{ fontFamily: "monospace" }}>+${(Math.round(budget * 0.20 * 100) / 100).toLocaleString()}</span>
-      </div>
-      <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-        <span>Total</span><span style={{ fontFamily: "monospace" }}>${(Math.round(budget * 1.20 * 100) / 100).toLocaleString()}</span>
-      </div>
+      <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+        Your ${budget.toLocaleString()} ad budget is billed separately — this flat ${BOOST_FLAT_FEE} fee covers running the campaign.
+      </p>
     </div>
   );
 
@@ -559,6 +626,11 @@ export default function BoostSection({
             Booking created — redirecting you to secure checkout…
           </div>
         )}
+        {managedSuccess && (
+          <div style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, fontSize: 14, color: "#22c55e", lineHeight: 1.5 }}>
+            We'll be in touch within 24 hours to set up your campaign.
+          </div>
+        )}
 
         {promoteField}
         {channelField}
@@ -566,6 +638,7 @@ export default function BoostSection({
         {durationField}
         {audienceField}
         {budgetField}
+        {managedToggle}
         {priceBreakdown}
         {notesField}
 
@@ -574,18 +647,41 @@ export default function BoostSection({
             {actionData.error ?? "Something went wrong. Please try again."}
           </p>
         )}
+        {managedActionData?.ok === false && (
+          <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>
+            {managedActionData.error ?? "Something went wrong. Please try again."}
+          </p>
+        )}
         {boostError && (
           <p style={{ fontSize: 13, color: "#ef4444", marginBottom: 12 }}>{boostError}</p>
         )}
 
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={isSubmitting}
-          style={{ width: "100%", padding: "14px", background: ACCENT, color: "#111", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, letterSpacing: "0.02em", transition: "background 0.15s", opacity: isSubmitting ? 0.7 : 1 }}
-        >
-          {isSubmitting ? "Activating…" : "Activate Boost →"}
-        </button>
+        {isManagedRequest ? (
+          !managedSuccess && (
+            <>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.5 }}>
+                Wire transfer details will be sent to your email.
+              </p>
+              <button
+                type="button"
+                onClick={handleRequestManaged}
+                disabled={isRequestingManaged}
+                style={{ width: "100%", padding: "14px", background: ACCENT, color: "#111", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, letterSpacing: "0.02em", transition: "background 0.15s", opacity: isRequestingManaged ? 0.7 : 1 }}
+              >
+                {isRequestingManaged ? "Sending…" : "Request Managed Campaign"}
+              </button>
+            </>
+          )
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            style={{ width: "100%", padding: "14px", background: ACCENT, color: "#111", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY, letterSpacing: "0.02em", transition: "background 0.15s", opacity: isSubmitting ? 0.7 : 1 }}
+          >
+            {isSubmitting ? "Activating…" : "Activate Boost →"}
+          </button>
+        )}
       </div>
 
       {/* ── Active Campaigns ─────────────────────────────────────────────────── */}
@@ -599,9 +695,15 @@ export default function BoostSection({
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {campaigns.map((c) => {
-              const badge = STATUS_BADGE[c.status ?? ""] ?? STATUS_BADGE.pending;
+              const isGrowCampaign = c.campaign_type === "grow";
+              // Managed requests get their own badge + block below — never the
+              // Stripe pay flow, regardless of their (pending) status.
+              const badge = c.is_managed
+                ? { label: "Managed — Pending", color: ACCENT, bg: "rgba(245,166,35,0.15)" }
+                : STATUS_BADGE[c.status ?? ""] ?? STATUS_BADGE.pending;
               // Boost unpaid = null status; Grow unpaid = 'pending'/'draft'.
-              const isPending = !c.status || c.status === "draft" || c.status === "pending" || c.status === "pending_payment";
+              const isPending = !c.is_managed && (!c.status || c.status === "draft" || c.status === "pending" || c.status === "pending_payment");
+              const isManagedPending = c.is_managed && c.status === "pending";
               const isBoost = c.campaign_type === "boost";
               const boostPaidStatuses = ["booked", "in_review", "needs_changes", "approved", "live", "completed"];
               const isPaid = c.status === "live" || c.status === "preparing" || (isBoost && boostPaidStatuses.includes(c.status ?? ""));
@@ -613,11 +715,11 @@ export default function BoostSection({
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
                 : null;
 
-              // Pending payment breakdown — mirror the server fee: a flat 20% SQRZ
-              // fee on the ad budget for every campaign (no activation fee, no min).
-              const pendingFee = Math.round(c.budget_amount * 0.20 * 100) / 100;
-              const pendingTotal = c.budget_amount + pendingFee;
-              const pendingFeeLabel = "SQRZ fee (20%)";
+              // Pending payment breakdown — Boost: flat $25 campaign fee only (ad
+              // budget billed separately). Grow: unchanged flat 20% fee on the ad budget.
+              const pendingFee = isGrowCampaign ? Math.round(c.budget_amount * 0.20 * 100) / 100 : BOOST_FLAT_FEE;
+              const pendingTotal = isGrowCampaign ? c.budget_amount + pendingFee : pendingFee;
+              const pendingFeeLabel = isGrowCampaign ? "SQRZ fee (20%)" : "Campaign fee";
 
               return (
                 <div
@@ -682,18 +784,32 @@ export default function BoostSection({
                   {isPending && (
                     <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 14 }}>
                       <div style={{ marginBottom: 12, fontSize: 13 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
-                          <span>Ad budget</span>
-                          <span style={{ fontFamily: "monospace" }}>${c.budget_amount.toLocaleString()}</span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
-                          <span>{pendingFeeLabel}</span>
-                          <span style={{ fontFamily: "monospace" }}>+${pendingFee.toLocaleString()}</span>
-                        </div>
-                        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                          <span>Total</span>
-                          <span style={{ fontFamily: "monospace" }}>${pendingTotal.toLocaleString()}</span>
-                        </div>
+                        {isGrowCampaign ? (
+                          <>
+                            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+                              <span>Ad budget</span>
+                              <span style={{ fontFamily: "monospace" }}>${c.budget_amount.toLocaleString()}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+                              <span>{pendingFeeLabel}</span>
+                              <span style={{ fontFamily: "monospace" }}>+${pendingFee.toLocaleString()}</span>
+                            </div>
+                            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+                              <span>Total</span>
+                              <span style={{ fontFamily: "monospace" }}>${pendingTotal.toLocaleString()}</span>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14, marginBottom: 6 }}>
+                              <span>{pendingFeeLabel}</span>
+                              <span style={{ fontFamily: "monospace" }}>${pendingFee.toLocaleString()}</span>
+                            </div>
+                            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                              Your ${c.budget_amount.toLocaleString()} ad budget is billed separately.
+                            </p>
+                          </>
+                        )}
                       </div>
                       {paymentUrl ? (
                         <a
@@ -745,7 +861,21 @@ export default function BoostSection({
                         </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                        Your payment combines the ad budget and the SQRZ handling fee for running the campaign.
+                        {isGrowCampaign
+                          ? "Your payment combines the ad budget and the SQRZ handling fee for running the campaign."
+                          : "This charges only the SQRZ campaign fee — your ad budget is handled separately."}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Managed campaign — wire transfer, no Stripe checkout */}
+                  {isManagedPending && (
+                    <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 14 }}>
+                      <p style={{ fontSize: 13, color: "var(--text)", margin: "0 0 6px", lineHeight: 1.5 }}>
+                        Wire transfer details will be sent to your email.
+                      </p>
+                      <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
+                        We'll be in touch within 24 hours to set up your campaign.
                       </p>
                     </div>
                   )}

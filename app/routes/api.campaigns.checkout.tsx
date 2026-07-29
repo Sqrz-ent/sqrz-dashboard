@@ -2,7 +2,7 @@ import { redirect } from "react-router";
 import type { Route } from "./+types/api.campaigns.checkout";
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { stripe } from "~/lib/stripe.server";
+import { createCampaignCheckoutSession } from "~/lib/campaignPayments.server";
 
 const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
@@ -121,34 +121,32 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   // ── Calculate fee and total ────────────────────────────────────────────────
-  // Flat 20% SQRZ fee on the ad budget for every campaign — no activation fee,
-  // no minimum, no plan-based split. total = budget + budget * 0.20.
-  const fee = Math.round(budget * 0.20 * 100) / 100;
-  const total = budget + fee;
+  // Boost: flat $25 campaign fee, charged alone — the ad budget itself is NOT
+  // charged through this checkout (handled separately as ad spend). Grow keeps
+  // its unchanged flat 20% management fee on the ad budget, budget + fee both
+  // charged together — no activation fee, no minimum, no plan-based split.
+  const isBoost = campaign_type === "boost";
+  const BOOST_FLAT_FEE = 25;
+  const fee = isBoost ? BOOST_FLAT_FEE : Math.round(budget * 0.20 * 100) / 100;
+  const total = isBoost ? fee : budget + fee;
 
-  const productName = campaign_type === "boost"
-    ? `SQRZ Boost Campaign — $${budget} ad budget`
+  const productName = isBoost
+    ? `SQRZ Boost Campaign fee — $${budget} ad budget`
     : `SQRZ Grow Campaign — $${budget} ad budget`;
 
-  const description = `Includes 20% SQRZ fee ($${Math.round(budget * 0.20)})`;
+  const description = isBoost
+    ? `Flat $${BOOST_FLAT_FEE} campaign fee. Your $${budget} ad budget is billed separately.`
+    : `Includes 20% SQRZ fee ($${Math.round(budget * 0.20)})`;
 
-  // ── Stripe checkout session ────────────────────────────────────────────────
-  const session = await stripe.checkout.sessions.create({
-    mode: "payment",
-    line_items: [
-      {
-        price_data: {
-          currency: "usd",
-          unit_amount: Math.round(total * 100),
-          product_data: { name: productName, description },
-        },
-        quantity: 1,
-      },
-    ],
-    success_url: `${APP_URL}/boost?campaign_paid=true`,
-    cancel_url: `${APP_URL}/boost`,
-    client_reference_id: campaignId,
-    customer_email: (profile.email as string) ?? undefined,
+  // ── Checkout session (Stripe today; see campaignPayments.server.ts) ────────
+  const { checkoutUrl } = await createCampaignCheckoutSession({
+    amountCents: Math.round(total * 100),
+    productName,
+    description,
+    successUrl: `${APP_URL}/boost?campaign_paid=true`,
+    cancelUrl: `${APP_URL}/boost`,
+    clientReferenceId: campaignId,
+    customerEmail: (profile.email as string) ?? undefined,
     metadata: {
       profile_id: profile.id as string,
       campaign_id: campaignId,
@@ -159,5 +157,5 @@ export async function action({ request }: Route.ActionArgs) {
     },
   });
 
-  return Response.json({ checkout_url: session.url }, { headers });
+  return Response.json({ checkout_url: checkoutUrl }, { headers });
 }

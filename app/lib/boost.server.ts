@@ -57,6 +57,9 @@ export type Campaign = {
   campaign_days_elapsed: number | null;
   campaign_duration_days: number | null;
   campaign_days_remaining: number | null;
+  // Large Boost / managed campaign request (wire transfer, contact-us flow)
+  // instead of the self-serve flat-$25 Stripe checkout.
+  is_managed: boolean;
 };
 
 // Shape consumed by <BoostSection> — returned by the Boost route loader and the
@@ -102,7 +105,7 @@ export async function loadBoostSectionData(
           live_service_clicks, live_booking_modal_opens,
           live_chat_opens, live_download_clicks,
           campaign_days_elapsed, campaign_duration_days,
-          campaign_days_remaining, data_source
+          campaign_days_remaining, data_source, is_managed
         `)
         .eq("profile_id", profile.id as string)
         .order("created_at", { ascending: false }),

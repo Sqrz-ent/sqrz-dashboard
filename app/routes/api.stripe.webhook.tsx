@@ -117,14 +117,15 @@ export async function action({ request }: ActionFunctionArgs) {
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
         const isGrow = campaignType === "grow";
+        const feeLabel = isGrow ? "SQRZ fee (20%)" : "SQRZ campaign fee (flat $25)";
         await resend.emails.send({
           from: "SQRZ <noreply@sqrz.com>",
           to: "will@sqrz.com",
           subject: `New ${isGrow ? "Grow" : "Boost"} campaign payment — $${session.metadata.total}`,
           html: `
             <p>A new SQRZ ${isGrow ? "Grow" : "Boost"} campaign payment has been received.</p>
-            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)}</p>
-            <p><strong>SQRZ fee (20%):</strong> $${escapeHtml(session.metadata.fee)}</p>
+            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)}${isGrow ? "" : " (billed separately, not part of this charge)"}</p>
+            <p><strong>${feeLabel}:</strong> $${escapeHtml(session.metadata.fee)}</p>
             <p><strong>Total charged:</strong> $${escapeHtml(session.metadata.total)}</p>
             <p><strong>Customer:</strong> ${escapeHtml(customerEmail)}</p>
             <p><strong>Campaign ID:</strong> ${campaignId}</p>

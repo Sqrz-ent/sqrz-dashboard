@@ -81,6 +81,71 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: res.ok, error: res.error, contentSaved: res.ok }, { headers });
   }
 
+  // ── Large Boost / managed campaign request — wire transfer, no Stripe ────────
+  // Same fields as a normal Boost booking, but skips checkout entirely: the row
+  // is created as status='pending' + is_managed=true (no immediate payment,
+  // requires_payment=false), and SQRZ is notified to follow up directly.
+  if (intent === "request_managed") {
+    const promoteType = formData.get("promote_type") as string;
+    const promoteLinkId = formData.get("promote_link_id") as string | null;
+    const duration = (formData.get("duration") as string) || null;
+    const newBudget = parseFloat(formData.get("budget_amount") as string);
+
+    if (!newBudget || newBudget <= 0) {
+      return Response.json({ ok: false, error: "Invalid budget amount" }, { headers });
+    }
+
+    const { data: inserted, error } = await supabase
+      .from("boost_campaigns")
+      .insert({
+        profile_id: profile.id as string,
+        campaign_type: "boost",
+        is_managed: true,
+        requires_payment: false,
+        promote_type: promoteType,
+        promote_link_id: promoteType === "link" && promoteLinkId ? promoteLinkId : null,
+        channels: ["meta"],
+        duration,
+        goal: (formData.get("goal") as string) || null,
+        target_audience: (formData.get("target_audience") as string) || null,
+        notes: (formData.get("notes") as string) || null,
+        budget_amount: newBudget,
+        budget_currency: "USD",
+        status: "pending",
+      })
+      .select("id")
+      .single();
+
+    if (error || !inserted) {
+      return Response.json({ ok: false, error: error?.message }, { headers });
+    }
+
+    // Notify SQRZ — same Resend pattern as the Stripe webhook's payment-received
+    // email, just for a managed-campaign request instead of a completed payment.
+    try {
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: "SQRZ <noreply@sqrz.com>",
+        to: "will@sqrz.com",
+        subject: `New managed Boost campaign request — $${newBudget} budget`,
+        html: `
+          <p>A creator has requested a managed Boost campaign (larger budget / multi-campaign, wire transfer).</p>
+          <p><strong>Ad budget:</strong> $${newBudget}</p>
+          <p><strong>Promote:</strong> ${promoteType === "link" ? "Private link" : "Profile"}</p>
+          <p><strong>Duration:</strong> ${duration ?? "—"}</p>
+          <p><strong>Profile:</strong> ${profile.slug as string} (${(profile.email as string) ?? "no email"})</p>
+          <p><strong>Campaign ID:</strong> ${inserted.id}</p>
+          <p>Contact the client within 24 hours to set up wire transfer + campaign details.</p>
+        `,
+      });
+    } catch (emailErr) {
+      console.error("[boost] managed-request notification email failed:", emailErr);
+    }
+
+    return Response.json({ ok: true, managed: true, campaignId: inserted.id }, { headers });
+  }
+
   // ── Step 1: Booking — the single shared creation path for BOTH Boost and Grow.
   // Everything except the creative is collected here, pre-payment (goal, budget,
   // target audience, duration, channels, notes). The only pricing divergence is
