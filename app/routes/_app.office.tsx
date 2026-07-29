@@ -2,7 +2,7 @@ import { Link, useLoaderData } from "react-router";
 import { useEffect, useState } from "react";
 import { redirect } from "react-router";
 import type { Route } from "./+types/_app.office";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -15,17 +15,6 @@ type Booking = {
   venue_city: string | null;
   created_at: string | null;
   buyer_name: string | null;
-};
-
-type BuyerBooking = {
-  id: string;
-  title: string | null;
-  service: string | null;
-  status: string;
-  date_start: string | null;
-  created_at: string | null;
-  owner_name: string;
-  invite_token: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -125,23 +114,11 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const admin = createSupabaseAdminClient();
-
-  const [
-    { data: ownerBookingsRaw },
-    { data: participantRows },
-  ] = await Promise.all([
-    supabase
-      .from("bookings")
-      .select("id, title, service, status, venue_city, created_at, booking_participants(name, role)")
-      .eq("owner_id", profile.id as string)
-      .order("created_at", { ascending: false }),
-    admin
-      .from("booking_participants")
-      .select("invite_token, bookings(id, title, service, status, date_start, created_at, owner_id)")
-      .eq("user_id", user.id)
-      .eq("role", "buyer"),
-  ]);
+  const { data: ownerBookingsRaw } = await supabase
+    .from("bookings")
+    .select("id, title, service, status, venue_city, created_at, booking_participants(name, role)")
+    .eq("owner_id", profile.id as string)
+    .order("created_at", { ascending: false });
 
   const ownerBookings: Booking[] = (ownerBookingsRaw ?? []).map((b: any) => {
     const buyer = (b.booking_participants ?? []).find((p: any) => p.role === "buyer");
@@ -156,60 +133,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     };
   });
 
-  type RawBooking = {
-    id: string;
-    title: string | null;
-    service: string | null;
-    status: string;
-    date_start: string | null;
-    created_at: string | null;
-    owner_id: string;
-  };
-
-  // Build buyer bookings — exclude archived, exclude any where user is also the owner
-  const ownerIdSet = new Set(ownerBookings.map((b) => b.id));
-  const buyerRows = (participantRows ?? [])
-    .map((row) => ({
-      invite_token: row.invite_token as string | null,
-      booking: row.bookings as unknown as RawBooking | null,
-    }))
-    .filter((r): r is { invite_token: string | null; booking: RawBooking } =>
-      !!r.booking && !Array.isArray(r.booking) && !["archived", "cancelled"].includes(r.booking.status) && !ownerIdSet.has(r.booking.id)
-    );
-
-  // Fetch owner profile names
-  const ownerIds = [...new Set(buyerRows.map((r) => r.booking.owner_id).filter(Boolean))];
-  let ownerNameMap: Record<string, string> = {};
-  if (ownerIds.length > 0) {
-    const { data: ownerProfiles } = await admin
-      .from("profiles")
-      .select("id, name, brand_name, first_name, last_name")
-      .in("id", ownerIds);
-    for (const p of ownerProfiles ?? []) {
-      ownerNameMap[p.id] =
-        p.brand_name ||
-        p.name ||
-        "Unknown";
-    }
-  }
-
-  const buyerBookings: BuyerBooking[] = buyerRows
-    .map((r) => ({
-      id: r.booking.id,
-      title: r.booking.title,
-      service: r.booking.service,
-      status: r.booking.status,
-      date_start: r.booking.date_start,
-      created_at: r.booking.created_at,
-      owner_name: ownerNameMap[r.booking.owner_id] ?? "Unknown",
-      invite_token: r.invite_token,
-    }))
-    .sort((a, b) =>
-      new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()
-    );
-
   return Response.json(
-    { ownerBookings, buyerBookings },
+    { ownerBookings },
     { headers }
   );
 }
@@ -298,51 +223,11 @@ function BookingList({ bookings, muted }: { bookings: Booking[]; muted: boolean 
   );
 }
 
-// ─── My Requests row ──────────────────────────────────────────────────────────
-
-function MyRequestRow({ booking }: { booking: BuyerBooking }) {
-  const href = booking.invite_token
-    ? `/booking/${booking.id}?token=${booking.invite_token}`
-    : `/booking/${booking.id}`;
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 16px",
-        background: "var(--surface)",
-        border: "1px solid var(--border)",
-        borderRadius: 10,
-        marginBottom: 8,
-      }}
-    >
-      <OfficeBookingLink
-        href={href}
-        style={{ flex: 1, minWidth: 0, textDecoration: "none" }}
-      >
-        <p style={{ color: "var(--text)", fontSize: 13, fontWeight: 600, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {booking.title ?? booking.service ?? "Untitled"}
-        </p>
-        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: "2px 0 0" }}>
-          {booking.owner_name}
-        </p>
-      </OfficeBookingLink>
-      <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
-        {formatDate(booking.date_start)}
-      </span>
-      <StatusBadge status={booking.status} />
-    </div>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OfficePage() {
-  const { ownerBookings, buyerBookings } = useLoaderData<typeof loader>() as {
+  const { ownerBookings } = useLoaderData<typeof loader>() as {
     ownerBookings: Booking[];
-    buyerBookings: BuyerBooking[];
   };
 
   const [openingBooking, setOpeningBooking] = useState(false);
@@ -424,7 +309,7 @@ export default function OfficePage() {
         </p>
       </div>
 
-      {/* ─── SECTION 1: My Bookings (OPEN / DONE) ────────────────────────────── */}
+      {/* ─── My Bookings (OPEN / DONE) — incoming bookings, owner/artist only ── */}
       <div style={{ maxWidth: 720 }}>
         <div style={{ marginBottom: 10 }}>
           <span style={{ color: "var(--text)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
@@ -469,31 +354,6 @@ export default function OfficePage() {
           </div>
         )}
       </div>
-
-      {/* ─── SECTION 2: My Requests (list, only if any) ───────────────────────── */}
-      {buyerBookings.length > 0 && (
-        <div style={{ marginTop: 40 }}>
-          <div
-            style={{
-              borderTop: "1px solid var(--border)",
-              paddingTop: 28,
-              marginBottom: 16,
-            }}
-          >
-            <h2 style={{ color: "var(--text)", fontSize: 15, fontWeight: 700, margin: "0 0 2px" }}>
-              My Requests
-            </h2>
-            <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-              Bookings you've made with other creators
-            </p>
-          </div>
-          <div style={{ maxWidth: 600 }}>
-            {buyerBookings.map((booking) => (
-              <MyRequestRow key={booking.id} booking={booking} />
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
