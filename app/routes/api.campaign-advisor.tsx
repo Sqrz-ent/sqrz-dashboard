@@ -70,6 +70,40 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Not found" }, { status: 404, headers });
   }
 
+  // ── Grow-client entitlement gate ────────────────────────────────────────────
+  // Campaign Advisor is a Grow feature — access depends on grow_clients.status,
+  // NEVER on ios_subscriptions (the iOS Companion subscription is unrelated).
+  // This gate lives in the forwarder, not the campaign-advisor edge function,
+  // deliberately: the forwarder is the deployed security boundary (it already
+  // enforces ownership here), and the edge function is invoked via the service
+  // role (admin.functions.invoke) with no caller identity — an auth-scoped check
+  // there can't see who's calling. We check grow_clients by the campaign's OWN
+  // profile_id (ownership already confirmed above) with the service role, the
+  // same table get_grow_client_status() reads for client-side UI.
+  //
+  // A non-Grow caller gets a structured 200 "locked" response (not a 403 with no
+  // context, and no paid LLM call) — today's clients render the summary text;
+  // a future UI pass can key off `locked` to show a proper upgrade state.
+  const { data: growClient } = await admin
+    .from("grow_clients")
+    .select("status")
+    .eq("profile_id", profile.id)
+    .maybeSingle();
+
+  if (growClient?.status !== "active") {
+    return Response.json(
+      {
+        locked: true,
+        health: null,
+        summary:
+          "Campaign Advisor is part of SQRZ Grow. Grow clients get AI-powered, goal-aware guidance on every campaign — reach out to set up managed Grow.",
+        insights: [],
+        actions: [],
+      },
+      { headers },
+    );
+  }
+
   const { data, error } = await admin.functions.invoke("campaign-advisor", {
     body: { campaign_id: campaignId },
   });

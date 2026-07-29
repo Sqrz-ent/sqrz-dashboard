@@ -51,6 +51,9 @@ export default [
   // Campaign checkout (unified Boost + Grow)
   route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
 
+  // Grow ad-spend wallet top-up (web + iOS, same Stripe flow)
+  route("api/wallet/topup", "routes/api.wallet.topup.tsx"),
+
   // Campaign AI advisor (forwards to the campaign-advisor edge function)
   route("api/campaign-advisor", "routes/api.campaign-advisor.tsx"),
 

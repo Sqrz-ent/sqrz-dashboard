@@ -140,6 +140,45 @@ export async function action({ request }: ActionFunctionArgs) {
 
       return Response.json({ received: true });
     }
+
+    // ── Grow ad-spend wallet top-up ──────────────────────────────────────────
+    // Credits the wallet AND records the separate management-fee charge in ONE
+    // atomic RPC (record_wallet_topup) — a top-up that credits the wallet but
+    // fails to record the fee would be a revenue leak, so the two must be
+    // all-or-nothing. Idempotency is already guaranteed by the insert-first
+    // stripe_events guard above, so this branch runs at most once per event.
+    if (session.metadata?.type === "wallet_topup") {
+      const profileId = session.metadata.profile_id;
+      const amountCents = Number(session.metadata.amount_cents ?? session.amount_total ?? 0);
+      const source = session.metadata.source === "ios" ? "ios" : "web";
+      const paymentIntent = session.payment_intent as string | null;
+
+      console.log("[webhook] wallet top-up received — profile:", profileId, "cents:", amountCents, "source:", source);
+
+      if (!profileId || !amountCents) {
+        console.error("[webhook] wallet top-up missing profile_id/amount — skipping");
+        return Response.json({ received: true });
+      }
+
+      const { error: topupError } = await supabase.rpc("record_wallet_topup", {
+        p_profile_id: profileId,
+        p_amount_cents: amountCents,
+        p_source: source,
+        p_stripe_payment_intent_id: paymentIntent,
+      });
+
+      if (topupError) {
+        console.error("[webhook] record_wallet_topup failed:", topupError);
+        // 500 → Stripe retries; the stripe_events row was inserted but the RPC
+        // failed, so on retry the idempotency guard would (incorrectly) skip it.
+        // Remove the idempotency marker so the retry re-processes cleanly.
+        await supabase.from("stripe_events").delete().eq("event_id", event.id);
+        return new Response("Wallet top-up failed", { status: 500 });
+      }
+
+      console.log("[webhook] wallet top-up recorded for profile:", profileId);
+      return Response.json({ received: true });
+    }
   }
 
   return Response.json({ received: true });
