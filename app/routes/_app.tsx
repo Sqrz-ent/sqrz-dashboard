@@ -74,8 +74,8 @@ const topNavItems = [
   { to: "/account", label: "Account" },
 ];
 
-// "Analytics" → "Grow": the /analytics route now leads with BOOST/GROW/PARTNER
-// sections above the analytics RESULTS. Route path kept as /analytics.
+// "Analytics" → "Grow": the /analytics route is now a 4-tab page (Campaigns /
+// Results / Invites / Get the App). Route path kept as /analytics.
 const bottomNavItems = [
   { to: "/", label: "Dashboard", icon: "⊞", end: true },
   { to: "/office", label: "Office", icon: "📋" },
