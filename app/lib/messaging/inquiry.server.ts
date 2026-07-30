@@ -3,8 +3,6 @@ import { StreamChat } from "stream-chat";
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
 import {
   createStreamUserToken,
-  ensureBookingMainChannel,
-  resolveStreamIdentityForParticipant,
   toStreamUserIdForProfile,
 } from "~/lib/messaging/stream.server";
 
@@ -191,85 +189,3 @@ export async function listOpenInquiryThreadsForProfile(profileId: string) {
   };
 }
 
-export async function finalizeInquiryConversion(input: {
-  threadId: string;
-  bookingId: string;
-}) {
-  const { threadId, bookingId } = input;
-  const admin = createSupabaseAdminClient();
-
-  const { data: thread } = await admin
-    .from("profile_inquiry_threads")
-    .select("*")
-    .eq("id", threadId)
-    .maybeSingle();
-
-  if (!thread) {
-    throw new Error("Inquiry thread not found");
-  }
-
-  const inquiryThread = thread as InquiryThreadRow;
-  if (inquiryThread.status === "converted") {
-    return;
-  }
-
-  const [sourceChannel, bookingChannel, buyerParticipantResponse] = await Promise.all([
-    queryStreamChannel(inquiryThread.provider_channel_id),
-    ensureBookingMainChannel({ admin, bookingId }),
-    admin
-      .from("booking_participants")
-      .select("id, user_id")
-      .eq("booking_id", bookingId)
-      .eq("role", "buyer")
-      .maybeSingle(),
-  ]);
-
-  if (!sourceChannel) {
-    throw new Error("Inquiry channel not found");
-  }
-
-  const targetChannel = await queryStreamChannel(bookingChannel.provider_channel_id);
-  if (!targetChannel) {
-    throw new Error("Booking channel not found");
-  }
-
-  const buyerParticipant = buyerParticipantResponse.data;
-
-  const buyerIdentity = buyerParticipant?.id
-    ? await resolveStreamIdentityForParticipant({
-        admin,
-        participantId: buyerParticipant.id as string,
-        linkedUserId: (buyerParticipant.user_id as string | null) ?? null,
-      })
-    : null;
-
-  const buyerStreamUserId = buyerIdentity?.streamUserId ?? inquiryThread.visitor_stream_user_id;
-  const messages = [...((sourceChannel.state.messages ?? []) as Array<Record<string, unknown>>)]
-    .filter((message) => typeof message.text === "string" && String(message.text).trim().length > 0)
-    .sort((a, b) => new Date(String(a.created_at ?? 0)).getTime() - new Date(String(b.created_at ?? 0)).getTime());
-
-  for (const message of messages) {
-    const sourceUserId = (message.user as { id?: string } | undefined)?.id;
-    const asUserId = sourceUserId === inquiryThread.visitor_stream_user_id
-      ? buyerStreamUserId
-      : inquiryThread.owner_stream_user_id;
-
-    await (targetChannel as any).sendMessage({
-      text: String(message.text),
-      user_id: asUserId,
-    });
-  }
-
-  const { error } = await admin
-    .from("profile_inquiry_threads")
-    .update({
-      status: "converted",
-      converted_booking_id: bookingId,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", threadId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}

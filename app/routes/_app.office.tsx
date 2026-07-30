@@ -1,4 +1,4 @@
-import { Link, useLoaderData } from "react-router";
+import { useLoaderData } from "react-router";
 import { useState } from "react";
 import { redirect } from "react-router";
 import type { Route } from "./+types/_app.office";
@@ -7,31 +7,25 @@ import { getCurrentProfile } from "~/lib/profile.server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Booking = {
+type Lead = {
   id: string;
-  title: string | null;
-  service: string | null;
+  name: string | null;
+  email: string | null;
+  message: string | null;
+  source: string;
   status: string;
-  venue_city: string | null;
-  created_at: string | null;
-  buyer_name: string | null;
+  updated_at: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const OPEN_STATUSES = ["requested", "pending", "confirmed"];
-const DONE_STATUSES = ["completed", "declined"];
-
-const STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  requested:  { bg: "rgba(245,166,35,0.12)", text: "#F5A623" },
-  pending:    { bg: "rgba(96,165,250,0.12)", text: "#60a5fa" },
-  confirmed:  { bg: "rgba(74,222,128,0.12)", text: "#4ade80" },
-  completed:  { bg: "var(--surface-muted)",  text: "var(--text-muted)" },
-  declined:   { bg: "rgba(239,68,68,0.12)",  text: "#ef4444" },
-};
-
 const FONT_BODY = "ui-sans-serif, system-ui, -apple-system, sans-serif";
 const ACCENT = "#F5A623";
+
+const SOURCE_LABELS: Record<string, string> = {
+  chat: "Chat",
+  web_form: "Web form",
+};
 
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
@@ -44,29 +38,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getCurrentProfile(supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  const { data: ownerBookingsRaw } = await supabase
-    .from("bookings")
-    .select("id, title, service, status, venue_city, created_at, booking_participants(name, role)")
-    .eq("owner_id", profile.id as string)
-    .order("created_at", { ascending: false });
+  // Flat lead list — Active + Archived, newest first. No stages, no pipeline.
+  const { data: leadsRaw } = await supabase
+    .from("leads")
+    .select("id, name, email, message, source, status, updated_at")
+    .eq("profile_id", profile.id as string)
+    .order("updated_at", { ascending: false });
 
-  const ownerBookings: Booking[] = (ownerBookingsRaw ?? []).map((b: any) => {
-    const buyer = (b.booking_participants ?? []).find((p: any) => p.role === "buyer");
-    return {
-      id: b.id,
-      title: b.title,
-      service: b.service,
-      status: b.status,
-      venue_city: b.venue_city ?? null,
-      created_at: b.created_at,
-      buyer_name: buyer?.name ?? null,
-    };
-  });
+  const leads: Lead[] = (leadsRaw ?? []) as Lead[];
 
-  return Response.json(
-    { ownerBookings },
-    { headers }
-  );
+  return Response.json({ leads }, { headers });
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -80,10 +61,9 @@ function formatDate(iso: string | null): string {
   });
 }
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
+// ─── Lead row + list ──────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
-  const c = STATUS_COLORS[status] ?? STATUS_COLORS.completed;
+function SourceBadge({ source }: { source: string }) {
   return (
     <span
       style={{
@@ -92,32 +72,18 @@ function StatusBadge({ status }: { status: string }) {
         borderRadius: 6,
         fontSize: 11,
         fontWeight: 600,
-        background: c.bg,
-        color: c.text,
-        textTransform: "capitalize",
+        background: "rgba(245,166,35,0.12)",
+        color: ACCENT,
       }}
     >
-      {status}
+      {SOURCE_LABELS[source] ?? source}
     </span>
   );
 }
 
-// ─── Booking row (flat OPEN/DONE list) ────────────────────────────────────────
-
-function BookingRow({ booking, muted }: { booking: Booking; muted: boolean }) {
+function LeadRow({ lead, muted }: { lead: Lead; muted: boolean }) {
   return (
-    <Link
-      to={`/booking/${booking.id}`}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 16px",
-        textDecoration: "none",
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <p style={{
           color: muted ? "var(--text-muted)" : "var(--text)",
@@ -128,27 +94,27 @@ function BookingRow({ booking, muted }: { booking: Booking; muted: boolean }) {
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}>
-          {booking.title ?? booking.service ?? "Untitled"}
+          {lead.name || lead.email || "Anonymous"}
         </p>
         <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {[booking.service, booking.buyer_name, booking.venue_city].filter(Boolean).join(" · ")}
+          {[lead.email, lead.message].filter(Boolean).join(" · ") || "—"}
         </p>
       </div>
       <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
-        {formatDate(booking.created_at)}
+        {formatDate(lead.updated_at)}
       </span>
-      <StatusBadge status={booking.status} />
-    </Link>
+      <SourceBadge source={lead.source} />
+    </div>
   );
 }
 
-function BookingList({ bookings, muted }: { bookings: Booking[]; muted: boolean }) {
+function LeadList({ leads, muted }: { leads: Lead[]; muted: boolean }) {
   return (
     <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, overflow: "hidden" }}>
-      {bookings.map((booking, i) => (
-        <div key={booking.id}>
-          <BookingRow booking={booking} muted={muted} />
-          {i !== bookings.length - 1 && <div style={{ borderTop: "1px solid var(--border)" }} />}
+      {leads.map((lead, i) => (
+        <div key={lead.id}>
+          <LeadRow lead={lead} muted={muted} />
+          {i !== leads.length - 1 && <div style={{ borderTop: "1px solid var(--border)" }} />}
         </div>
       ))}
     </div>
@@ -158,14 +124,12 @@ function BookingList({ bookings, muted }: { bookings: Booking[]; muted: boolean 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function OfficePage() {
-  const { ownerBookings } = useLoaderData<typeof loader>() as {
-    ownerBookings: Booking[];
-  };
+  const { leads } = useLoaderData<typeof loader>() as { leads: Lead[] };
 
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
-  const openBookings = ownerBookings.filter((b) => OPEN_STATUSES.includes(b.status));
-  const doneBookings = ownerBookings.filter((b) => DONE_STATUSES.includes(b.status));
+  const activeLeads = leads.filter((l) => l.status === "active");
+  const archivedLeads = leads.filter((l) => l.status === "archived");
 
   return (
     <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
@@ -175,32 +139,33 @@ export default function OfficePage() {
           Office
         </h1>
         <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
-          Your booking pipeline
+          Your leads
         </p>
       </div>
 
-      {/* ─── My Bookings (OPEN / DONE) — incoming bookings, owner/artist only ── */}
       <div style={{ maxWidth: 720 }}>
+        {/* ─── Active ─── */}
         <div style={{ marginBottom: 10 }}>
           <span style={{ color: "var(--text)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-            Open
+            Active
           </span>
         </div>
 
-        {openBookings.length === 0 ? (
+        {activeLeads.length === 0 ? (
           <div style={{ background: "var(--surface-muted)", border: "1px dashed var(--border)", borderRadius: 12, padding: "20px 16px" }}>
             <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.55 }}>
-              New booking requests will appear here. Share your profile to get started.
+              New leads appear here. Keep a chat active or share your profile to get started.
             </p>
           </div>
         ) : (
-          <BookingList bookings={openBookings} muted={false} />
+          <LeadList leads={activeLeads} muted={false} />
         )}
 
-        {doneBookings.length > 0 && (
+        {/* ─── Archived ─── */}
+        {archivedLeads.length > 0 && (
           <div style={{ marginTop: 24 }}>
             <button
-              onClick={() => setShowCompleted((v) => !v)}
+              onClick={() => setShowArchived((v) => !v)}
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -214,13 +179,13 @@ export default function OfficePage() {
               }}
             >
               <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                Done
+                Archived
               </span>
               <span style={{ color: ACCENT, fontSize: 12, fontWeight: 700 }}>
-                {showCompleted ? "Hide" : `Show ${doneBookings.length} completed`}
+                {showArchived ? "Hide" : `Show ${archivedLeads.length} archived`}
               </span>
             </button>
-            {showCompleted && <BookingList bookings={doneBookings} muted={true} />}
+            {showArchived && <LeadList leads={archivedLeads} muted={true} />}
           </div>
         )}
       </div>

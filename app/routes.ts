@@ -9,9 +9,6 @@ export default [
   route("claim", "routes/claim.tsx"),
   route("claim/confirm", "routes/claim.confirm.tsx"),
 
-  // Standalone booking access (no dashboard chrome)
-  route("booking/:id", "routes/booking.$id.tsx"),
-
   // Protected app (session required)
   layout("routes/_app.tsx", [
     index("routes/_app._index.tsx"),
@@ -31,17 +28,12 @@ export default [
   ]),
 
   // API routes (server-only, action handlers)
+  // Inquiry chat: token/thread list, Archive (close thread + archive lead),
+  // Keep Active (bump lead active). The old thread→booking convert route was removed.
   route("api/messaging/stream-inquiry", "routes/api.messaging.stream-inquiry.ts"),
-  route("api/messaging/stream-inquiry-convert", "routes/api.messaging.stream-inquiry-convert.ts"),
   route("api/messaging/stream-inquiry-status", "routes/api.messaging.stream-inquiry-status.ts"),
+  route("api/messaging/stream-inquiry-keep-active", "routes/api.messaging.stream-inquiry-keep-active.ts"),
   route("api/dashboard/home-summary", "routes/api.dashboard.home-summary.ts"),
-  route("api/booking/create", "routes/api.booking.create.tsx"),
-  route("api/booking/deliver", "routes/api.booking.deliver.tsx"),
-  route("api/invoices/upload", "routes/api.invoices.upload.ts"),
-  route("api/invoices/download", "routes/api.invoices.download.ts"),
-  route("api/proposal/accept", "routes/api.proposal.accept.tsx"),
-  route("api/proposal/counter", "routes/api.proposal.counter.tsx"),
-  route("api/proposal/decline", "routes/api.proposal.decline.tsx"),
 
   // Links API
   route("api/links/:linkId/leads-csv", "routes/api.links.$linkId.leads-csv.tsx"),

@@ -1,5 +1,9 @@
 import { createSupabaseAdminClient, createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 
+// Archive action for an inquiry thread. Closes the Stream thread (sets its status)
+// AND upserts the corresponding `leads` row as archived — one lead per thread
+// (keyed on thread_id). Dual-auth (cookie web + Bearer native). See the sibling
+// keep-active endpoint for the "not archived, bump to top" action.
 export async function action({ request }: { request: Request }) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -22,10 +26,8 @@ export async function action({ request }: { request: Request }) {
 
   const body = await request.json();
   const threadId = String(body?.threadId ?? "");
-  const status = String(body?.status ?? "");
-
-  if (!threadId || !["closed", "converted"].includes(status)) {
-    return Response.json({ error: "Invalid request" }, { status: 400, headers });
+  if (!threadId) {
+    return Response.json({ error: "Missing threadId" }, { status: 400, headers });
   }
 
   const admin = createSupabaseAdminClient();
@@ -42,7 +44,7 @@ export async function action({ request }: { request: Request }) {
 
   const { data: thread } = await admin
     .from("profile_inquiry_threads")
-    .select("id, profile_id")
+    .select("id, profile_id, visitor_name, visitor_email")
     .eq("id", threadId)
     .maybeSingle();
 
@@ -50,16 +52,33 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Forbidden" }, { status: 403, headers });
   }
 
-  const { error } = await admin
+  // Close the thread.
+  const { error: closeError } = await admin
     .from("profile_inquiry_threads")
-    .update({
-      status,
-      updated_at: new Date().toISOString(),
-    })
+    .update({ status: "closed", updated_at: new Date().toISOString() })
     .eq("id", threadId);
 
-  if (error) {
-    return Response.json({ error: error.message }, { status: 500, headers });
+  if (closeError) {
+    return Response.json({ error: closeError.message }, { status: 500, headers });
+  }
+
+  // Upsert the lead as archived (one per thread, keyed on thread_id).
+  const { error: leadError } = await admin
+    .from("leads")
+    .upsert(
+      {
+        thread_id: threadId,
+        profile_id: profile.id,
+        name: thread.visitor_name,
+        email: thread.visitor_email,
+        source: "chat",
+        status: "archived",
+      },
+      { onConflict: "thread_id" },
+    );
+
+  if (leadError) {
+    return Response.json({ error: leadError.message }, { status: 500, headers });
   }
 
   return Response.json({ ok: true }, { headers });
