@@ -112,6 +112,35 @@ export async function action({ request }: ActionFunctionArgs) {
         console.log("[webhook] campaign set to booked:", campaignId);
       }
 
+      // Credit the campaign's ad budget to the shared ad-spend wallet as a
+      // FEE-EXEMPT top-up: the campaign-start fee (boost = flat $25, grow = 20%)
+      // was already collected inline in this same checkout, so no separate
+      // management_fee_charges row is created (p_fee_exempt = true). This is the
+      // "Start Campaign" funding path — the standalone /api/wallet/topup path is
+      // the fee-charged one (see the wallet_topup branch below).
+      //
+      // Not fatal on failure: the campaign is already booked and the fee collected,
+      // so we log-and-continue rather than 500 (a retry would re-send the email and
+      // risk a double credit — the ledger has no per-payment idempotency key).
+      const budgetAmount = Number(session.metadata.budget_amount ?? 0);
+      const budgetCents = Math.round(budgetAmount * 100);
+      const walletProfileId = session.metadata.profile_id;
+      const campaignSource = session.metadata.source === "ios" ? "ios" : "web";
+      if (walletProfileId && budgetCents > 0) {
+        const { error: creditError } = await supabase.rpc("record_wallet_topup", {
+          p_profile_id: walletProfileId,
+          p_amount_cents: budgetCents,
+          p_source: campaignSource,
+          p_stripe_payment_intent_id: paymentIntent,
+          p_fee_exempt: true,
+        });
+        if (creditError) {
+          console.error("[webhook] campaign budget wallet credit failed (campaign still booked):", creditError);
+        } else {
+          console.log("[webhook] campaign budget credited fee-exempt to wallet:", walletProfileId, budgetCents);
+        }
+      }
+
       // Notify will@sqrz.com
       try {
         const { Resend } = await import("resend");
@@ -124,7 +153,7 @@ export async function action({ request }: ActionFunctionArgs) {
           subject: `New ${isGrow ? "Grow" : "Boost"} campaign payment — $${session.metadata.total}`,
           html: `
             <p>A new SQRZ ${isGrow ? "Grow" : "Boost"} campaign payment has been received.</p>
-            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)}${isGrow ? "" : " (billed separately, not part of this charge)"}</p>
+            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)} (credited to the artist's ad-spend wallet)</p>
             <p><strong>${feeLabel}:</strong> $${escapeHtml(session.metadata.fee)}</p>
             <p><strong>Total charged:</strong> $${escapeHtml(session.metadata.total)}</p>
             <p><strong>Customer:</strong> ${escapeHtml(customerEmail)}</p>

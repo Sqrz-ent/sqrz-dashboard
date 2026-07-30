@@ -6,8 +6,8 @@ import type { Campaign, BoostSectionData } from "~/lib/boost.server";
 // Presentational Boost UI — a single-type campaign creation form visible to
 // every logged-in user on web, plus the list of existing campaigns
 // (payment-resume + creative upload). Two pricing tiers:
-//   - Small Boost (self-serve): flat $25 campaign fee via Stripe — the ad
-//     budget itself is billed separately, not part of this charge.
+//   - Small Boost (self-serve): ad budget + flat $25 campaign fee in one Stripe
+//     checkout; the budget is credited to the shared ad-spend wallet (fee-exempt).
 //   - Large Boost / Managed (toggle below the budget pills): wire transfer,
 //     no Stripe checkout — creates a `pending` + `is_managed` campaign row and
 //     notifies SQRZ to follow up directly.
@@ -65,8 +65,8 @@ const textareaStyle: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
-// Budget preset pills — the ad-spend amount, billed separately from the flat
-// $25 SQRZ campaign fee.
+// Budget preset pills — the ad-spend amount, charged alongside the flat $25 SQRZ
+// campaign fee and credited to the ad-spend wallet.
 const BUDGET_OPTIONS = [
   { value: 50, label: "$50" },
   { value: 100, label: "$100" },
@@ -75,8 +75,8 @@ const BUDGET_OPTIONS = [
   { value: 250, label: "$250" },
 ] as const;
 
-// Flat campaign fee for self-serve (Small) Boost, charged alone via Stripe —
-// the ad budget is handled separately, not part of this charge.
+// Flat campaign fee for self-serve (Small) Boost, charged on top of the ad budget
+// in the same Stripe checkout (total = budget + $25).
 const BOOST_FLAT_FEE = 25;
 
 export type BoostSectionProps = BoostSectionData & {
@@ -551,17 +551,21 @@ export default function BoostSection({
     </div>
   );
 
-  // Flat $25 SQRZ campaign fee, charged alone — the ad budget is billed
-  // separately, not part of this Stripe charge. Only shown for the self-serve
-  // (non-managed) flow; managed campaigns are priced directly with SQRZ.
+  // Self-serve (Small) Boost: the ad budget is charged in the same checkout and
+  // credited to the ad-spend wallet, plus a flat $25 campaign fee on top. Total =
+  // budget + $25. Only shown for the self-serve (non-managed) flow; managed
+  // campaigns are priced directly with SQRZ.
   const priceBreakdown = budget == null || isManagedRequest ? null : (
     <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", marginBottom: 16, fontSize: 13 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14, marginBottom: 6 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 4 }}>
+        <span>Ad budget (to your wallet)</span><span style={{ fontFamily: "monospace" }}>${budget.toLocaleString()}</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
         <span>Campaign fee</span><span style={{ fontFamily: "monospace" }}>${BOOST_FLAT_FEE}</span>
       </div>
-      <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-        Your ${budget.toLocaleString()} ad budget is billed separately — this flat ${BOOST_FLAT_FEE} fee covers running the campaign.
-      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14, borderTop: "1px solid var(--border)", paddingTop: 6 }}>
+        <span>Total today</span><span style={{ fontFamily: "monospace" }}>${(budget + BOOST_FLAT_FEE).toLocaleString()}</span>
+      </div>
     </div>
   );
 
@@ -715,11 +719,12 @@ export default function BoostSection({
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
                 : null;
 
-              // Pending payment breakdown — Boost: flat $25 campaign fee only (ad
-              // budget billed separately). Grow: unchanged flat 20% fee on the ad budget.
+              // Pending payment breakdown — both flows now charge budget + fee in one
+              // checkout and credit the budget to the ad-spend wallet. Boost fee = flat
+              // $25; Grow fee = 20% of budget. Total = budget + fee for both.
               const pendingFee = isGrowCampaign ? Math.round(c.budget_amount * 0.20 * 100) / 100 : BOOST_FLAT_FEE;
-              const pendingTotal = isGrowCampaign ? c.budget_amount + pendingFee : pendingFee;
-              const pendingFeeLabel = isGrowCampaign ? "SQRZ fee (20%)" : "Campaign fee";
+              const pendingTotal = c.budget_amount + pendingFee;
+              const pendingFeeLabel = isGrowCampaign ? "SQRZ fee (20%)" : "Campaign fee ($25)";
 
               return (
                 <div
@@ -784,32 +789,18 @@ export default function BoostSection({
                   {isPending && (
                     <div style={{ borderTop: "1px solid var(--border)", marginTop: 12, paddingTop: 14 }}>
                       <div style={{ marginBottom: 12, fontSize: 13 }}>
-                        {isGrowCampaign ? (
-                          <>
-                            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
-                              <span>Ad budget</span>
-                              <span style={{ fontFamily: "monospace" }}>${c.budget_amount.toLocaleString()}</span>
-                            </div>
-                            <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
-                              <span>{pendingFeeLabel}</span>
-                              <span style={{ fontFamily: "monospace" }}>+${pendingFee.toLocaleString()}</span>
-                            </div>
-                            <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
-                              <span>Total</span>
-                              <span style={{ fontFamily: "monospace" }}>${pendingTotal.toLocaleString()}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14, marginBottom: 6 }}>
-                              <span>{pendingFeeLabel}</span>
-                              <span style={{ fontFamily: "monospace" }}>${pendingFee.toLocaleString()}</span>
-                            </div>
-                            <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                              Your ${c.budget_amount.toLocaleString()} ad budget is billed separately.
-                            </p>
-                          </>
-                        )}
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 6 }}>
+                          <span>Ad budget (to your wallet)</span>
+                          <span style={{ fontFamily: "monospace" }}>${c.budget_amount.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)", marginBottom: 10 }}>
+                          <span>{pendingFeeLabel}</span>
+                          <span style={{ fontFamily: "monospace" }}>+${pendingFee.toLocaleString()}</span>
+                        </div>
+                        <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10, display: "flex", justifyContent: "space-between", fontWeight: 600, color: "var(--text)", fontSize: 14 }}>
+                          <span>Total</span>
+                          <span style={{ fontFamily: "monospace" }}>${pendingTotal.toLocaleString()}</span>
+                        </div>
                       </div>
                       {paymentUrl ? (
                         <a
@@ -861,9 +852,7 @@ export default function BoostSection({
                         </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                        {isGrowCampaign
-                          ? "Your payment combines the ad budget and the SQRZ handling fee for running the campaign."
-                          : "This charges only the SQRZ campaign fee — your ad budget is handled separately."}
+                        Your ad budget is added to your ad-spend wallet; the {isGrowCampaign ? "20% SQRZ fee" : "$25 campaign fee"} covers running the campaign.
                       </p>
                     </div>
                   )}

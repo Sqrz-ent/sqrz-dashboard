@@ -39,9 +39,9 @@ export async function createWalletTopupCheckoutSession(
           currency: "usd",
           unit_amount: params.amountCents,
           product_data: {
-            name: `SQRZ Grow ad-spend top-up — $${dollars}`,
+            name: `SQRZ ad-spend top-up — $${dollars}`,
             description:
-              "Funds your ad-spend wallet. The SQRZ management fee is billed separately.",
+              "Funds your ad-spend wallet. A 15% SQRZ management fee is recorded separately (not deducted from this balance).",
           },
         },
         quantity: 1,

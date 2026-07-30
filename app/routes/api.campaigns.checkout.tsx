@@ -121,22 +121,22 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   // ── Calculate fee and total ────────────────────────────────────────────────
-  // Boost: flat $25 campaign fee, charged alone — the ad budget itself is NOT
-  // charged through this checkout (handled separately as ad spend). Grow keeps
-  // its unchanged flat 20% management fee on the ad budget, budget + fee both
-  // charged together — no activation fee, no minimum, no plan-based split.
+  // Both flows now collect the ad budget in the SAME checkout and credit it to the
+  // shared ad-spend wallet (fee-exempt) on webhook. The fee is collected inline:
+  // Boost = flat $25 on top of the budget; Grow = 20% of the budget on top. So the
+  // total is always budget + fee — no more "billed separately" for the budget.
   const isBoost = campaign_type === "boost";
   const BOOST_FLAT_FEE = 25;
   const fee = isBoost ? BOOST_FLAT_FEE : Math.round(budget * 0.20 * 100) / 100;
-  const total = isBoost ? fee : budget + fee;
+  const total = budget + fee;
 
   const productName = isBoost
-    ? `SQRZ Boost Campaign fee — $${budget} ad budget`
+    ? `SQRZ Boost Campaign — $${budget} ad budget + $${BOOST_FLAT_FEE} fee`
     : `SQRZ Grow Campaign — $${budget} ad budget`;
 
   const description = isBoost
-    ? `Flat $${BOOST_FLAT_FEE} campaign fee. Your $${budget} ad budget is billed separately.`
-    : `Includes 20% SQRZ fee ($${Math.round(budget * 0.20)})`;
+    ? `$${budget} ad budget (added to your ad-spend wallet) + flat $${BOOST_FLAT_FEE} campaign fee.`
+    : `$${budget} ad budget (added to your ad-spend wallet) + 20% SQRZ fee ($${Math.round(budget * 0.20)}).`;
 
   // ── Checkout session (Stripe today; see campaignPayments.server.ts) ────────
   const { checkoutUrl } = await createCampaignCheckoutSession({
@@ -154,6 +154,9 @@ export async function action({ request }: Route.ActionArgs) {
       budget_amount: String(budget),
       fee: String(fee),
       total: String(total),
+      // Analytics only (mirrors the wallet-topup flow) — the webhook credits the
+      // budget to the wallet with this source. Never used for gating.
+      source: isNative ? "ios" : "web",
     },
   });
 

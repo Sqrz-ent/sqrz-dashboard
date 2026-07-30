@@ -13,8 +13,9 @@ const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 // analytics only, never for gating.
 //
 // Sane bounds guard typos/abuse; the exact amount is client-chosen ("custom
-// top-ups"). Not gated on grow-client status (a wallet with no grow_clients row
-// simply gets the default 20% fee in record_wallet_topup).
+// top-ups"). This is the FEE-CHARGED funding path: record_wallet_topup credits
+// the wallet AND creates a flat 15% management_fee_charges row (the campaign-start
+// budget path is the fee-exempt one — see api/stripe/webhook.tsx). No gating.
 const MIN_TOPUP_CENTS = 500;        // $5
 const MAX_TOPUP_CENTS = 5_000_000;  // $50,000
 
