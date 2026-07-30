@@ -35,17 +35,8 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   let body: {
-    campaign_type?: "boost" | "grow";
     budget_amount?: number;
     campaign_id?: string | null;
-    // Grow-only fields for new campaign creation
-    promote_type?: string | null;
-    promote_link_id?: string | null;
-    target_audience?: string | null;
-    notes?: string | null;
-    goal?: string | null;
-    duration?: string | null;
-    channels?: string[];
   };
   try {
     body = await request.json();
@@ -53,96 +44,33 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Invalid request body" }, { status: 400, headers });
   }
 
-  const { campaign_type } = body;
   const budget = Number(body.budget_amount);
 
-  if (!campaign_type || !["boost", "grow"].includes(campaign_type)) {
-    return Response.json({ error: "Invalid campaign_type" }, { status: 400, headers });
-  }
   if (!budget || budget <= 0) {
     return Response.json({ error: "Invalid budget_amount" }, { status: 400, headers });
   }
-
-  // ── Resolve campaign ID ────────────────────────────────────────────────────
-  let campaignId: string;
-
-  if (body.campaign_id) {
-    campaignId = body.campaign_id;
-  } else if (campaign_type === "grow") {
-    // Grow: create campaign row now (no prior action step). Any positive budget
-    // is valid — no minimum, no plan-based split.
-    const promoteType = body.promote_type ?? "profile";
-
-    // Channels: valid non-empty subset of the Grow options (satisfies the
-    // boost_campaigns_channels_check constraint).
-    const channels = (Array.isArray(body.channels) ? body.channels : [])
-      .filter((c) => c === "meta" || c === "google");
-    const growChannels = channels.length ? channels : ["meta"];
-
-    // Optional duration → derive campaign dates (same mapping as Boost).
-    const DURATION_DAYS: Record<string, number> = { "1 Week": 7, "2 Weeks": 14, "4 Weeks": 28 };
-    let startsAt: string | null = null;
-    let endsAt: string | null = null;
-    if (body.duration && DURATION_DAYS[body.duration]) {
-      const today = new Date();
-      const end = new Date(today);
-      end.setDate(end.getDate() + DURATION_DAYS[body.duration]);
-      startsAt = today.toISOString().split("T")[0];
-      endsAt = end.toISOString().split("T")[0];
-    }
-
-    const { data: inserted, error: insertError } = await supabase
-      .from("boost_campaigns")
-      .insert({
-        profile_id: profile.id as string,
-        promote_type: promoteType,
-        promote_link_id: promoteType === "link" && body.promote_link_id ? body.promote_link_id : null,
-        target_audience: body.target_audience ?? null,
-        budget_amount: budget,
-        budget_currency: "USD",
-        status: "pending",
-        campaign_type: "grow",
-        notes: body.notes ?? "grow campaign — awaiting payment",
-        goal: body.goal ?? null,
-        duration: body.duration ?? null,
-        channels: growChannels,
-        starts_at: startsAt,
-        ends_at: endsAt,
-      })
-      .select("id")
-      .single();
-
-    if (insertError || !inserted) {
-      return Response.json({ error: "Failed to create campaign" }, { status: 500, headers });
-    }
-    campaignId = inserted.id as string;
-  } else {
-    return Response.json({ error: "campaign_id required for boost campaigns" }, { status: 400, headers });
+  // Start Campaign has exactly one flow now: an existing campaign row (created by
+  // the /boost action first) is paid for here. The legacy grow self-create branch
+  // was removed — it was fully dead (no client created grow campaigns, 0 grow rows
+  // ever existed). campaign_id is always required.
+  if (!body.campaign_id) {
+    return Response.json({ error: "campaign_id required" }, { status: 400, headers });
   }
+  const campaignId = body.campaign_id;
 
   // ── Calculate fee and total ────────────────────────────────────────────────
-  // Both flows now collect the ad budget in the SAME checkout and credit it to the
-  // shared ad-spend wallet (fee-exempt) on webhook. The fee is collected inline:
-  // Boost = flat $25 on top of the budget; Grow = 20% of the budget on top. So the
-  // total is always budget + fee — no more "billed separately" for the budget.
-  const isBoost = campaign_type === "boost";
+  // One fee model: flat $25 campaign fee on top of the chosen budget pill, charged
+  // in the same checkout. The budget is credited to the shared ad-spend wallet
+  // (fee-exempt) AND immediately allocated to this campaign on webhook. No
+  // percentage variant, no campaign-type branching.
   const BOOST_FLAT_FEE = 25;
-  const fee = isBoost ? BOOST_FLAT_FEE : Math.round(budget * 0.20 * 100) / 100;
-  const total = budget + fee;
-
-  const productName = isBoost
-    ? `SQRZ Boost Campaign — $${budget} ad budget + $${BOOST_FLAT_FEE} fee`
-    : `SQRZ Grow Campaign — $${budget} ad budget`;
-
-  const description = isBoost
-    ? `$${budget} ad budget (added to your ad-spend wallet) + flat $${BOOST_FLAT_FEE} campaign fee.`
-    : `$${budget} ad budget (added to your ad-spend wallet) + 20% SQRZ fee ($${Math.round(budget * 0.20)}).`;
+  const total = budget + BOOST_FLAT_FEE;
 
   // ── Checkout session (Stripe today; see campaignPayments.server.ts) ────────
   const { checkoutUrl } = await createCampaignCheckoutSession({
     amountCents: Math.round(total * 100),
-    productName,
-    description,
+    productName: `SQRZ Boost Campaign — $${budget} ad budget + $${BOOST_FLAT_FEE} fee`,
+    description: `$${budget} ad budget (added to your ad-spend wallet) + flat $${BOOST_FLAT_FEE} campaign fee.`,
     successUrl: `${APP_URL}/boost?campaign_paid=true`,
     cancelUrl: `${APP_URL}/boost`,
     clientReferenceId: campaignId,
@@ -150,9 +78,8 @@ export async function action({ request }: Route.ActionArgs) {
     metadata: {
       profile_id: profile.id as string,
       campaign_id: campaignId,
-      campaign_type,
       budget_amount: String(budget),
-      fee: String(fee),
+      fee: String(BOOST_FLAT_FEE),
       total: String(total),
       // Analytics only (mirrors the wallet-topup flow) — the webhook credits the
       // budget to the wallet with this source. Never used for gating.

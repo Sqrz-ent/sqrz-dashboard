@@ -146,11 +146,11 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: true, managed: true, campaignId: inserted.id }, { headers });
   }
 
-  // ── Step 1: Booking — the single shared creation path for BOTH Boost and Grow.
-  // Everything except the creative is collected here, pre-payment (goal, budget,
-  // target audience, duration, channels, notes). The only pricing divergence is
-  // campaign_type, which the checkout endpoint uses to pick the fee model.
-  const campaignType = (formData.get("campaign_type") as string) === "grow" ? "grow" : "boost";
+  // ── Step 1: Booking — the single campaign creation path. Everything except the
+  // creative is collected here, pre-payment (goal, budget, target audience,
+  // duration, channels, notes). One fee model: flat $25 + budget (see the checkout
+  // endpoint). The legacy grow-20% variant was removed — always "boost".
+  const campaignType = "boost";
   const promoteType = formData.get("promote_type") as string;
   const promoteLinkId = formData.get("promote_link_id") as string | null;
   const duration = (formData.get("duration") as string) || null;

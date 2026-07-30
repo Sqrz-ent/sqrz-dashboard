@@ -273,7 +273,7 @@ export default function BoostSection({
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
   // Resume payment for an unpaid campaign created in the app. The server applies
-  // a flat $25 campaign fee for Boost, or a flat 20% ad-budget fee for Grow.
+  // the single flat $25 campaign fee model (budget + $25).
   async function handleRetryPayment(campaign: Campaign) {
     setRetryingId(campaign.id);
     try {
@@ -281,7 +281,6 @@ export default function BoostSection({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          campaign_type: campaign.campaign_type ?? "boost",
           budget_amount: campaign.budget_amount,
           campaign_id: campaign.id,
         }),
@@ -341,7 +340,6 @@ export default function BoostSection({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        campaign_type: "boost",
         budget_amount: actionData.budget_amount,
         campaign_id: actionData.campaignId,
       }),
@@ -699,19 +697,17 @@ export default function BoostSection({
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {campaigns.map((c) => {
-              const isGrowCampaign = c.campaign_type === "grow";
               // Managed requests get their own badge + block below — never the
               // Stripe pay flow, regardless of their (pending) status.
               const badge = c.is_managed
                 ? { label: "Managed — Pending", color: ACCENT, bg: "rgba(245,166,35,0.15)" }
                 : STATUS_BADGE[c.status ?? ""] ?? STATUS_BADGE.pending;
-              // Boost unpaid = null status; Grow unpaid = 'pending'/'draft'.
+              // Unpaid = null status (or draft/pending/pending_payment).
               const isPending = !c.is_managed && (!c.status || c.status === "draft" || c.status === "pending" || c.status === "pending_payment");
               const isManagedPending = c.is_managed && c.status === "pending";
-              const isBoost = c.campaign_type === "boost";
               const boostPaidStatuses = ["booked", "in_review", "needs_changes", "approved", "live", "completed"];
-              const isPaid = c.status === "live" || c.status === "preparing" || (isBoost && boostPaidStatuses.includes(c.status ?? ""));
-              // Content step — purely status-based (Boost & Grow behave identically here).
+              const isPaid = c.status === "live" || c.status === "preparing" || boostPaidStatuses.includes(c.status ?? "");
+              // Content step — purely status-based.
               const canAddContent = c.status === "booked" || c.status === "needs_changes";
               const isContentInReview = c.status === "in_review";
               const isContentRejected = c.status === "rejected";
@@ -719,12 +715,10 @@ export default function BoostSection({
                 ? `${c.stripe_payment_link_url}?client_reference_id=${c.id}&prefilled_email=${encodeURIComponent(email)}`
                 : null;
 
-              // Pending payment breakdown — both flows now charge budget + fee in one
-              // checkout and credit the budget to the ad-spend wallet. Boost fee = flat
-              // $25; Grow fee = 20% of budget. Total = budget + fee for both.
-              const pendingFee = isGrowCampaign ? Math.round(c.budget_amount * 0.20 * 100) / 100 : BOOST_FLAT_FEE;
+              // Pending payment breakdown — one fee model: budget + flat $25.
+              const pendingFee = BOOST_FLAT_FEE;
               const pendingTotal = c.budget_amount + pendingFee;
-              const pendingFeeLabel = isGrowCampaign ? "SQRZ fee (20%)" : "Campaign fee ($25)";
+              const pendingFeeLabel = "Campaign fee ($25)";
 
               return (
                 <div
@@ -742,7 +736,7 @@ export default function BoostSection({
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>
-                        {c.campaign_type === "grow" ? "Grow Campaign" : c.promote_type === "link" ? "Private Link Boost" : "Profile Boost"}
+                        {c.promote_type === "link" ? "Private Link Boost" : "Profile Boost"}
                       </div>
                       {(() => {
                         const chText = c.channels?.length ? channelsLabel(c.channels) : (c.channel ?? "");
@@ -852,7 +846,7 @@ export default function BoostSection({
                         </button>
                       )}
                       <p style={{ fontSize: 11, color: "var(--text-muted)", margin: 0, lineHeight: 1.5 }}>
-                        Your ad budget is added to your ad-spend wallet; the {isGrowCampaign ? "20% SQRZ fee" : "$25 campaign fee"} covers running the campaign.
+                        Your ad budget is added to your ad-spend wallet; the $25 campaign fee covers running the campaign.
                       </p>
                     </div>
                   )}

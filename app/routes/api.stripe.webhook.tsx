@@ -84,18 +84,16 @@ export async function action({ request }: ActionFunctionArgs) {
       console.log("[webhook] campaign_id:", session.metadata?.campaign_id, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
     }
 
-    // ── Boost / Grow campaign payment (unified) ──────────────────────────────
+    // ── Boost campaign payment ───────────────────────────────────────────────
     if (session.metadata?.campaign_id) {
       const campaignId = session.metadata.campaign_id;
-      const campaignType = session.metadata.campaign_type ?? "boost";
       const paymentIntent = session.payment_intent as string | null;
       const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
       const totalDollars = (session.amount_total ?? 0) / 100;
 
-      console.log("[webhook] campaign payment received — type:", campaignType, "id:", campaignId, "total:", totalDollars);
+      console.log("[webhook] campaign payment received — id:", campaignId, "total:", totalDollars);
 
-      // Both Boost and Grow land on 'booked' after payment — unified workflow
-      // (paid, artist adds content next). Execution stays manual for Grow.
+      // Paid → 'booked' (artist adds content next).
       const { error: campaignError } = await supabase
         .from("boost_campaigns")
         .update({
@@ -112,32 +110,30 @@ export async function action({ request }: ActionFunctionArgs) {
         console.log("[webhook] campaign set to booked:", campaignId);
       }
 
-      // Credit the campaign's ad budget to the shared ad-spend wallet as a
-      // FEE-EXEMPT top-up: the campaign-start fee (boost = flat $25, grow = 20%)
-      // was already collected inline in this same checkout, so no separate
-      // management_fee_charges row is created (p_fee_exempt = true). This is the
-      // "Start Campaign" funding path — the standalone /api/wallet/topup path is
-      // the fee-charged one (see the wallet_topup branch below).
-      //
-      // Not fatal on failure: the campaign is already booked and the fee collected,
-      // so we log-and-continue rather than 500 (a retry would re-send the email and
-      // risk a double credit — the ledger has no per-payment idempotency key).
+      // Fund the campaign: fee-exempt wallet credit of the budget + immediate
+      // allocation of that same amount into the campaign, in ONE atomic RPC
+      // (record_campaign_start_funding). Net wallet effect is zero (the flat $25
+      // fee was collected inline in this checkout, so no management-fee row).
+      // Idempotent by payment_intent: a duplicate webhook returns null and skips
+      // safely — the original transaction already funded + allocated. A genuine
+      // error is logged, not retried (the campaign is booked and email would
+      // re-send on retry; a missed credit is a rare manual fix).
       const budgetAmount = Number(session.metadata.budget_amount ?? 0);
       const budgetCents = Math.round(budgetAmount * 100);
       const walletProfileId = session.metadata.profile_id;
       const campaignSource = session.metadata.source === "ios" ? "ios" : "web";
       if (walletProfileId && budgetCents > 0) {
-        const { error: creditError } = await supabase.rpc("record_wallet_topup", {
+        const { error: fundError } = await supabase.rpc("record_campaign_start_funding", {
           p_profile_id: walletProfileId,
+          p_campaign_id: campaignId,
           p_amount_cents: budgetCents,
           p_source: campaignSource,
           p_stripe_payment_intent_id: paymentIntent,
-          p_fee_exempt: true,
         });
-        if (creditError) {
-          console.error("[webhook] campaign budget wallet credit failed (campaign still booked):", creditError);
+        if (fundError) {
+          console.error("[webhook] campaign start funding failed (campaign still booked):", fundError);
         } else {
-          console.log("[webhook] campaign budget credited fee-exempt to wallet:", walletProfileId, budgetCents);
+          console.log("[webhook] campaign funded + allocated:", campaignId, budgetCents);
         }
       }
 
@@ -145,21 +141,19 @@ export async function action({ request }: ActionFunctionArgs) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(process.env.RESEND_API_KEY);
-        const isGrow = campaignType === "grow";
-        const feeLabel = isGrow ? "SQRZ fee (20%)" : "SQRZ campaign fee (flat $25)";
         await resend.emails.send({
           from: "SQRZ <noreply@sqrz.com>",
           to: "will@sqrz.com",
-          subject: `New ${isGrow ? "Grow" : "Boost"} campaign payment — $${session.metadata.total}`,
+          subject: `New Boost campaign payment — $${session.metadata.total}`,
           html: `
-            <p>A new SQRZ ${isGrow ? "Grow" : "Boost"} campaign payment has been received.</p>
-            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)} (credited to the artist's ad-spend wallet)</p>
-            <p><strong>${feeLabel}:</strong> $${escapeHtml(session.metadata.fee)}</p>
+            <p>A new SQRZ Boost campaign payment has been received.</p>
+            <p><strong>Ad budget:</strong> $${escapeHtml(session.metadata.budget_amount)} (credited + allocated to the artist's ad-spend wallet)</p>
+            <p><strong>SQRZ campaign fee (flat $25):</strong> $${escapeHtml(session.metadata.fee)}</p>
             <p><strong>Total charged:</strong> $${escapeHtml(session.metadata.total)}</p>
             <p><strong>Customer:</strong> ${escapeHtml(customerEmail)}</p>
             <p><strong>Campaign ID:</strong> ${campaignId}</p>
             <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-            ${isGrow ? "<p>Contact the client within 24 hours to schedule their strategy session.</p>" : "<p>Log in to the dashboard to review and activate the campaign.</p>"}
+            <p>Log in to the dashboard to review and activate the campaign.</p>
           `,
         });
         console.log("[webhook] campaign notification email sent");
@@ -170,12 +164,13 @@ export async function action({ request }: ActionFunctionArgs) {
       return Response.json({ received: true });
     }
 
-    // ── Grow ad-spend wallet top-up ──────────────────────────────────────────
-    // Credits the wallet AND records the separate management-fee charge in ONE
-    // atomic RPC (record_wallet_topup) — a top-up that credits the wallet but
-    // fails to record the fee would be a revenue leak, so the two must be
-    // all-or-nothing. Idempotency is already guaranteed by the insert-first
-    // stripe_events guard above, so this branch runs at most once per event.
+    // ── Standalone ad-spend wallet top-up ────────────────────────────────────
+    // Credits the wallet AND records the separate 15% management-fee charge in ONE
+    // atomic RPC (record_wallet_topup) — a top-up that credits the wallet but fails
+    // to record the fee would be a revenue leak, so the two must be all-or-nothing.
+    // The RPC is idempotent on stripe_payment_intent_id (ON CONFLICT DO NOTHING): a
+    // duplicate delivery is a safe no-op (returns null, no error) on top of the
+    // insert-first stripe_events guard above.
     if (session.metadata?.type === "wallet_topup") {
       const profileId = session.metadata.profile_id;
       const amountCents = Number(session.metadata.amount_cents ?? session.amount_total ?? 0);
@@ -197,10 +192,11 @@ export async function action({ request }: ActionFunctionArgs) {
       });
 
       if (topupError) {
+        // A duplicate PI does NOT reach here (ON CONFLICT makes it a null-returning
+        // no-op), so this is a genuine failure. 500 → Stripe retries; drop the
+        // idempotency marker so the retry re-processes (the RPC's PI idempotency
+        // still prevents any double credit on that retry).
         console.error("[webhook] record_wallet_topup failed:", topupError);
-        // 500 → Stripe retries; the stripe_events row was inserted but the RPC
-        // failed, so on retry the idempotency guard would (incorrectly) skip it.
-        // Remove the idempotency marker so the retry re-processes cleanly.
         await supabase.from("stripe_events").delete().eq("event_id", event.id);
         return new Response("Wallet top-up failed", { status: 500 });
       }
