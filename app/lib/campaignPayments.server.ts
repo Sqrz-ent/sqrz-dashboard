@@ -1,4 +1,4 @@
-import { stripe } from "~/lib/stripe.server";
+import { stripeClientForMode, type StripeMode } from "~/lib/stripe.server";
 
 // Payment-provider abstraction for one-off campaign checkouts (Boost/Grow ad
 // spend + fees). This is the ONLY place that calls the Stripe SDK for campaign
@@ -15,6 +15,10 @@ export type CampaignCheckoutParams = {
   customerEmail?: string;
   clientReferenceId: string;
   metadata: Record<string, string>;
+  // Which Stripe environment creates this session — iOS is forced to "test"
+  // regardless of profile.stripe_beta_test_mode; web always passes "live".
+  // See api/campaigns/checkout.tsx.
+  stripeMode: StripeMode;
 };
 
 export type CampaignCheckoutResult = {
@@ -24,7 +28,7 @@ export type CampaignCheckoutResult = {
 export async function createCampaignCheckoutSession(
   params: CampaignCheckoutParams
 ): Promise<CampaignCheckoutResult> {
-  const session = await stripe.checkout.sessions.create({
+  const session = await stripeClientForMode(params.stripeMode).checkout.sessions.create({
     mode: "payment",
     line_items: [
       {

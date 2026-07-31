@@ -66,6 +66,11 @@ export async function action({ request }: Route.ActionArgs) {
   const BOOST_FLAT_FEE = 25;
   const total = budget + BOOST_FLAT_FEE;
 
+  // iOS is forced onto Stripe test mode for now, regardless of
+  // profile.stripe_beta_test_mode — web is untouched, always live. See
+  // stripeClientForMode in stripe.server.ts.
+  const stripeMode = isNative ? "test" : "live";
+
   // ── Checkout session (Stripe today; see campaignPayments.server.ts) ────────
   const { checkoutUrl } = await createCampaignCheckoutSession({
     amountCents: Math.round(total * 100),
@@ -75,6 +80,7 @@ export async function action({ request }: Route.ActionArgs) {
     cancelUrl: `${APP_URL}/boost`,
     clientReferenceId: campaignId,
     customerEmail: (profile.email as string) ?? undefined,
+    stripeMode,
     metadata: {
       profile_id: profile.id as string,
       campaign_id: campaignId,

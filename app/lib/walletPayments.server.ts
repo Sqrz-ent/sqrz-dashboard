@@ -1,4 +1,4 @@
-import { stripe } from "~/lib/stripe.server";
+import { stripeClientForMode, type StripeMode } from "~/lib/stripe.server";
 
 // Payment-provider abstraction for SQRZ Grow ad-spend wallet top-ups. This is
 // the ONLY place that calls the Stripe SDK for wallet top-ups — `api/wallet/topup`
@@ -14,6 +14,10 @@ export type WalletTopupCheckoutParams = {
   amountCents: number;
   profileId: string;
   source: "web" | "ios";
+  // Which Stripe environment creates this session — iOS is forced to "test"
+  // regardless of profile.stripe_beta_test_mode; web always passes "live".
+  // See api/wallet/topup.tsx.
+  stripeMode: StripeMode;
   customerEmail?: string;
   successUrl: string;
   cancelUrl: string;
@@ -31,7 +35,7 @@ export async function createWalletTopupCheckoutSession(
     maximumFractionDigits: 2,
   });
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await stripeClientForMode(params.stripeMode).checkout.sessions.create({
     mode: "payment",
     line_items: [
       {

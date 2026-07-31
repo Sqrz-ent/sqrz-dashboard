@@ -66,10 +66,16 @@ export async function action({ request }: Route.ActionArgs) {
       ? body.source
       : isNative ? "ios" : "web";
 
+  // iOS is forced onto Stripe test mode for now, regardless of
+  // profile.stripe_beta_test_mode — web is untouched, always live. See
+  // stripeClientForMode in stripe.server.ts.
+  const stripeMode = isNative ? "test" : "live";
+
   const { checkoutUrl } = await createWalletTopupCheckoutSession({
     amountCents,
     profileId: profile.id as string,
     source,
+    stripeMode,
     customerEmail: (profile.email as string) ?? undefined,
     successUrl: `${APP_URL}/boost?wallet_topup=success`,
     cancelUrl: `${APP_URL}/boost?wallet_topup=cancelled`,

@@ -11,6 +11,28 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
   apiVersion: "2026-02-25.clover",
 });
 
+// ─── Test-mode client ───────────────────────────────────────────────────────
+// Backs the wallet/campaign-checkout live/test split (see walletPayments.server.ts
+// + campaignPayments.server.ts): iOS is currently forced onto test-mode Stripe
+// sessions for wallet top-up + Start Campaign checkout, regardless of
+// profile.stripe_beta_test_mode — web is untouched and always uses `stripe` above.
+// A session created with this client automatically renders Stripe's hosted
+// Checkout in test mode (test card entry, test banner) — no other code needed
+// to "enable" that, it's inherent to which secret key created the session.
+if (!process.env.STRIPE_SECRET_KEY_TEST) {
+  throw new Error("STRIPE_SECRET_KEY_TEST is not set");
+}
+
+export const stripeTest = new Stripe(process.env.STRIPE_SECRET_KEY_TEST, {
+  apiVersion: "2026-02-25.clover",
+});
+
+export type StripeMode = "live" | "test";
+
+export function stripeClientForMode(mode: StripeMode): Stripe {
+  return mode === "test" ? stripeTest : stripe;
+}
+
 // ─── Price → plan_id map ──────────────────────────────────────────────────────
 // plan_id 1 = SQRZ Creator, 2 = SQRZ Grow, 4 = Early Access, 5 = Boost
 

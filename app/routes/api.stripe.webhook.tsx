@@ -77,8 +77,14 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
+    // Stripe sets this authoritatively per-event — more reliable than trusting
+    // anything we'd have to round-trip through checkout session metadata. Every
+    // wallet_ledger_entries / management_fee_charges row this webhook creates
+    // gets tagged with it, so test data (currently: every iOS transaction, see
+    // api/wallet/topup.tsx + api/campaigns/checkout.tsx) is never ambiguous.
+    const stripeMode: "live" | "test" = event.livemode ? "live" : "test";
 
-    console.log("[webhook] checkout.session.completed — session.id:", session.id);
+    console.log("[webhook] checkout.session.completed — session.id:", session.id, "mode:", stripeMode);
     if (WEBHOOK_DEBUG) {
       console.log("[webhook] full metadata:", JSON.stringify(session.metadata));
       console.log("[webhook] campaign_id:", session.metadata?.campaign_id, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
@@ -101,6 +107,7 @@ export async function action({ request }: ActionFunctionArgs) {
           status_updated_at: new Date().toISOString(),
           stripe_payment_id: paymentIntent,
           stripe_payment_status: "paid",
+          stripe_mode: stripeMode,
         })
         .eq("id", campaignId);
 
@@ -129,6 +136,7 @@ export async function action({ request }: ActionFunctionArgs) {
           p_amount_cents: budgetCents,
           p_source: campaignSource,
           p_stripe_payment_intent_id: paymentIntent,
+          p_stripe_mode: stripeMode,
         });
         if (fundError) {
           console.error("[webhook] campaign start funding failed (campaign still booked):", fundError);
@@ -189,6 +197,7 @@ export async function action({ request }: ActionFunctionArgs) {
         p_amount_cents: amountCents,
         p_source: source,
         p_stripe_payment_intent_id: paymentIntent,
+        p_stripe_mode: stripeMode,
       });
 
       if (topupError) {
