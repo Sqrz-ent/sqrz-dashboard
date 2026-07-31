@@ -61,6 +61,26 @@ async function queryStreamChannel(channelId: string) {
   return channels[0] ?? null;
 }
 
+const LEAD_PREVIEW_MAX = 280;
+
+// A short text snapshot of a chat thread for the lead card — the FIRST non-empty
+// message (the "why they reached out", more representative than a trailing
+// "ok thanks"), capped. Static preview, not a live sync. Returns null on any
+// failure / empty thread so the lead upsert never breaks on this.
+export async function fetchInquiryMessagePreview(providerChannelId: string): Promise<string | null> {
+  try {
+    const channel = await queryStreamChannel(providerChannelId);
+    const messages = (channel?.state?.messages ?? []) as Array<{ text?: string }>;
+    const first = messages
+      .map((m) => (typeof m.text === "string" ? m.text.trim() : ""))
+      .find((t) => t.length > 0);
+    if (!first) return null;
+    return first.length > LEAD_PREVIEW_MAX ? `${first.slice(0, LEAD_PREVIEW_MAX - 1)}…` : first;
+  } catch {
+    return null;
+  }
+}
+
 async function ensureInquiryChannel(input: {
   thread: InquiryThreadRow;
   ownerName: string;

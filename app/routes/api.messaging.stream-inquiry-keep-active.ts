@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient, createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
+import { fetchInquiryMessagePreview } from "~/lib/messaging/inquiry.server";
 
 // "Keep Active" action for an inquiry thread. Lightweight: upserts the corresponding
 // `leads` row as active and bumps its updated_at so it sorts to the top of the Active
@@ -43,7 +44,7 @@ export async function action({ request }: { request: Request }) {
 
   const { data: thread } = await admin
     .from("profile_inquiry_threads")
-    .select("id, profile_id, visitor_name, visitor_email")
+    .select("id, profile_id, visitor_name, visitor_email, provider_channel_id")
     .eq("id", threadId)
     .maybeSingle();
 
@@ -51,21 +52,26 @@ export async function action({ request }: { request: Request }) {
     return Response.json({ error: "Forbidden" }, { status: 403, headers });
   }
 
+  // Short snapshot of the conversation for the lead card (first message). Only
+  // include it when we actually got one — a transient null must not overwrite (wipe)
+  // a message stored by an earlier action.
+  const messagePreview = await fetchInquiryMessagePreview(thread.provider_channel_id as string);
+
+  const leadRow: Record<string, unknown> = {
+    thread_id: threadId,
+    profile_id: profile.id,
+    name: thread.visitor_name,
+    email: thread.visitor_email,
+    source: "chat",
+    status: "active",
+  };
+  if (messagePreview) leadRow.message = messagePreview;
+
   // Upsert the lead as active. On conflict the UPDATE fires the leads_updated_at
   // trigger, bumping updated_at → sorts to the top of the Active list. Thread stays open.
   const { error: leadError } = await admin
     .from("leads")
-    .upsert(
-      {
-        thread_id: threadId,
-        profile_id: profile.id,
-        name: thread.visitor_name,
-        email: thread.visitor_email,
-        source: "chat",
-        status: "active",
-      },
-      { onConflict: "thread_id" },
-    );
+    .upsert(leadRow, { onConflict: "thread_id" });
 
   if (leadError) {
     return Response.json({ error: leadError.message }, { status: 500, headers });

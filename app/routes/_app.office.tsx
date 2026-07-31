@@ -96,9 +96,25 @@ function LeadRow({ lead, muted }: { lead: Lead; muted: boolean }) {
         }}>
           {lead.name || lead.email || "Anonymous"}
         </p>
-        <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {[lead.email, lead.message].filter(Boolean).join(" · ") || "—"}
-        </p>
+        {lead.message ? (
+          <p style={{
+            color: "var(--text-muted)",
+            fontSize: 12,
+            margin: "0 0 2px",
+            lineHeight: 1.4,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical" as const,
+            overflow: "hidden",
+          }}>
+            {lead.message}
+          </p>
+        ) : null}
+        {lead.email && (lead.name || lead.message) ? (
+          <p style={{ color: "var(--text-muted)", fontSize: 11, margin: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {lead.email}
+          </p>
+        ) : null}
       </div>
       <span style={{ color: "var(--text-muted)", fontSize: 12, whiteSpace: "nowrap", flexShrink: 0 }}>
         {formatDate(lead.updated_at)}
