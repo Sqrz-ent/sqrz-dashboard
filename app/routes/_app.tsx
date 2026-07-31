@@ -203,6 +203,16 @@ export default function AppLayout() {
   const workModeRoutes = ["/office"];
   const isWorkMode = workModeRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
+  // Grow (/analytics) has its own internal tab row (Campaigns/Results/Invites/
+  // Links) — the unrelated Profile-area submenu (Dashboard/Profile/Business/
+  // Domain/Account) shouldn't stack above it. Deliberately separate from
+  // isWorkMode: reusing that would also swap in the "← Back" + title work-mode
+  // header, which wasn't asked for and doesn't make sense here (Grow's tabs are
+  // already its own navigation). Logo + notifications bell stay — only the
+  // submenu links are hidden.
+  const hideTopSubmenuRoutes = ["/analytics"];
+  const hideTopSubmenu = hideTopSubmenuRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
+
   // Derive work mode title + breadcrumb from pathname
   function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
     if (pathname === "/invites" || pathname === "/partners") return { title: "Beta Invites", breadcrumb: null };
@@ -314,28 +324,30 @@ export default function AppLayout() {
           />
 
           {/* Top nav tabs */}
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap", minWidth: "max-content" }}>
-            {topNavItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                style={({ isActive }) => ({
-                  textDecoration: "none",
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: isActive ? "#F5A623" : "var(--text-muted)",
-                  padding: "6px 12px",
-                  borderRadius: 8,
-                  borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
-                  letterSpacing: "0.01em",
-                  transition: "color 0.15s",
-                })}
-              >
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
+          {!hideTopSubmenu && (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap", minWidth: "max-content" }}>
+              {topNavItems.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  style={({ isActive }) => ({
+                    textDecoration: "none",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: isActive ? "#F5A623" : "var(--text-muted)",
+                    padding: "6px 12px",
+                    borderRadius: 8,
+                    borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
+                    letterSpacing: "0.01em",
+                    transition: "color 0.15s",
+                  })}
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          )}
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
             {/* Notifications bell + unread badge — toggles an anchored popover */}
