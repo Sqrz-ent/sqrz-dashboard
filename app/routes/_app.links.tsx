@@ -86,23 +86,6 @@ type PrivateLink = {
 
 type ProfileService = { id: string; title: string };
 
-type EventBooking = {
-  id: string;
-  title: string | null;
-  service: string | null;
-  status: string;
-  date_start: string | null;
-  venue: string | null;
-  city: string | null;
-  created_at: string | null;
-};
-
-type RawEventBooking = EventBooking & {
-  owner_id: string;
-  venue_address?: string | null;
-  venue_city?: string | null;
-};
-
 // ─── Loader ───────────────────────────────────────────────────────────────────
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -114,9 +97,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!profile) return redirect("/login", { headers });
 
   const admin = createSupabaseAdminClient();
-  const nowIso = new Date().toISOString();
 
-  const [linksRes, servicesRes, ownerBookingsRes, participantRowsRes] = await Promise.all([
+  const [linksRes, servicesRes] = await Promise.all([
     supabase
       .from("private_booking_links")
       .select("id, link_slug, is_active, show_on_profile, page_type, title, use_count, expires_at, max_uses, description, cover_image_url, external_url, external_url_label, prefill_service, event_date, event_venue, event_city, lead_gate, video_url, cta_label")
@@ -132,38 +114,9 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("id, title")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
-    admin
-      .from("bookings")
-      .select("id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id")
-      .eq("owner_id", profile.id as string)
-      .not("status", "in", "(archived,cancelled)")
-      .gte("date_start", nowIso)
-      .order("date_start", { ascending: false, nullsFirst: false }),
-    admin
-      .from("booking_participants")
-      .select("booking_id, bookings(id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id)")
-      .eq("user_id", user.id)
-      .neq("role", "buyer"),
   ]);
 
   const rawLinks = linksRes.data ?? [];
-  const eventBookingMap = new Map<string, EventBooking>();
-  for (const booking of ownerBookingsRes.data ?? []) {
-    const normalized = normalizeEventBooking(booking as RawEventBooking);
-    if (normalized) eventBookingMap.set(normalized.id, normalized);
-  }
-  for (const row of participantRowsRes.data ?? []) {
-    const booking = row.bookings as unknown as RawEventBooking | null;
-    const normalized = normalizeEventBooking(booking);
-    if (normalized && isFutureEventBooking(normalized)) {
-      eventBookingMap.set(normalized.id, normalized);
-    }
-  }
-  const eventBookings = [...eventBookingMap.values()].sort((a, b) => {
-    const aTime = new Date(a.date_start ?? a.created_at ?? 0).getTime();
-    const bTime = new Date(b.date_start ?? b.created_at ?? 0).getTime();
-    return bTime - aTime;
-  });
 
   // Fetch per-link stats from profile_views + jitsu_events
   const linkIds = rawLinks.map((l) => l.id as string);
@@ -274,57 +227,9 @@ export async function loader({ request }: Route.LoaderArgs) {
       profileId: profile.id as string,
       links,
       services: servicesRes.data ?? [],
-      eventBookings,
     },
     { headers }
   );
-}
-
-function normalizeEventBooking(booking: RawEventBooking | null | undefined): EventBooking | null {
-  if (!booking?.id) return null;
-  return {
-    id: booking.id,
-    title: booking.title,
-    service: booking.service,
-    status: booking.status,
-    date_start: booking.date_start,
-    venue: booking.venue ?? booking.venue_address ?? null,
-    city: booking.city ?? booking.venue_city ?? null,
-    created_at: booking.created_at,
-  };
-}
-
-function isFutureEventBooking(booking: EventBooking) {
-  if (["archived", "cancelled"].includes(booking.status)) return false;
-  if (!booking.date_start) return false;
-  return new Date(booking.date_start).getTime() > Date.now();
-}
-
-async function getAllowedEventBooking(
-  admin: ReturnType<typeof createSupabaseAdminClient>,
-  bookingId: string,
-  profileId: string,
-  userId: string
-): Promise<EventBooking | null> {
-  const { data: booking } = await admin
-    .from("bookings")
-    .select("id, title, service, status, date_start, venue, city, venue_address, venue_city, created_at, owner_id")
-    .eq("id", bookingId)
-    .maybeSingle();
-
-  const normalized = normalizeEventBooking(booking as RawEventBooking | null);
-  if (!normalized || !isFutureEventBooking(normalized)) return null;
-  if ((booking as RawEventBooking | null)?.owner_id === profileId) return normalized;
-
-  const { data: participant } = await admin
-    .from("booking_participants")
-    .select("id")
-    .eq("booking_id", bookingId)
-    .eq("user_id", userId)
-    .neq("role", "buyer")
-    .maybeSingle();
-
-  return participant ? normalized : null;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -448,15 +353,6 @@ function toDatetimeLocal(iso: string | null | undefined): string {
   }
 }
 
-
-function formatEventBookingLabel(booking: EventBooking) {
-  const title = booking.title || booking.service || "Untitled event";
-  const date = booking.date_start
-    ? new Date(booking.date_start).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-    : null;
-  return [title, date, booking.city].filter(Boolean).join(" · ");
-}
-
 function createPendingCoverKey() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
@@ -480,7 +376,6 @@ function CreateLinkModal({
   profileId,
   existingSlugs,
   services,
-  eventBookings,
   editingLink,
 }: {
   isOpen: boolean;
@@ -490,7 +385,6 @@ function CreateLinkModal({
   profileId: string;
   existingSlugs: string[];
   services: ProfileService[];
-  eventBookings: EventBooking[];
   editingLink: PrivateLink | null;
 }) {
   const isEditing = !!editingLink;
@@ -1007,13 +901,12 @@ function LinkCard({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function LinksPage() {
-  const { is_beta, username: usernameRaw, profileId, links, services, eventBookings } = useLoaderData<typeof loader>() as {
+  const { is_beta, username: usernameRaw, profileId, links, services } = useLoaderData<typeof loader>() as {
     is_beta: boolean;
     username: string;
     profileId: string;
     links: PrivateLink[];
     services: ProfileService[];
-    eventBookings: EventBooking[];
   };
 
   const createFetcher = useFetcher();
@@ -1131,7 +1024,6 @@ export default function LinksPage() {
         profileId={profileId}
         existingSlugs={existingSlugs}
         services={services}
-        eventBookings={eventBookings}
         editingLink={editingLink}
       />
     </div>

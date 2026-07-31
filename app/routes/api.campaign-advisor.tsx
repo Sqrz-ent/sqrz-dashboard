@@ -76,7 +76,7 @@ export async function action({ request }: Route.ActionArgs) {
   // root CLAUDE.md). `isNative` is already computed above from the Bearer-vs-
   // cookie auth path, so reusing it here isn't a new check, just a different
   // condition. NEVER gate on ios_subscriptions (the Companion subscription is
-  // unrelated) or grow_clients (dormant pending real Companion payment launch).
+  // unrelated) or grow_clients (dropped 2026-07-31, see root CLAUDE.md).
   //
   // A non-native (web) caller gets a structured 200 "locked" response (not a
   // 403 with no context, and no paid LLM call) — today's clients render the

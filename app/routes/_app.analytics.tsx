@@ -93,8 +93,6 @@ type AnalyticsData = {
   views_total: number;
   views_prev_period: number;
   unique_visitors: number;
-  booking_requests: number;
-  confirmed_bookings: number;
   top_countries: CountryRow[];
   top_sources: SourceRow[];
   top_cities: CityRow[];
@@ -924,8 +922,6 @@ export default function AnalyticsPage() {
             trend={viewsTrend}
           />
           <StatCard label="Unique Visitors" value={a?.unique_visitors ?? 0} />
-          <StatCard label="Booking Requests" value={a?.booking_requests ?? 0} />
-          <StatCard label="Confirmed Bookings" value={a?.confirmed_bookings ?? 0} />
         </div>
       </section>
 

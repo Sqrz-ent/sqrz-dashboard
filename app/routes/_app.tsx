@@ -23,17 +23,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const profile = await getCurrentProfile(supabase, user.id);
 
+  // Guest profiles are deprecated (booking magic-link viewer removed with the
+  // staged booking pipeline) — fall through to the home dashboard.
   if (profile?.user_type === 'guest') {
-    const url = new URL(request.url);
-    const next = url.searchParams.get('next');
-
-    // If coming from a booking magic link — redirect there
-    if (next && next.startsWith('/booking/')) {
-      return redirect(next);
-    }
-
-    // Guest profiles are deprecated — fall through to dashboard
-    return redirect('/dashboard');
+    return redirect('/');
   }
 
   // Unread notifications badge count for the nav bell.

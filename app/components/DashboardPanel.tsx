@@ -359,7 +359,7 @@ function AccountPanel({ profile: _profile }: { profile: Profile | null }) {
         }}
       >
         <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0, lineHeight: 1.55 }}>
-          Account settings live in the Account tab. Booking payments are handled manually during beta.
+          Account settings live in the Account tab.
         </p>
       </div>
     </div>

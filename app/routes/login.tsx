@@ -125,37 +125,14 @@ export default function Login() {
     setVerifying(true);
     setError("");
     try {
-      const { data, error: err } = await supabase.auth.verifyOtp({
+      const { error: err } = await supabase.auth.verifyOtp({
         email: trimmed,
         token: code,
         type: "email",
       });
       if (err) throw err;
 
-      const userId = data.session?.user?.id ?? data.user?.id ?? null;
-      let dest = "/";
-      if (userId) {
-        try {
-          const { data: profile } = await supabase
-            .from("profiles")
-            .select("user_type")
-            .eq("user_id", userId)
-            .maybeSingle();
-          if (profile?.user_type === "guest") {
-            const { data: participant } = await supabase
-              .from("booking_participants")
-              .select("booking_id")
-              .eq("user_id", userId)
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            dest = participant?.booking_id ? `/booking/${participant.booking_id}` : "/";
-          }
-        } catch {
-          dest = "/";
-        }
-      }
-      window.location.href = dest;
+      window.location.href = "/";
     } catch {
       setError("Invalid or expired code");
       setVerifying(false);

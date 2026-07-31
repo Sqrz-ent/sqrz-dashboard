@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
@@ -10,22 +10,6 @@ const ACCENT = "#F5A623";
 const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-type UpcomingBooking = {
-  id: string;
-  title: string | null;
-  service: string | null;
-  date_start: string | null;
-  city: string | null;
-};
-
-type AvailabilityBlock = {
-  id: number;
-  start_date: string;
-  end_date: string;
-  label: string | null;
-  show_label: boolean | null;
-};
 
 async function getDashboardAnalytics(profileId: string) {
   const admin = createSupabaseAdminClient();
@@ -115,14 +99,11 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       profile,
       analytics: analytics ?? null,
-      activeBookingsCount: homeData.activeBookingsCount ?? 0,
-      upcomingBookings: homeData.upcomingBookings ?? [],
       hasServices: !!homeData.hasServices,
       hasVideos: !!homeData.hasVideos,
       hasRefs: !!homeData.hasRefs,
       hasGallery: !!homeData.hasGallery,
       planName: homeData.planName ?? null,
-      availabilityBlocks: homeData.availabilityBlocks ?? [],
       refCode: homeData.refCode ?? null,
     },
     { headers }
@@ -150,62 +131,13 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  if (intent === "update_availability_status") {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ availability_status: formData.get("status") as string })
-      .eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "add_availability_block") {
-    const { error } = await supabase
-      .from("availability_blocks")
-      .insert({
-        profile_id: profile.id as string,
-        start_date: formData.get("start_date") as string,
-        end_date: formData.get("end_date") as string,
-        label: (formData.get("label") as string) || "Unavailable",
-      });
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "update_block_show_label") {
-    const { error } = await supabase
-      .from("availability_blocks")
-      .update({ show_label: formData.get("show_label") === "true" })
-      .eq("id", Number(formData.get("block_id")))
-      .eq("profile_id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "delete_availability_block") {
-    const { error } = await supabase
-      .from("availability_blocks")
-      .delete()
-      .eq("id", Number(formData.get("block_id")))
-      .eq("profile_id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   return Response.json({ ok: false }, { headers });
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, analytics, activeBookingsCount, upcomingBookings, hasServices, hasVideos, hasRefs, hasGallery, planName, availabilityBlocks, refCode } =
+  const { profile, analytics, hasServices, hasVideos, hasRefs, hasGallery, planName, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -240,15 +172,6 @@ export default function DashboardIndex() {
   const [selectedTemplate, setSelectedTemplate] = useState<string>(
     (p.template_id as string) || "midnight"
   );
-
-  // Availability
-  const blockFetcher = useFetcher();
-  const deleteFetcher = useFetcher();
-  const blocks = availabilityBlocks as AvailabilityBlock[];
-  const [showBlockForm, setShowBlockForm] = useState(false);
-  const blockLabelRef = useRef<HTMLInputElement>(null);
-  const blockStartRef = useRef<HTMLInputElement>(null);
-  const blockEndRef = useRef<HTMLInputElement>(null);
 
   // Dark/light mode — theme lives in the root Layout (server-rendered from a
   // cookie so <html> has the right class at first paint). Toggling updates that
@@ -434,88 +357,6 @@ export default function DashboardIndex() {
         </div>
       </div>
 
-      {/* Upcoming bookings */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 14,
-          }}
-        >
-          <p style={{ color: "var(--text)", fontSize: 14, fontWeight: 600, margin: 0 }}>
-            Upcoming
-          </p>
-          <Link
-            to="/office"
-            style={{ color: "var(--text-muted)", fontSize: 12, textDecoration: "none" }}
-          >
-            View all →
-          </Link>
-        </div>
-
-        {(upcomingBookings as UpcomingBooking[]).length === 0 ? (
-          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
-            No upcoming confirmed bookings.{" "}
-            <Link to="/office" style={{ color: ACCENT, textDecoration: "none" }}>
-              Go to pipeline →
-            </Link>
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {(upcomingBookings as UpcomingBooking[]).map((b) => (
-              <Link key={b.id} to={`/office/${b.id}`} style={{ textDecoration: "none" }}>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "12px 14px",
-                    background: "var(--surface-muted)",
-                    borderRadius: 10,
-                    gap: 12,
-                    transition: "opacity 0.15s",
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <p
-                      style={{
-                        color: "var(--text)",
-                        fontSize: 14,
-                        fontWeight: 600,
-                        margin: "0 0 2px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {b.title ?? b.service ?? "Booking"}
-                    </p>
-                    {b.city && (
-                      <p style={{ color: "var(--text-muted)", fontSize: 12, margin: 0 }}>
-                        📍 {b.city}
-                      </p>
-                    )}
-                  </div>
-                  <p
-                    style={{
-                      color: ACCENT,
-                      fontSize: 12,
-                      fontWeight: 600,
-                      margin: 0,
-                      flexShrink: 0,
-                    }}
-                  >
-                    {formatDate(b.date_start)}
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-
       {/* Theme picker */}
       <div style={{ ...card, marginBottom: 16 }}>
         <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
@@ -597,211 +438,6 @@ export default function DashboardIndex() {
             );
           })}
         </div>
-      </div>
-
-      {/* Availability widget */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Availability</p>
-
-        {/* Blocked periods list */}
-        {blocks.length === 0 && !showBlockForm ? (
-          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 10px" }}>
-            No blocks added yet
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-            {blocks.map((block) => (
-              <div
-                key={block.id}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  padding: "10px 12px",
-                  background: "var(--surface-muted)",
-                  borderRadius: 8,
-                  gap: 6,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                  <span style={{ fontSize: 13, color: "var(--text)" }}>
-                    <span style={{ fontWeight: 600 }}>{block.label || "Unavailable"}</span>
-                    <span style={{ color: "var(--text-muted)", marginLeft: 6 }}>
-                      {block.start_date} → {block.end_date}
-                    </span>
-                  </span>
-                  <button
-                    onClick={() => {
-                      const fd = new FormData();
-                      fd.append("intent", "delete_availability_block");
-                      fd.append("block_id", String(block.id));
-                      deleteFetcher.submit(fd, { method: "post" });
-                    }}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--text-muted)",
-                      cursor: "pointer",
-                      fontSize: 14,
-                      padding: "2px 4px",
-                      lineHeight: 1,
-                      flexShrink: 0,
-                      fontFamily: FONT,
-                    }}
-                    aria-label="Delete block"
-                  >
-                    ✕
-                  </button>
-                </div>
-                {/* Show label toggle */}
-                <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                  <input
-                    type="checkbox"
-                    defaultChecked={!!block.show_label}
-                    onChange={(e) => {
-                      const fd = new FormData();
-                      fd.append("intent", "update_block_show_label");
-                      fd.append("block_id", String(block.id));
-                      fd.append("show_label", String(e.target.checked));
-                      blockFetcher.submit(fd, { method: "post" });
-                    }}
-                    style={{ accentColor: ACCENT, cursor: "pointer" }}
-                  />
-                  <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Show label on public calendar</span>
-                </label>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Inline add form */}
-        {showBlockForm ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              padding: "12px 14px",
-              background: "var(--surface-muted)",
-              borderRadius: 10,
-            }}
-          >
-            <input
-              ref={blockLabelRef}
-              type="text"
-              placeholder="e.g. On contract, Touring, Holiday"
-              style={{
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                padding: "8px 10px",
-                fontSize: 13,
-                color: "var(--text)",
-                fontFamily: FONT,
-                outline: "none",
-              }}
-            />
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                ref={blockStartRef}
-                type="date"
-                style={{
-                  flex: 1,
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  padding: "8px 10px",
-                  fontSize: 13,
-                  color: "var(--text)",
-                  fontFamily: FONT,
-                  outline: "none",
-                }}
-              />
-              <input
-                ref={blockEndRef}
-                type="date"
-                onChange={(e) => {
-                  const start = blockStartRef.current?.value;
-                  if (start && e.target.value && e.target.value < start) {
-                    e.target.value = start;
-                  }
-                }}
-                style={{
-                  flex: 1,
-                  background: "var(--bg)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  padding: "8px 10px",
-                  fontSize: 13,
-                  color: "var(--text)",
-                  fontFamily: FONT,
-                  outline: "none",
-                }}
-              />
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                onClick={() => {
-                  const start = blockStartRef.current?.value;
-                  const end = blockEndRef.current?.value;
-                  if (!start || !end) return;
-                  if (end < start) return;
-                  const fd = new FormData();
-                  fd.append("intent", "add_availability_block");
-                  fd.append("label", blockLabelRef.current?.value || "Unavailable");
-                  fd.append("start_date", start);
-                  fd.append("end_date", end);
-                  blockFetcher.submit(fd, { method: "post" });
-                  setShowBlockForm(false);
-                }}
-                style={{
-                  flex: 1,
-                  padding: "8px",
-                  background: ACCENT,
-                  color: "#111111",
-                  border: "none",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontFamily: FONT,
-                }}
-              >
-                Add
-              </button>
-              <button
-                onClick={() => setShowBlockForm(false)}
-                style={{
-                  padding: "8px 14px",
-                  background: "transparent",
-                  color: "var(--text-muted)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 8,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  fontFamily: FONT,
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowBlockForm(true)}
-            style={{
-              background: "none",
-              border: "none",
-              color: ACCENT,
-              fontSize: 13,
-              fontWeight: 600,
-              cursor: "pointer",
-              padding: 0,
-              fontFamily: FONT,
-            }}
-          >
-            + Add unavailable period
-          </button>
-        )}
       </div>
 
       {/* Appearance — dark/light mode */}

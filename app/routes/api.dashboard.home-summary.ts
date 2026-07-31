@@ -22,39 +22,17 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profileId = profile.id as string;
 
   if (scope === "primary") {
-    const [analyticsRes, activeBookingsRes, upcomingBookingsRes] = await Promise.all([
-      supabase
-        .from("profile_analytics")
-        .select("*")
-        .eq("profile_id", profileId)
-        .maybeSingle(),
-      supabase
-        .from("bookings")
-        .select("id", { count: "exact", head: true })
-        .eq("owner_id", profileId)
-        .in("status", ["requested", "pending", "confirmed"]),
-      supabase
-        .from("bookings")
-        .select("id, title, service, date_start, city")
-        .eq("owner_id", profileId)
-        .eq("status", "confirmed")
-        .gt("date_start", new Date().toISOString())
-        .order("date_start", { ascending: true })
-        .limit(3),
-    ]);
+    const { data: analyticsData } = await supabase
+      .from("profile_analytics")
+      .select("*")
+      .eq("profile_id", profileId)
+      .maybeSingle();
 
-    return Response.json(
-      {
-        analytics: analyticsRes.data ?? null,
-        activeBookingsCount: activeBookingsRes.count ?? 0,
-        upcomingBookings: upcomingBookingsRes.data ?? [],
-      },
-      { headers }
-    );
+    return Response.json({ analytics: analyticsData ?? null }, { headers });
   }
 
   if (scope === "secondary") {
-    const [servicesRes, videosRes, refsRes, blocksRes, photosRes] = await Promise.all([
+    const [servicesRes, videosRes, refsRes, photosRes] = await Promise.all([
       supabase
         .from("profile_services")
         .select("id", { count: "exact", head: true })
@@ -68,11 +46,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         .select("id", { count: "exact", head: true })
         .eq("profile_id", profileId),
       supabase
-        .from("availability_blocks")
-        .select("id, start_date, end_date, label, show_label")
-        .eq("profile_id", profileId)
-        .order("start_date", { ascending: true }),
-      supabase
         .from("profile_photos")
         .select("id", { count: "exact", head: true })
         .eq("profile_id", profileId),
@@ -84,40 +57,17 @@ export async function loader({ request }: Route.LoaderArgs) {
         hasVideos: (videosRes.count ?? 0) > 0,
         hasRefs: (refsRes.count ?? 0) > 0,
         hasGallery: (photosRes.count ?? 0) > 0,
-        availabilityBlocks: blocksRes.data ?? [],
       },
       { headers }
     );
   }
 
-  const [
-    analyticsRes,
-    activeBookingsRes,
-    upcomingBookingsRes,
-    servicesRes,
-    videosRes,
-    refsRes,
-    blocksRes,
-    photosRes,
-  ] = await Promise.all([
+  const [analyticsRes, servicesRes, videosRes, refsRes, photosRes] = await Promise.all([
     supabase
       .from("profile_analytics")
       .select("*")
       .eq("profile_id", profileId)
       .maybeSingle(),
-    supabase
-      .from("bookings")
-      .select("id", { count: "exact", head: true })
-      .eq("owner_id", profileId)
-      .in("status", ["requested", "pending", "confirmed"]),
-    supabase
-      .from("bookings")
-      .select("id, title, service, date_start, city")
-      .eq("owner_id", profileId)
-      .eq("status", "confirmed")
-      .gt("date_start", new Date().toISOString())
-      .order("date_start", { ascending: true })
-      .limit(3),
     supabase
       .from("profile_services")
       .select("id", { count: "exact", head: true })
@@ -131,11 +81,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("id", { count: "exact", head: true })
       .eq("profile_id", profileId),
     supabase
-      .from("availability_blocks")
-      .select("id, start_date, end_date, label, show_label")
-      .eq("profile_id", profileId)
-      .order("start_date", { ascending: true }),
-    supabase
       .from("profile_photos")
       .select("id", { count: "exact", head: true })
       .eq("profile_id", profileId),
@@ -144,13 +89,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   return Response.json(
     {
       analytics: analyticsRes.data ?? null,
-      activeBookingsCount: activeBookingsRes.count ?? 0,
-      upcomingBookings: upcomingBookingsRes.data ?? [],
       hasServices: (servicesRes.count ?? 0) > 0,
       hasVideos: (videosRes.count ?? 0) > 0,
       hasRefs: (refsRes.count ?? 0) > 0,
       hasGallery: (photosRes.count ?? 0) > 0,
-      availabilityBlocks: blocksRes.data ?? [],
     },
     { headers }
   );
