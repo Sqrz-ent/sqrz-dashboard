@@ -58,19 +58,28 @@ export async function loader({ request }: Route.LoaderArgs) {
 // No Boost/Grow item here — Boost and Grow live exclusively in the Grow nav
 // section (the /analytics route, reached via the main dashboard nav). This
 // profile-builder menu is profile setup only.
+// "Links" was removed 2026-08-01 — it now lives as a nav pill inside the Grow
+// tab bar (/analytics) instead of this submenu. Everything else here,
+// including the "Dashboard" label itself, is unchanged — that rename is an
+// explicitly deferred follow-up, not part of this pass.
 const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
   { to: "/service", label: "Business" },
   { to: "/domain", label: "Domain" },
-  { to: "/links", label: "Links" },
   { to: "/account", label: "Account" },
 ];
 
 // "Analytics" → "Grow": the /analytics route is now a 4-tab page (Campaigns /
 // Results / Invites / Get the App). Route path kept as /analytics.
+//
+// Bottom-nav "Profile" (2026-08-01) is the internal dashboard/profile-editing
+// home (`/`) — distinct from `fourthNav`'s "Preview" below, which is the
+// external link to the artist's own public page. Renamed from "Dashboard" +
+// swapped the icon from a generic grid glyph to a person glyph so it reads as
+// profile-appropriate; "Preview" got the freed-up-in-spirit eye glyph.
 const bottomNavItems = [
-  { to: "/", label: "Dashboard", icon: "⊞", end: true },
+  { to: "/", label: "Profile", icon: "👤", end: true },
   { to: "/office", label: "Office", icon: "📋" },
   { to: "/analytics", label: "Grow", icon: "📊" },
 ];
@@ -87,7 +96,7 @@ export default function AppLayout() {
   const profileSlug = (p?.slug as string | null) ?? "";
   const fourthNav = isPartner
     ? { to: "/invites", external: false, icon: "✦", label: "Invites" }
-    : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👤", label: "Profile" };
+    : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👁", label: "Preview" };
 
   const [showOnboarding, setShowOnboarding] = useState(false);
   const revalidator = useRevalidator();

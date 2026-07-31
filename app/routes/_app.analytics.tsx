@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
+import { Link, redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -856,6 +856,29 @@ export default function AnalyticsPage() {
               {t.label}
             </button>
           ))}
+        {/* "Links" (2026-08-01) — moved here from the top-nav submenu. Unlike the
+            tabs above, this navigates to the standalone /links route rather than
+            swapping in embedded content — /links wasn't built to be embeddable
+            (own loader, modals) and turning it into one was out of scope for
+            this pass. Styled to match the tab bar; never shows an "active" state
+            since it isn't part of the activeTab switch. */}
+        <Link
+          to="/links"
+          style={{
+            padding: "10px 16px",
+            fontFamily: FONT_BODY,
+            fontSize: 13,
+            fontWeight: 700,
+            letterSpacing: "0.03em",
+            textTransform: "uppercase",
+            color: "var(--text-muted)",
+            textDecoration: "none",
+            borderBottom: "2px solid transparent",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Links
+        </Link>
       </div>
 
       {/* ── CAMPAIGNS — creation form + active/past campaigns list ─────────── */}
