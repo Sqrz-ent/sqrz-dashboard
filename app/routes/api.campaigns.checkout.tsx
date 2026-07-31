@@ -35,7 +35,6 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   let body: {
-    budget_amount?: number;
     campaign_id?: string | null;
   };
   try {
@@ -44,27 +43,21 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Invalid request body" }, { status: 400, headers });
   }
 
-  const budget = Number(body.budget_amount);
-
-  if (!budget || budget <= 0) {
-    return Response.json({ error: "Invalid budget_amount" }, { status: 400, headers });
-  }
   // Start Campaign has exactly one flow now: an existing campaign row (created by
-  // the /boost action first) is paid for here. The legacy grow self-create branch
-  // was removed — it was fully dead (no client created grow campaigns, 0 grow rows
-  // ever existed). campaign_id is always required.
+  // the client first) is paid for here. campaign_id is always required.
   if (!body.campaign_id) {
     return Response.json({ error: "campaign_id required" }, { status: 400, headers });
   }
   const campaignId = body.campaign_id;
 
-  // ── Calculate fee and total ────────────────────────────────────────────────
-  // One fee model: flat $25 campaign fee on top of the chosen budget pill, charged
-  // in the same checkout. The budget is credited to the shared ad-spend wallet
-  // (fee-exempt) AND immediately allocated to this campaign on webhook. No
-  // percentage variant, no campaign-type branching.
-  const BOOST_FLAT_FEE = 25;
-  const total = budget + BOOST_FLAT_FEE;
+  // ── Setup fee ──────────────────────────────────────────────────────────────
+  // Allocation-fee model (2026-08-01): campaign creation charges the flat $25
+  // SETUP FEE ONLY — no bundled budget pill anymore. The campaign starts with a
+  // zero-budget, status='active' campaign_budgets row (created on the webhook);
+  // the artist funds it afterward via wallet → allocation (which is where the
+  // percentage commission now lives). No processing-fee line on this small flat
+  // charge — SQRZ absorbs Stripe's cut here (see walletPayments.server.ts).
+  const SETUP_FEE = 25;
 
   // iOS is forced onto Stripe test mode for now, regardless of
   // profile.stripe_beta_test_mode — web is untouched, always live. See
@@ -87,22 +80,21 @@ export async function action({ request }: Route.ActionArgs) {
 
   // ── Checkout session (Stripe today; see campaignPayments.server.ts) ────────
   const { checkoutUrl } = await createCampaignCheckoutSession({
-    amountCents: Math.round(total * 100),
-    productName: `SQRZ Boost Campaign — $${budget} ad budget + $${BOOST_FLAT_FEE} fee`,
-    description: `$${budget} ad budget (added to your ad-spend wallet) + flat $${BOOST_FLAT_FEE} campaign fee.`,
+    amountCents: Math.round(SETUP_FEE * 100),
+    productName: `SQRZ Boost Campaign — $${SETUP_FEE} setup fee`,
+    description: `One-time $${SETUP_FEE} setup fee. Fund your campaign afterward from your ad-spend wallet.`,
     successUrl,
     cancelUrl,
     clientReferenceId: campaignId,
     customerEmail: (profile.email as string) ?? undefined,
     stripeMode,
     metadata: {
+      // `type` lets the webhook tell setup from reactivation (both carry a
+      // campaign_id). Setup → mark booked + create the zero-budget active row.
+      type: "campaign_setup",
       profile_id: profile.id as string,
       campaign_id: campaignId,
-      budget_amount: String(budget),
-      fee: String(BOOST_FLAT_FEE),
-      total: String(total),
-      // Analytics only (mirrors the wallet-topup flow) — the webhook credits the
-      // budget to the wallet with this source. Never used for gating.
+      fee: String(SETUP_FEE),
       source: isNative ? "ios" : "web",
     },
   });

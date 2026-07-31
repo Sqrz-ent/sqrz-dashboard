@@ -40,6 +40,8 @@ export default [
 
   // Campaign checkout (unified Boost + Grow)
   route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
+  // Reactivate an exhausted campaign ($10 Stripe checkout)
+  route("api/campaigns/reactivate", "routes/api.campaigns.reactivate.tsx"),
 
   // Grow ad-spend wallet top-up (web + iOS, same Stripe flow)
   route("api/wallet/topup", "routes/api.wallet.topup.tsx"),
