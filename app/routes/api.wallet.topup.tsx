@@ -16,8 +16,8 @@ const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 // top-ups"). This is the FEE-CHARGED funding path: record_wallet_topup credits
 // the wallet AND creates a flat 15% management_fee_charges row (the campaign-start
 // budget path is the fee-exempt one — see api/stripe/webhook.tsx). No gating.
-const MIN_TOPUP_CENTS = 500;        // $5
-const MAX_TOPUP_CENTS = 5_000_000;  // $50,000
+const MIN_TOPUP_CENTS = 500;      // $5
+const MAX_TOPUP_CENTS = 50_000;  // $500 (lowered from $50,000 on 2026-08-01)
 
 export async function action({ request }: Route.ActionArgs) {
   const authHeader = request.headers.get("Authorization");
