@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Link, redirect, useFetcher, useLoaderData, useNavigate } from "react-router";
+import { redirect, useFetcher, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { loadBoostSectionData, type BoostSectionData } from "~/lib/boost.server";
 import { loadBetaInviteSectionData, type BetaInviteSectionData } from "~/lib/partner.server";
+import { loadLinksSectionData, type LinksSectionData } from "~/lib/links.server";
 import BoostSection from "~/components/BoostSection";
 import PartnerSection from "~/components/PartnerSection";
 import GetTheAppSection from "~/components/GetTheAppSection";
+import LinksSection from "~/components/LinksSection";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -258,13 +260,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   // RESULTS. Load the same data those standalone routes use, via shared helpers
   // (RLS server client, matching their loaders). Partner data only when a partner.
   const isPartner = !!(profile.is_partner as boolean | null);
-  const [boost, partner] = await Promise.all([
+  const [boost, partner, links] = await Promise.all([
     loadBoostSectionData(supabase, profile),
     isPartner ? loadBetaInviteSectionData(supabase, profile) : Promise.resolve(null),
+    loadLinksSectionData(supabase, admin, profile),
   ]);
 
   return Response.json(
-    { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner },
+    { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner, links },
     { headers }
   );
 }
@@ -336,13 +339,14 @@ const sectionLabel: React.CSSProperties = {
   display: "block",
 };
 
-// The four Grow-page tabs. "invites" is filtered out of the tab bar for
+// The Grow-page tabs. "invites" is filtered out of the tab bar for
 // non-partners (Beta Invites stays invite-only, mirroring iOS).
-type GrowTab = "campaigns" | "results" | "invites" | "app";
+type GrowTab = "campaigns" | "results" | "invites" | "app" | "links";
 const growTabs: { key: GrowTab; label: string }[] = [
   { key: "campaigns", label: "Campaigns" },
   { key: "results", label: "Results" },
   { key: "invites", label: "Invites" },
+  { key: "links", label: "Links" },
   { key: "app", label: "Get the App" },
 ];
 
@@ -754,7 +758,7 @@ function CampaignMetricPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner } = useLoaderData() as {
+  const { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner, links } = useLoaderData() as {
     analytics: AnalyticsData | null;
     cookieless: CookielessMetrics | null;
     days: number;
@@ -763,10 +767,22 @@ export default function AnalyticsPage() {
     boost: BoostSectionData;
     partner: BetaInviteSectionData | null;
     isPartner: boolean;
+    links: LinksSectionData;
   };
   const slug = profile.slug as string;
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<GrowTab>("campaigns");
+  const [searchParams] = useSearchParams();
+  // Deep-link support: /links redirects here with ?tab=links so a bookmark or
+  // stray reference still lands on the right tab instead of the old standalone
+  // page. Falls back to "campaigns" for anything unrecognized or invites-gated.
+  const requestedTab = searchParams.get("tab") as GrowTab | null;
+  const initialTab: GrowTab =
+    requestedTab &&
+    growTabs.some((t) => t.key === requestedTab) &&
+    (requestedTab !== "invites" || isPartner)
+      ? requestedTab
+      : "campaigns";
+  const [activeTab, setActiveTab] = useState<GrowTab>(initialTab);
 
   const cl = cookieless;
   const hasWidgetData = (cl?.widgets?.length ?? 0) > 0;
@@ -856,29 +872,6 @@ export default function AnalyticsPage() {
               {t.label}
             </button>
           ))}
-        {/* "Links" (2026-08-01) — moved here from the top-nav submenu. Unlike the
-            tabs above, this navigates to the standalone /links route rather than
-            swapping in embedded content — /links wasn't built to be embeddable
-            (own loader, modals) and turning it into one was out of scope for
-            this pass. Styled to match the tab bar; never shows an "active" state
-            since it isn't part of the activeTab switch. */}
-        <Link
-          to="/links"
-          style={{
-            padding: "10px 16px",
-            fontFamily: FONT_BODY,
-            fontSize: 13,
-            fontWeight: 700,
-            letterSpacing: "0.03em",
-            textTransform: "uppercase",
-            color: "var(--text-muted)",
-            textDecoration: "none",
-            borderBottom: "2px solid transparent",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Links
-        </Link>
       </div>
 
       {/* ── CAMPAIGNS — creation form + active/past campaigns list ─────────── */}
@@ -888,6 +881,9 @@ export default function AnalyticsPage() {
       {activeTab === "invites" && isPartner && partner && (
         <PartnerSection embedded {...partner} />
       )}
+
+      {/* ── LINKS — private link list, create/edit/toggle ───────────────────── */}
+      {activeTab === "links" && <LinksSection embedded {...links} />}
 
       {/* ── GET THE APP ──────────────────────────────────────────────────── */}
       {activeTab === "app" && <GetTheAppSection />}
