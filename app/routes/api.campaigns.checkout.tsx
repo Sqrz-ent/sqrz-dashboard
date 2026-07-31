@@ -71,13 +71,27 @@ export async function action({ request }: Route.ActionArgs) {
   // stripeClientForMode in stripe.server.ts.
   const stripeMode = isNative ? "test" : "live";
 
+  // iOS: return straight into the app via the existing sqrz:// custom URL
+  // scheme (already registered in Info.plist for Stripe Connect's
+  // sqrz://stripe-return) instead of a web confirmation page — SafariSheet on
+  // the client already auto-dismisses on ANY sqrz:// redirect, so this alone
+  // fixes "checkout completes but leaves you stuck in Safari." AppDelegate.swift
+  // / sqrzApp.swift route `checkout-return` to its own notification, distinct
+  // from stripe-return. Web is untouched.
+  const successUrl = isNative
+    ? "sqrz://checkout-return?status=success"
+    : `${APP_URL}/boost?campaign_paid=true`;
+  const cancelUrl = isNative
+    ? "sqrz://checkout-return?status=cancelled"
+    : `${APP_URL}/boost`;
+
   // ── Checkout session (Stripe today; see campaignPayments.server.ts) ────────
   const { checkoutUrl } = await createCampaignCheckoutSession({
     amountCents: Math.round(total * 100),
     productName: `SQRZ Boost Campaign — $${budget} ad budget + $${BOOST_FLAT_FEE} fee`,
     description: `$${budget} ad budget (added to your ad-spend wallet) + flat $${BOOST_FLAT_FEE} campaign fee.`,
-    successUrl: `${APP_URL}/boost?campaign_paid=true`,
-    cancelUrl: `${APP_URL}/boost`,
+    successUrl,
+    cancelUrl,
     clientReferenceId: campaignId,
     customerEmail: (profile.email as string) ?? undefined,
     stripeMode,
