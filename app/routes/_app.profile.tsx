@@ -242,6 +242,7 @@ export async function action({ request }: Route.ActionArgs) {
       widget_soundcloud: formData.get("widget_soundcloud") as string,
       widget_bandsintown: formData.get("widget_bandsintown") as string,
       widget_mixcloud: formData.get("widget_mixcloud") as string,
+      soundee_url: formData.get("soundee_url") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
@@ -416,6 +417,7 @@ export default function ProfilePage() {
     widget_soundcloud: (profile.widget_soundcloud as string) ?? "",
     widget_bandsintown: (profile.widget_bandsintown as string) ?? "",
     widget_mixcloud: (profile.widget_mixcloud as string) ?? "",
+    soundee_url: (profile.soundee_url as string) ?? "",
   });
   // Modal state
   const [videoModal, setVideoModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
@@ -525,7 +527,7 @@ export default function ProfilePage() {
   // Completion counts
   const basicFilled = [profile.brand_name, profile.bio].filter(Boolean).length;
   const socialFilled = [socialValues.social_youtube, socialValues.social_facebook, socialValues.social_instagram, socialValues.social_linkedin, socialValues.social_tiktok].filter(Boolean).length;
-  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_mixcloud].filter(Boolean).length;
+  const widgetFilled = [widgetValues.widget_spotify, widgetValues.widget_soundcloud, widgetValues.widget_bandsintown, widgetValues.widget_mixcloud, widgetValues.soundee_url].filter(Boolean).length;
 
   const TikTokIcon = () => (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style={{ display: "inline-block", verticalAlign: "middle" }}>
@@ -546,6 +548,7 @@ export default function ProfilePage() {
     { key: "widget_soundcloud", emoji: "☁️", label: "SoundCloud" },
     { key: "widget_bandsintown", emoji: "🎤", label: "Bandsintown" },
     { key: "widget_mixcloud", emoji: "🎧", label: "Mixcloud", placeholder: "https://www.mixcloud.com/username/mix-name/", validate: v => v && !v.includes("mixcloud.com") ? "Must be a valid Mixcloud URL" : null },
+    { key: "soundee_url", emoji: "🛒", label: "Soundee" },
   ];
 
   return (
@@ -695,7 +698,7 @@ export default function ProfilePage() {
 
       {/* Section 4: Widgets */}
       <div style={card}>
-        <CompletionBadge filled={widgetFilled} total={5} />
+        <CompletionBadge filled={widgetFilled} total={widgetFields.length} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Widgets</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {widgetFields.map(({ key, emoji, label, placeholder, validate }) => {
