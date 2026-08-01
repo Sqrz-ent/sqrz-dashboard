@@ -299,8 +299,10 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  // ── Scheduling widget (Calendly today; scheduling_provider stays a free
-  // string, not an enum, so future providers need no migration) ──────────────
+  // ── Scheduling & Reservations (Calendly/HubSpot get real integrations on
+  // sqrz-profiles; every other provider link-outs. scheduling_provider stays a
+  // free string, not an enum, so adding another provider is just a dropdown
+  // option, no migration) ──────────────
   if (intent === "update_scheduling") {
     const url = ((formData.get("scheduling_url") as string) || "").trim();
     // Clearing the URL clears the provider too — mirrors how the widget fields
@@ -654,7 +656,17 @@ export default function ServicePage() {
   const [schedulingProvider, setSchedulingProvider] = useState((profile.scheduling_provider as string) || "calendly");
   const [schedulingUrl, setSchedulingUrl] = useState((profile.scheduling_url as string) ?? "");
   const schedulingSet = !!schedulingUrl.trim();
-  const SCHEDULING_PROVIDER_LABELS: Record<string, string> = { calendly: "Calendly", hubspot: "HubSpot" };
+  const SCHEDULING_PROVIDER_LABELS: Record<string, string> = {
+    calendly: "Calendly",
+    hubspot: "HubSpot",
+    opentable: "OpenTable",
+    resy: "Resy",
+    tock: "Tock",
+    sevenrooms: "SevenRooms",
+    eventbrite: "Eventbrite",
+    dice: "Dice",
+    tickettailor: "Ticket Tailor",
+  };
   const SCHEDULING_URL_PLACEHOLDERS: Record<string, string> = {
     calendly: "https://calendly.com/your-handle",
     hubspot: "https://meetings.hubspot.com/your-handle",
@@ -804,13 +816,16 @@ export default function ServicePage() {
         </button>
       </div>
 
-      {/* Scheduling — link-out widget, same shape as the public SchedulingWidget
-          on sqrz-profiles (already shipped, untouched). Calendly only today;
-          scheduling_provider is a free string, not an enum, so more providers
-          slot in later without a migration or a rework here. */}
+      {/* Scheduling & Reservations — link-out widget, same shape as the public
+          BookMeButton/primaryCta.ts resolver on sqrz-profiles (already shipped,
+          untouched). Calendly and HubSpot get real integrations (popup / iframe
+          modal); every other provider here just link-outs to the URL. Still
+          exactly one provider selectable at a time; scheduling_provider is a
+          free string, not an enum, so more providers slot in later without a
+          migration or a rework here. */}
       <div style={card}>
         <CompletionBadge filled={schedulingSet ? 1 : 0} total={1} />
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Scheduling</h2>
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Scheduling & Reservations</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div>
             <div
@@ -846,6 +861,13 @@ export default function ServicePage() {
                 >
                   <option value="calendly">Calendly</option>
                   <option value="hubspot">HubSpot</option>
+                  <option value="opentable">OpenTable</option>
+                  <option value="resy">Resy</option>
+                  <option value="tock">Tock</option>
+                  <option value="sevenrooms">SevenRooms</option>
+                  <option value="eventbrite">Eventbrite</option>
+                  <option value="dice">Dice</option>
+                  <option value="tickettailor">Ticket Tailor</option>
                 </select>
                 <label style={{ ...labelStyle, marginBottom: 6 }}>Link</label>
                 <input
