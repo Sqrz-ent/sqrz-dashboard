@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useFetcher } from "react-router";
-import type { LinksSectionData, PrivateLink, ProfileService } from "~/lib/links.server";
+import type { LinksSectionData, PrivateLink } from "~/lib/links.server";
 import Modal from "~/components/Modal";
 import LinkCoverUploader from "~/components/LinkCoverUploader";
 
@@ -75,7 +75,6 @@ function CreateLinkModal({
   username,
   profileId,
   existingSlugs,
-  services,
   editingLink,
 }: {
   isOpen: boolean;
@@ -84,7 +83,6 @@ function CreateLinkModal({
   username: string;
   profileId: string;
   existingSlugs: string[];
-  services: ProfileService[];
   editingLink: PrivateLink | null;
 }) {
   const isEditing = !!editingLink;
@@ -242,14 +240,20 @@ function CreateLinkModal({
         </div>
 
         {isExternal ? (
-          /* External: a genuinely separate, minimal form — title, the URL
-             visitors land on, and the button text. No page content fields
-             (Text/Photo/YouTube) — External has no hosted page to fill in,
-             it always goes straight to the destination now (see page_type
-             fix in _app.links.tsx's action + lib/primaryCta.ts on
-             sqrz-profiles for the read side of this). `slug` is still
-             derived from Title behind the scenes (unique row identifier /
-             route), just not surfaced as its own field here. */
+          /* External: a genuinely separate, minimal form — title and the URL
+             visitors land on. No page content fields (Text/Photo/YouTube) —
+             External has no hosted page to fill in, it always goes straight
+             to the destination now (see page_type fix in _app.links.tsx's
+             action + lib/primaryCta.ts on sqrz-profiles for the read side of
+             this). `slug` is still derived from Title behind the scenes
+             (unique row identifier / route), just not surfaced as its own
+             field here. cta_label/prefill_service stay in the DB and, for an
+             existing link, keep whatever value they already had — the form
+             no longer offers UI to set/change them (dead since payment-gate
+             cleanup removed what made "link to a service" meaningful on an
+             internal page; public rendering already falls back to the link's
+             title or a sensible default when cta_label is unset, see
+             lib/primaryCta.ts / app/[slug]/page.tsx on sqrz-profiles). */
           <>
             <div>
               <label style={labelStyle}>Title</label>
@@ -270,18 +274,9 @@ function CreateLinkModal({
                 Visitors go here directly from the featured button.
               </p>
             </div>
-            <div>
-              <label style={labelStyle}>Button Text <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank to use "Book")</span></label>
-              <input
-                style={inputStyle}
-                value={ctaLabel}
-                onChange={e => setCtaLabel(e.target.value)}
-                placeholder="e.g. Get access, Download, Listen now…"
-              />
-            </div>
           </>
         ) : (
-          /* Internal: full page fields — title, slug, content, connect-to */
+          /* Internal: full page fields — title, slug, content */
           <>
             <div>
               <label style={labelStyle}>Title</label>
@@ -339,33 +334,6 @@ function CreateLinkModal({
               <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
             </div>
 
-            {/* Optional: link to a service */}
-            {services.length > 0 && (
-              <div>
-                <label style={labelStyle}>Link to a service <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span></label>
-                <select
-                  style={inputStyle}
-                  value={prefillService}
-                  onChange={e => setPrefillService(e.target.value)}
-                >
-                  <option value="">— none —</option>
-                  {services.map(s => (
-                    <option key={s.id} value={s.title}>{s.title}</option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* CTA button label */}
-            <div>
-              <label style={labelStyle}>Button Label <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank to use "Book")</span></label>
-              <input
-                style={inputStyle}
-                value={ctaLabel}
-                onChange={e => setCtaLabel(e.target.value)}
-                placeholder="e.g. Get access, Download, Book now…"
-              />
-            </div>
           </>
         )}
 
@@ -627,7 +595,6 @@ export default function LinksSection({
   username: usernameRaw,
   profileId,
   links,
-  services,
   embedded = false,
 }: LinksSectionData & { embedded?: boolean }) {
   const createFetcher = useFetcher();
@@ -748,7 +715,6 @@ export default function LinksSection({
         username={username}
         profileId={profileId}
         existingSlugs={existingSlugs}
-        services={services}
         editingLink={editingLink}
       />
     </div>
