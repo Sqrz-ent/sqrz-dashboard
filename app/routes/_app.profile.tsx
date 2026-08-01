@@ -8,10 +8,8 @@ import type { Route } from "./+types/_app.profile";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
-import { normalizeImageUrl } from "~/lib/image-url";
 import Modal from "~/components/Modal";
 import AvatarFocalPicker from "~/components/AvatarFocalPicker";
-import GalleryUploader from "~/components/GalleryUploader";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -172,7 +170,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   // client returns nothing for unpublished/migrated owners.
   const admin = createSupabaseAdminClient();
 
-  const [videosRes, refsRes, photosRes] = await Promise.all([
+  const [videosRes, refsRes] = await Promise.all([
     admin
       .from("profile_videos")
       .select("*")
@@ -183,11 +181,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .select("*")
       .eq("profile_id", profile.id as string)
       .order("sort_order", { ascending: true }),
-    admin
-      .from("profile_photos")
-      .select("id, url, sort_order")
-      .eq("profile_id", profile.id as string)
-      .order("sort_order", { ascending: true }),
   ]);
 
   return Response.json(
@@ -195,7 +188,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       profile,
       videos: videosRes.data ?? [],
       references: refsRes.data ?? [],
-      photos: (photosRes.data ?? []) as { id: string; url: string; sort_order: number }[],
     },
     { headers }
   );
@@ -245,23 +237,6 @@ export async function action({ request }: Route.ActionArgs) {
       soundee_url: formData.get("soundee_url") as string,
     }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "update_gallery") {
-    let urls: string[] = [];
-    try {
-      urls = (JSON.parse(formData.get("urls") as string) as string[])
-        .map((url) => normalizeImageUrl(url))
-        .filter((url): url is string => !!url);
-    } catch { urls = []; }
-    const admin = createSupabaseAdminClient();
-    await admin.from("profile_photos").delete().eq("profile_id", profile.id as string);
-    if (urls.length > 0) {
-      const rows = urls.map((url, i) => ({ profile_id: profile.id as string, url, sort_order: i }));
-      const { error } = await admin.from("profile_photos").insert(rows);
-      return Response.json({ ok: !error, error: error?.message }, { headers });
-    }
-    return Response.json({ ok: true }, { headers });
   }
 
   if (intent === "update_business") {
@@ -357,11 +332,10 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function ProfilePage() {
-  const { profile, videos, references, photos } = useLoaderData<typeof loader>() as {
+  const { profile, videos, references } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     videos: Record<string, unknown>[];
     references: Record<string, unknown>[];
-    photos: { id: string; url: string; sort_order: number }[];
   };
 
   const basicFetcher = useFetcher();
@@ -774,13 +748,6 @@ export default function ProfilePage() {
           })}
         </div>
 
-      </div>
-
-      {/* Section 4b: Photo Gallery */}
-      <div style={card}>
-        <CompletionBadge filled={photos.length > 0 ? 1 : 0} total={1} />
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Photo Gallery</h2>
-        <GalleryUploader profileId={profileId} photos={photos} />
       </div>
 
       {/* Section 5: Videos */}

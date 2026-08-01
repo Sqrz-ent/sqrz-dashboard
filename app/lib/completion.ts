@@ -10,7 +10,6 @@ const WIDGET_FIELDS = [
 ] as const;
 
 export type RichProfile = {
-  hasGallery: boolean;
   bio?: string | null;
   hasVideos: boolean;
   hasRefs: boolean;
@@ -57,7 +56,6 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
     { key: "basics",     label: "Basics",      done: !!p.bio },
     { key: "socials",    label: "Socials",     done: hasSocial },
     { key: "widgets",    label: "Widgets",     done: hasWidget },
-    { key: "gallery",    label: "Gallery",     done: p.hasGallery },
     { key: "videos",     label: "Videos",      done: p.hasVideos },
     { key: "refs",       label: "References",  done: p.hasRefs },
     { key: "services",   label: "Services",    done: p.hasServices },

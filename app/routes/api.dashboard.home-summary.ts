@@ -32,7 +32,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   }
 
   if (scope === "secondary") {
-    const [servicesRes, videosRes, refsRes, photosRes] = await Promise.all([
+    const [servicesRes, videosRes, refsRes] = await Promise.all([
       supabase
         .from("profile_services")
         .select("id", { count: "exact", head: true })
@@ -45,10 +45,6 @@ export async function loader({ request }: Route.LoaderArgs) {
         .from("profile_references")
         .select("id", { count: "exact", head: true })
         .eq("profile_id", profileId),
-      supabase
-        .from("profile_photos")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", profileId),
     ]);
 
     return Response.json(
@@ -56,13 +52,12 @@ export async function loader({ request }: Route.LoaderArgs) {
         hasServices: (servicesRes.count ?? 0) > 0,
         hasVideos: (videosRes.count ?? 0) > 0,
         hasRefs: (refsRes.count ?? 0) > 0,
-        hasGallery: (photosRes.count ?? 0) > 0,
       },
       { headers }
     );
   }
 
-  const [analyticsRes, servicesRes, videosRes, refsRes, photosRes] = await Promise.all([
+  const [analyticsRes, servicesRes, videosRes, refsRes] = await Promise.all([
     supabase
       .from("profile_analytics")
       .select("*")
@@ -80,10 +75,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       .from("profile_references")
       .select("id", { count: "exact", head: true })
       .eq("profile_id", profileId),
-    supabase
-      .from("profile_photos")
-      .select("id", { count: "exact", head: true })
-      .eq("profile_id", profileId),
   ]);
 
   return Response.json(
@@ -92,7 +83,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       hasServices: (servicesRes.count ?? 0) > 0,
       hasVideos: (videosRes.count ?? 0) > 0,
       hasRefs: (refsRes.count ?? 0) > 0,
-      hasGallery: (photosRes.count ?? 0) > 0,
     },
     { headers }
   );
