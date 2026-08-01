@@ -654,7 +654,11 @@ export default function ServicePage() {
   const [schedulingProvider, setSchedulingProvider] = useState((profile.scheduling_provider as string) || "calendly");
   const [schedulingUrl, setSchedulingUrl] = useState((profile.scheduling_url as string) ?? "");
   const schedulingSet = !!schedulingUrl.trim();
-  const SCHEDULING_PROVIDER_LABELS: Record<string, string> = { calendly: "Calendly" };
+  const SCHEDULING_PROVIDER_LABELS: Record<string, string> = { calendly: "Calendly", hubspot: "HubSpot" };
+  const SCHEDULING_URL_PLACEHOLDERS: Record<string, string> = {
+    calendly: "https://calendly.com/your-handle",
+    hubspot: "https://meetings.hubspot.com/your-handle",
+  };
 
   function saveScheduling() {
     setSchedulingEditing(false);
@@ -841,13 +845,14 @@ export default function ServicePage() {
                   style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer", marginBottom: 10 }}
                 >
                   <option value="calendly">Calendly</option>
+                  <option value="hubspot">HubSpot</option>
                 </select>
                 <label style={{ ...labelStyle, marginBottom: 6 }}>Link</label>
                 <input
                   style={inputStyle}
                   value={schedulingUrl}
                   onChange={e => setSchedulingUrl(e.target.value)}
-                  placeholder="https://calendly.com/your-handle"
+                  placeholder={SCHEDULING_URL_PLACEHOLDERS[schedulingProvider] ?? "https://your-scheduling-link.com"}
                   autoFocus
                 />
                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
