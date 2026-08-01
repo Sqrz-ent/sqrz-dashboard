@@ -215,23 +215,6 @@ function CreateLinkModal({
           })}
         </div>
 
-        {/* External: destination URL */}
-        {isExternal && (
-          <div>
-            <label style={labelStyle}>Destination URL</label>
-            <input
-              style={inputStyle}
-              value={externalUrl}
-              onChange={e => setExternalUrl(e.target.value)}
-              placeholder="https://..."
-              autoFocus
-            />
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
-              Visitors go here directly from the hero pill.
-            </p>
-          </div>
-        )}
-
         {/* Feature on profile — Exclusive: a DB trigger
             clears show_on_profile on the profile's other links when this is set. */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
@@ -258,8 +241,48 @@ function CreateLinkModal({
           </button>
         </div>
 
-        {/* Page fields — title, slug, content, connect-to */}
-        <>
+        {isExternal ? (
+          /* External: a genuinely separate, minimal form — title, the URL
+             visitors land on, and the button text. No page content fields
+             (Text/Photo/YouTube) — External has no hosted page to fill in,
+             it always goes straight to the destination now (see page_type
+             fix in _app.links.tsx's action + lib/primaryCta.ts on
+             sqrz-profiles for the read side of this). `slug` is still
+             derived from Title behind the scenes (unique row identifier /
+             route), just not surfaced as its own field here. */
+          <>
+            <div>
+              <label style={labelStyle}>Title</label>
+              <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Latest Remix" autoFocus />
+              {slugError && (
+                <p style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>{slugError}</p>
+              )}
+            </div>
+            <div>
+              <label style={labelStyle}>Button Link</label>
+              <input
+                style={inputStyle}
+                value={externalUrl}
+                onChange={e => setExternalUrl(e.target.value)}
+                placeholder="https://..."
+              />
+              <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "6px 0 0" }}>
+                Visitors go here directly from the featured button.
+              </p>
+            </div>
+            <div>
+              <label style={labelStyle}>Button Text <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(leave blank to use "Book")</span></label>
+              <input
+                style={inputStyle}
+                value={ctaLabel}
+                onChange={e => setCtaLabel(e.target.value)}
+                placeholder="e.g. Get access, Download, Listen now…"
+              />
+            </div>
+          </>
+        ) : (
+          /* Internal: full page fields — title, slug, content, connect-to */
+          <>
             <div>
               <label style={labelStyle}>Title</label>
               <input style={inputStyle} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Press Kit 2026" autoFocus />
@@ -316,8 +339,8 @@ function CreateLinkModal({
               <input style={inputStyle} value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
             </div>
 
-            {/* Optional: link to a service (internal only) */}
-            {!isExternal && services.length > 0 && (
+            {/* Optional: link to a service */}
+            {services.length > 0 && (
               <div>
                 <label style={labelStyle}>Link to a service <span style={{ fontWeight: 400, color: "var(--text-muted)" }}>(optional)</span></label>
                 <select
@@ -343,8 +366,8 @@ function CreateLinkModal({
                 placeholder="e.g. Get access, Download, Book now…"
               />
             </div>
-
-        </>
+          </>
+        )}
 
         {(fetcher.data as { error?: string } | undefined)?.error && (
           <p style={{ fontSize: 13, color: "#ef4444" }}>{(fetcher.data as { error: string }).error}</p>

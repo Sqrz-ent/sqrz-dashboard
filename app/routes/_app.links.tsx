@@ -42,7 +42,11 @@ export async function action({ request }: Route.ActionArgs) {
       profile_id: profile.id as string,
       link_slug: fd.get("link_slug") as string,
       is_active: true,
-      page_type: "internal",
+      // External has no hosted page — it's a direct redirect (see the
+      // pageType === "external" branch in sqrz-profiles' app/[slug]/page.tsx).
+      // Previously always "internal" regardless of type, which is what made
+      // External redirect through its own internal-page render path.
+      page_type: externalUrlRaw ? "external" : "internal",
       title: titleVal,
       label: titleVal,
       show_on_profile: fd.get("show_on_profile") === "true",
@@ -87,7 +91,7 @@ export async function action({ request }: Route.ActionArgs) {
     const prefillServiceVal = (fd.get("prefill_service") as string) || null;
     const { error } = await admin.from("private_booking_links").update({
       link_slug: fd.get("link_slug") as string,
-      page_type: "internal",
+      page_type: externalUrlRaw ? "external" : "internal",
       title: titleVal,
       label: titleVal,
       show_on_profile: fd.get("show_on_profile") === "true",
