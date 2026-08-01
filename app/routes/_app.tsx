@@ -59,14 +59,16 @@ export async function loader({ request }: Route.LoaderArgs) {
 // section (the /analytics route, reached via the main dashboard nav). This
 // profile-builder menu is profile setup only.
 // "Links" was removed 2026-08-01 — it now lives as a nav pill inside the Grow
-// tab bar (/analytics) instead of this submenu. Everything else here,
-// including the "Dashboard" label itself, is unchanged — that rename is an
-// explicitly deferred follow-up, not part of this pass.
+// tab bar (/analytics) instead of this submenu. "Domain" was removed
+// 2026-08-01 too — the custom-domain card moved into Account (see
+// _app.account.tsx), folding the whole page in rather than leaving a
+// half-empty destination. Final structure is exactly four: Dashboard,
+// Profile, Business, Account — "Dashboard" itself stays as-is, an
+// explicitly deferred rename from an earlier pass.
 const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
   { to: "/service", label: "Business" },
-  { to: "/domain", label: "Domain" },
   { to: "/account", label: "Account" },
 ];
 

@@ -299,6 +299,21 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  // ── Scheduling widget (Calendly today; scheduling_provider stays a free
+  // string, not an enum, so future providers need no migration) ──────────────
+  if (intent === "update_scheduling") {
+    const url = ((formData.get("scheduling_url") as string) || "").trim();
+    // Clearing the URL clears the provider too — mirrors how the widget fields
+    // on Profile go back to "unset" the moment their value is emptied, and is
+    // what makes sqrz-profiles' SchedulingWidget stop rendering.
+    const provider = url ? ((formData.get("scheduling_provider") as string) || "calendly") : null;
+    const { error } = await supabase.from("profiles").update({
+      scheduling_provider: provider,
+      scheduling_url: url || null,
+    }).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   return Response.json({ ok: false, error: "Unknown intent" }, { headers });
 }
 
@@ -622,6 +637,7 @@ export default function ServicePage() {
   const activeFetcher = useFetcher();
   const reorderFetcher = useFetcher();
   const businessFetcher = useFetcher();
+  const schedulingFetcher = useFetcher();
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -630,6 +646,24 @@ export default function ServicePage() {
   });
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [selectedLegalForm, setSelectedLegalForm] = useState<string>((profile.legal_form as string) ?? "");
+
+  // Scheduling widget — click-to-expand row, same interaction pattern as the
+  // music/video widget fields on the Profile page (this section has no widget
+  // rows of its own yet; copied the pattern rather than inventing a new one).
+  const [schedulingEditing, setSchedulingEditing] = useState(false);
+  const [schedulingProvider, setSchedulingProvider] = useState((profile.scheduling_provider as string) || "calendly");
+  const [schedulingUrl, setSchedulingUrl] = useState((profile.scheduling_url as string) ?? "");
+  const schedulingSet = !!schedulingUrl.trim();
+  const SCHEDULING_PROVIDER_LABELS: Record<string, string> = { calendly: "Calendly" };
+
+  function saveScheduling() {
+    setSchedulingEditing(false);
+    const fd = new FormData();
+    fd.append("intent", "update_scheduling");
+    fd.append("scheduling_provider", schedulingProvider);
+    fd.append("scheduling_url", schedulingUrl);
+    schedulingFetcher.submit(fd, { method: "post" });
+  }
 
   // Keep local state in sync when loader re-runs (after add/delete/edit)
   useEffect(() => {
@@ -764,6 +798,81 @@ export default function ServicePage() {
         >
           + Add Service
         </button>
+      </div>
+
+      {/* Scheduling — link-out widget, same shape as the public SchedulingWidget
+          on sqrz-profiles (already shipped, untouched). Calendly only today;
+          scheduling_provider is a free string, not an enum, so more providers
+          slot in later without a migration or a rework here. */}
+      <div style={card}>
+        <CompletionBadge filled={schedulingSet ? 1 : 0} total={1} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Scheduling</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div>
+            <div
+              onClick={() => !schedulingEditing && setSchedulingEditing(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 0",
+                cursor: schedulingEditing ? "default" : "pointer",
+              }}
+            >
+              <span style={{ fontSize: 18, minWidth: 24 }}>📅</span>
+              <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: schedulingSet ? ACCENT : "var(--text-muted)" }}>
+                  {schedulingSet ? (SCHEDULING_PROVIDER_LABELS[schedulingProvider] ?? schedulingProvider) : "Scheduling link"}
+                </span>
+                {schedulingSet && !schedulingEditing && (
+                  <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{schedulingUrl}</span>
+                )}
+              </div>
+              {!schedulingEditing && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{schedulingSet ? "Edit" : "Add"}</span>
+              )}
+            </div>
+            {schedulingEditing && (
+              <div style={{ padding: "10px 0 14px 34px" }}>
+                <label style={{ ...labelStyle, marginBottom: 6 }}>Provider</label>
+                <select
+                  value={schedulingProvider}
+                  onChange={e => setSchedulingProvider(e.target.value)}
+                  style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer", marginBottom: 10 }}
+                >
+                  <option value="calendly">Calendly</option>
+                </select>
+                <label style={{ ...labelStyle, marginBottom: 6 }}>Link</label>
+                <input
+                  style={inputStyle}
+                  value={schedulingUrl}
+                  onChange={e => setSchedulingUrl(e.target.value)}
+                  placeholder="https://calendly.com/your-handle"
+                  autoFocus
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button
+                    disabled={schedulingFetcher.state !== "idle"}
+                    style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px", opacity: schedulingFetcher.state !== "idle" ? 0.6 : 1 }}
+                    onClick={saveScheduling}
+                  >
+                    {schedulingFetcher.state !== "idle" ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    style={{ padding: "8px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
+                    onClick={() => {
+                      setSchedulingEditing(false);
+                      setSchedulingProvider((profile.scheduling_provider as string) || "calendly");
+                      setSchedulingUrl((profile.scheduling_url as string) ?? "");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div style={card}>

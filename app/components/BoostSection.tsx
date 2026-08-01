@@ -595,7 +595,7 @@ export default function BoostSection({
         )}
         <button
           type="button"
-          onClick={() => navigate("/domain")}
+          onClick={() => navigate("/account")}
           style={{
             display: "inline-flex",
             alignItems: "center",
