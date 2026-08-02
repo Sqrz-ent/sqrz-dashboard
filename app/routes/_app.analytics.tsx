@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { redirect, useFetcher, useLoaderData, useNavigate, useSearchParams } from "react-router";
+import { redirect, useLoaderData, useNavigate, useSearchParams } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -231,31 +231,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const cookieless = aggregateCookieless((rawEvents as RawEvent[]) ?? []);
 
-  // Latest stored advisor run per campaign — rendered immediately on load so a
-  // prior result is just there (no click-to-reveal). One bounded query per
-  // campaign (there are only a handful of live/completed campaigns).
-  const boostIds = ((analytics?.boost_campaigns ?? []) as Array<{ id: string }>).map(
-    (c) => c.id
-  );
-  const advisorRuns: Record<string, unknown> = {};
-  if (boostIds.length > 0) {
-    const runs = await Promise.all(
-      boostIds.map((id) =>
-        admin
-          .from("campaign_advisor_runs")
-          .select("result")
-          .eq("boost_campaign_id", id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      )
-    );
-    boostIds.forEach((id, i) => {
-      const r = runs[i]?.data?.result;
-      if (r) advisorRuns[id] = r;
-    });
-  }
-
   // The Grow page composes BOOST + BETA INVITES sections alongside the analytics
   // RESULTS. Load the same data those standalone routes use, via shared helpers
   // (RLS server client, matching their loaders). Partner data only when a partner.
@@ -267,7 +242,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   ]);
 
   return Response.json(
-    { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner, links },
+    { analytics, cookieless, days, profile, boost, partner, isPartner, links },
     { headers }
   );
 }
@@ -510,178 +485,6 @@ function breakdownToMetrics(data: unknown): { label: string; value: string | nul
   return [{ label: "value", value: String(data) }];
 }
 
-type AdvisorInsight = {
-  type: "working" | "watch" | "action";
-  text: string;
-};
-type AdvisorActionItem = {
-  action: string;
-  reason: string;
-  confidence: "high" | "medium" | "low";
-};
-type AdvisorResponse = {
-  health?: "excellent" | "good" | "mixed" | "needs_attention";
-  summary?: string;
-  insights?: AdvisorInsight[];
-  actions?: AdvisorActionItem[];
-  error?: string;
-};
-
-const HEALTH_META: Record<string, { label: string; color: string; bg: string }> = {
-  excellent: { label: "Excellent", color: "#22c55e", bg: "rgba(34,197,94,0.14)" },
-  good: { label: "Good", color: "#22c55e", bg: "rgba(34,197,94,0.10)" },
-  mixed: { label: "Mixed", color: ACCENT, bg: "rgba(245,166,35,0.14)" },
-  needs_attention: { label: "Needs attention", color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
-};
-const CONFIDENCE_COLOR: Record<string, string> = {
-  high: "#22c55e",
-  medium: ACCENT,
-  low: "var(--text-muted)",
-};
-const INSIGHT_META: Record<string, { icon: string; color: string }> = {
-  working: { icon: "✓", color: "#22c55e" },
-  watch: { icon: "⚠", color: ACCENT },
-  action: { icon: "🔴", color: "#ef4444" },
-};
-
-// AI Advisor card — sits BELOW the raw metric panels: the user reads the stats
-// first, then optionally clicks for interpretation. Manual trigger only — no
-// auto-run, no polling, no caching. Renders the structured advisor response
-// (health badge, working/watch, action cards, warnings, numbered next steps).
-function CampaignAdvisorCard({
-  campaignId,
-  initialResult,
-}: {
-  campaignId: string;
-  initialResult?: AdvisorResponse;
-}) {
-  const fetcher = useFetcher<AdvisorResponse>();
-  const loading = fetcher.state !== "idle";
-  // A stored result renders immediately; once a fresh call returns, its
-  // response takes over. The button below always triggers a new call.
-  const data = fetcher.data ?? initialResult;
-  const hasResult =
-    !!data &&
-    !data.error &&
-    !!(data.summary || data.health || data.insights?.length || data.actions?.length);
-  const health = data?.health ? HEALTH_META[data.health] : null;
-
-  function run() {
-    fetcher.submit(
-      { campaign_id: campaignId },
-      { method: "post", action: "/api/campaign-advisor" }
-    );
-  }
-
-  return (
-    <div
-      style={{
-        background: "var(--surface-muted)",
-        border: `1px solid ${ACCENT}`,
-        borderRadius: 10,
-        padding: "14px 16px",
-        marginTop: 10,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: hasResult || loading ? 12 : 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <span style={{ fontSize: 14 }}>✨</span>
-          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--text)" }}>
-            AI Advisor
-          </span>
-          {!loading && health && (
-            <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 999, background: health.bg, color: health.color, marginLeft: 4 }}>
-              {health.label}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={run}
-          disabled={loading}
-          style={{
-            fontSize: 12,
-            fontWeight: 600,
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "none",
-            background: ACCENT,
-            color: "#fff",
-            cursor: loading ? "default" : "pointer",
-            opacity: loading ? 0.7 : 1,
-            flexShrink: 0,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {loading ? "Analyzing…" : hasResult ? "Refresh insights" : "Get advisor insights"}
-        </button>
-      </div>
-
-      {loading && (
-        <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
-          Reading your campaign numbers…
-        </div>
-      )}
-
-      {!loading && data?.error && (
-        <div style={{ fontSize: 13, color: "#ef4444" }}>
-          Couldn’t generate insights right now. Please try again.
-        </div>
-      )}
-
-      {!loading && hasResult && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {data?.summary && (
-            <div style={{ fontSize: 13, lineHeight: 1.55, color: "var(--text)", whiteSpace: "pre-wrap" }}>
-              {data.summary}
-            </div>
-          )}
-
-          {(data?.insights?.length ?? 0) > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {data!.insights!.map((it, i) => {
-                const meta = INSIGHT_META[it.type] ?? INSIGHT_META.watch;
-                return (
-                  <div key={i} style={{ display: "flex", gap: 7, fontSize: 13, lineHeight: 1.5, color: "var(--text)" }}>
-                    <span style={{ color: meta.color, flexShrink: 0 }}>{meta.icon}</span>
-                    <span>{it.text}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {(data?.actions?.length ?? 0) > 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {data!.actions!.map((a, i) => (
-                <div
-                  key={i}
-                  style={{
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                    padding: "10px 12px",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginBottom: 3 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>{a.action}</div>
-                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: CONFIDENCE_COLOR[a.confidence] ?? "var(--text-muted)", flexShrink: 0, whiteSpace: "nowrap" }}>
-                      {a.confidence} confidence
-                    </span>
-                  </div>
-                  {a.reason && (
-                    <div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.5 }}>{a.reason}</div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // A labelled group of metric rows for a boost campaign — used to keep the
 // two measurement sources (SQRZ site-side vs platform-reported) visually
 // separate. Renders a muted empty state when the source has no data yet.
@@ -758,12 +561,11 @@ function CampaignMetricPanel({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AnalyticsPage() {
-  const { analytics, cookieless, days, profile, advisorRuns, boost, partner, isPartner, links } = useLoaderData() as {
+  const { analytics, cookieless, days, profile, boost, partner, isPartner, links } = useLoaderData() as {
     analytics: AnalyticsData | null;
     cookieless: CookielessMetrics | null;
     days: number;
     profile: Record<string, unknown>;
-    advisorRuns: Record<string, AdvisorResponse>;
     boost: BoostSectionData;
     partner: BetaInviteSectionData | null;
     isPartner: boolean;
@@ -1467,9 +1269,6 @@ export default function AnalyticsPage() {
                         )}
                       </div>
                     )}
-
-                    {/* AI Advisor — below the raw stats: interpretation on demand. */}
-                    <CampaignAdvisorCard campaignId={c.id} initialResult={advisorRuns?.[c.id]} />
                   </div>
                 );
               })}
