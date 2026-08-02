@@ -104,15 +104,34 @@ export async function action({ request }: ActionFunctionArgs) {
       console.log("[webhook] campaign charge received — id:", campaignId, "type:", campaignType);
 
       if (campaignType === "reactivation") {
-        // Flip an exhausted budget back to active. Idempotent: the status guard
-        // makes a duplicate delivery a 0-row no-op.
+        // Unified reactivation ($10): works regardless of WHY the campaign was
+        // inactive (completed-and-archived, or exhausted budget).
+        //   1. Reset boost_campaigns.status → 'pending' (moves it out of the
+        //      Archived lane; pending lands it in No Action Needed on iOS).
+        //      Also record the payment on the row, same as the setup branch.
+        //   2. If the campaign's budget was 'exhausted', flip it back to 'active'
+        //      so pill allocation is allowed against it again — guarded on
+        //      status='exhausted' so it's a no-op when it doesn't apply.
+        // Both writes are idempotent, so a duplicate webhook delivery is safe.
+        const { error: campaignError } = await supabase
+          .from("boost_campaigns")
+          .update({
+            status: "pending",
+            status_updated_at: new Date().toISOString(),
+            stripe_payment_id: paymentIntent,
+            stripe_payment_status: "paid",
+            stripe_mode: stripeMode,
+          })
+          .eq("id", campaignId);
+        if (campaignError) console.error("[webhook] reactivation status reset failed:", campaignError);
+        else console.log("[webhook] campaign reactivated → pending:", campaignId);
+
         const { error: reErr } = await supabase
           .from("campaign_budgets")
           .update({ status: "active", updated_at: new Date().toISOString() })
           .eq("campaign_id", campaignId)
           .eq("status", "exhausted");
-        if (reErr) console.error("[webhook] reactivation status flip failed:", reErr);
-        else console.log("[webhook] campaign reactivated:", campaignId);
+        if (reErr) console.error("[webhook] budget exhausted→active flip failed:", reErr);
       } else {
         // Setup fee → mark the campaign booked (artist adds content next) and
         // create its zero-budget, active campaign_budgets row so allocation has a
