@@ -27,27 +27,22 @@ export type WalletTopupCheckoutResult = {
   checkoutUrl: string | null;
 };
 
-// Stripe standard US-card pricing: 2.9% + 30¢. The EXACT fee is card-dependent
-// (Amex/international higher, +currency conversion) and only knowable AFTER the
-// charge settles (balance_transaction.fee) — there is no accurate number at
-// session-creation time. So this is a deliberately flat, honest estimate shown
-// as its own line, exact for the vast majority of US cards. NOT grossed up (we
-// don't solve for fee-on-the-new-total) — the customer pays base + this, the
-// wallet is credited the base only. Top-up flow ONLY (the $25 setup / $10
-// reactivation charges absorb Stripe's cut rather than showing a fee-on-a-fee).
-export function stripeProcessingFeeCents(baseCents: number): number {
-  return Math.round(baseCents * 0.029) + 30;
+// Flat 15% standard rate (2026-08-03) — commission moved off allocation and
+// onto this Checkout session, since Stripe Checkout only ever handles card
+// payments (wire transfers are a separate, off-platform process with their own
+// pricing, not built here). Must match the hardcoded 15% in record_wallet_topup
+// (the DB function is the actual source of truth for what gets recorded as
+// revenue — this is only what the customer sees at checkout).
+const SQRZ_TOPUP_FEE_PCT = 15;
+
+export function walletTopupFeeCents(baseCents: number): number {
+  return Math.round(baseCents * (SQRZ_TOPUP_FEE_PCT / 100));
 }
 
 export async function createWalletTopupCheckoutSession(
   params: WalletTopupCheckoutParams,
 ): Promise<WalletTopupCheckoutResult> {
-  const dollars = (params.amountCents / 100).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-
-  const feeCents = stripeProcessingFeeCents(params.amountCents);
+  const feeCents = walletTopupFeeCents(params.amountCents);
 
   const session = await stripeClientForMode(params.stripeMode).checkout.sessions.create({
     mode: "payment",
@@ -57,24 +52,22 @@ export async function createWalletTopupCheckoutSession(
           currency: "usd",
           unit_amount: params.amountCents,
           product_data: {
-            name: `SQRZ ad-spend top-up — $${dollars}`,
-            description:
-              "Funds your ad-spend wallet. The SQRZ commission is charged separately when you allocate this to a campaign — not on this top-up.",
+            name: "Wallet Top-Up",
+            description: "Funds your ad-spend wallet in full.",
           },
         },
         quantity: 1,
       },
-      // Transparent pass-through of Stripe's card processing cost, shown as its
-      // own line so the total reads as "top-up + card fee" and it's clear this
-      // part isn't SQRZ's cut. Added to the charge; NOT credited to the wallet.
+      // The SQRZ commission, charged here (not at allocation) so top-up is the
+      // one moment money changes hands. NOT credited to the wallet — recorded
+      // separately as revenue by record_wallet_topup.
       {
         price_data: {
           currency: "usd",
           unit_amount: feeCents,
           product_data: {
-            name: "Card processing fee (2.9% + 30¢)",
-            description:
-              "Passed through from Stripe — this is the card network's processing cost, not a SQRZ fee.",
+            name: "SQRZ Fee",
+            description: `SQRZ management fee (${SQRZ_TOPUP_FEE_PCT}% of the top-up amount).`,
           },
         },
         quantity: 1,
@@ -87,8 +80,9 @@ export async function createWalletTopupCheckoutSession(
     // `type` is how api/stripe/webhook.tsx routes this to the wallet-topup
     // branch (vs the campaign branch, which keys on `campaign_id`). `amount_cents`
     // is the BASE top-up (what the wallet is credited) — deliberately NOT the
-    // charge total, which now also includes the processing-fee line. `source` is
-    // analytics only — never used for gating.
+    // charge total, which also includes the SQRZ Fee line. `source` is
+    // analytics only — never used for gating. record_wallet_topup recomputes
+    // the 15% fee itself server-side rather than trusting a client-passed value.
     metadata: {
       type: "wallet_topup",
       profile_id: params.profileId,

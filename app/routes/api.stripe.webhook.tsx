@@ -181,16 +181,18 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     // ── Standalone ad-spend wallet top-up ────────────────────────────────────
-    // Credits the wallet with the BASE top-up amount. Fee-free now (2026-08-01):
-    // the commission moved to allocation, so record_wallet_topup no longer writes
-    // a management-fee row — it just credits the wallet. Idempotent on
-    // stripe_payment_intent_id (ON CONFLICT DO NOTHING): a duplicate delivery is a
-    // safe no-op (returns null, no error) on top of the insert-first stripe_events
+    // Credits the wallet with the BASE top-up amount. Fee-at-topup (2026-08-03,
+    // superseding the 2026-08-01 allocation-fee pivot): record_wallet_topup both
+    // credits the wallet AND records a flat 15% management_fee_charges row,
+    // linked to this same topup ledger entry — allocate_campaign_budget no
+    // longer charges anything. Idempotent on stripe_payment_intent_id (ON
+    // CONFLICT DO NOTHING): a duplicate delivery is a safe no-op (returns null,
+    // no error, no fee row either) on top of the insert-first stripe_events
     // guard above.
     //
     // Credit metadata.amount_cents (the BASE), NEVER amount_total — the charge
-    // total now also includes the pass-through card-processing-fee line, which
-    // must not land in the wallet.
+    // total now also includes the SQRZ Fee line, which must not land in the
+    // wallet.
     if (session.metadata?.type === "wallet_topup") {
       const profileId = session.metadata.profile_id;
       const amountCents = Number(session.metadata.amount_cents ?? 0);
