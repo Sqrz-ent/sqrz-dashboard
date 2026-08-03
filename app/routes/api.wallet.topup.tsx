@@ -3,6 +3,7 @@ import type { Route } from "./+types/api.wallet.topup";
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { createWalletTopupCheckoutSession } from "~/lib/walletPayments.server";
+import type { StripeMode } from "~/lib/stripe.server";
 
 const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
@@ -68,10 +69,13 @@ export async function action({ request }: Route.ActionArgs) {
       ? body.source
       : isNative ? "ios" : "web";
 
-  // iOS is forced onto Stripe test mode for now, regardless of
-  // profile.stripe_beta_test_mode — web is untouched, always live. See
-  // stripeClientForMode in stripe.server.ts.
-  const stripeMode = isNative ? "test" : "live";
+  // Per-profile beta opt-in, same for web and native — live is the default for
+  // everyone (profile.stripe_beta_test_mode defaults false); a profile only
+  // gets test-mode Stripe if explicitly flagged. Previously this branched on
+  // isNative instead (forcing every native/iOS caller into test regardless of
+  // the flag) — that bypassed the actual config mechanism and is why iOS kept
+  // opening sandbox checkout even after web was confirmed live (2026-08-04 fix).
+  const stripeMode: StripeMode = profile.stripe_beta_test_mode ? "test" : "live";
 
   // iOS: return straight into the app via the existing sqrz:// custom URL
   // scheme (already registered in Info.plist for Stripe Connect's

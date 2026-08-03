@@ -3,6 +3,7 @@ import type { Route } from "./+types/api.campaigns.reactivate";
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { createCampaignCheckoutSession } from "~/lib/campaignPayments.server";
+import type { StripeMode } from "~/lib/stripe.server";
 
 const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
@@ -12,7 +13,8 @@ const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 // event from the allocation commission (the two are never bundled). On payment
 // the webhook flips campaign_budgets.status exhausted→active; only then does the
 // client allow pill allocation against it again. Dual-auth (cookie web + Bearer
-// native); iOS is forced to Stripe test mode and gets a sqrz:// deep-link return.
+// native); native gets a sqrz:// deep-link return. Stripe mode is the per-profile
+// stripe_beta_test_mode flag (live by default), same as web — not gated on auth channel.
 export async function action({ request }: Route.ActionArgs) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -62,7 +64,9 @@ export async function action({ request }: Route.ActionArgs) {
   }
 
   const REACTIVATION_FEE = 10;
-  const stripeMode = isNative ? "test" : "live";
+  // Per-profile beta opt-in, same for web and native — see api/wallet/topup.tsx
+  // for the full 2026-08-04 fix rationale (previously hardcoded on isNative).
+  const stripeMode: StripeMode = profile.stripe_beta_test_mode ? "test" : "live";
 
   const successUrl = isNative
     ? "sqrz://checkout-return?status=success"

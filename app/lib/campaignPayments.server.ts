@@ -15,9 +15,9 @@ export type CampaignCheckoutParams = {
   customerEmail?: string;
   clientReferenceId: string;
   metadata: Record<string, string>;
-  // Which Stripe environment creates this session — iOS is forced to "test"
-  // regardless of profile.stripe_beta_test_mode; web always passes "live".
-  // See api/campaigns/checkout.tsx.
+  // Which Stripe environment creates this session — the caller's
+  // profiles.stripe_beta_test_mode flag, same for web and native (default
+  // false = live). See api/campaigns/checkout.tsx + api/campaigns/reactivate.tsx.
   stripeMode: StripeMode;
 };
 

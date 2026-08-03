@@ -12,10 +12,14 @@ export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 });
 
 // ─── Test-mode client ───────────────────────────────────────────────────────
-// Backs the wallet/campaign-checkout live/test split (see walletPayments.server.ts
-// + campaignPayments.server.ts): iOS is currently forced onto test-mode Stripe
-// sessions for wallet top-up + Start Campaign checkout, regardless of
-// profile.stripe_beta_test_mode — web is untouched and always uses `stripe` above.
+// Backs the wallet-topup / campaign-checkout / reactivation live/test split (see
+// walletPayments.server.ts + campaignPayments.server.ts): stripeClientForMode is
+// selected per-profile via profiles.stripe_beta_test_mode (default false = live
+// for everyone, web and native alike — see api/wallet/topup.tsx). Until
+// 2026-08-04 these three routes instead hardcoded test mode for every native
+// (Bearer-auth/iOS) caller regardless of that flag, which is why iOS kept
+// opening sandbox checkout even after web was confirmed live — not an
+// environment/deployment mismatch, just this bypass.
 // A session created with this client automatically renders Stripe's hosted
 // Checkout in test mode (test card entry, test banner) — no other code needed
 // to "enable" that, it's inherent to which secret key created the session.

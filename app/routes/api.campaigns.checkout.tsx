@@ -3,6 +3,7 @@ import type { Route } from "./+types/api.campaigns.checkout";
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { createCampaignCheckoutSession } from "~/lib/campaignPayments.server";
+import type { StripeMode } from "~/lib/stripe.server";
 
 const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
@@ -59,10 +60,9 @@ export async function action({ request }: Route.ActionArgs) {
   // charge — SQRZ absorbs Stripe's cut here (see walletPayments.server.ts).
   const SETUP_FEE = 25;
 
-  // iOS is forced onto Stripe test mode for now, regardless of
-  // profile.stripe_beta_test_mode — web is untouched, always live. See
-  // stripeClientForMode in stripe.server.ts.
-  const stripeMode = isNative ? "test" : "live";
+  // Per-profile beta opt-in, same for web and native — see api/wallet/topup.tsx
+  // for the full 2026-08-04 fix rationale (previously hardcoded on isNative).
+  const stripeMode: StripeMode = profile.stripe_beta_test_mode ? "test" : "live";
 
   // iOS: return straight into the app via the existing sqrz:// custom URL
   // scheme (already registered in Info.plist for Stripe Connect's

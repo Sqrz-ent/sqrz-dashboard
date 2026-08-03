@@ -14,9 +14,9 @@ export type WalletTopupCheckoutParams = {
   amountCents: number;
   profileId: string;
   source: "web" | "ios";
-  // Which Stripe environment creates this session — iOS is forced to "test"
-  // regardless of profile.stripe_beta_test_mode; web always passes "live".
-  // See api/wallet/topup.tsx.
+  // Which Stripe environment creates this session — the caller's
+  // profiles.stripe_beta_test_mode flag, same for web and native (default
+  // false = live). See api/wallet/topup.tsx.
   stripeMode: StripeMode;
   customerEmail?: string;
   successUrl: string;
