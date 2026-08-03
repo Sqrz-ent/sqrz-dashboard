@@ -84,9 +84,6 @@ Deno.serve(async (req: Request) => {
   const dealName = [isGrow ? "Grow" : "Boost", artistName, goalLabel].filter(Boolean).join(" — ");
 
   // Plain-text description — a human-readable reference block (no custom props).
-  // amount below is the ad spend (budget_amount) for both types; the pricing
-  // model differs (Grow = 20% management fee, Boost = flat activation fee), so
-  // it's spelled out here rather than baked into amount.
   const channelList = Array.isArray(record.channels) ? (record.channels as string[]) : [];
   const channelText = channelList.length ? channelList.join(", ") : (record.channel as string | null) ?? "";
   const descriptionLines = [
@@ -103,11 +100,18 @@ Deno.serve(async (req: Request) => {
   const description = descriptionLines.join("\n");
 
   // Default HubSpot deal properties only.
+  //
+  // `amount` is deliberately NOT set here (2026-08-03) — pricing moved to the
+  // wallet allocation flow, so budget_amount is never populated at creation
+  // anymore and writing it here would permanently stale `amount` at 0 (or
+  // worse, CLOBBER the allocation-driven running total on every unrelated
+  // boost_campaigns update, since this trigger fires on ALL of them, not just
+  // status changes). hubspot-sync-campaign-budget owns `amount` now, updating
+  // it at every allocation event instead — see that function's header comment.
   const dealProperties: Record<string, string | number> = {
     dealname: dealName,
     dealstage: dealStage,
     pipeline: BOOST_PIPELINE_ID,
-    amount: record.budget_amount ? Number(record.budget_amount) : 0,
     deal_currency_code: ((record.budget_currency as string) ?? "USD").toUpperCase(),
     description,
   };
