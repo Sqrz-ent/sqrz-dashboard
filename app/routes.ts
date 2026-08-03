@@ -42,6 +42,8 @@ export default [
   route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
   // Reactivate an exhausted campaign ($10 Stripe checkout)
   route("api/campaigns/reactivate", "routes/api.campaigns.reactivate.tsx"),
+  // On-demand single-campaign Meta + SQRZ-native stats refresh
+  route("api/campaigns/refresh-stats", "routes/api.campaigns.refresh-stats.tsx"),
 
   // Grow ad-spend wallet top-up (web + iOS, same Stripe flow)
   route("api/wallet/topup", "routes/api.wallet.topup.tsx"),
