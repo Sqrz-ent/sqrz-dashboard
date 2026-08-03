@@ -81,7 +81,14 @@ Deno.serve(async (req: Request) => {
   const goalRaw = (record.goal as string) ?? "";
   const goalLabel = GOAL_LABELS[goalRaw] ?? goalRaw;
 
-  const dealName = [isGrow ? "Grow" : "Boost", artistName, goalLabel].filter(Boolean).join(" — ");
+  // Campaign naming became required at creation 2026-08-03, so prefer the
+  // user's own name for dealname — falls back to the old composed
+  // "Boost/Grow — artist — goal" name for legacy rows that predate it
+  // (name null/blank), so nothing breaks on those.
+  const campaignName = (record.name as string | null)?.trim();
+  const dealName = campaignName
+    ? campaignName
+    : [isGrow ? "Grow" : "Boost", artistName, goalLabel].filter(Boolean).join(" — ");
 
   // Plain-text description — a human-readable reference block (no custom props).
   const channelList = Array.isArray(record.channels) ? (record.channels as string[]) : [];
