@@ -1,0 +1,31 @@
+-- Re-enables on_boost_campaign_hubspot_sync, left disabled by
+-- 20260804_fix_hubspot_deal_sync_duplication.sql pending verification.
+--
+-- Verified before this migration:
+-- 1. Column scoping, against real trigger-firing behavior (rolled-back
+--    transaction, trigger temporarily re-enabled inside it only): touching an
+--    unscoped column (stat_impressions) queued 0 hubspot-sync-deal jobs;
+--    touching a scoped column (notes) queued exactly 1, with the new
+--    wake-up-signal-only payload `{"type":"UPDATE","record":{"id":...}}`.
+-- 2. The deployed edge function's PATCH branch, against a real existing deal
+--    (id 63453024335, "Winter Reservation Push") — re-fetched fresh state,
+--    PATCHed successfully, created no new deal (confirmed still exactly 1 deal
+--    with that name afterward).
+-- 3. The deployed edge function's claim-conflict-skip branch, against a
+--    disposable test campaign pre-set to hubspot_sync_status = 'creating'
+--    (simulating a claim already held by another in-flight invocation) —
+--    returned 200 "Sync already in progress" and made zero calls to HubSpot
+--    (confirmed no deal was created), row's hubspot_deal_id/hubspot_sync_status
+--    left untouched. Test row deleted after.
+--
+-- Not independently re-tested here (relies on standard Postgres MVCC/row-level
+-- locking guarantees rather than a forced live two-invocation race, since doing
+-- so would require creating at least one more real HubSpot deal with no way to
+-- delete it via the tools available): that the atomic
+-- `UPDATE ... WHERE hubspot_deal_id IS NULL AND hubspot_sync_status IS NULL`
+-- claim itself is race-safe under true concurrency. That's bedrock ACID
+-- behavior (a conditional UPDATE against a single row is always atomic — a
+-- second concurrent UPDATE targeting the same row blocks until the first
+-- commits, then re-evaluates its WHERE clause against the now-committed state),
+-- not custom logic specific to this function.
+alter table public.boost_campaigns enable trigger on_boost_campaign_hubspot_sync;
