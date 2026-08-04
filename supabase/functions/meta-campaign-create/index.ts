@@ -439,11 +439,19 @@ Deno.serve(async (req) => {
     }
 
     // 2) Campaign (PAUSED, no special ad category applies but the field is required)
+    //
+    // is_adset_budget_sharing_enabled: false — confirmed required by Meta as of
+    // this API version whenever the campaign has no campaign-level (CBO) budget
+    // (subcode 4834011 otherwise: "Must specify True or False ... if you are
+    // not using campaign budget"). SQRZ's model is individual ad-set-level
+    // budgets (campaign_budgets.allocated_cents per campaign, no shared pool),
+    // so this is always false, never a per-campaign choice.
     const campaignRes = await metaPost(`${acct.ad_account_id}/campaigns`, token, {
       name: campaignName,
       objective,
       status: "PAUSED",
       special_ad_categories: [],
+      is_adset_budget_sharing_enabled: false,
     });
     created.campaign = campaignRes.id as string;
 
