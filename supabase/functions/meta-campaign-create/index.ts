@@ -476,15 +476,29 @@ Deno.serve(async (req) => {
       lifetime_budget: String(floorLifetime),
       start_time: startTime,
       end_time: endTime,
-      // Meta requires the ad set to declare who's being promoted (subcode
-      // 3858081, "No advertiser indicated" otherwise) — every ad this app
-      // creates is Page-anchored (object_story_spec.page_id below), so
-      // page_id is the correct shape for all three objectives SQRZ uses
-      // (OUTCOME_TRAFFIC/AWARENESS/ENGAGEMENT), not just LINK_CLICKS.
-      // Confirmed against the live API: omitting this fails with 3858081
-      // regardless of bid_strategy being present; adding it clears that
-      // error entirely.
+      // promoted_object alone does NOT clear Meta's "No advertiser indicated"
+      // (subcode 3858081) for this account — a live retest with promoted_object
+      // present still failed, this time with error_data.blame_field_specs
+      // pointing at dsa_beneficiary/dsa_payor. That's Meta's EU Digital
+      // Services Act ad-transparency requirement (SQRZ GmbH is EU-based),
+      // triggered by "worldwide" targeting including the EU. page_id is still
+      // required and correct (every ad here is Page-anchored via
+      // object_story_spec.page_id below) but is not sufficient on its own.
       promoted_object: { page_id: resolvedPageId },
+      // dsa_beneficiary = who's being promoted (the artist); dsa_payor = who's
+      // financially responsible for the spend (always SQRZ — the shared ad
+      // account/wallet, never the artist's own Meta identity).
+      dsa_beneficiary: displayName,
+      dsa_payor: "SQRZ",
+      // Clearing DSA surfaced the next regional requirement in turn: Taiwan's
+      // and then Singapore's "universal ads declaration" (subcodes 3858498 /
+      // 3858550), both required because targeting is worldwide. Confirmed via
+      // live testing that both together clear regional validation entirely
+      // for this account today — Meta may add more regulated regions over
+      // time, in which case a real run will surface the next one the same way
+      // (full error detail is captured — see formatMetaError) rather than
+      // fail silently.
+      regional_regulated_categories: ["TAIWAN_UNIVERSAL", "SINGAPORE_UNIVERSAL"],
       targeting: {
         geo_locations: { location_types: ["home", "recent"], country_groups: ["worldwide"] },
         targeting_automation: { advantage_audience: 1 },
