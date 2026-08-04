@@ -469,10 +469,22 @@ Deno.serve(async (req) => {
       campaign_id: created.campaign,
       status: "PAUSED",
       billing_event: "IMPRESSIONS",
+      // Fully automatic bidding: no bid amount / ROAS floor, matching SQRZ's
+      // Advantage+ V1 posture where users do not manage ad-tech controls.
+      bid_strategy: "LOWEST_COST_WITHOUT_CAP",
       optimization_goal: optimizationGoalFor(objective),
       lifetime_budget: String(floorLifetime),
       start_time: startTime,
       end_time: endTime,
+      // Meta requires the ad set to declare who's being promoted (subcode
+      // 3858081, "No advertiser indicated" otherwise) — every ad this app
+      // creates is Page-anchored (object_story_spec.page_id below), so
+      // page_id is the correct shape for all three objectives SQRZ uses
+      // (OUTCOME_TRAFFIC/AWARENESS/ENGAGEMENT), not just LINK_CLICKS.
+      // Confirmed against the live API: omitting this fails with 3858081
+      // regardless of bid_strategy being present; adding it clears that
+      // error entirely.
+      promoted_object: { page_id: resolvedPageId },
       targeting: {
         geo_locations: { location_types: ["home", "recent"], country_groups: ["worldwide"] },
         targeting_automation: { advantage_audience: 1 },
