@@ -93,6 +93,38 @@ function ctaFor(ctaType: string | null): string {
 
 // ── Meta HTTP helpers (token in the Authorization header, never the query) ─────
 
+// Meta's error object carries far more than `message` — error_user_title/
+// error_user_msg are the human-readable "what's actually wrong" (e.g.
+// "FileTypeNotSupported" / "The type of file is not supported."), and
+// code/error_subcode/fbtrace_id are what you need to look it up or hand to
+// Meta support. The old error handling here discarded all of that and kept
+// only `message`, which is why a real adimages failure surfaced as nothing
+// more than "400 Invalid parameter" in meta_sync_error — technically the
+// message field, but useless for diagnosing which parameter or why.
+type MetaError = {
+  message?: string;
+  type?: string;
+  code?: number;
+  error_subcode?: number;
+  error_user_title?: string;
+  error_user_msg?: string;
+  fbtrace_id?: string;
+};
+
+function formatMetaError(err: MetaError | undefined): string {
+  if (!err) return "";
+  const detail = [err.message, err.error_user_title, err.error_user_msg]
+    .filter(Boolean)
+    .join(" — ");
+  const meta = [
+    err.type ? `type=${err.type}` : null,
+    err.code !== undefined ? `code=${err.code}` : null,
+    err.error_subcode !== undefined ? `subcode=${err.error_subcode}` : null,
+    err.fbtrace_id ? `fbtrace_id=${err.fbtrace_id}` : null,
+  ].filter(Boolean).join(" ");
+  return [detail, meta ? `(${meta})` : null].filter(Boolean).join(" ");
+}
+
 async function metaGet(
   path: string,
   token: string,
@@ -104,9 +136,9 @@ async function metaGet(
     headers: { Authorization: `Bearer ${token}` },
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const err = body.error as { message?: string } | undefined;
+  const err = body.error as MetaError | undefined;
   if (!res.ok || err) {
-    throw new Error(`GET ${path} → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+    throw new Error(`GET ${path} → ${res.status}${err ? ` ${formatMetaError(err)}` : ""}`);
   }
   return body;
 }
@@ -130,9 +162,9 @@ async function metaPost(
     body: form.toString(),
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const err = body.error as { message?: string } | undefined;
+  const err = body.error as MetaError | undefined;
   if (!res.ok || err) {
-    throw new Error(`POST ${path} → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+    throw new Error(`POST ${path} → ${res.status}${err ? ` ${formatMetaError(err)}` : ""}`);
   }
   return body;
 }
@@ -209,17 +241,29 @@ async function uploadImage(acct: AdAccount, assetUrl: string): Promise<string> {
   if (!assetRes.ok) throw new Error(`fetch creative asset → ${assetRes.status}`);
   const blob = await assetRes.blob();
 
+  // Meta's /adimages endpoint determines file type from the multipart part's
+  // filename EXTENSION — not the Content-Type header, not the actual bytes.
+  // Confirmed directly against the live API: the identical bytes, posted
+  // with an extensionless filename ("creative"), were rejected with
+  // error_user_title "FileTypeNotSupported"; reposting the same bytes with
+  // "creative.jpg" succeeded and returned a real hash. Derive the extension
+  // from the asset URL (stripping the query string) rather than hardcoding
+  // ".jpg", since campaign-creative isn't JPEG-only at the bucket level.
+  const cleanPath = assetUrl.split("?")[0];
+  const ext = cleanPath.includes(".") ? cleanPath.split(".").pop()! : "jpg";
+  const filename = `creative.${ext}`;
+
   const form = new FormData();
-  form.append("filename", blob, "creative");
+  form.append("filename", blob, filename);
   const res = await fetch(`${GRAPH}/${acct.ad_account_id}/adimages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${acct.system_user_token}` },
     body: form,
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const err = body.error as { message?: string } | undefined;
+  const err = body.error as MetaError | undefined;
   if (!res.ok || err) {
-    throw new Error(`adimages → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+    throw new Error(`adimages → ${res.status}${err ? ` ${formatMetaError(err)}` : ""}`);
   }
   // Shape: { images: { <filename>: { hash, url } } }
   const images = body.images as Record<string, { hash?: string }> | undefined;
