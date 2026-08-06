@@ -5,8 +5,9 @@ const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
-// TODO: swap in the real TestFlight invite link (e.g. https://testflight.apple.com/join/XXXXXXXX).
-const TESTFLIGHT_URL = "#";
+// KNOWN FOLLOW-UP: this is the TestFlight invite link, not permanent — swap
+// to the App Store listing URL once SQRZ ships out of TestFlight.
+const TESTFLIGHT_URL = "https://testflight.apple.com/join/qSyFdnSd";
 
 const FEATURES = [
   { icon: "💬", label: "Live Chat" },

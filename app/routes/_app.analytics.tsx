@@ -8,11 +8,11 @@ const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
-// TODO: swap in the real HubSpot meeting scheduler link for planning a large /
-// managed multi-channel campaign (boost_campaigns.is_managed = true, wire
-// transfer — see BoostView.swift / _app.boost.tsx's old request_managed intent
-// on iOS/the pre-collapse web flow for that path's shape).
-const HUBSPOT_SCHEDULER_URL = "#";
+// HubSpot meeting scheduler for planning a large/managed multi-channel
+// campaign (boost_campaigns.is_managed = true, wire transfer — see
+// BoostView.swift / _app.boost.tsx's old request_managed intent on iOS/the
+// pre-collapse web flow for that path's shape).
+const HUBSPOT_SCHEDULER_URL = "https://meetings.hubspot.com/willvilla/sqrz-grow-discovery-call";
 
 // The Grow section (post-reframe, 2026-08-06): web dashboard is maintenance-
 // mode back office, iOS is primary. Self-serve Boost creation, the ad-spend
