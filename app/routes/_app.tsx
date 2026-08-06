@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { redirect, Outlet, useLoaderData, NavLink, Link, useFetcher, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
-import { NotificationList, type NotificationRow } from "~/components/NotificationList";
-import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import OnboardingModal from "~/components/OnboardingModal";
@@ -11,7 +9,6 @@ import PartnerInviteBanner from "~/components/PartnerInviteBanner";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
-  const admin = createSupabaseAdminClient();
 
   const {
     data: { user },
@@ -29,22 +26,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect('/');
   }
 
-  // Unread notifications badge count for the nav bell.
-  let unreadNotifications = 0;
-  if (profile) {
-    const { count } = await admin
-      .from("notifications")
-      .select("id", { count: "exact", head: true })
-      .eq("profile_id", profile.id as string)
-      .is("read_at", null);
-    unreadNotifications = count ?? 0;
-  }
-
   return Response.json(
     {
       user,
       profile,
-      unreadNotifications,
       isPartner: !!(profile?.is_partner as boolean | null),
       partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
       partnerInvitedAt: (profile?.partner_invited_at as string | null) ?? null,
@@ -72,8 +57,8 @@ const topNavItems = [
   { to: "/account", label: "Account" },
 ];
 
-// "Analytics" → "Grow": the /analytics route is now a 4-tab page (Campaigns /
-// Results / Invites / Get the App). Route path kept as /analytics.
+// "Analytics" → "Grow": the /analytics route is now a static promo page
+// (2026-08-06 collapse — see _app.analytics.tsx). Route path kept as /analytics.
 //
 // Bottom-nav "Profile" (2026-08-01) is the internal dashboard/profile-editing
 // home (`/`) — distinct from `fourthNav`'s "Preview" below, which is the
@@ -89,7 +74,7 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, unreadNotifications, isPartner, partnerInviteStatus, partnerInvitedAt } =
+  const { user, profile, isPartner, partnerInviteStatus, partnerInvitedAt } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
@@ -103,68 +88,6 @@ export default function AppLayout() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  // ── Notifications bell popover ────────────────────────────────────────────
-  // Anchored dropdown under the bell (same small panel on every screen size).
-  // The panel is rendered through a portal to document.body so it escapes the sticky nav's overflow clip — the nav sets
-  // overflowX:auto, which forces overflow-y to auto too and would otherwise clip
-  // this dropdown to a thin sliver regardless of z-index. Position is fixed and
-  // anchored to the bell via getBoundingClientRect().
-  // Data is loaded from the existing /notifications route loader via fetcher —
-  // no duplicated query. Rows render through the shared NotificationList.
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [notifAnchor, setNotifAnchor] = useState<{ top: number; right: number } | null>(null);
-  const notifBellRef = useRef<HTMLButtonElement>(null);
-  const notifPopoverRef = useRef<HTMLDivElement>(null);
-  const notifFetcher = useFetcher<{ notifications: NotificationRow[] }>();
-  const NOTIF_POPOVER_LIMIT = 6;
-
-  // Position the panel just below the bell, right-aligned to it.
-  function positionNotifPopover() {
-    const rect = notifBellRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setNotifAnchor({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
-  }
-
-  // Load (or refresh) the list and position the panel each time it opens.
-  useEffect(() => {
-    if (!notifOpen) return;
-    positionNotifPopover();
-    if (notifFetcher.state === "idle") {
-      notifFetcher.load("/notifications");
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notifOpen]);
-
-  // Close on click-outside or Escape — neither navigates. Reposition on
-  // scroll/resize so the fixed panel stays anchored to the bell.
-  useEffect(() => {
-    if (!notifOpen) return;
-    function onPointerDown(e: MouseEvent) {
-      const target = e.target as Node;
-      if (
-        notifPopoverRef.current?.contains(target) ||
-        notifBellRef.current?.contains(target)
-      ) return;
-      setNotifOpen(false);
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setNotifOpen(false);
-    }
-    const reposition = () => positionNotifPopover();
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    window.addEventListener("resize", reposition);
-    window.addEventListener("scroll", reposition, true);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("resize", reposition);
-      window.removeEventListener("scroll", reposition, true);
-    };
-  }, [notifOpen]);
-
-  const notifItems = (notifFetcher.data?.notifications ?? []).slice(0, NOTIF_POPOVER_LIMIT);
 
   useEffect(() => {
     if (p !== null && p.onboarding_completed === false) {
@@ -205,13 +128,11 @@ export default function AppLayout() {
   const workModeRoutes = ["/office"];
   const isWorkMode = workModeRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
-  // Grow (/analytics) has its own internal tab row (Campaigns/Results/Invites/
-  // Links) — the unrelated Profile-area submenu (Dashboard/Profile/Business/
-  // Domain/Account) shouldn't stack above it. Deliberately separate from
-  // isWorkMode: reusing that would also swap in the "← Back" + title work-mode
-  // header, which wasn't asked for and doesn't make sense here (Grow's tabs are
-  // already its own navigation). Logo + notifications bell stay — only the
-  // submenu links are hidden.
+  // Grow (/analytics) is a standalone promo page — the unrelated Profile-area
+  // submenu (Dashboard/Profile/Business/Domain/Account) shouldn't show above
+  // it. Deliberately separate from isWorkMode: reusing that would also swap
+  // in the "← Back" + title work-mode header, which wasn't asked for and
+  // doesn't make sense here. Logo stays — only the submenu links are hidden.
   const hideTopSubmenuRoutes = ["/analytics"];
   const hideTopSubmenu = hideTopSubmenuRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
@@ -352,104 +273,6 @@ export default function AppLayout() {
           )}
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-            {/* Notifications bell + unread badge — toggles an anchored popover */}
-            <div style={{ position: "relative" }}>
-              <button
-                ref={notifBellRef}
-                type="button"
-                onClick={() => setNotifOpen((v) => !v)}
-                aria-label="Notifications"
-                aria-haspopup="dialog"
-                aria-expanded={notifOpen}
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: 32,
-                  height: 32,
-                  borderRadius: 8,
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: 16,
-                  background: notifOpen ? "rgba(245,166,35,0.12)" : "transparent",
-                }}
-              >
-                🔔
-                {(unreadNotifications as number) > 0 && (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      right: 0,
-                      minWidth: 15,
-                      height: 15,
-                      borderRadius: 999,
-                      background: "#F5A623",
-                      color: "#111111",
-                      fontSize: 9,
-                      fontWeight: 800,
-                      lineHeight: "15px",
-                      textAlign: "center",
-                      padding: "0 3px",
-                    }}
-                  >
-                    {(unreadNotifications as number) > 99 ? "99+" : (unreadNotifications as number)}
-                  </span>
-                )}
-              </button>
-
-              {notifOpen && notifAnchor && createPortal(
-                <div
-                  ref={notifPopoverRef}
-                  role="dialog"
-                  aria-label="Notifications"
-                  style={{
-                    position: "fixed",
-                    top: notifAnchor.top,
-                    right: notifAnchor.right,
-                    width: 340,
-                    maxWidth: "calc(100vw - 24px)",
-                    maxHeight: "min(70vh, 480px)",
-                    display: "flex",
-                    flexDirection: "column",
-                    background: "var(--surface)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 14,
-                    boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
-                    zIndex: 2147483000,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ overflowY: "auto", padding: "2px 16px" }}>
-                    {notifFetcher.state === "loading" && !notifFetcher.data ? (
-                      <div style={{ color: "var(--text-muted)", fontSize: 14, textAlign: "center", padding: "32px 0" }}>
-                        Loading…
-                      </div>
-                    ) : (
-                      <NotificationList notifications={notifItems} onNavigate={() => setNotifOpen(false)} />
-                    )}
-                  </div>
-                  <Link
-                    to="/notifications"
-                    onClick={() => setNotifOpen(false)}
-                    style={{
-                      display: "block",
-                      textAlign: "center",
-                      padding: "12px 16px",
-                      borderTop: "1px solid var(--border)",
-                      fontSize: 13,
-                      fontWeight: 700,
-                      color: "#F5A623",
-                      textDecoration: "none",
-                    }}
-                  >
-                    See all
-                  </Link>
-                </div>,
-                document.body
-              )}
-            </div>
             {!!p?.is_beta && (
               <span style={{
                 background: "var(--accent, #F5A623)",

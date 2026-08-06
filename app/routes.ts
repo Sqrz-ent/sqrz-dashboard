@@ -35,9 +35,6 @@ export default [
   route("api/messaging/stream-inquiry-keep-active", "routes/api.messaging.stream-inquiry-keep-active.ts"),
   route("api/dashboard/home-summary", "routes/api.dashboard.home-summary.ts"),
 
-  // Links API
-  route("api/links/:linkId/leads-csv", "routes/api.links.$linkId.leads-csv.tsx"),
-
   // Campaign checkout (unified Boost + Grow)
   route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
   // Reactivate an exhausted campaign ($10 Stripe checkout)
