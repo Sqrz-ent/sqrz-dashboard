@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useNavigate, useRevalidator } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useRevalidator } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
@@ -122,29 +122,16 @@ export default function AppLayout() {
   }, [isNavigating]);
 
   const location = useLocation();
-  const navigate = useNavigate();
   const pathname = location.pathname;
-
-  const workModeRoutes = ["/office"];
-  const isWorkMode = workModeRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
   // Grow (/analytics) is a standalone promo page — the unrelated Profile-area
   // submenu (Dashboard/Profile/Business/Domain/Account) shouldn't show above
-  // it. Deliberately separate from isWorkMode: reusing that would also swap
-  // in the "← Back" + title work-mode header, which wasn't asked for and
-  // doesn't make sense here. Logo stays — only the submenu links are hidden.
+  // it. Logo stays — only the submenu links are hidden. Office used to get
+  // its own minimal "← Back" work-mode header instead of this nav entirely;
+  // removed 2026-08-07 — the standard nav already handles wayfinding, no
+  // page-specific treatment needed.
   const hideTopSubmenuRoutes = ["/analytics"];
   const hideTopSubmenu = hideTopSubmenuRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
-
-  // Derive work mode title + breadcrumb from pathname
-  function getWorkModeTitle(): { title: string; breadcrumb: string | null } {
-    if (pathname === "/invites" || pathname === "/partners") return { title: "Beta Invites", breadcrumb: null };
-    if (pathname === "/invite-onboarding" || pathname === "/partner-onboarding") return { title: "Beta Invites", breadcrumb: null };
-    if (pathname.startsWith("/office/")) return { title: "Booking Detail", breadcrumb: "Office" };
-    if (pathname === "/office") return { title: "Office", breadcrumb: null };
-    return { title: "Dashboard", breadcrumb: null };
-  }
-  const { title: workTitle, breadcrumb } = getWorkModeTitle();
 
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
@@ -220,25 +207,24 @@ export default function AppLayout() {
         />
       </div>
 
-      {/* ── Top nav — dashboard mode ─────────────────────────────────────────── */}
-      {!isWorkMode && (
-        <nav
-          className="flex"
-          style={{
-            alignItems: "center",
-            gap: 16,
-            padding: "0 16px",
-            height: 56,
-            borderBottom: "1px solid var(--border)",
-            position: "sticky",
-            top: 0,
-            background: "var(--bg)",
-            zIndex: 10,
-            width: "100vw",
-            maxWidth: "100vw",
-            overflowX: "auto",
-          }}
-        >
+      {/* ── Top nav ──────────────────────────────────────────────────────────── */}
+      <nav
+        className="flex"
+        style={{
+          alignItems: "center",
+          gap: 16,
+          padding: "0 16px",
+          height: 56,
+          borderBottom: "1px solid var(--border)",
+          position: "sticky",
+          top: 0,
+          background: "var(--bg)",
+          zIndex: 10,
+          width: "100vw",
+          maxWidth: "100vw",
+          overflowX: "auto",
+        }}
+      >
           <img
             src="/sqrz-logo.png"
             alt="SQRZ"
@@ -289,62 +275,7 @@ export default function AppLayout() {
               </span>
             )}
           </div>
-        </nav>
-      )}
-
-      {/* ── Minimal header — work mode ───────────────────────────────────────── */}
-      {isWorkMode && (
-        <header
-          style={{
-            display: "flex",
-            alignItems: "center",
-            height: 56,
-            padding: "0 16px",
-            borderBottom: "1px solid var(--border)",
-            position: "sticky",
-            top: 0,
-            background: "var(--bg)",
-            zIndex: 10,
-          }}
-        >
-          {/* Left — back */}
-          <div style={{ display: "flex", alignItems: "center", minWidth: 80 }}>
-            <button
-              onClick={() => navigate(-1)}
-              aria-label="Back"
-              style={{
-                background: "none",
-                border: "none",
-                color: "var(--text-muted)",
-                fontSize: 13,
-                cursor: "pointer",
-                padding: "4px 6px",
-                lineHeight: 1,
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-              }}
-            >
-              ← Back
-            </button>
-          </div>
-
-          {/* Center — page title */}
-          <div style={{ flex: 1, textAlign: "center" }}>
-            <span style={{
-              fontSize: 15,
-              fontWeight: 700,
-              color: "var(--text)",
-              letterSpacing: "0.01em",
-            }}>
-              {workTitle}
-            </span>
-          </div>
-
-          {/* Right — spacer (balances the back button, keeps the title centered) */}
-          <div style={{ minWidth: 80 }} />
-        </header>
-      )}
+      </nav>
 
       {/* ── Compliance warning banner ────────────────────────────────────────── */}
       {showComplianceBanner && (

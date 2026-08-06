@@ -198,11 +198,22 @@ export async function loader({ request }: Route.LoaderArgs) {
     .map((r) => r.name as string | null)
     .filter((n): n is string => !!n);
 
+  // Shopping — up to 4 products for the shopify/gumroad shop_provider modes
+  // (soundee_url covers the soundee mode instead). RLS on shop_products
+  // correctly joins profiles.user_id (unlike profile_services' owner policy),
+  // so the RLS-scoped client works fine here, no admin client needed.
+  const { data: shopProducts } = await supabase
+    .from("shop_products")
+    .select("id, title, image_url, price, currency, buy_url, position")
+    .eq("profile_id", profile.id as string)
+    .order("position", { ascending: true });
+
   return Response.json(
     {
       profile,
       services: services ?? [],
       countries,
+      shopProducts: shopProducts ?? [],
     },
     { headers }
   );
@@ -316,8 +327,80 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
+  // ── Shopping (profiles.shop_provider: null|'soundee'|'shopify'|'gumroad') ──
+  // Mirrors sqrz-ios's BusinessView: one provider select + conditional
+  // content — soundee_url for "soundee", up to 4 shop_products rows for
+  // "shopify"/"gumroad". Switching providers never deletes the other mode's
+  // data (soundee_url / shop_products just sit unused), matching iOS.
+  if (intent === "update_shop") {
+    const provider = ((formData.get("shop_provider") as string) || "") || null;
+    const update: Record<string, unknown> = { shop_provider: provider };
+    if (provider === "soundee") {
+      update.soundee_url = ((formData.get("soundee_url") as string) || "").trim() || null;
+    }
+    const { error } = await supabase.from("profiles").update(update).eq("id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "add_shop_product") {
+    const title = (formData.get("title") as string)?.trim();
+    const buyUrl = (formData.get("buy_url") as string)?.trim();
+    if (!title || !buyUrl) {
+      return Response.json({ ok: false, error: "Title and Buy URL are required" }, { headers });
+    }
+    const { count } = await supabase
+      .from("shop_products")
+      .select("id", { count: "exact", head: true })
+      .eq("profile_id", profile.id as string);
+    const { error } = await supabase.from("shop_products").insert({
+      profile_id: profile.id as string,
+      title,
+      image_url: (formData.get("image_url") as string)?.trim() || null,
+      price: parseFloat(formData.get("price") as string) || null,
+      currency: (formData.get("currency") as string)?.trim() || "USD",
+      buy_url: buyUrl,
+      position: count ?? 0,
+    });
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "update_shop_product") {
+    const id = formData.get("id") as string;
+    const title = (formData.get("title") as string)?.trim();
+    const buyUrl = (formData.get("buy_url") as string)?.trim();
+    if (!title || !buyUrl) {
+      return Response.json({ ok: false, error: "Title and Buy URL are required" }, { headers });
+    }
+    const { error } = await supabase.from("shop_products").update({
+      title,
+      image_url: (formData.get("image_url") as string)?.trim() || null,
+      price: parseFloat(formData.get("price") as string) || null,
+      currency: (formData.get("currency") as string)?.trim() || "USD",
+      buy_url: buyUrl,
+    }).eq("id", id).eq("profile_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
+  if (intent === "delete_shop_product") {
+    const id = formData.get("id") as string;
+    const { error } = await supabase.from("shop_products").delete().eq("id", id).eq("profile_id", profile.id as string);
+    return Response.json({ ok: !error, error: error?.message }, { headers });
+  }
+
   return Response.json({ ok: false, error: "Unknown intent" }, { headers });
 }
+
+type ShopProduct = {
+  id: string;
+  title: string;
+  image_url: string | null;
+  price: number | null;
+  currency: string | null;
+  buy_url: string;
+  position: number;
+};
+
+const MAX_SHOP_PRODUCTS = 4;
 
 type Service = {
   id: string;
@@ -625,13 +708,128 @@ function ServiceModal({
   );
 }
 
+// ── ShopProductModal — up to 4 cards for shopify/gumroad, mirrors iOS's
+// shopProductsEditor field set (title, image URL, price, currency, buy URL) ──
+
+function ShopProductModal({
+  isOpen,
+  onClose,
+  editing,
+  fetcher,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  editing: ShopProduct | null;
+  fetcher: ReturnType<typeof useFetcher>;
+}) {
+  const [form, setForm] = useState({ title: "", image_url: "", price: "", currency: "USD", buy_url: "" });
+
+  useEffect(() => {
+    if (editing) {
+      setForm({
+        title: editing.title ?? "",
+        image_url: editing.image_url ?? "",
+        price: editing.price != null ? String(editing.price) : "",
+        currency: editing.currency ?? "USD",
+        buy_url: editing.buy_url ?? "",
+      });
+    } else {
+      setForm({ title: "", image_url: "", price: "", currency: "USD", buy_url: "" });
+    }
+  }, [editing, isOpen]);
+
+  function handleSubmit() {
+    if (!form.title.trim() || !form.buy_url.trim()) return;
+    const fd = new FormData();
+    fd.append("intent", editing ? "update_shop_product" : "add_shop_product");
+    if (editing) fd.append("id", editing.id);
+    fd.append("title", form.title);
+    fd.append("image_url", form.image_url);
+    fd.append("price", form.price);
+    fd.append("currency", form.currency || "USD");
+    fd.append("buy_url", form.buy_url);
+    fetcher.submit(fd, { method: "post" });
+    onClose();
+  }
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={editing ? "Edit Product" : "Add Product"}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div>
+          <label style={labelStyle}>Title</label>
+          <input
+            style={inputStyle}
+            value={form.title}
+            onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+            placeholder="Product name"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Image URL</label>
+          <input
+            style={inputStyle}
+            value={form.image_url}
+            onChange={(e) => setForm((f) => ({ ...f, image_url: e.target.value }))}
+            placeholder="https://…"
+          />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 90px", gap: 10 }}>
+          <div>
+            <label style={labelStyle}>Price</label>
+            <input
+              type="number"
+              style={inputStyle}
+              value={form.price}
+              onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
+              placeholder="0.00"
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Currency</label>
+            <input
+              style={inputStyle}
+              value={form.currency}
+              onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value.toUpperCase() }))}
+              placeholder="USD"
+              maxLength={3}
+            />
+          </div>
+        </div>
+        <div>
+          <label style={labelStyle}>Buy URL</label>
+          <input
+            style={inputStyle}
+            value={form.buy_url}
+            onChange={(e) => setForm((f) => ({ ...f, buy_url: e.target.value }))}
+            placeholder="https://…"
+          />
+        </div>
+
+        {(fetcher.data as { error?: string } | undefined)?.error && (
+          <p style={{ fontSize: 13, color: "#ef4444" }}>{(fetcher.data as { error: string }).error}</p>
+        )}
+
+        <button
+          onClick={handleSubmit}
+          disabled={fetcher.state !== "idle" || !form.title.trim() || !form.buy_url.trim()}
+          style={{ ...saveBtn, marginTop: 4, alignSelf: "flex-start" }}
+        >
+          {fetcher.state !== "idle" ? "Saving…" : editing ? "Save Changes" : "Add Product"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function ServicePage() {
-  const { profile, services: initialServices, countries } = useLoaderData<typeof loader>() as {
+  const { profile, services: initialServices, countries, shopProducts: initialShopProducts } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     services: Service[];
     countries: string[];
+    shopProducts: ShopProduct[];
   };
 
   const serviceFetcher = useFetcher();
@@ -640,6 +838,9 @@ export default function ServicePage() {
   const reorderFetcher = useFetcher();
   const businessFetcher = useFetcher();
   const schedulingFetcher = useFetcher();
+  const shopFetcher = useFetcher();
+  const shopProductFetcher = useFetcher();
+  const deleteShopProductFetcher = useFetcher();
 
   const [services, setServices] = useState<Service[]>(initialServices);
   const [serviceModal, setServiceModal] = useState<{ open: boolean; editing: Service | null }>({
@@ -671,6 +872,39 @@ export default function ServicePage() {
     calendly: "https://calendly.com/your-handle",
     hubspot: "https://meetings.hubspot.com/your-handle",
   };
+
+  // Shopping — one provider select + conditional content (soundee → a single
+  // URL field; shopify/gumroad → a shop_products list), mirroring sqrz-ios's
+  // BusinessView exactly: same field set, same "switching provider doesn't
+  // delete the other mode's data" behavior. Click-to-expand + Save/Cancel for
+  // the provider/URL row matches this page's own Scheduling section above.
+  const [shopProducts, setShopProducts] = useState<ShopProduct[]>(initialShopProducts);
+  const [shopEditing, setShopEditing] = useState(false);
+  const [shopProvider, setShopProvider] = useState((profile.shop_provider as string) || "");
+  const [soundeeUrl, setSoundeeUrl] = useState((profile.soundee_url as string) ?? "");
+  const shopSet = !!shopProvider;
+  const [shopProductModal, setShopProductModal] = useState<{ open: boolean; editing: ShopProduct | null }>({
+    open: false,
+    editing: null,
+  });
+  const SHOP_PROVIDER_LABELS: Record<string, string> = {
+    soundee: "Soundee",
+    shopify: "Shopify",
+    gumroad: "Gumroad",
+  };
+
+  useEffect(() => {
+    setShopProducts(initialShopProducts);
+  }, [initialShopProducts]);
+
+  function saveShop() {
+    setShopEditing(false);
+    const fd = new FormData();
+    fd.append("intent", "update_shop");
+    fd.append("shop_provider", shopProvider);
+    if (shopProvider === "soundee") fd.append("soundee_url", soundeeUrl);
+    shopFetcher.submit(fd, { method: "post" });
+  }
 
   function saveScheduling() {
     setSchedulingEditing(false);
@@ -902,6 +1136,152 @@ export default function ServicePage() {
         </div>
       </div>
 
+      {/* Shopping — profiles.shop_provider (soundee|shopify|gumroad|null), the
+          same one-provider-at-a-time model as sqrz-ios's Business tab. Soundee
+          is a single embed URL; Shopify/Gumroad show a shop_products list
+          (title/image/price/currency/buy URL, capped at 4 — DB-enforced). */}
+      <div style={card}>
+        <CompletionBadge filled={shopSet ? 1 : 0} total={1} />
+        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Shopping</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div>
+            <div
+              onClick={() => !shopEditing && setShopEditing(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "10px 0",
+                cursor: shopEditing ? "default" : "pointer",
+              }}
+            >
+              <span style={{ fontSize: 18, minWidth: 24 }}>🛒</span>
+              <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: shopSet ? ACCENT : "var(--text-muted)" }}>
+                  {shopSet ? (SHOP_PROVIDER_LABELS[shopProvider] ?? shopProvider) : "Shop provider"}
+                </span>
+                {shopSet && !shopEditing && shopProvider === "soundee" && soundeeUrl && (
+                  <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{soundeeUrl}</span>
+                )}
+              </div>
+              {!shopEditing && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{shopSet ? "Edit" : "Add"}</span>
+              )}
+            </div>
+
+            {shopEditing && (
+              <div style={{ padding: "10px 0 14px 34px" }}>
+                <label style={{ ...labelStyle, marginBottom: 6 }}>Provider</label>
+                <select
+                  value={shopProvider}
+                  onChange={e => setShopProvider(e.target.value)}
+                  style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer", marginBottom: 10 }}
+                >
+                  <option value="">None</option>
+                  <option value="soundee">Soundee</option>
+                  <option value="shopify">Shopify</option>
+                  <option value="gumroad">Gumroad</option>
+                </select>
+
+                {shopProvider === "soundee" && (
+                  <>
+                    <label style={{ ...labelStyle, marginBottom: 6 }}>Soundee URL</label>
+                    <input
+                      style={inputStyle}
+                      value={soundeeUrl}
+                      onChange={e => setSoundeeUrl(e.target.value)}
+                      placeholder="https://soundee.com/yourname"
+                    />
+                  </>
+                )}
+
+                <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                  <button
+                    disabled={shopFetcher.state !== "idle"}
+                    style={{ ...saveBtn, marginTop: 0, fontSize: 13, padding: "8px 16px", opacity: shopFetcher.state !== "idle" ? 0.6 : 1 }}
+                    onClick={saveShop}
+                  >
+                    {shopFetcher.state !== "idle" ? "Saving…" : "Save"}
+                  </button>
+                  <button
+                    style={{ padding: "8px 16px", background: "none", border: "1px solid var(--border)", borderRadius: 10, fontSize: 13, color: "var(--text-muted)", cursor: "pointer", fontFamily: FONT_BODY }}
+                    onClick={() => {
+                      setShopEditing(false);
+                      setShopProvider((profile.shop_provider as string) || "");
+                      setSoundeeUrl((profile.soundee_url as string) ?? "");
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Shop products — shopify/gumroad only, up to 4 */}
+          {(shopProvider === "shopify" || shopProvider === "gumroad") && (
+            <div style={{ marginTop: shopEditing ? 6 : 4 }}>
+              {shopProducts.length === 0 ? (
+                <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "6px 0 12px" }}>No products added yet.</p>
+              ) : (
+                <div style={{ marginBottom: 12 }}>
+                  {shopProducts.map((product, i) => (
+                    <div
+                      key={product.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 8,
+                        padding: "10px 0",
+                        borderBottom: i < shopProducts.length - 1 ? "1px solid var(--border)" : "none",
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {product.title}
+                        </div>
+                        <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                          {product.price != null ? `${(product.currency ?? "USD").toUpperCase()} ${product.price}` : "No price set"}
+                        </div>
+                      </div>
+                      <MenuDots
+                        onEdit={() => setShopProductModal({ open: true, editing: product })}
+                        onDelete={() => {
+                          setShopProducts(prev => prev.filter(p => p.id !== product.id));
+                          const fd = new FormData();
+                          fd.append("intent", "delete_shop_product");
+                          fd.append("id", product.id);
+                          deleteShopProductFetcher.submit(fd, { method: "post" });
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => setShopProductModal({ open: true, editing: null })}
+                disabled={shopProducts.length >= MAX_SHOP_PRODUCTS}
+                style={{
+                  background: "none",
+                  border: `1px solid rgba(245,166,35,0.4)`,
+                  color: ACCENT,
+                  borderRadius: 10,
+                  padding: "9px 18px",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: shopProducts.length >= MAX_SHOP_PRODUCTS ? "not-allowed" : "pointer",
+                  fontFamily: FONT_BODY,
+                  opacity: shopProducts.length >= MAX_SHOP_PRODUCTS ? 0.5 : 1,
+                }}
+              >
+                {shopProducts.length >= MAX_SHOP_PRODUCTS ? "Max 4 products" : "+ Add Product"}
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div style={card}>
         <CompletionBadge filled={businessFilled} total={1} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Business Details</h2>
@@ -1101,6 +1481,13 @@ export default function ServicePage() {
         onClose={() => setServiceModal({ open: false, editing: null })}
         editing={serviceModal.editing}
         fetcher={serviceFetcher}
+      />
+
+      <ShopProductModal
+        isOpen={shopProductModal.open}
+        onClose={() => setShopProductModal({ open: false, editing: null })}
+        editing={shopProductModal.editing}
+        fetcher={shopProductFetcher}
       />
     </div>
   );
