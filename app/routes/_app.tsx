@@ -124,13 +124,13 @@ export default function AppLayout() {
   const location = useLocation();
   const pathname = location.pathname;
 
-  // Grow (/analytics) is a standalone promo page — the unrelated Profile-area
-  // submenu (Dashboard/Profile/Business/Domain/Account) shouldn't show above
-  // it. Logo stays — only the submenu links are hidden. Office used to get
-  // its own minimal "← Back" work-mode header instead of this nav entirely;
-  // removed 2026-08-07 — the standard nav already handles wayfinding, no
-  // page-specific treatment needed.
-  const hideTopSubmenuRoutes = ["/analytics"];
+  // Grow (/analytics) and Office (/office) are both standalone destinations
+  // outside the Dashboard/Profile/Business/Account tab flow — the submenu
+  // doesn't belong above either. Logo stays for branding/wayfinding home;
+  // only the submenu links are hidden. Office used to get its own minimal
+  // "← Back" work-mode header instead of this nav entirely; removed
+  // 2026-08-07 in favor of this same logo-only nav treatment.
+  const hideTopSubmenuRoutes = ["/analytics", "/office"];
   const hideTopSubmenu = hideTopSubmenuRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
