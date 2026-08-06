@@ -67,7 +67,10 @@ const topNavItems = [
 // profile-appropriate; "Preview" got the freed-up-in-spirit eye glyph.
 const bottomNavItems = [
   { to: "/", label: "Profile", icon: "👤", end: true },
-  { to: "/office", label: "Office", icon: "📋" },
+  // "Office" → "Leads" (2026-08-07) — display-only, matching sqrz-ios's
+  // identical rename. Route path (/office), file/route name (_app.office.tsx,
+  // OfficePage), and internal comments/symbols are deliberately untouched.
+  { to: "/office", label: "Leads", icon: "📋" },
   { to: "/analytics", label: "Grow", icon: "📊" },
 ];
 
