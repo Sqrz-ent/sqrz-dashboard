@@ -35,8 +35,6 @@ export default [
   route("api/messaging/stream-inquiry-keep-active", "routes/api.messaging.stream-inquiry-keep-active.ts"),
   route("api/dashboard/home-summary", "routes/api.dashboard.home-summary.ts"),
 
-  // Campaign checkout (unified Boost + Grow)
-  route("api/campaigns/checkout", "routes/api.campaigns.checkout.tsx"),
   // Reactivate an exhausted campaign ($10 Stripe checkout)
   route("api/campaigns/reactivate", "routes/api.campaigns.reactivate.tsx"),
   // On-demand single-campaign Meta + SQRZ-native stats refresh

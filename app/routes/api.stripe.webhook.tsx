@@ -81,7 +81,7 @@ export async function action({ request }: ActionFunctionArgs) {
     // anything we'd have to round-trip through checkout session metadata. Every
     // wallet_ledger_entries / management_fee_charges row this webhook creates
     // gets tagged with it, so test data (currently: every iOS transaction, see
-    // api/wallet/topup.tsx + api/campaigns/checkout.tsx) is never ambiguous.
+    // api/wallet/topup.tsx + api/campaigns/reactivate.tsx) is never ambiguous.
     const stripeMode: "live" | "test" = event.livemode ? "live" : "test";
 
     console.log("[webhook] checkout.session.completed — session.id:", session.id, "mode:", stripeMode);
@@ -136,6 +136,19 @@ export async function action({ request }: ActionFunctionArgs) {
         // Setup fee → mark the campaign booked (artist adds content next) and
         // create its zero-budget, active campaign_budgets row so allocation has a
         // target. ignoreDuplicates makes the budget insert idempotent.
+        //
+        // DEPRECATED PATH (2026-08-08): the $25 setup fee and its
+        // api/campaigns/checkout.tsx route were removed — campaign creation
+        // now sets status: "booked" directly, client-side, with no payment
+        // involved (see sqrz-ios's BoostView.swift). This branch can no
+        // longer be reached by anything the app initiates going forward, but
+        // is deliberately left in place rather than deleted: it's what
+        // finalizes any checkout session that was already open in a user's
+        // Safari tab at deploy time (a real, if narrow, race), and Stripe
+        // could in principle still redeliver a historical event for one.
+        // Harmless to leave — it only ever fires on a genuine
+        // checkout.session.completed with metadata.type === "campaign_setup",
+        // which nothing can produce anymore.
         const { error: campaignError } = await supabase
           .from("boost_campaigns")
           .update({

@@ -1,10 +1,13 @@
 import { stripeClientForMode, type StripeMode } from "~/lib/stripe.server";
 
-// Payment-provider abstraction for one-off campaign checkouts (Boost/Grow ad
-// spend + fees). This is the ONLY place that calls the Stripe SDK for campaign
-// checkout — `api/campaigns/checkout.tsx` calls `createCampaignCheckoutSession`
-// and never touches `stripe` directly. Swapping providers later (Lemon Squeezy,
-// Paddle, ...) means reimplementing this one function; no route changes.
+// Payment-provider abstraction for one-off campaign checkouts. This is the
+// ONLY place that calls the Stripe SDK for campaign checkout —
+// `api/campaigns/reactivate.tsx` (the $10 reactivation fee, the sole
+// remaining caller as of 2026-08-08 — the $25 campaign-setup-fee checkout
+// and its `api/campaigns/checkout.tsx` route were removed, see that date's
+// CLAUDE.md entry) calls `createCampaignCheckoutSession` and never touches
+// `stripe` directly. Swapping providers later (Lemon Squeezy, Paddle, ...)
+// means reimplementing this one function; no route changes.
 
 export type CampaignCheckoutParams = {
   amountCents: number;
@@ -17,7 +20,7 @@ export type CampaignCheckoutParams = {
   metadata: Record<string, string>;
   // Which Stripe environment creates this session — the caller's
   // profiles.stripe_beta_test_mode flag, same for web and native (default
-  // false = live). See api/campaigns/checkout.tsx + api/campaigns/reactivate.tsx.
+  // false = live). See api/campaigns/reactivate.tsx.
   stripeMode: StripeMode;
 };
 
