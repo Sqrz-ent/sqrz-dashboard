@@ -1,20 +1,18 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/api.campaigns.reactivate";
-import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseBearerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { createCampaignCheckoutSession } from "~/lib/campaignPayments.server";
-import type { StripeMode } from "~/lib/stripe.server";
 
-const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
-
-// Reactivation for an EXHAUSTED campaign (spent caught up to allocated). A flat
-// $10 Stripe checkout, modeled exactly on the $25 setup fee — a real payment
-// rail, not an internal pending-charge row, so it's a genuinely distinct fee
-// event from the allocation commission (the two are never bundled). On payment
-// the webhook flips campaign_budgets.status exhausted→active; only then does the
-// client allow pill allocation against it again. Dual-auth (cookie web + Bearer
-// native); native gets a sqrz:// deep-link return. Stripe mode is the per-profile
-// stripe_beta_test_mode flag (live by default), same as web — not gated on auth channel.
+// Reactivation for an EXHAUSTED campaign (spent caught up to allocated).
+// Previously a flat $10 Stripe checkout, modeled on the $25 setup fee — removed
+// 2026-08-08, same reasoning as the setup fee: it was justified by manual
+// reactivation labor that no longer exists (this is just a status transition).
+// No replacement charge. The endpoint stays (unlike api/campaigns/checkout.tsx,
+// which was deleted outright) because campaign_budgets has no owner-write RLS
+// policy — only campaign_budgets_owner_select (read-only) — so the
+// exhausted→active flip needs the service-role client; this route is what
+// gives the client a safe, ownership-checked way to trigger it. Dual-auth
+// (cookie web + Bearer native).
 export async function action({ request }: Route.ActionArgs) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -63,37 +61,33 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Not found" }, { status: 404, headers });
   }
 
-  const REACTIVATION_FEE = 10;
-  // Per-profile beta opt-in, same for web and native — see api/wallet/topup.tsx
-  // for the full 2026-08-04 fix rationale (previously hardcoded on isNative).
-  const stripeMode: StripeMode = profile.stripe_beta_test_mode ? "test" : "live";
+  // Reset — same two writes the old Stripe webhook's reactivation branch did,
+  // now performed directly instead of gated behind payment success. Admin
+  // client: campaign_budgets has no owner-write RLS policy.
+  const admin = createSupabaseAdminClient();
 
-  const successUrl = isNative
-    ? "sqrz://checkout-return?status=success"
-    : `${APP_URL}/boost?reactivated=true`;
-  const cancelUrl = isNative
-    ? "sqrz://checkout-return?status=cancelled"
-    : `${APP_URL}/boost`;
+  const { error: campaignError } = await admin
+    .from("boost_campaigns")
+    .update({
+      status: "pending",
+      status_updated_at: new Date().toISOString(),
+    })
+    .eq("id", campaignId);
+  if (campaignError) {
+    return Response.json({ error: campaignError.message }, { status: 500, headers });
+  }
 
-  const { checkoutUrl } = await createCampaignCheckoutSession({
-    amountCents: Math.round(REACTIVATION_FEE * 100),
-    productName: `SQRZ Boost Campaign — $${REACTIVATION_FEE} reactivation`,
-    description: `One-time $${REACTIVATION_FEE} fee to reactivate this campaign. Fund it afterward from your ad-spend wallet.`,
-    successUrl,
-    cancelUrl,
-    clientReferenceId: campaignId,
-    customerEmail: (profile.email as string) ?? undefined,
-    stripeMode,
-    metadata: {
-      // Setup and reactivation both carry a campaign_id — `type` is how the
-      // webhook tells them apart. Reactivation → flip exhausted→active.
-      type: "reactivation",
-      profile_id: profile.id as string,
-      campaign_id: campaignId,
-      fee: String(REACTIVATION_FEE),
-      source: isNative ? "ios" : "web",
-    },
-  });
+  // Guarded no-op when the budget wasn't 'exhausted' (e.g. reactivating a
+  // completed-and-archived campaign that was never exhausted in the first
+  // place) — matches the old webhook's behavior exactly.
+  const { error: budgetError } = await admin
+    .from("campaign_budgets")
+    .update({ status: "active", updated_at: new Date().toISOString() })
+    .eq("campaign_id", campaignId)
+    .eq("status", "exhausted");
+  if (budgetError) {
+    return Response.json({ error: budgetError.message }, { status: 500, headers });
+  }
 
-  return Response.json({ checkout_url: checkoutUrl }, { headers });
+  return Response.json({ ok: true }, { headers });
 }
