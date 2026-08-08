@@ -61,6 +61,12 @@ const APNS_HOST = APNS_ENV === "sandbox"
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
+// Temporary diagnostic (2026-08-08): confirms which host this isolate is
+// actually sending to on cold start — persistent InvalidProviderToken after
+// 3 secret re-sets, need to rule out a stale/misconfigured APNS_ENV rather
+// than guess. Safe to leave — no secret material. Remove once resolved.
+console.log("[apns-push] cold start — APNS_ENV:", APNS_ENV, "APNS_HOST:", APNS_HOST, "APNS_BUNDLE_ID:", APNS_BUNDLE_ID);
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -96,13 +102,25 @@ const TOKEN_MAX_AGE_MS = 55 * 60 * 1000; // reissue comfortably inside Apple's 1
 async function getApnsAuthToken(): Promise<string> {
   const now = Date.now();
   if (cachedToken && now - cachedToken.issuedAt < TOKEN_MAX_AGE_MS) {
+    // Temporary diagnostic (2026-08-08): see note above getApnsAuthToken's
+    // fresh-sign branch — remove alongside it once resolved.
+    console.log("[apns-push] using cached JWT, issued", Math.round((now - cachedToken.issuedAt) / 1000), "s ago");
     return cachedToken.token;
   }
+  const header = { alg: "ES256" as const, kid: APNS_KEY_ID! };
+  const iatSeconds = Math.floor(now / 1000);
+  const claims = { iss: APNS_TEAM_ID!, iat: iatSeconds };
+  // Temporary diagnostic (2026-08-08): header + claims only, NEVER the
+  // signature or APNS_KEY itself — logging exactly what's about to be signed
+  // and sent to Apple, to debug a persistent InvalidProviderToken that
+  // survived 3 independent secret re-sets with an identical error each time.
+  // Remove once resolved.
+  console.log("[apns-push] signing fresh JWT — header:", JSON.stringify(header), "claims:", JSON.stringify(claims), "APNS_HOST:", APNS_HOST);
   const key = await importPKCS8(APNS_KEY!, "ES256");
   const token = await new SignJWT({})
-    .setProtectedHeader({ alg: "ES256", kid: APNS_KEY_ID! })
-    .setIssuer(APNS_TEAM_ID!)
-    .setIssuedAt()
+    .setProtectedHeader(header)
+    .setIssuer(claims.iss)
+    .setIssuedAt(claims.iat)
     .sign(key);
   cachedToken = { token, issuedAt: now };
   return token;
@@ -201,7 +219,35 @@ Deno.serve(async (req: Request) => {
     if (!res.ok) {
       const body = await res.text();
       console.error("[apns-push] APNs send failed:", res.status, body);
-      return json({ error: "apns send failed", status: res.status, body }, 502);
+      // Temporary diagnostic (2026-08-08): the edge-function log viewer does
+      // not reliably surface console.log output (confirmed twice now), but
+      // net._http_response does capture this response body — so put the
+      // non-sensitive diagnostic facts directly in the error payload instead
+      // of relying on logs. Never the signature or APNS_KEY. Remove once
+      // resolved.
+      const keyRaw = APNS_KEY ?? "";
+      return json({
+        error: "apns send failed",
+        status: res.status,
+        body,
+        diagnostic: {
+          apns_env: APNS_ENV,
+          apns_host: APNS_HOST,
+          jwt_header: { alg: "ES256", kid: APNS_KEY_ID },
+          jwt_claims: { iss: APNS_TEAM_ID, iat: Math.floor(Date.now() / 1000) },
+          key_id_len: (APNS_KEY_ID ?? "").length,
+          key_id_trimmed_len: (APNS_KEY_ID ?? "").trim().length,
+          team_id_len: (APNS_TEAM_ID ?? "").length,
+          team_id_trimmed_len: (APNS_TEAM_ID ?? "").trim().length,
+          key_len: keyRaw.length,
+          key_trimmed_len: keyRaw.trim().length,
+          key_starts_with_pem_header: keyRaw.trim().startsWith("-----BEGIN PRIVATE KEY-----"),
+          key_ends_with_pem_footer: keyRaw.trim().endsWith("-----END PRIVATE KEY-----"),
+          key_contains_literal_backslash_n: keyRaw.includes("\\n"),
+          key_contains_real_newline: keyRaw.includes("\n"),
+          key_line_count: keyRaw.split("\n").length,
+        },
+      }, 502);
     }
   } catch (err) {
     console.error("[apns-push] APNs fetch error:", err);
