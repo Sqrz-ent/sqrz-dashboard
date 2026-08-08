@@ -4,7 +4,6 @@ import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
-import PartnerInviteBanner from "~/components/PartnerInviteBanner";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -29,9 +28,6 @@ export async function loader({ request }: Route.LoaderArgs) {
     {
       user,
       profile,
-      isPartner: !!(profile?.is_partner as boolean | null),
-      partnerInviteStatus: (profile?.partner_invite_status as string | null) ?? null,
-      partnerInvitedAt: (profile?.partner_invited_at as string | null) ?? null,
     },
     { headers }
   );
@@ -76,16 +72,15 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile, isPartner, partnerInviteStatus, partnerInvitedAt } =
-    useLoaderData<typeof loader>();
+  const { user, profile } = useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown> | null;
 
-  // 4th bottom-nav slot — beta invite access takes precedence, else own profile
+  // 4th bottom-nav slot — own profile preview. Used to branch on isPartner
+  // (beta invite access took precedence) before the invitees/partners
+  // dashboard section was removed 2026-08-08; always the profile link now.
   const profileSlug = (p?.slug as string | null) ?? "";
-  const fourthNav = isPartner
-    ? { to: "/invites", external: false, icon: "✦", label: "Invites" }
-    : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👁", label: "Preview" };
+  const fourthNav = { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👁", label: "Preview" };
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -317,11 +312,6 @@ export default function AppLayout() {
             ✕
           </button>
         </div>
-      )}
-
-      {/* ── Partner invite banner ───────────────────────────────────────────── */}
-      {partnerInviteStatus === "invited" && (
-        <PartnerInviteBanner invitedAt={partnerInvitedAt} />
       )}
 
       {/* ── Main content ────────────────────────────────────────────────────── */}
