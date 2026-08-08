@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation, useRevalidator } from "react-router";
+import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
-import OnboardingModal from "~/components/OnboardingModal";
 import PartnerInviteBanner from "~/components/PartnerInviteBanner";
 
 export async function loader({ request }: Route.LoaderArgs) {
@@ -88,16 +87,7 @@ export default function AppLayout() {
     ? { to: "/invites", external: false, icon: "✦", label: "Invites" }
     : { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👁", label: "Preview" };
 
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const revalidator = useRevalidator();
   const [searchParams, setSearchParams] = useSearchParams();
-
-  useEffect(() => {
-    if (p !== null && p.onboarding_completed === false) {
-      setShowOnboarding(true);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const navigation = useNavigation();
   const isNavigating = navigation.state === "loading";
@@ -354,18 +344,6 @@ export default function AppLayout() {
         userId={(user as { id: string }).id}
         onClose={closePanel}
       />
-
-      {/* ── Onboarding modal ─────────────────────────────────────────────────── */}
-      {showOnboarding && p && (
-        <OnboardingModal
-          profileId={p.id as string}
-          slug={p.slug as string}
-          initialFirstName={(p.first_name as string) ?? ""}
-          initialLastName={(p.last_name as string) ?? ""}
-          initialAvatarUrl={(p.avatar_url as string) ?? ""}
-          onComplete={() => { setShowOnboarding(false); revalidator.revalidate(); }}
-        />
-      )}
 
       {/* ── Mobile bottom nav ───────────────────────────────────────────────── */}
       <nav

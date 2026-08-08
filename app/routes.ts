@@ -6,8 +6,6 @@ export default [
   route("login", "routes/login.tsx"),
   route("reset-password", "routes/reset-password.tsx"),
   route("auth/callback", "routes/auth.callback.tsx"),
-  route("claim", "routes/claim.tsx"),
-  route("claim/confirm", "routes/claim.confirm.tsx"),
 
   // Protected app (session required)
   layout("routes/_app.tsx", [
