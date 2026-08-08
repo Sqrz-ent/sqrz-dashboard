@@ -19,9 +19,19 @@ export type BetaInviteSectionData = {
 };
 
 /**
- * Loads the invite dashboard dataset for a beta inviter. The old partner model
- * used this surface for paid partner referrals; during the invite-
- * only iOS beta, the same referral-code structure is now used as the access graph.
+ * Loads the invite dashboard dataset for a beta inviter. The old commission/
+ * payout partner model is gone (see root CLAUDE.md's referral-cleanup notes);
+ * referral_codes/referral_uses are now purely the attribution graph for
+ * invite-only iOS beta access. `referral_uses.converted` is intentionally
+ * still read here — despite the column name, it no longer means "converted to
+ * a paid subscription" (that write path is gone with the old commission
+ * model); it's the plain joined/pending signal this surface has always shown,
+ * kept in lockstep with sqrz-ios's PartnerViewModel.swift, which reads the
+ * exact same column for the exact same purpose. `first_paid_at` was dropped
+ * (2026-08-08) in favor of `created_at` for the joined-at date — matching
+ * iOS's own model, which already dropped `firstPaidAt`/`commissionEndsAt`
+ * (see sqrz-ios/CLAUDE.md's "Beta Invites" section) when it was redesigned to
+ * drop the commission model on that side.
  */
 export async function loadBetaInviteSectionData(
   supabase: SupabaseClient,
@@ -39,7 +49,7 @@ export async function loadBetaInviteSectionData(
   const { data: rawUses } = refCodeRow
     ? await supabase
         .from("referral_uses")
-        .select("id, referred_profile_id, converted, first_paid_at, created_at")
+        .select("id, referred_profile_id, converted, created_at")
         .eq("referral_code_id", refCodeRow.id as string)
         .order("created_at", { ascending: false })
     : { data: [] };
@@ -67,9 +77,7 @@ export async function loadBetaInviteSectionData(
     return {
       slug: slugByProfileId.get(row.referred_profile_id as string) ?? "unknown",
       status: joined ? "joined" : "pending",
-      joinedAt: joined
-        ? ((row.first_paid_at as string | null) ?? (row.created_at as string | null) ?? null)
-        : null,
+      joinedAt: joined ? ((row.created_at as string | null) ?? null) : null,
     };
   });
 
