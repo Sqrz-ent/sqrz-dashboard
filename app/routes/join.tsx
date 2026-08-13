@@ -386,30 +386,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
-  // Validate optional referral code from URL and set server-side cookie if valid
+  // Referral codes: profiles.referral_codes was dropped 2026-08-09 (see root
+  // CLAUDE.md's Known Open Issues) — a ?ref= param can never validate now.
+  // refValid/refCode stay in the loader's shape (always false/"") rather than
+  // querying a table that no longer exists on every /join request.
   const refParam = url.searchParams.get("ref") ?? "";
-  let refValid = false;
-  if (refParam) {
-    const admin = createSupabaseAdminClient();
-    const now = new Date().toISOString();
-    const { data: refRow } = await admin
-      .from("referral_codes")
-      .select("id, max_uses, use_count")
-      .eq("code", refParam)
-      .eq("is_active", true)
-      .or(`expires_at.is.null,expires_at.gt.${now}`)
-      .maybeSingle();
-    if (refRow) {
-      refValid = refRow.max_uses == null || (refRow.use_count ?? 0) < refRow.max_uses;
-    }
-  }
-
-  if (refValid) {
-    headers.append(
-      "Set-Cookie",
-      `sqrz_pending_ref=${encodeURIComponent(refParam)}; Path=/; Max-Age=3600; SameSite=Lax`
-    );
-  }
+  const refValid = false;
 
   return data(
     {

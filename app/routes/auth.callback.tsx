@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { redirect, useNavigate, useSearchParams } from "react-router";
 import { createServerClient, createBrowserClient, parseCookieHeader, serializeCookieHeader } from "@supabase/ssr";
-import { createClient } from "@supabase/supabase-js";
 import type { Route } from "./+types/auth.callback";
 
 // Only same-origin relative paths are allowed as post-auth redirect targets.
@@ -57,35 +56,15 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (code) {
     const { data: sessionData } = await supabase.auth.exchangeCodeForSession(code);
 
-    // Apply referral code from the join form if present
+    // Referral code from the join form, if present — profiles.referral_codes
+    // was dropped 2026-08-09 (see root CLAUDE.md's Known Open Issues), so a
+    // pending ref can never be validated or written anymore. join.tsx never
+    // sets this cookie now either; only clearing a stale one a browser might
+    // still be carrying from before that drop.
     const cookieHeader = request.headers.get("Cookie") ?? "";
     const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
 
     if (sessionData?.user && pendingRef) {
-      const admin = createClient(
-        process.env.SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
-
-      if (pendingRef) {
-        // Validate the ref code is active before writing
-        const { data: activeRef } = await admin
-          .from("referral_codes")
-          .select("id")
-          .eq("code", pendingRef)
-          .eq("is_active", true)
-          .maybeSingle();
-
-        if (activeRef) {
-          await admin
-            .from("profiles")
-            .update({ referred_by_code: pendingRef })
-            .eq("user_id", sessionData.user.id)
-            .is("referred_by_code", null); // only set if not already set
-        }
-      }
-
-      // Clear the pending cookie
       headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
     }
   }

@@ -199,7 +199,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     .filter((n): n is string => !!n);
 
   // Shopping — up to 4 products for the shopify/gumroad shop_provider modes
-  // (soundee_url covers the soundee mode instead). RLS on shop_products
+  // (beatstars_url covers the beatstars mode instead). RLS on shop_products
   // correctly joins profiles.user_id (unlike profile_services' owner policy),
   // so the RLS-scoped client works fine here, no admin client needed.
   const { data: shopProducts } = await supabase
@@ -327,16 +327,19 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
-  // ── Shopping (profiles.shop_provider: null|'soundee'|'shopify'|'gumroad') ──
+  // ── Shopping (profiles.shop_provider: null|'beatstars'|'shopify'|'gumroad',
+  // DB CHECK constraint — matches the picker's allowed values 1:1) ──────────
   // Mirrors sqrz-ios's BusinessView: one provider select + conditional
-  // content — soundee_url for "soundee", up to 4 shop_products rows for
-  // "shopify"/"gumroad". Switching providers never deletes the other mode's
-  // data (soundee_url / shop_products just sit unused), matching iOS.
+  // content — beatstars_url for "beatstars" (holds the artist's BeatStars
+  // *player embed* URL, see the field's own hint text below), up to 4
+  // shop_products rows for "shopify"/"gumroad". Switching providers never
+  // deletes the other mode's data (beatstars_url / shop_products just sit
+  // unused), matching iOS.
   if (intent === "update_shop") {
     const provider = ((formData.get("shop_provider") as string) || "") || null;
     const update: Record<string, unknown> = { shop_provider: provider };
-    if (provider === "soundee") {
-      update.soundee_url = ((formData.get("soundee_url") as string) || "").trim() || null;
+    if (provider === "beatstars") {
+      update.beatstars_url = ((formData.get("beatstars_url") as string) || "").trim() || null;
     }
     const { error } = await supabase.from("profiles").update(update).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -873,22 +876,23 @@ export default function ServicePage() {
     hubspot: "https://meetings.hubspot.com/your-handle",
   };
 
-  // Shopping — one provider select + conditional content (soundee → a single
-  // URL field; shopify/gumroad → a shop_products list), mirroring sqrz-ios's
-  // BusinessView exactly: same field set, same "switching provider doesn't
-  // delete the other mode's data" behavior. Click-to-expand + Save/Cancel for
-  // the provider/URL row matches this page's own Scheduling section above.
+  // Shopping — one provider select + conditional content (beatstars → a
+  // single embed-URL field; shopify/gumroad → a shop_products list),
+  // mirroring sqrz-ios's BusinessView exactly: same field set, same
+  // "switching provider doesn't delete the other mode's data" behavior.
+  // Click-to-expand + Save/Cancel for the provider/URL row matches this
+  // page's own Scheduling section above.
   const [shopProducts, setShopProducts] = useState<ShopProduct[]>(initialShopProducts);
   const [shopEditing, setShopEditing] = useState(false);
   const [shopProvider, setShopProvider] = useState((profile.shop_provider as string) || "");
-  const [soundeeUrl, setSoundeeUrl] = useState((profile.soundee_url as string) ?? "");
+  const [beatstarsUrl, setBeatstarsUrl] = useState((profile.beatstars_url as string) ?? "");
   const shopSet = !!shopProvider;
   const [shopProductModal, setShopProductModal] = useState<{ open: boolean; editing: ShopProduct | null }>({
     open: false,
     editing: null,
   });
   const SHOP_PROVIDER_LABELS: Record<string, string> = {
-    soundee: "Soundee",
+    beatstars: "BeatStars",
     shopify: "Shopify",
     gumroad: "Gumroad",
   };
@@ -902,7 +906,7 @@ export default function ServicePage() {
     const fd = new FormData();
     fd.append("intent", "update_shop");
     fd.append("shop_provider", shopProvider);
-    if (shopProvider === "soundee") fd.append("soundee_url", soundeeUrl);
+    if (shopProvider === "beatstars") fd.append("beatstars_url", beatstarsUrl);
     shopFetcher.submit(fd, { method: "post" });
   }
 
@@ -1136,9 +1140,11 @@ export default function ServicePage() {
         </div>
       </div>
 
-      {/* Shopping — profiles.shop_provider (soundee|shopify|gumroad|null), the
-          same one-provider-at-a-time model as sqrz-ios's Business tab. Soundee
-          is a single embed URL; Shopify/Gumroad show a shop_products list
+      {/* Shopping — profiles.shop_provider (beatstars|shopify|gumroad|null,
+          matches the DB CHECK constraint exactly), the same one-provider-at-a-
+          time model as sqrz-ios's Business tab. BeatStars is a single embed
+          URL (beatstars_url column, holds a player.beatstars.com embed link —
+          see the field's own hint); Shopify/Gumroad show a shop_products list
           (title/image/price/currency/buy URL, capped at 4 — DB-enforced). */}
       <div style={card}>
         <CompletionBadge filled={shopSet ? 1 : 0} total={1} />
@@ -1160,8 +1166,8 @@ export default function ServicePage() {
                 <span style={{ fontSize: 13, fontWeight: 600, color: shopSet ? ACCENT : "var(--text-muted)" }}>
                   {shopSet ? (SHOP_PROVIDER_LABELS[shopProvider] ?? shopProvider) : "Shop provider"}
                 </span>
-                {shopSet && !shopEditing && shopProvider === "soundee" && soundeeUrl && (
-                  <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{soundeeUrl}</span>
+                {shopSet && !shopEditing && shopProvider === "beatstars" && beatstarsUrl && (
+                  <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{beatstarsUrl}</span>
                 )}
               </div>
               {!shopEditing && (
@@ -1178,20 +1184,23 @@ export default function ServicePage() {
                   style={{ ...inputStyle, appearance: "none", WebkitAppearance: "none", cursor: "pointer", marginBottom: 10 }}
                 >
                   <option value="">None</option>
-                  <option value="soundee">Soundee</option>
+                  <option value="beatstars">BeatStars</option>
                   <option value="shopify">Shopify</option>
                   <option value="gumroad">Gumroad</option>
                 </select>
 
-                {shopProvider === "soundee" && (
+                {shopProvider === "beatstars" && (
                   <>
-                    <label style={{ ...labelStyle, marginBottom: 6 }}>Soundee URL</label>
+                    <label style={{ ...labelStyle, marginBottom: 6 }}>BeatStars Player URL</label>
                     <input
                       style={inputStyle}
-                      value={soundeeUrl}
-                      onChange={e => setSoundeeUrl(e.target.value)}
-                      placeholder="https://soundee.com/yourname"
+                      value={beatstarsUrl}
+                      onChange={e => setBeatstarsUrl(e.target.value)}
+                      placeholder="https://player.beatstars.com/?storeId=..."
                     />
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", fontFamily: FONT_BODY }}>
+                      Not your store link — this is the embeddable player URL from BeatStars Studio → Players → Embeddable code.
+                    </p>
                   </>
                 )}
 
@@ -1208,7 +1217,7 @@ export default function ServicePage() {
                     onClick={() => {
                       setShopEditing(false);
                       setShopProvider((profile.shop_provider as string) || "");
-                      setSoundeeUrl((profile.soundee_url as string) ?? "");
+                      setBeatstarsUrl((profile.beatstars_url as string) ?? "");
                     }}
                   >
                     Cancel
