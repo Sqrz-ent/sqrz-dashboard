@@ -320,19 +320,10 @@ export async function action({ request }: Route.ActionArgs) {
     // on Profile go back to "unset" the moment their value is emptied, and is
     // what makes sqrz-profiles' SchedulingWidget stop rendering.
     const provider = url ? ((formData.get("scheduling_provider") as string) || "calendly") : null;
-    const update: Record<string, unknown> = {
+    const { error } = await supabase.from("profiles").update({
       scheduling_provider: provider,
       scheduling_url: url || null,
-    };
-    // Scheduling and Shop are mutually exclusive (they feed the same single
-    // private-link floating action button). Turning Scheduling ON clears Shop —
-    // a real state change, so at most one is ever set. (Turning it off leaves
-    // Shop alone.)
-    if (url) {
-      update.shop_provider = null;
-      update.shop_store_url = null;
-    }
-    const { error } = await supabase.from("profiles").update(update).eq("id", profile.id as string);
+    }).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }
 
@@ -349,22 +340,6 @@ export async function action({ request }: Route.ActionArgs) {
     const update: Record<string, unknown> = { shop_provider: provider };
     if (provider === "beatstars") {
       update.beatstars_url = ((formData.get("beatstars_url") as string) || "").trim() || null;
-    }
-    // shop_store_url is the storefront link for the "Visit Store" floating
-    // button on private-link pages — shopify/gumroad only (beatstars uses its
-    // inline player embed). Cleared when the provider isn't one of those.
-    if (provider === "shopify" || provider === "gumroad") {
-      update.shop_store_url = ((formData.get("shop_store_url") as string) || "").trim() || null;
-    } else {
-      update.shop_store_url = null;
-    }
-    // Scheduling and Shop are mutually exclusive (same single private-link
-    // floating action button). Turning Shop ON clears Scheduling — a real state
-    // change, so at most one is ever set. Selecting "None" leaves Scheduling
-    // alone (turning shop off, not switching to scheduling).
-    if (provider) {
-      update.scheduling_provider = null;
-      update.scheduling_url = null;
     }
     const { error } = await supabase.from("profiles").update(update).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -911,7 +886,6 @@ export default function ServicePage() {
   const [shopEditing, setShopEditing] = useState(false);
   const [shopProvider, setShopProvider] = useState((profile.shop_provider as string) || "");
   const [beatstarsUrl, setBeatstarsUrl] = useState((profile.beatstars_url as string) ?? "");
-  const [shopStoreUrl, setShopStoreUrl] = useState((profile.shop_store_url as string) ?? "");
   const shopSet = !!shopProvider;
   const [shopProductModal, setShopProductModal] = useState<{ open: boolean; editing: ShopProduct | null }>({
     open: false,
@@ -933,14 +907,6 @@ export default function ServicePage() {
     fd.append("intent", "update_shop");
     fd.append("shop_provider", shopProvider);
     if (shopProvider === "beatstars") fd.append("beatstars_url", beatstarsUrl);
-    if (shopProvider === "shopify" || shopProvider === "gumroad") fd.append("shop_store_url", shopStoreUrl);
-    // Exclusivity: setting a shop provider clears Scheduling (the server does
-    // the real write; mirror it locally so the Scheduling section reflects the
-    // cleared state without waiting for a reload). "None" leaves it alone.
-    if (shopProvider) {
-      setSchedulingProvider("calendly");
-      setSchedulingUrl("");
-    }
     shopFetcher.submit(fd, { method: "post" });
   }
 
@@ -950,12 +916,6 @@ export default function ServicePage() {
     fd.append("intent", "update_scheduling");
     fd.append("scheduling_provider", schedulingProvider);
     fd.append("scheduling_url", schedulingUrl);
-    // Exclusivity: setting a scheduling URL clears Shop (server does the real
-    // write; mirror locally). Clearing the URL leaves Shop alone.
-    if (schedulingUrl.trim()) {
-      setShopProvider("");
-      setShopStoreUrl("");
-    }
     schedulingFetcher.submit(fd, { method: "post" });
   }
 
@@ -1244,18 +1204,6 @@ export default function ServicePage() {
                   </>
                 )}
 
-                {(shopProvider === "shopify" || shopProvider === "gumroad") && (
-                  <>
-                    <label style={{ ...labelStyle, marginBottom: 6 }}>Store URL</label>
-                    <input
-                      style={inputStyle}
-                      value={shopStoreUrl}
-                      onChange={e => setShopStoreUrl(e.target.value)}
-                      placeholder={shopProvider === "shopify" ? "https://your-store.myshopify.com" : "https://your-name.gumroad.com"}
-                    />
-                  </>
-                )}
-
                 <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                   <button
                     disabled={shopFetcher.state !== "idle"}
@@ -1270,7 +1218,6 @@ export default function ServicePage() {
                       setShopEditing(false);
                       setShopProvider((profile.shop_provider as string) || "");
                       setBeatstarsUrl((profile.beatstars_url as string) ?? "");
-                      setShopStoreUrl((profile.shop_store_url as string) ?? "");
                     }}
                   >
                     Cancel
