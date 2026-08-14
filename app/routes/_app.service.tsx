@@ -67,27 +67,6 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 6,
 };
 
-// Scheduling/Shop mutual-exclusivity copy — see the bothConfigured/
-// schedulingLocked/shopLocked logic in ServiceRoute below.
-const exclusivityWarningStyle: React.CSSProperties = {
-  background: "rgba(245,166,35,0.12)",
-  border: "1px solid rgba(245,166,35,0.35)",
-  borderRadius: 10,
-  padding: "10px 14px",
-  marginBottom: 14,
-  fontSize: 12.5,
-  lineHeight: 1.5,
-  color: "var(--text)",
-  fontFamily: FONT_BODY,
-};
-
-const exclusivityLockedStyle: React.CSSProperties = {
-  ...exclusivityWarningStyle,
-  background: "var(--bg)",
-  border: "1px solid var(--border)",
-  color: "var(--text-muted)",
-};
-
 const saveBtn: React.CSSProperties = {
   padding: "10px 22px",
   background: ACCENT,
@@ -361,10 +340,6 @@ export async function action({ request }: Route.ActionArgs) {
     const update: Record<string, unknown> = { shop_provider: provider };
     if (provider === "beatstars") {
       update.beatstars_url = ((formData.get("beatstars_url") as string) || "").trim() || null;
-      update.beatstars_store_url = ((formData.get("beatstars_store_url") as string) || "").trim() || null;
-    }
-    if (provider === "shopify" || provider === "gumroad") {
-      update.shop_store_url = ((formData.get("shop_store_url") as string) || "").trim() || null;
     }
     const { error } = await supabase.from("profiles").update(update).eq("id", profile.id as string);
     return Response.json({ ok: !error, error: error?.message }, { headers });
@@ -911,8 +886,6 @@ export default function ServicePage() {
   const [shopEditing, setShopEditing] = useState(false);
   const [shopProvider, setShopProvider] = useState((profile.shop_provider as string) || "");
   const [beatstarsUrl, setBeatstarsUrl] = useState((profile.beatstars_url as string) ?? "");
-  const [beatstarsStoreUrl, setBeatstarsStoreUrl] = useState((profile.beatstars_store_url as string) ?? "");
-  const [shopStoreUrl, setShopStoreUrl] = useState((profile.shop_store_url as string) ?? "");
   const shopSet = !!shopProvider;
   const [shopProductModal, setShopProductModal] = useState<{ open: boolean; editing: ShopProduct | null }>({
     open: false,
@@ -924,18 +897,6 @@ export default function ServicePage() {
     gumroad: "Gumroad",
   };
 
-  // Scheduling vs. Shop are mutually exclusive as inputs to the private-link
-  // page's floating action button (SchedulingWidget / "Visit Store" — see
-  // sqrz-profiles' app/[slug]/page.tsx). Scoped narrowly: this has no bearing
-  // on the main public profile, which only ever reads scheduling_provider for
-  // its own primary CTA and doesn't render a shop action button at all. When
-  // only one is configured, the other section locks (can't be turned on)
-  // until the first is cleared. Pre-existing data where BOTH are already set
-  // is flagged rather than silently resolved — see bothConfigured below.
-  const bothConfigured = schedulingSet && shopSet;
-  const schedulingLocked = shopSet && !schedulingSet;
-  const shopLocked = schedulingSet && !shopSet;
-
   useEffect(() => {
     setShopProducts(initialShopProducts);
   }, [initialShopProducts]);
@@ -945,13 +906,7 @@ export default function ServicePage() {
     const fd = new FormData();
     fd.append("intent", "update_shop");
     fd.append("shop_provider", shopProvider);
-    if (shopProvider === "beatstars") {
-      fd.append("beatstars_url", beatstarsUrl);
-      fd.append("beatstars_store_url", beatstarsStoreUrl);
-    }
-    if (shopProvider === "shopify" || shopProvider === "gumroad") {
-      fd.append("shop_store_url", shopStoreUrl);
-    }
+    if (shopProvider === "beatstars") fd.append("beatstars_url", beatstarsUrl);
     shopFetcher.submit(fd, { method: "post" });
   }
 
@@ -1109,32 +1064,16 @@ export default function ServicePage() {
       <div style={card}>
         <CompletionBadge filled={schedulingSet ? 1 : 0} total={1} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Scheduling & Reservations</h2>
-
-        {bothConfigured && (
-          <div style={exclusivityWarningStyle}>
-            Both Scheduling and Shop are configured. Only one can appear as the
-            private-link page&apos;s floating button (your main profile is unaffected) —
-            Scheduling wins by default until you clear one below.
-          </div>
-        )}
-        {schedulingLocked && !bothConfigured && (
-          <div style={exclusivityLockedStyle}>
-            Locked — Shop is set as this account&apos;s private-link action button. Clear
-            Shop below to enable Scheduling here instead. (Only affects the
-            private-link page&apos;s floating button, not your main profile.)
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, opacity: schedulingLocked && !bothConfigured ? 0.5 : 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div>
             <div
-              onClick={() => !schedulingEditing && !(schedulingLocked && !bothConfigured) && setSchedulingEditing(true)}
+              onClick={() => !schedulingEditing && setSchedulingEditing(true)}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
                 padding: "10px 0",
-                cursor: schedulingEditing ? "default" : (schedulingLocked && !bothConfigured) ? "not-allowed" : "pointer",
+                cursor: schedulingEditing ? "default" : "pointer",
               }}
             >
               <span style={{ fontSize: 18, minWidth: 24 }}>📅</span>
@@ -1146,7 +1085,7 @@ export default function ServicePage() {
                   <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{schedulingUrl}</span>
                 )}
               </div>
-              {!schedulingEditing && !(schedulingLocked && !bothConfigured) && (
+              {!schedulingEditing && (
                 <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{schedulingSet ? "Edit" : "Add"}</span>
               )}
             </div>
@@ -1210,32 +1149,16 @@ export default function ServicePage() {
       <div style={card}>
         <CompletionBadge filled={shopSet ? 1 : 0} total={1} />
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Shopping</h2>
-
-        {bothConfigured && (
-          <div style={exclusivityWarningStyle}>
-            Both Scheduling and Shop are configured. Only one can appear as the
-            private-link page&apos;s floating button (your main profile is unaffected) —
-            Scheduling wins by default until you clear one below.
-          </div>
-        )}
-        {shopLocked && !bothConfigured && (
-          <div style={exclusivityLockedStyle}>
-            Locked — Scheduling is set as this account&apos;s private-link action button.
-            Clear Scheduling above to enable Shop here instead. (Only affects the
-            private-link page&apos;s floating button, not your main profile.)
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 2, opacity: shopLocked && !bothConfigured ? 0.5 : 1 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           <div>
             <div
-              onClick={() => !shopEditing && !(shopLocked && !bothConfigured) && setShopEditing(true)}
+              onClick={() => !shopEditing && setShopEditing(true)}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
                 padding: "10px 0",
-                cursor: shopEditing ? "default" : (shopLocked && !bothConfigured) ? "not-allowed" : "pointer",
+                cursor: shopEditing ? "default" : "pointer",
               }}
             >
               <span style={{ fontSize: 18, minWidth: 24 }}>🛒</span>
@@ -1247,7 +1170,7 @@ export default function ServicePage() {
                   <span style={{ marginLeft: 8, fontSize: 12, color: "var(--text-muted)", display: "inline-block", maxWidth: "70%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "middle" }}>{beatstarsUrl}</span>
                 )}
               </div>
-              {!shopEditing && !(shopLocked && !bothConfigured) && (
+              {!shopEditing && (
                 <span style={{ fontSize: 11, color: "var(--text-muted)", flexShrink: 0 }}>{shopSet ? "Edit" : "Add"}</span>
               )}
             </div>
@@ -1275,36 +1198,8 @@ export default function ServicePage() {
                       onChange={e => setBeatstarsUrl(e.target.value)}
                       placeholder="https://player.beatstars.com/?storeId=..."
                     />
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 10px", fontFamily: FONT_BODY }}>
+                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", fontFamily: FONT_BODY }}>
                       Not your store link — this is the embeddable player URL from BeatStars Studio → Players → Embeddable code.
-                    </p>
-                    <label style={{ ...labelStyle, marginBottom: 6 }}>BeatStars Store URL</label>
-                    <input
-                      style={inputStyle}
-                      value={beatstarsStoreUrl}
-                      onChange={e => setBeatstarsStoreUrl(e.target.value)}
-                      placeholder="https://yourname.beatstars.com/"
-                    />
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", fontFamily: FONT_BODY }}>
-                      Your storefront homepage — used for the private-link page&apos;s
-                      &quot;Visit BeatStars Store&quot; button, not the embed above.
-                    </p>
-                  </>
-                )}
-
-                {(shopProvider === "shopify" || shopProvider === "gumroad") && (
-                  <>
-                    <label style={{ ...labelStyle, marginBottom: 6 }}>Store URL</label>
-                    <input
-                      style={inputStyle}
-                      value={shopStoreUrl}
-                      onChange={e => setShopStoreUrl(e.target.value)}
-                      placeholder={shopProvider === "shopify" ? "https://yourstore.myshopify.com" : "https://yourname.gumroad.com"}
-                    />
-                    <p style={{ fontSize: 11, color: "var(--text-muted)", margin: "4px 0 0", fontFamily: FONT_BODY }}>
-                      Your storefront homepage — used for the private-link page&apos;s
-                      &quot;Visit {SHOP_PROVIDER_LABELS[shopProvider]} Store&quot; button. Separate from
-                      individual product links below.
                     </p>
                   </>
                 )}
@@ -1323,8 +1218,6 @@ export default function ServicePage() {
                       setShopEditing(false);
                       setShopProvider((profile.shop_provider as string) || "");
                       setBeatstarsUrl((profile.beatstars_url as string) ?? "");
-                      setBeatstarsStoreUrl((profile.beatstars_store_url as string) ?? "");
-                      setShopStoreUrl((profile.shop_store_url as string) ?? "");
                     }}
                   >
                     Cancel
