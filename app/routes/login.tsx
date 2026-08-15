@@ -412,14 +412,6 @@ export default function Login() {
           )}
         </div>
 
-        {/* ── Footer ───────────────────────────────────────────────────────── */}
-        <p style={{ textAlign: "center", color: "rgba(255,255,255,0.4)", fontSize: 14, margin: 0 }}>
-          Don't have an account?{" "}
-          <Link to="/join" style={{ color: "#F5A623", textDecoration: "none", fontWeight: 600 }}>
-            Create one →
-          </Link>
-        </p>
-
       </div>
       <style>{`
         @keyframes sqrzAuthSpin {
