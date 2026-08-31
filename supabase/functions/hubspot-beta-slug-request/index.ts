@@ -3,8 +3,13 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 // Public-facing (verify_jwt: false) — invoked directly from the marketing
 // site's (sqrz-cast) beta-request popup, an anonymous browser with no
-// Supabase session and no profiles row to enrich from. This is why it's a
-// new lightweight function rather than triggering hubspot-sync-contact:
+// Supabase session and no profiles row to enrich from. Also invoked by
+// non-web clients (venuefindr-ios) that have no slug concept: `slug` is
+// OPTIONAL. With a slug, behavior is unchanged (uniqueness check + slug hold
+// insert). Without one, it's an email + ad_budget lead only — HubSpot contact
+// sync runs, but the beta_slug_holds insert/uniqueness check is skipped.
+// This is why it's a lightweight function rather than triggering
+// hubspot-sync-contact:
 // that one is wired to profile_hubspot_enrichment (a view over profiles) and
 // writes back profiles.hubspot_contact_id — neither exists for a visitor who
 // hasn't signed up. The HubSpot auth/create/dedup approach below is the same
@@ -55,7 +60,8 @@ Deno.serve(async (req: Request) => {
   const email = (body.email ?? "").trim();
   const adBudget = (body.ad_budget ?? "").trim();
 
-  if (!slug) return json({ ok: false, code: "missing_slug", message: "A slug is required." }, 400);
+  // slug is optional — non-web clients (venuefindr-ios) submit email + ad_budget
+  // only. email stays required.
   if (!email || !EMAIL_RE.test(email)) {
     return json({ ok: false, code: "invalid_email", message: "A valid email is required." }, 400);
   }
@@ -64,12 +70,13 @@ Deno.serve(async (req: Request) => {
   // Same approach as hubspot-sync-contact — no profile-specific fields here,
   // just email + the free-text message property (see the file-header note on
   // why not custom properties).
-  const messageLines = [`Beta slug requested: ${slug}`];
+  const messageLines: string[] = [];
+  if (slug) messageLines.push(`Beta slug requested: ${slug}`);
   if (adBudget) messageLines.push(`Advertising budget: ${adBudget}`);
-  const properties: Record<string, string> = {
-    email,
-    message: messageLines.join(" | "),
-  };
+  const properties: Record<string, string> = { email };
+  // Only set message when there's something to say — avoids blanking an existing
+  // contact's message on a PATCH when a slug-less request carries no budget.
+  if (messageLines.length) properties.message = messageLines.join(" | ");
 
   let hsRes = await fetch("https://api.hubapi.com/crm/v3/objects/contacts", {
     method: "POST",
@@ -125,21 +132,25 @@ Deno.serve(async (req: Request) => {
   // ── Insert the slug hold (service role — beta_slug_holds has no public
   // write policy). A duplicate still-unclaimed slug hits the table's
   // unique(slug) constraint (23505); surfaced as a clean 409 the popup can
-  // render as "already reserved" instead of a raw DB error. ──
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const { error: insertError } = await supabase
-    .from("beta_slug_holds")
-    .insert({ slug, hubspot_contact_id: hubspotContactId });
+  // render as "already reserved" instead of a raw DB error. Skipped entirely
+  // for slug-less requests — there's nothing to reserve, the HubSpot contact
+  // sync above is the whole lead. ──
+  if (slug) {
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+    const { error: insertError } = await supabase
+      .from("beta_slug_holds")
+      .insert({ slug, hubspot_contact_id: hubspotContactId });
 
-  if (insertError) {
-    if (insertError.code === "23505") {
-      return json(
-        { ok: false, code: "slug_taken", message: "This name is already reserved." },
-        409
-      );
+    if (insertError) {
+      if (insertError.code === "23505") {
+        return json(
+          { ok: false, code: "slug_taken", message: "This name is already reserved." },
+          409
+        );
+      }
+      console.error("beta_slug_holds insert error:", insertError);
+      return json({ ok: false, code: "db_error", message: "Something went wrong — please try again." }, 500);
     }
-    console.error("beta_slug_holds insert error:", insertError);
-    return json({ ok: false, code: "db_error", message: "Something went wrong — please try again." }, 500);
   }
 
   return json({ ok: true, hubspot_contact_id: hubspotContactId });
