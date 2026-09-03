@@ -3,44 +3,37 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// generate-tour-plan
+// generate-tour-plan  (v3 — flat venue list, no day scheduling)
 //
-// Powers VenueFindr's AI-assisted multi-city tour route planner (pro feature).
+// Input:  { home_city, target_city, artist_description }
+// Output: { cities: string[], venues: [{ ...venue fields, city, match_reason }] }
+//         (or { cities: [], venues: [], error } when the two cities aren't
+//          plausibly connected by ground travel)
 //
-// Input:  { home_city, target_city, trip_length_days, artist_description }
-// Output: { itinerary: [{ day, city, rationale, candidate_venues[],
-//                         recommended_venue_ids[], recommendation_rationale }] }
+// A deliberately loose "here are reasonable venues along a plausible corridor"
+// list — NOT an optimized day-by-day itinerary. Two stages:
 //
-// The itinerary is keyed by DAY NUMBER (Day 1..N), not calendar dates — there is
-// no real venue-availability calendar behind this feature, so only trip
-// duration/pacing matters, not specific dates.
+//   1. Corridor + genre mapping (Anthropic, ONE call) — identify a plausible,
+//      non-optimal list of corridor cities (home + target + intermediates,
+//      capped at MAX_CITIES) and map the artist's genre to venue TYPES +
+//      ABOUT-TAGS via explicit few-shot guidance. Includes a plausibility
+//      guard: if the two cities aren't sensibly ground-connected (different
+//      continents / absurd distance), it returns plausible=false and we stop.
+//   2. Venue matching (deterministic, NO LLM) — for each city, pull venues
+//      matching type_norm OR any suggested about-tag (broad — not requiring
+//      both), combine across cities, and cap the TOTAL at MAX_VENUES by
+//      round-robin across cities so no single city dominates. Each venue is
+//      tagged with its city and a deterministic match_reason.
 //
-// Three stages:
-//   1. Route reasoning (Anthropic)   — reason about a sensible ground-travel
-//      route home_city → target_city spanning trip_length_days total, one
-//      show/day where sensible, using the model's own geography/city-character
-//      knowledge. For each day it also suggests which venue TYPES and ABOUT-TAGS
-//      best fit, constrained to the fixed lists below via tool-schema enums.
-//   2. Venue matching (deterministic, NO LLM) — for each day, query the real
-//      venues table (city + type_norm ∈ suggested + reported=false +
-//      not permanently closed), rank by how many suggested about-tags are
-//      present-and-true, return the top 5 real rows.
-//   3. Grounded ranking (Anthropic)  — given ONLY the real Stage-2 candidates,
-//      pick the best 1-2 per day. Server-side we then HARD-FILTER the returned
-//      ids against each day's real candidate set, so a hallucinated venue can
-//      never reach the response regardless of what the model says.
+// There is intentionally NO Stage 3 / LLM pruning: the user wants a list of
+// reasonable options, not the AI narrowing to a curated "best pick." Stage 2's
+// output IS the response (grounded to real rows, so nothing hallucinated).
 //
-// Anthropic auth: reuses the project-wide ANTHROPIC_API_KEY secret — the SAME
-// one the campaign-advisor function already uses (Supabase edge-function secrets
-// are shared across all functions in the project). NO new credential is
-// provisioned, and the key NEVER leaves the server: clients call this endpoint,
-// not Anthropic.
-//
-// Endpoint auth: public (verify_jwt: false), callable with the project's
-// publishable key — same pattern as hubspot-beta-slug-request. NOTE: this fires
-// TWO paid LLM calls per request with no per-caller identity, so trip_length_days
-// is capped (MAX_TOUR_DAYS) to bound cost/output per call. A stronger abuse
-// guard (auth/rate-limit) is a flagged follow-up — see the repo notes.
+// Anthropic auth: reuses the project-wide ANTHROPIC_API_KEY (same secret
+// campaign-advisor uses; edge secrets are project-wide). Key never leaves the
+// server. Endpoint is public (verify_jwt: false), publishable-key callable —
+// same pattern as hubspot-beta-slug-request. Cost is bounded by ONE LLM call +
+// MAX_CITIES-bounded queries per request.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -64,9 +57,7 @@ function json(body: unknown, status = 200): Response {
 // HARDCODED, and MUST be kept in sync with venuefindr-ios/VenueFindr/VenueFindr/
 // Filters.swift (the `VenueTypeFilter` enum) — that Swift enum is the source of
 // truth for the app's type pills, and there is no shared DB config table. If the
-// app's pill list changes, update TYPE_LABEL_TO_NORM here to match. (This is the
-// same hand-mirrored-constant pattern already used across the Node/Deno boundary
-// elsewhere in this project, e.g. apns-push mirroring NotificationList.tsx.)
+// app's pill list changes, update TYPE_LABEL_TO_NORM here to match.
 //
 // `label` = what the model reasons about + returns (constrained by tool enums);
 // `norm`  = the value matched against the generated `venues.type_norm` column.
@@ -92,11 +83,13 @@ const TYPE_LABEL_TO_NORM: Record<string, string> = {
   "Cultural center": "culturalcenter",
 };
 const TYPE_LABELS = Object.keys(TYPE_LABEL_TO_NORM);
+const NORM_TO_TYPE_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(TYPE_LABEL_TO_NORM).map(([label, norm]) => [norm, label]),
+);
 
-// The 6 about-tags the planner reasons over. These are verbatim keys inside the
+// The 6 about-tags the planner reasons over — verbatim keys inside the
 // venues.about JSON (`{ Category: { "Tag": true } }`), verified present in real
-// data. Not an app filter (the about-tag filters were removed) — a curated
-// subset chosen for touring relevance.
+// data.
 const ABOUT_TAGS = [
   "Live performances",
   "Live music",
@@ -106,16 +99,15 @@ const ABOUT_TAGS = [
   "Accepts reservations",
 ] as const;
 
-// Bound the work per request: one day = one venue query + a share of two LLM
-// calls' tokens. Keeps a single public, unauthenticated call from exploding.
-const MAX_TOUR_DAYS = 45;
-const CANDIDATES_PER_DAY = 5;
+// Bounds. MAX_CITIES caps Stage-1 output (and thus Stage-2 query count);
+// MAX_VENUES caps the flat combined list. PER_CITY_* bound each city's fetch.
+const MAX_CITIES = 15;
+const MAX_VENUES = 100;
+const PER_CITY_TYPE_FETCH = 40; // precise type_norm matches
+const PER_CITY_GENERAL_FETCH = 60; // broad batch, JS-matched for about-tags
 
-// Full-ish venue projection returned to the client (Stage 2). Explicit rather
-// than "*" to skip the tsvector search_vector column and the long tail of
-// scraper fields the planner UI doesn't need, while still being "full rows,
-// not just names". `about` + `type_norm` are included: they drive Stage-2
-// ranking and Stage-3 grounding.
+// Venue projection returned to the client. Explicit (skips the tsvector +
+// scraper long tail) but still "full rows". `about`/`type_norm` drive matching.
 const VENUE_COLUMNS =
   "id, name, type, type_norm, city, country_code, street, postal_code, state, " +
   "full_address, site, photo, phone, email_1, email_2, email_3, " +
@@ -127,155 +119,154 @@ const VENUE_COLUMNS =
 type RequestBody = {
   home_city?: string;
   target_city?: string;
-  trip_length_days?: number;
   artist_description?: string;
 };
 
-type ItineraryDay = {
-  day: number;
-  city: string;
-  country_hint: string;
-  rationale: string;
+type Corridor = {
+  plausible: boolean;
+  reason: string;
+  cities: string[];
   suggested_types: string[]; // labels (from TYPE_LABELS)
   suggested_about_tags: string[]; // from ABOUT_TAGS
 };
 
-type VenueRow = Record<string, unknown> & { id: string; about?: string | null };
-
-type FinalDay = {
-  day: number;
-  city: string;
-  rationale: string;
-  candidate_venues: VenueRow[];
-  recommended_venue_ids: string[];
-  recommendation_rationale: string;
+type VenueRow = Record<string, unknown> & {
+  id: string;
+  city?: string | null;
+  type?: string | null;
+  type_norm?: string | null;
+  rating?: unknown;
+  about?: string | null;
+  business_status?: string | null;
 };
 
-// ─── Stage 1: route reasoning ─────────────────────────────────────────────────
+type OutVenue = VenueRow & { match_reason: string };
 
-const ROUTE_SYSTEM_PROMPT =
-  `You are a tour-routing assistant for independent musicians and DJs. Given a home city, a target destination city, a total trip length in days, and a description of the artist, design a sensible GROUND-TRAVEL touring route from the home city to the target city.
+// ─── Stage 1: corridor + genre→type mapping ───────────────────────────────────
 
-Principles:
-- The route should progress geographically from home_city toward target_city by road/rail — no back-tracking across the continent, no flights implied. Intermediate stops should be realistically reachable day-to-day.
-- The trip spans exactly trip_length_days days total. Pace the route so it arrives at (or near) the target city by the final day. Aim for most or all days to include a show. It is fine to include a travel/rest day with no obvious host city, but prefer playable cities.
-- Choose intermediate cities using real geography AND city character — university towns, cities with dense international/expat communities, and places with a genuine nightlife/live scene are better hosts than cities that merely sit on the map line. Justify each choice briefly.
-- Tailor each day to the artist described. For each day, pick the venue TYPES and ABOUT-TAGS (from the fixed lists provided by the tool schema) that best fit that city + that artist's style. Only choose from those lists.
-- country_hint: the country the city is in (helps disambiguate same-named cities).
-- Produce exactly one itinerary entry per day, numbered Day 1 through Day trip_length_days, in order. There are NO calendar dates — key each entry by its day number only.
+const CORRIDOR_SYSTEM_PROMPT =
+  `You help independent musicians and DJs find venues along a plausible GROUND-TRAVEL corridor between two cities. You do NOT build an optimized route or a schedule — just a reasonable, loose list of cities someone touring from the home city to the target city might plausibly pass through or near, plus which venue types and attributes suit the artist.
 
-Return the plan ONLY through the propose_route tool.`;
+Return everything ONLY through the propose_corridor tool.
 
-function routeTool() {
+PLAUSIBILITY GUARD (check FIRST):
+- If home_city and target_city are NOT plausibly connected by ground travel — different continents, separated by an ocean, or an absurd distance for a tour (e.g. Berlin to Sydney, London to Tokyo) — set plausible=false, give a one-sentence reason, and return an EMPTY cities array. Do not invent a corridor in that case.
+- Otherwise set plausible=true and proceed.
+
+CITIES (when plausible):
+- Include home_city and target_city themselves, plus a loose set of sensible intermediate/corridor cities. Real geography, but it does NOT need to be the fastest or most optimal route — reasonable is enough.
+- Prefer cities with some nightlife / live-music / cultural presence over tiny waypoints, but don't overthink it.
+- Return AT MOST ${MAX_CITIES} cities total (including the two endpoints). Order them roughly from home toward target. Use the common/widely-used English spelling of each city where one exists (e.g. "Cologne", "Munich", "Prague") since that matches how venue data is stored.
+
+GENRE → VENUE TYPES (be explicit, use these as guidance):
+- "reggaeton DJ" / "latin DJ" → Night club, Bar, Lounge, Disco club
+- "house/techno DJ" / "underground DJ" → Night club, Disco club, Event venue, Bar
+- "rock band" / "indie band" → Live music venue, Concert hall, Bar
+- "classical orchestra" / "chamber ensemble" → Concert hall, Performing arts theater, Cultural center
+- "jazz musician" / "jazz trio" → Jazz club, Lounge, Bar, Cocktail bar
+- "pop/top-40 act" → Event venue, Night club, Bar
+- "singer-songwriter" / "acoustic act" → Bar, Cafe-style Lounge, Live music venue, Wine bar
+- "cabaret / burlesque performer" → Cabaret club, Lounge, Performing arts theater
+Map the ARTIST DESCRIPTION to the closest few types from the allowed list (the tool constrains valid values). Pick the 2-5 most fitting types — err toward slightly broader rather than narrow.
+
+ABOUT-TAGS: pick the attributes (from the allowed list) that fit the artist — e.g. a live band wants "Live performances"/"Live music"; a DJ wants "Dancing"; an LGBTQ+ artist may want "LGBTQ+ friendly". Optional; pick what fits.`;
+
+function corridorTool() {
   return {
-    name: "propose_route",
+    name: "propose_corridor",
     description:
-      "Return the day-by-day touring itinerary from home_city to target_city.",
+      "Return the plausibility verdict, the corridor cities, and the genre-mapped venue types + about-tags.",
     input_schema: {
       type: "object",
       additionalProperties: false,
       properties: {
-        itinerary: {
+        plausible: {
+          type: "boolean",
+          description:
+            "false if home/target aren't sensibly connected by ground travel.",
+        },
+        reason: {
+          type: "string",
+          description:
+            "When plausible=false, one sentence explaining why. Else may be empty.",
+        },
+        cities: {
           type: "array",
           description:
-            "One entry per day, numbered Day 1..trip_length_days, in order.",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              day: {
-                type: "integer",
-                description: "The day number, starting at 1 (no calendar dates).",
-              },
-              city: { type: "string", description: "Host city for this day." },
-              country_hint: {
-                type: "string",
-                description: "Country the city is in.",
-              },
-              rationale: {
-                type: "string",
-                description:
-                  "Why this city on this day — geography + city character + artist fit. ~30 words.",
-              },
-              suggested_types: {
-                type: "array",
-                description:
-                  "Best-fit venue types for this day, chosen ONLY from the allowed list.",
-                items: { type: "string", enum: TYPE_LABELS },
-              },
-              suggested_about_tags: {
-                type: "array",
-                description:
-                  "Best-fit venue attributes for this day, chosen ONLY from the allowed list.",
-                items: { type: "string", enum: [...ABOUT_TAGS] },
-              },
-            },
-            required: [
-              "day",
-              "city",
-              "country_hint",
-              "rationale",
-              "suggested_types",
-              "suggested_about_tags",
-            ],
-          },
+            `Corridor cities incl. both endpoints, English spelling, max ${MAX_CITIES}. EMPTY when plausible=false.`,
+          items: { type: "string" },
+        },
+        suggested_types: {
+          type: "array",
+          description: "Genre-mapped venue types, chosen ONLY from the allowed list.",
+          items: { type: "string", enum: TYPE_LABELS },
+        },
+        suggested_about_tags: {
+          type: "array",
+          description: "Fitting venue attributes, chosen ONLY from the allowed list.",
+          items: { type: "string", enum: [...ABOUT_TAGS] },
         },
       },
-      required: ["itinerary"],
+      required: ["plausible", "reason", "cities", "suggested_types", "suggested_about_tags"],
     },
   } as const;
 }
 
-async function reasonRoute(
+async function reasonCorridor(
   client: Anthropic,
   body: Required<RequestBody>,
-): Promise<ItineraryDay[]> {
+): Promise<Corridor> {
   const userContent = JSON.stringify({
     home_city: body.home_city,
     target_city: body.target_city,
-    trip_length_days: body.trip_length_days,
     artist_description: body.artist_description,
   });
 
   const message = await client.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 8192,
-    system: ROUTE_SYSTEM_PROMPT,
-    tools: [routeTool()],
-    tool_choice: { type: "tool", name: "propose_route" },
+    max_tokens: 2048,
+    system: CORRIDOR_SYSTEM_PROMPT,
+    tools: [corridorTool()],
+    tool_choice: { type: "tool", name: "propose_corridor" },
     messages: [{ role: "user", content: userContent }],
   });
 
   const toolUse = message.content.find(
     (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
   );
-  if (!toolUse) throw new Error("route: model returned no tool_use block");
+  if (!toolUse) throw new Error("corridor: model returned no tool_use block");
 
-  const input = toolUse.input as { itinerary?: unknown };
-  const raw = Array.isArray(input.itinerary) ? input.itinerary : [];
-
-  // Whitelist every field — the enum-constrained schema already limits types/
-  // tags, but coerce defensively so a malformed entry can't break Stage 2.
+  const input = toolUse.input as Record<string, unknown>;
   const typeSet = new Set(TYPE_LABELS);
   const tagSet = new Set<string>(ABOUT_TAGS);
-  return raw
-    .filter((d): d is Record<string, unknown> => !!d && typeof d === "object")
-    .map((d) => ({
-      day: Math.trunc(Number(d.day)),
-      city: String(d.city ?? ""),
-      country_hint: String(d.country_hint ?? ""),
-      rationale: String(d.rationale ?? ""),
-      suggested_types: (Array.isArray(d.suggested_types) ? d.suggested_types : [])
-        .map((t) => String(t))
-        .filter((t) => typeSet.has(t)),
-      suggested_about_tags: (Array.isArray(d.suggested_about_tags)
-        ? d.suggested_about_tags
-        : [])
-        .map((t) => String(t))
-        .filter((t) => tagSet.has(t)),
-    }))
-    .filter((d) => Number.isFinite(d.day) && d.day >= 1 && d.city)
-    .slice(0, MAX_TOUR_DAYS);
+
+  // Dedupe cities case-insensitively, preserve order, cap at MAX_CITIES.
+  const rawCities = Array.isArray(input.cities) ? input.cities : [];
+  const seen = new Set<string>();
+  const cities: string[] = [];
+  for (const c of rawCities) {
+    const name = String(c ?? "").trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cities.push(name);
+    if (cities.length >= MAX_CITIES) break;
+  }
+
+  return {
+    plausible: input.plausible === true,
+    reason: String(input.reason ?? ""),
+    cities,
+    suggested_types: (Array.isArray(input.suggested_types) ? input.suggested_types : [])
+      .map((t) => String(t))
+      .filter((t) => typeSet.has(t)),
+    suggested_about_tags: (Array.isArray(input.suggested_about_tags)
+      ? input.suggested_about_tags
+      : [])
+      .map((t) => String(t))
+      .filter((t) => tagSet.has(t)),
+  };
 }
 
 // ─── Stage 2: deterministic venue matching ────────────────────────────────────
@@ -292,17 +283,10 @@ function aboutHasTag(about: string | null | undefined, tag: string): boolean {
   if (!parsed || typeof parsed !== "object") return false;
   for (const group of Object.values(parsed as Record<string, unknown>)) {
     if (group && typeof group === "object") {
-      const v = (group as Record<string, unknown>)[tag];
-      if (v === true) return true;
+      if ((group as Record<string, unknown>)[tag] === true) return true;
     }
   }
   return false;
-}
-
-function aboutTagScore(about: string | null | undefined, tags: string[]): number {
-  let score = 0;
-  for (const t of tags) if (aboutHasTag(about, t)) score++;
-  return score;
 }
 
 function ratingNum(v: unknown): number {
@@ -310,149 +294,112 @@ function ratingNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-async function matchVenues(
+function isPermanentlyClosed(v: VenueRow): boolean {
+  return v.business_status === "CLOSED_PERMANENTLY";
+}
+
+/** A city's matched venues, best-first, deduped. Broad match: type OR tag. */
+async function matchCity(
   admin: ReturnType<typeof createClient>,
-  day: ItineraryDay,
-): Promise<VenueRow[]> {
-  const norms = day.suggested_types
-    .map((label) => TYPE_LABEL_TO_NORM[label])
-    .filter((n): n is string => !!n);
+  city: string,
+  norms: string[],
+  tags: string[],
+): Promise<OutVenue[]> {
+  const normSet = new Set(norms);
 
-  let q = admin
-    .from("venues")
-    .select(VENUE_COLUMNS)
-    .eq("reported", false)
-    // Match the app + RPC: keep null-status rows, exclude only PERMANENTLY closed.
-    .or("business_status.is.null,business_status.neq.CLOSED_PERMANENTLY")
-    // ilike with no wildcards = case-insensitive EXACT match (matches the app's
-    // city filter). Avoids "York" sweeping in "New York"; the tradeoff is that a
-    // model city spelled differently from the DB (e.g. Cologne vs Köln) yields
-    // no rows — acceptable, and documented.
-    .ilike("city", day.city);
+  // Two lean queries: precise type matches, plus a broad top-rated batch that
+  // catches tag-only matches. Merged + JS-refined below. Ordering by rating in
+  // SQL is a rough prefilter; JS re-sorts. (No SQL business_status/tag filter —
+  // both are handled in JS to avoid brittle .or()/ilike encoding on values like
+  // "LGBTQ+ friendly".)
+  const queries: Promise<{ data: unknown }>[] = [];
+  if (norms.length) {
+    queries.push(
+      admin
+        .from("venues")
+        .select(VENUE_COLUMNS)
+        .eq("reported", false)
+        .ilike("city", city)
+        .in("type_norm", norms)
+        .order("rating", { ascending: false, nullsFirst: false })
+        .limit(PER_CITY_TYPE_FETCH)
+        .then((r) => ({ data: r.data })),
+    );
+  }
+  queries.push(
+    admin
+      .from("venues")
+      .select(VENUE_COLUMNS)
+      .eq("reported", false)
+      .ilike("city", city)
+      .order("rating", { ascending: false, nullsFirst: false })
+      .limit(PER_CITY_GENERAL_FETCH)
+      .then((r) => ({ data: r.data })),
+  );
 
-  // Only constrain by type when the model actually suggested some (it should).
-  if (norms.length) q = q.in("type_norm", norms);
-
-  // Over-fetch, then rank by about-tag richness in-memory and take the top N —
-  // Postgres can't rank on the parsed JSON here, so ordering happens server-side.
-  const { data, error } = await q.limit(200);
-  if (error) {
-    console.error(`[generate-tour-plan] venue query failed for ${day.city}:`, error);
-    return [];
+  const results = await Promise.all(queries);
+  const byId = new Map<string, VenueRow>();
+  for (const { data } of results) {
+    for (const row of (data ?? []) as VenueRow[]) {
+      if (!byId.has(String(row.id))) byId.set(String(row.id), row);
+    }
   }
 
-  const rows = (data ?? []) as VenueRow[];
-  rows.sort((a, b) => {
-    const sa = aboutTagScore(a.about, day.suggested_about_tags);
-    const sb = aboutTagScore(b.about, day.suggested_about_tags);
-    if (sb !== sa) return sb - sa; // more matching about-tags first
-    const ra = ratingNum(a.rating);
-    const rb = ratingNum(b.rating);
-    if (rb !== ra) return rb - ra; // then higher rating
-    return String(a.id).localeCompare(String(b.id)); // deterministic tiebreak
-  });
+  const matched: Array<{ v: OutVenue; score: number; rating: number }> = [];
+  for (const row of byId.values()) {
+    if (isPermanentlyClosed(row)) continue;
+    const typeMatched = !!row.type_norm && normSet.has(String(row.type_norm));
+    const matchedTags = tags.filter((t) => aboutHasTag(row.about, t));
+    if (!typeMatched && matchedTags.length === 0) continue;
 
-  return rows.slice(0, CANDIDATES_PER_DAY);
-}
+    // Deterministic, human-readable reason: matched type and/or matched tags.
+    const parts: string[] = [];
+    if (typeMatched) {
+      parts.push(
+        NORM_TO_TYPE_LABEL[String(row.type_norm)] ?? String(row.type ?? "Venue"),
+      );
+    }
+    if (matchedTags.length) parts.push(matchedTags.join(", "));
+    const match_reason = parts.join(" · ");
 
-// ─── Stage 3: grounded ranking ────────────────────────────────────────────────
-
-const RANK_SYSTEM_PROMPT =
-  `You are helping an artist pick which real venues to target on each day of a tour. For each day you are given ONLY a fixed list of real candidate venues (with id, name, type, city, rating, and which relevant attributes each one has). Pick the best 1-2 venues per day for the artist described.
-
-Absolute rules:
-- You may ONLY recommend venues by an id that appears in that same day's candidate list. NEVER invent, rename, or reference a venue not in the list. If a day's candidate list is empty, return an empty recommended_venue_ids for that day.
-- In recommendation_rationale, refer to concrete details of the venues you picked (name, type, and the attributes shown) and why they fit this artist + city. Keep it to ~30 words per day.
-
-Return everything ONLY through the rank_venues tool.`;
-
-function rankTool() {
-  return {
-    name: "rank_venues",
-    description: "Return the top 1-2 recommended venue ids per day, grounded only in the provided candidates.",
-    input_schema: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        days: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              day: { type: "integer" },
-              recommended_venue_ids: {
-                type: "array",
-                description: "1-2 ids, each taken verbatim from this day's candidate list.",
-                items: { type: "string" },
-              },
-              recommendation_rationale: {
-                type: "string",
-                description: "~30 words, referencing the chosen venues' real details.",
-              },
-            },
-            required: ["day", "recommended_venue_ids", "recommendation_rationale"],
-          },
-        },
-      },
-      required: ["days"],
-    },
-  } as const;
-}
-
-type RankResult = Map<number, { ids: string[]; rationale: string }>;
-
-async function rankCandidates(
-  client: Anthropic,
-  artistDescription: string,
-  days: Array<{ day: ItineraryDay; candidates: VenueRow[] }>,
-): Promise<RankResult> {
-  // Compact, grounded view — only what the model needs to choose, and only real
-  // rows. The full candidate objects still go back to the client via Stage 2.
-  const modelInput = {
-    artist_description: artistDescription,
-    days: days.map(({ day, candidates }) => ({
-      day: day.day,
-      city: day.city,
-      day_context: day.rationale,
-      candidates: candidates.map((v) => ({
-        id: v.id,
-        name: v.name ?? null,
-        type: v.type ?? null,
-        city: v.city ?? null,
-        rating: v.rating ?? null,
-        attributes: ABOUT_TAGS.filter((t) => aboutHasTag(v.about, t)),
-      })),
-    })),
-  };
-
-  const message = await client.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 4096,
-    system: RANK_SYSTEM_PROMPT,
-    tools: [rankTool()],
-    tool_choice: { type: "tool", name: "rank_venues" },
-    messages: [{ role: "user", content: JSON.stringify(modelInput) }],
-  });
-
-  const toolUse = message.content.find(
-    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
-  );
-  if (!toolUse) throw new Error("rank: model returned no tool_use block");
-
-  const input = toolUse.input as { days?: unknown };
-  const out: RankResult = new Map();
-  const rawDays = Array.isArray(input.days) ? input.days : [];
-  for (const d of rawDays) {
-    if (!d || typeof d !== "object") continue;
-    const rec = d as Record<string, unknown>;
-    const dayNum = Math.trunc(Number(rec.day));
-    if (!Number.isFinite(dayNum)) continue;
-    out.set(dayNum, {
-      ids: (Array.isArray(rec.recommended_venue_ids) ? rec.recommended_venue_ids : [])
-        .map((x) => String(x)),
-      rationale: String(rec.recommendation_rationale ?? ""),
+    matched.push({
+      v: { ...row, city: row.city ?? city, match_reason },
+      score: (typeMatched ? 1 : 0) + matchedTags.length,
+      rating: ratingNum(row.rating),
     });
+  }
+
+  matched.sort((a, b) =>
+    b.score !== a.score
+      ? b.score - a.score
+      : b.rating !== a.rating
+      ? b.rating - a.rating
+      : String(a.v.id).localeCompare(String(b.v.id)),
+  );
+  return matched.map((m) => m.v);
+}
+
+/**
+ * Combine per-city lists into one flat list capped at MAX_VENUES, spreading
+ * across cities: take one from each city per pass (round-robin), so no single
+ * city dominates. Cities with fewer matches simply drop out of later passes and
+ * the remaining slots go to cities that still have venues.
+ */
+function roundRobinCap(perCity: OutVenue[][], cap: number): OutVenue[] {
+  const out: OutVenue[] = [];
+  const cursors = new Array(perCity.length).fill(0);
+  let progressed = true;
+  while (out.length < cap && progressed) {
+    progressed = false;
+    for (let i = 0; i < perCity.length && out.length < cap; i++) {
+      const list = perCity[i];
+      const c = cursors[i];
+      if (c < list.length) {
+        out.push(list[c]);
+        cursors[i] = c + 1;
+        progressed = true;
+      }
+    }
   }
   return out;
 }
@@ -471,22 +418,7 @@ function validate(body: RequestBody):
   if (!artist_description) {
     return { ok: false, message: "artist_description is required." };
   }
-
-  const trip_length_days = Math.trunc(Number(body.trip_length_days));
-  if (!Number.isFinite(trip_length_days) || trip_length_days < 1) {
-    return { ok: false, message: "trip_length_days must be an integer >= 1." };
-  }
-  if (trip_length_days > MAX_TOUR_DAYS) {
-    return {
-      ok: false,
-      message: `Tour too long — max ${MAX_TOUR_DAYS} days.`,
-    };
-  }
-
-  return {
-    ok: true,
-    value: { home_city, target_city, trip_length_days, artist_description },
-  };
+  return { ok: true, value: { home_city, target_city, artist_description } };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -515,56 +447,44 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // ── Stage 1 ──
-  let itinerary: ItineraryDay[];
+  // ── Stage 1: corridor + genre mapping ──
+  let corridor: Corridor;
   try {
-    itinerary = await reasonRoute(anthropic, v.value);
+    corridor = await reasonCorridor(anthropic, v.value);
   } catch (err) {
-    console.error("[generate-tour-plan] stage 1 (route) error:", err);
-    return json({ error: "Could not generate a route. Please try again." }, 502);
-  }
-  if (!itinerary.length) {
-    return json({ error: "The planner returned no itinerary. Please try again." }, 502);
+    console.error("[generate-tour-plan] stage 1 (corridor) error:", err);
+    return json({ error: "Could not plan a corridor. Please try again." }, 502);
   }
 
-  // ── Stage 2 (deterministic) — matched in parallel across days ──
-  const matched = await Promise.all(
-    itinerary.map(async (day) => ({ day, candidates: await matchVenues(admin, day) })),
+  // Plausibility guard — cities not sensibly ground-connected.
+  if (!corridor.plausible) {
+    return json({
+      cities: [],
+      venues: [],
+      error: corridor.reason ||
+        "Those cities don't look connected by ground travel for a tour.",
+    });
+  }
+  if (!corridor.cities.length) {
+    return json({
+      cities: [],
+      venues: [],
+      error: "Couldn't identify a plausible corridor. Please try again.",
+    });
+  }
+
+  // ── Stage 2: match venues per city, then combine with city-spread cap ──
+  const norms = corridor.suggested_types
+    .map((label) => TYPE_LABEL_TO_NORM[label])
+    .filter((n): n is string => !!n);
+
+  const perCity = await Promise.all(
+    corridor.cities.map((city) =>
+      matchCity(admin, city, norms, corridor.suggested_about_tags)
+    ),
   );
 
-  // ── Stage 3 (grounded ranking) — best-effort. If it fails, still return the
-  //    itinerary + candidates with empty recommendations rather than 502ing the
-  //    whole request (Stage 3 is the "optional but recommended" refinement). ──
-  let ranked: RankResult = new Map();
-  const daysWithCandidates = matched.filter((m) => m.candidates.length > 0);
-  if (daysWithCandidates.length) {
-    try {
-      ranked = await rankCandidates(
-        anthropic,
-        v.value.artist_description,
-        daysWithCandidates,
-      );
-    } catch (err) {
-      console.error("[generate-tour-plan] stage 3 (rank) error — degrading:", err);
-    }
-  }
+  const venues = roundRobinCap(perCity, MAX_VENUES);
 
-  // ── Merge. Server-side, HARD-FILTER Stage-3 ids against each day's real
-  //    candidate set — the definitive guarantee that no hallucinated venue
-  //    reaches the response, independent of the prompt. ──
-  const finalItinerary: FinalDay[] = matched.map(({ day, candidates }) => {
-    const candidateIds = new Set(candidates.map((c) => String(c.id)));
-    const r = ranked.get(day.day);
-    const validIds = (r?.ids ?? []).filter((id) => candidateIds.has(id)).slice(0, 2);
-    return {
-      day: day.day,
-      city: day.city,
-      rationale: day.rationale,
-      candidate_venues: candidates,
-      recommended_venue_ids: validIds,
-      recommendation_rationale: validIds.length ? (r?.rationale ?? "") : "",
-    };
-  });
-
-  return json({ itinerary: finalItinerary });
+  return json({ cities: corridor.cities, venues });
 });
