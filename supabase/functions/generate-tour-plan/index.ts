@@ -19,11 +19,14 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //      ABOUT-TAGS via explicit few-shot guidance. Includes a plausibility
 //      guard: if the two cities aren't sensibly ground-connected (different
 //      continents / absurd distance), it returns plausible=false and we stop.
-//   2. Venue matching (deterministic, NO LLM) — for each city, pull venues
-//      matching type_norm OR any suggested about-tag (broad — not requiring
-//      both), combine across cities, and cap the TOTAL at MAX_VENUES by
-//      round-robin across cities so no single city dominates. Each venue is
-//      tagged with its city and a deterministic match_reason.
+//   2. Venue matching (deterministic, NO LLM) — first fuzzy-resolve each
+//      corridor city to the real `venues.city` spelling (pg_trgm similarity via
+//      the resolve_venue_cities RPC — catches Hannover→Hanover, ACCRA→Accra,
+//      etc.), then for each city pull venues matching type_norm OR any suggested
+//      about-tag (broad — not requiring both), combine across cities, and cap
+//      the TOTAL at MAX_VENUES by round-robin across cities so no single city
+//      dominates. Each venue is tagged with its city and a deterministic
+//      match_reason.
 //
 // There is intentionally NO Stage 3 / LLM pruning: the user wants a list of
 // reasonable options, not the AI narrowing to a curated "best pick." Stage 2's
@@ -105,6 +108,15 @@ const MAX_CITIES = 15;
 const MAX_VENUES = 100;
 const PER_CITY_TYPE_FETCH = 40; // precise type_norm matches
 const PER_CITY_GENERAL_FETCH = 60; // broad batch, JS-matched for about-tags
+
+// pg_trgm similarity() cutoff for resolving an LLM city spelling to the real
+// `venues.city` value. 0.6 catches the recurring near-spelling/casing/umlaut
+// cases (Hannover/Hanover = 0.70, ACCRA/Accra = 1.0) while staying well clear of
+// the false-positive band measured against genuinely different cities (≤~0.33,
+// e.g. Berlin/Bern 0.33, Hanover/Hamburg 0.14). Exact matches always win. True
+// exonyms (München/Munich, Köln/Cologne) score near 0 and are NOT caught — a
+// non-issue since venue data is stored in English and Stage 1 emits English.
+const CITY_SIMILARITY_THRESHOLD = 0.6;
 
 // Venue projection returned to the client. Explicit (skips the tsvector +
 // scraper long tail) but still "full rows". `about`/`type_norm` drive matching.
@@ -380,6 +392,32 @@ async function matchCity(
 }
 
 /**
+ * Resolve corridor city names to the real `venues.city` spelling via the
+ * resolve_venue_cities RPC (pg_trgm fuzzy match, exact-case-insensitive wins).
+ * Returns a map keyed by lowercased input → resolved spelling. On RPC failure
+ * it returns an empty map, so the caller degrades to the original spellings
+ * (i.e. pre-fuzzy behavior) rather than erroring.
+ */
+async function resolveCities(
+  admin: ReturnType<typeof createClient>,
+  cities: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const { data, error } = await admin.rpc("resolve_venue_cities", {
+    p_cities: cities,
+    p_threshold: CITY_SIMILARITY_THRESHOLD,
+  });
+  if (error) {
+    console.error("[generate-tour-plan] resolve_venue_cities error:", error);
+    return map;
+  }
+  for (const row of (data ?? []) as Array<{ input: string; resolved: string }>) {
+    map.set(String(row.input).toLowerCase(), String(row.resolved));
+  }
+  return map;
+}
+
+/**
  * Combine per-city lists into one flat list capped at MAX_VENUES, spreading
  * across cities: take one from each city per pass (round-robin), so no single
  * city dominates. Cities with fewer matches simply drop out of later passes and
@@ -473,18 +511,35 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Stage 2: match venues per city, then combine with city-spread cap ──
+  // ── Stage 2: resolve city spellings, match venues per city, combine ──
   const norms = corridor.suggested_types
     .map((label) => TYPE_LABEL_TO_NORM[label])
     .filter((n): n is string => !!n);
 
+  // Fuzzy-resolve each corridor city to the actual spelling stored in `venues`
+  // (Hannover → Hanover, ACCRA → Accra, …) so exonym/casing mismatches don't
+  // silently return zero venues. Dedupe on the resolved spelling — two distinct
+  // LLM inputs can collapse to one real city, and querying it twice would
+  // duplicate venues. Unresolved cities keep their original spelling (and
+  // simply yield no venues if genuinely absent from the dataset).
+  const resolveMap = await resolveCities(admin, corridor.cities);
+  const seenCity = new Set<string>();
+  const queryCities: string[] = [];
+  for (const c of corridor.cities) {
+    const resolved = resolveMap.get(c.toLowerCase()) ?? c;
+    const key = resolved.toLowerCase();
+    if (seenCity.has(key)) continue;
+    seenCity.add(key);
+    queryCities.push(resolved);
+  }
+
   const perCity = await Promise.all(
-    corridor.cities.map((city) =>
+    queryCities.map((city) =>
       matchCity(admin, city, norms, corridor.suggested_about_tags)
     ),
   );
 
   const venues = roundRobinCap(perCity, MAX_VENUES);
 
-  return json({ cities: corridor.cities, venues });
+  return json({ cities: queryCities, venues });
 });
