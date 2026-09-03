@@ -7,16 +7,20 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //
 // Powers VenueFindr's AI-assisted multi-city tour route planner (pro feature).
 //
-// Input:  { home_city, target_city, start_date, end_date, artist_description }
-// Output: { itinerary: [{ date, city, rationale, candidate_venues[],
+// Input:  { home_city, target_city, trip_length_days, artist_description }
+// Output: { itinerary: [{ day, city, rationale, candidate_venues[],
 //                         recommended_venue_ids[], recommendation_rationale }] }
+//
+// The itinerary is keyed by DAY NUMBER (Day 1..N), not calendar dates — there is
+// no real venue-availability calendar behind this feature, so only trip
+// duration/pacing matters, not specific dates.
 //
 // Three stages:
 //   1. Route reasoning (Anthropic)   — reason about a sensible ground-travel
-//      route home_city → target_city across the date range, one show/day where
-//      sensible, using the model's own geography/city-character knowledge. For
-//      each day it also suggests which venue TYPES and ABOUT-TAGS best fit,
-//      constrained to the fixed lists below via tool-schema enums.
+//      route home_city → target_city spanning trip_length_days total, one
+//      show/day where sensible, using the model's own geography/city-character
+//      knowledge. For each day it also suggests which venue TYPES and ABOUT-TAGS
+//      best fit, constrained to the fixed lists below via tool-schema enums.
 //   2. Venue matching (deterministic, NO LLM) — for each day, query the real
 //      venues table (city + type_norm ∈ suggested + reported=false +
 //      not permanently closed), rank by how many suggested about-tags are
@@ -34,7 +38,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //
 // Endpoint auth: public (verify_jwt: false), callable with the project's
 // publishable key — same pattern as hubspot-beta-slug-request. NOTE: this fires
-// TWO paid LLM calls per request with no per-caller identity, so the date range
+// TWO paid LLM calls per request with no per-caller identity, so trip_length_days
 // is capped (MAX_TOUR_DAYS) to bound cost/output per call. A stronger abuse
 // guard (auth/rate-limit) is a flagged follow-up — see the repo notes.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,13 +127,12 @@ const VENUE_COLUMNS =
 type RequestBody = {
   home_city?: string;
   target_city?: string;
-  start_date?: string;
-  end_date?: string;
+  trip_length_days?: number;
   artist_description?: string;
 };
 
 type ItineraryDay = {
-  date: string;
+  day: number;
   city: string;
   country_hint: string;
   rationale: string;
@@ -140,7 +143,7 @@ type ItineraryDay = {
 type VenueRow = Record<string, unknown> & { id: string; about?: string | null };
 
 type FinalDay = {
-  date: string;
+  day: number;
   city: string;
   rationale: string;
   candidate_venues: VenueRow[];
@@ -151,15 +154,15 @@ type FinalDay = {
 // ─── Stage 1: route reasoning ─────────────────────────────────────────────────
 
 const ROUTE_SYSTEM_PROMPT =
-  `You are a tour-routing assistant for independent musicians and DJs. Given a home city, a target destination city, a date range, and a description of the artist, design a sensible GROUND-TRAVEL touring route from the home city to the target city.
+  `You are a tour-routing assistant for independent musicians and DJs. Given a home city, a target destination city, a total trip length in days, and a description of the artist, design a sensible GROUND-TRAVEL touring route from the home city to the target city.
 
 Principles:
 - The route should progress geographically from home_city toward target_city by road/rail — no back-tracking across the continent, no flights implied. Intermediate stops should be realistically reachable day-to-day.
-- Aim for most or all days to include a show. It is fine to include a travel/rest day with no obvious host city, but prefer playable cities.
+- The trip spans exactly trip_length_days days total. Pace the route so it arrives at (or near) the target city by the final day. Aim for most or all days to include a show. It is fine to include a travel/rest day with no obvious host city, but prefer playable cities.
 - Choose intermediate cities using real geography AND city character — university towns, cities with dense international/expat communities, and places with a genuine nightlife/live scene are better hosts than cities that merely sit on the map line. Justify each choice briefly.
 - Tailor each day to the artist described. For each day, pick the venue TYPES and ABOUT-TAGS (from the fixed lists provided by the tool schema) that best fit that city + that artist's style. Only choose from those lists.
 - country_hint: the country the city is in (helps disambiguate same-named cities).
-- Produce one itinerary entry per calendar date in the range (inclusive). Use the exact dates given.
+- Produce exactly one itinerary entry per day, numbered Day 1 through Day trip_length_days, in order. There are NO calendar dates — key each entry by its day number only.
 
 Return the plan ONLY through the propose_route tool.`;
 
@@ -174,14 +177,15 @@ function routeTool() {
       properties: {
         itinerary: {
           type: "array",
-          description: "One entry per date in the range, in chronological order.",
+          description:
+            "One entry per day, numbered Day 1..trip_length_days, in order.",
           items: {
             type: "object",
             additionalProperties: false,
             properties: {
-              date: {
-                type: "string",
-                description: "The calendar date, YYYY-MM-DD, from the given range.",
+              day: {
+                type: "integer",
+                description: "The day number, starting at 1 (no calendar dates).",
               },
               city: { type: "string", description: "Host city for this day." },
               country_hint: {
@@ -207,7 +211,7 @@ function routeTool() {
               },
             },
             required: [
-              "date",
+              "day",
               "city",
               "country_hint",
               "rationale",
@@ -229,8 +233,7 @@ async function reasonRoute(
   const userContent = JSON.stringify({
     home_city: body.home_city,
     target_city: body.target_city,
-    start_date: body.start_date,
-    end_date: body.end_date,
+    trip_length_days: body.trip_length_days,
     artist_description: body.artist_description,
   });
 
@@ -258,7 +261,7 @@ async function reasonRoute(
   return raw
     .filter((d): d is Record<string, unknown> => !!d && typeof d === "object")
     .map((d) => ({
-      date: String(d.date ?? ""),
+      day: Math.trunc(Number(d.day)),
       city: String(d.city ?? ""),
       country_hint: String(d.country_hint ?? ""),
       rationale: String(d.rationale ?? ""),
@@ -271,7 +274,7 @@ async function reasonRoute(
         .map((t) => String(t))
         .filter((t) => tagSet.has(t)),
     }))
-    .filter((d) => d.date && d.city)
+    .filter((d) => Number.isFinite(d.day) && d.day >= 1 && d.city)
     .slice(0, MAX_TOUR_DAYS);
 }
 
@@ -377,7 +380,7 @@ function rankTool() {
             type: "object",
             additionalProperties: false,
             properties: {
-              date: { type: "string" },
+              day: { type: "integer" },
               recommended_venue_ids: {
                 type: "array",
                 description: "1-2 ids, each taken verbatim from this day's candidate list.",
@@ -388,7 +391,7 @@ function rankTool() {
                 description: "~30 words, referencing the chosen venues' real details.",
               },
             },
-            required: ["date", "recommended_venue_ids", "recommendation_rationale"],
+            required: ["day", "recommended_venue_ids", "recommendation_rationale"],
           },
         },
       },
@@ -397,7 +400,7 @@ function rankTool() {
   } as const;
 }
 
-type RankResult = Map<string, { ids: string[]; rationale: string }>;
+type RankResult = Map<number, { ids: string[]; rationale: string }>;
 
 async function rankCandidates(
   client: Anthropic,
@@ -409,7 +412,7 @@ async function rankCandidates(
   const modelInput = {
     artist_description: artistDescription,
     days: days.map(({ day, candidates }) => ({
-      date: day.date,
+      day: day.day,
       city: day.city,
       day_context: day.rationale,
       candidates: candidates.map((v) => ({
@@ -443,9 +446,9 @@ async function rankCandidates(
   for (const d of rawDays) {
     if (!d || typeof d !== "object") continue;
     const rec = d as Record<string, unknown>;
-    const date = String(rec.date ?? "");
-    if (!date) continue;
-    out.set(date, {
+    const dayNum = Math.trunc(Number(rec.day));
+    if (!Number.isFinite(dayNum)) continue;
+    out.set(dayNum, {
       ids: (Array.isArray(rec.recommended_venue_ids) ? rec.recommended_venue_ids : [])
         .map((x) => String(x)),
       rationale: String(rec.recommendation_rationale ?? ""),
@@ -456,15 +459,11 @@ async function rankCandidates(
 
 // ─── Request validation ───────────────────────────────────────────────────────
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
 function validate(body: RequestBody):
-  | { ok: true; value: Required<RequestBody>; days: number }
+  | { ok: true; value: Required<RequestBody> }
   | { ok: false; message: string } {
   const home_city = (body.home_city ?? "").trim();
   const target_city = (body.target_city ?? "").trim();
-  const start_date = (body.start_date ?? "").trim();
-  const end_date = (body.end_date ?? "").trim();
   const artist_description = (body.artist_description ?? "").trim();
 
   if (!home_city) return { ok: false, message: "home_city is required." };
@@ -472,33 +471,21 @@ function validate(body: RequestBody):
   if (!artist_description) {
     return { ok: false, message: "artist_description is required." };
   }
-  if (!DATE_RE.test(start_date)) {
-    return { ok: false, message: "start_date must be YYYY-MM-DD." };
-  }
-  if (!DATE_RE.test(end_date)) {
-    return { ok: false, message: "end_date must be YYYY-MM-DD." };
-  }
 
-  const start = new Date(`${start_date}T00:00:00Z`);
-  const end = new Date(`${end_date}T00:00:00Z`);
-  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-    return { ok: false, message: "start_date/end_date is not a valid date." };
+  const trip_length_days = Math.trunc(Number(body.trip_length_days));
+  if (!Number.isFinite(trip_length_days) || trip_length_days < 1) {
+    return { ok: false, message: "trip_length_days must be an integer >= 1." };
   }
-  if (end < start) {
-    return { ok: false, message: "end_date must be on or after start_date." };
-  }
-  const days = Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
-  if (days > MAX_TOUR_DAYS) {
+  if (trip_length_days > MAX_TOUR_DAYS) {
     return {
       ok: false,
-      message: `Tour range too long — max ${MAX_TOUR_DAYS} days.`,
+      message: `Tour too long — max ${MAX_TOUR_DAYS} days.`,
     };
   }
 
   return {
     ok: true,
-    value: { home_city, target_city, start_date, end_date, artist_description },
-    days,
+    value: { home_city, target_city, trip_length_days, artist_description },
   };
 }
 
@@ -567,10 +554,10 @@ Deno.serve(async (req: Request) => {
   //    reaches the response, independent of the prompt. ──
   const finalItinerary: FinalDay[] = matched.map(({ day, candidates }) => {
     const candidateIds = new Set(candidates.map((c) => String(c.id)));
-    const r = ranked.get(day.date);
+    const r = ranked.get(day.day);
     const validIds = (r?.ids ?? []).filter((id) => candidateIds.has(id)).slice(0, 2);
     return {
-      date: day.date,
+      day: day.day,
       city: day.city,
       rationale: day.rationale,
       candidate_venues: candidates,
