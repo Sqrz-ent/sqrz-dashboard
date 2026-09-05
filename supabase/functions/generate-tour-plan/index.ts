@@ -3,62 +3,82 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// generate-tour-plan  (v4 — structured pill input, 3-stage: reason → cast wide →
+// generate-tour-plan  (v5 — single venue_character field replaces the old
+// venue_size + vibe_types pair entirely. 3-stage: reason → cast wide →
 // qualitative read. Flat venue list, no day scheduling.)
 //
-// Input:  { home_city, target_city, venue_size, goal, vibe_types }
+// Input:  { home_city, target_city, venue_character, goal }
 // Output: { cities: string[], venues: [{ ...venue fields, city, match_reason }] }
 //         (or { cities: [], venues: [], error } when the two cities aren't
 //          plausibly connected by ground travel)
 //
-// venue_size: "small" (~<250 cap) | "mid" (250-500) | "large" (500-2000+) | "stadium"
-// goal:       "get_booked" (venue programs acts / works with promoters) |
-//             "rent_venue" (self-produced show, artist rents the space)
-// vibe_types: 1+ of "club_nightlife" | "live_music_concert" | "bar_lounge" |
-//             "theater_performing_arts" | "outdoor_festival"
+// venue_character: single-select, one of —
+//   "bar_lounge"      — Bar, Sports bar, Shisha bar, Cafe, Lounge. Ambient/
+//                        background music, DJ possible but no live band.
+//                        Rarely rented for full productions, occasionally
+//                        available for private events.
+//   "club_nightlife"  — Club, Nightclub, Beach club, Event venue (run as
+//                        nightlife), Disco. DJ/nightlife-driven, sometimes a
+//                        live act alongside a DJ. Usually rentable or
+//                        co-produced, often has staff who work directly with
+//                        promoters.
+//   "live_music_hall" — Event venue, Live music hall, Cultural center. Built
+//                        for real productions, most likely to support a full
+//                        live show or larger act. ALSO covers arena/stadium-
+//                        scale venues (2026-09 decision, confirmed with Will —
+//                        merged in rather than kept as a separate 4th tier or
+//                        excluded entirely, since they're rare enough not to
+//                        warrant their own category; see
+//                        isStadiumScaleMismatch below).
+// goal: "get_booked" (venue programs acts / works with promoters) |
+//       "rent_venue" (self-produced show, artist rents the space)
 //
-// This replaces free-text artist_description entirely — a real architectural
-// shift, not a tweak. Three stages:
+// v5 (2026-09) replaced the prior venue_size (small/mid/large/stadium) +
+// vibe_types (multi-select: club_nightlife/live_music_concert/bar_lounge/
+// theater_performing_arts/outdoor_festival) pair with this single field — a
+// full replacement of both prior inputs, not additive. Three stages:
 //
 //   1. Corridor + type mapping (Anthropic, ONE call) — same plausible,
 //      non-optimal corridor-city reasoning as before, but now grounded in
-//      venue_size/goal/vibe_types instead of genre-derived guessing. Output
-//      suggested_types/suggested_about_tags (from the fixed allowed lists —
-//      see TYPE_LABEL_TO_NORM below) is LOOSE GUIDANCE for Stage 2, not a
-//      strict filter.
+//      venue_character/goal instead of the old venue_size/vibe_types pair.
+//      Output suggested_types/suggested_about_tags (from the fixed allowed
+//      lists — see TYPE_LABEL_TO_NORM below) is LOOSE GUIDANCE for Stage 2,
+//      not a strict filter.
 //
 //   2. CAST WIDE (deterministic, NO LLM) — per city, fetch a generous
 //      rating-ordered batch (PER_CITY_FETCH) and keep any row where
 //      (type_norm is in Stage 1's suggested_types) OR (subtypes/description
-//      text contains a vibe_type/goal keyword) OR (about JSON text contains a
-//      vibe_type/about keyword). The point is to catch venues whose real
-//      signal lives in subtypes/about/description rather than the primary
-//      type field — a strict type_norm-only query misses those. Matching is
-//      done in JS against the fetched batch (not via PostgREST .or()/ilike
-//      string-building) — the SAME reason the original deterministic version
-//      of this file avoided that path: values like "LGBTQ+ friendly" (and
-//      multi-word keywords generally) are brittle to encode into a raw
-//      .or()-filter string. Scored + capped per city (PER_CITY_STAGE3_CAP) so
-//      Stage 3 gets a generous but bounded pool, not literally everything.
+//      text contains a venue_character/goal keyword) OR (about JSON text
+//      contains a venue_character/about keyword). The point is to catch
+//      venues whose real signal lives in subtypes/about/description rather
+//      than the primary type field — a strict type_norm-only query misses
+//      those. Matching is done in JS against the fetched batch (not via
+//      PostgREST .or()/ilike string-building) — the SAME reason the original
+//      deterministic version of this file avoided that path: values like
+//      "LGBTQ+ friendly" (and multi-word keywords generally) are brittle to
+//      encode into a raw .or()-filter string. Scored + capped per city
+//      (PER_CITY_STAGE3_CAP) so Stage 3 gets a generous but bounded pool, not
+//      literally everything.
 //
 //   3. QUALITATIVE READ (Anthropic, CHUNKED per-city calls) — NOT a pruning-
 //      to-a-top-pick pass (that was explicitly rejected). Given the full raw
 //      candidate data per city (type, subtypes, the full about JSON, rating)
-//      plus the user's venue_size/goal/vibe_types, the model (a) drops
-//      candidates that clearly don't fit despite passing Stage 2's broad net
-//      (e.g. about data reveals a restaurant with no stage/dancing/
-//      live-music signal), and (b) writes an honest, specific match_reason
-//      for each survivor, grounded in that venue's ACTUAL subtypes/about
-//      data — never generic. The survivor set must stay broad; most
-//      candidates that reach this stage should survive. venue_size is called
-//      out in the prompt as a HARD constraint (not just a preference like
-//      goal/vibe), but the LLM isn't 100% reliable on a check this
-//      mechanical, so a deterministic backstop (isStadiumScaleMismatch) runs
-//      after Stage 3 too — drops any survivor whose type/subtypes mention
-//      arena/stadium/amphitheater when venue_size isn't "stadium", the same
-//      principle as the business_status=CLOSED_PERMANENTLY exclusion in
-//      Stage 2. The existing 100-venue global cap + city-spread round-robin
-//      is enforced AFTER both, not before.
+//      plus the user's venue_character/goal, the model (a) drops candidates
+//      that clearly don't fit despite passing Stage 2's broad net (e.g. about
+//      data reveals a restaurant with no stage/dancing/live-music signal),
+//      and (b) writes an honest, specific match_reason for each survivor,
+//      grounded in that venue's ACTUAL subtypes/about data — never generic.
+//      The survivor set must stay broad; most candidates that reach this
+//      stage should survive. venue_character is called out in the prompt as
+//      a HARD constraint (not just a preference like goal), but the LLM
+//      isn't 100% reliable on a check this mechanical, so a deterministic
+//      backstop (isStadiumScaleMismatch) runs after Stage 3 too — drops any
+//      survivor whose type/subtypes mention arena/stadium/amphitheater
+//      UNLESS venue_character is "live_music_hall" (which legitimately
+//      covers that scale as of the 2026-09 merge above), the same principle
+//      as the business_status=CLOSED_PERMANENTLY exclusion in Stage 2. The
+//      existing 100-venue global cap + city-spread round-robin is enforced
+//      AFTER both, not before.
 //
 //      CHUNKING (2026-09 fix — see incident note below): one Anthropic call
 //      per CITY, never one call spanning the whole corridor. A single large
@@ -82,24 +102,31 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //      never being evaluated AT ALL is not.
 //
 //      CACHING (venue_fit_cache, service-role only): before calling the LLM,
-//      every candidate is looked up by (venue_id, venue_size, goal,
-//      vibe_types_key — the request's vibe_types sorted+joined so ordering
-//      never causes a spurious miss). A cache hit is resolved directly (fit
-//      or not, with its stored match_reason) with no LLM involvement; only
-//      the uncached remainder is ever sent to Anthropic, one city-scoped
-//      chunk at a time. Fresh verdicts — both kept AND dropped — are
-//      UPSERTed back afterward, so the next request sharing that exact
-//      combination (same venue, same venue_size/goal/vibe_types) skips the
-//      LLM for that venue entirely. Each verdict is written ONLY for
-//      candidates that were actually inside the chunk payload the LLM call
-//      that produced it received — never for candidates elsewhere in the
-//      corridor that call never saw — so a future partial-evaluation bug of
-//      this same shape can only ever poison the one city/chunk it touched,
-//      not the whole corridor (this is what let the original bug silently
-//      write "doesn't fit" for every real candidate in 5 of 9 cities before
-//      it was caught; venue_fit_cache has since been fully truncated by
-//      Will). Purely an internal efficiency layer — same request/response
-//      contract, same per-city ordering, invisible to the client.
+//      every candidate is looked up by (venue_id, venue_character, goal) — a
+//      simpler key than the pre-v5 (venue_id, venue_size, goal,
+//      vibe_types_key) shape, since venue_character is single-select (no
+//      set-union/sort-key needed the way multi-select vibe_types required).
+//      A cache hit is resolved directly (fit or not, with its stored
+//      match_reason) with no LLM involvement; only the uncached remainder is
+//      ever sent to Anthropic, one city-scoped chunk at a time. Fresh
+//      verdicts — both kept AND dropped — are UPSERTed back afterward, so the
+//      next request sharing that exact combination (same venue, same
+//      venue_character/goal) skips the LLM for that venue entirely. Each
+//      verdict is written ONLY for candidates that were actually inside the
+//      chunk payload the LLM call that produced it received — never for
+//      candidates elsewhere in the corridor that call never saw — so a
+//      future partial-evaluation bug of this same shape can only ever
+//      poison the one city/chunk it touched, not the whole corridor.
+//      venue_fit_cache's schema was altered in place for the v5 field swap
+//      (venue_size/vibe_types/vibe_types_key columns dropped, venue_character
+//      added, unique constraint now (venue_id, venue_character, goal)) — the
+//      table held only test/diagnostic rows from earlier development at
+//      migration time (confirmed live, not assumed — 154 rows, all from this
+//      feature's own build-and-verify cycles), so it was truncated as part
+//      of that migration rather than backfilled; no real per-venue verdict
+//      data existed yet to preserve. Purely an internal efficiency layer —
+//      same request/response contract, same per-city ordering, invisible to
+//      the client.
 //
 // Keyword design note: `about` is Google-Places-style structured booleans
 // (Highlights/Offerings/Atmosphere/Crowd/…) — verified against live data,
@@ -110,7 +137,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // `description` (Google's short editorial blurb, e.g. "Dance club hosting DJ
 // nights & events") was folded in alongside subtypes as a real keyword-match
 // target — confirmed with Will: it carries stronger literal signal than
-// `about`'s booleans for several vibe_types.
+// `about`'s booleans for several venue_character values.
 //
 // Anthropic auth: reuses the project-wide ANTHROPIC_API_KEY (same secret
 // campaign-advisor uses; edge secrets are project-wide). Key never leaves the
@@ -144,20 +171,14 @@ function json(body: unknown, status = 200): Response {
 
 // ─── Structured input enums ────────────────────────────────────────────────
 
-const VENUE_SIZES = ["small", "mid", "large", "stadium"] as const;
-type VenueSize = typeof VENUE_SIZES[number];
-
 const GOALS = ["get_booked", "rent_venue"] as const;
 type Goal = typeof GOALS[number];
 
-const VIBE_TYPES = [
-  "club_nightlife",
-  "live_music_concert",
-  "bar_lounge",
-  "theater_performing_arts",
-  "outdoor_festival",
-] as const;
-type VibeType = typeof VIBE_TYPES[number];
+// Replaces the pre-v5 venue_size + vibe_types pair entirely — single-select,
+// not additive. See the venue_character doc block at the top of this file for
+// the full definition of each value (real-world types + character).
+const VENUE_CHARACTERS = ["bar_lounge", "club_nightlife", "live_music_hall"] as const;
+type VenueCharacter = typeof VENUE_CHARACTERS[number];
 
 // ─── Fixed venue-type + about-tag lists (Stage 1's constrained output) ────────
 // HARDCODED, and MUST be kept in sync with venuefindr-ios/VenueFindr/VenueFindr/
@@ -167,8 +188,9 @@ type VibeType = typeof VIBE_TYPES[number];
 // `type`/`subtypes` universe in the data is much bigger than this list (Arena,
 // Stadium, Amphitheater, Festival hall, Opera house, Comedy club, …, verified
 // live) — deliberately NOT added here (out of scope, shared with the venue
-// browse filter); Stage 2's keyword matching (VIBE_KEYWORDS/GOAL_KEYWORDS
-// below) reaches that wider universe directly via free-text search instead.
+// browse filter); Stage 2's keyword matching (VENUE_CHARACTER_KEYWORDS/
+// GOAL_KEYWORDS below) reaches that wider universe directly via free-text
+// search instead.
 //
 // `label` = what the model reasons about + returns (constrained by tool enums);
 // `norm`  = the value matched against the generated `venues.type_norm` column.
@@ -198,9 +220,10 @@ const TYPE_LABELS = Object.keys(TYPE_LABEL_TO_NORM);
 // The 6 about-tags Stage 1 reasons over — verbatim keys inside the venues.about
 // JSON (`{ Category: { "Tag": true } }`), verified present in real data. Kept
 // as Stage 1's constrained output vocabulary; Stage 2's about-keyword search
-// (VIBE_KEYWORDS below) additionally uses several more real tag names beyond
-// this list, since that search is free-text substring matching, not a
-// JSON-key-enum lookup, so it isn't bound by what Stage 1 is allowed to say.
+// (VENUE_CHARACTER_KEYWORDS below) additionally uses several more real tag
+// names beyond this list, since that search is free-text substring matching,
+// not a JSON-key-enum lookup, so it isn't bound by what Stage 1 is allowed to
+// say.
 const ABOUT_TAGS = [
   "Live performances",
   "Live music",
@@ -210,7 +233,7 @@ const ABOUT_TAGS = [
   "Accepts reservations",
 ] as const;
 
-// ─── vibe_type / goal → keyword map (Stage 2's deterministic broadening) ──────
+// ─── venue_character / goal → keyword map (Stage 2's deterministic broadening) ─
 // Verified against live `venues` data (type/subtypes/description/about leaf
 // keys queried directly) before writing this, not guessed. `aboutTags` are
 // literal substrings to search for in the raw `about` text (not required to be
@@ -218,42 +241,45 @@ const ABOUT_TAGS = [
 // more robust than JSON-key lookup and survives the ~2% malformed/truncated
 // about rows). `textKeywords` are literal substrings searched across
 // `subtypes` + `description` together.
-const VIBE_KEYWORDS: Record<VibeType, { aboutTags: string[]; textKeywords: string[] }> = {
+//
+// v5 (2026-09) consolidates the pre-v5 5-key VIBE_KEYWORDS map (club_nightlife/
+// live_music_concert/bar_lounge/theater_performing_arts/outdoor_festival) into
+// these 3 keys: live_music_hall absorbs live_music_concert +
+// theater_performing_arts whole, plus outdoor_festival's production-scale
+// terms (festival hall/amphitheater/arena/stadium — arena/stadium-scale venues
+// merge into this tier per the 2026-09 decision, see the venue_character doc
+// block at the top of this file); bar_lounge absorbs outdoor_festival's
+// ambient-outdoor terms (beer garden/rooftop/outdoor seating) plus the new
+// shisha-bar/cafe types Will named explicitly; club_nightlife is unchanged
+// except for the added "beach club" term Will named explicitly.
+const VENUE_CHARACTER_KEYWORDS: Record<VenueCharacter, { aboutTags: string[]; textKeywords: string[] }> = {
+  bar_lounge: {
+    aboutTags: [
+      "Great cocktails", "Cosy", "Cozy", "Upscale", "Upmarket",
+      "Outdoor seating", "Rooftop seating",
+    ],
+    textKeywords: [
+      "bar", "lounge", "pub", "cocktail bar", "wine bar", "gastropub",
+      "sports bar", "piano bar", "beer garden", "shisha bar", "hookah bar",
+      "cafe", "café", "karaoke bar", "gay bar", "rooftop",
+    ],
+  },
   club_nightlife: {
     aboutTags: ["Dancing", "Karaoke"],
     textKeywords: [
       "night club", "nightclub", "disco", "dance club", "dance hall",
-      "gay night club", "DJ",
+      "gay night club", "DJ", "beach club",
     ],
   },
-  live_music_concert: {
+  live_music_hall: {
     aboutTags: ["Live music", "Live performances"],
     textKeywords: [
-      "live music", "concert hall", "jazz club", "blues club",
-      "rock music club", "musical club", "amphitheater", "arena", "stadium",
-      "festival hall", "auditorium", "philharmonic", "opera house",
-    ],
-  },
-  bar_lounge: {
-    aboutTags: ["Great cocktails", "Cosy", "Cozy", "Upscale", "Upmarket"],
-    textKeywords: [
-      "bar", "lounge", "pub", "cocktail bar", "wine bar", "gastropub",
-      "sports bar", "piano bar", "beer garden",
-    ],
-  },
-  theater_performing_arts: {
-    aboutTags: ["Live performances"],
-    textKeywords: [
-      "theater", "theatre", "performing arts", "opera house", "cabaret",
-      "dinner theater", "drama theater", "comedy club", "auditorium",
-      "concert hall", "philharmonic", "cultural center", "art center",
-    ],
-  },
-  outdoor_festival: {
-    aboutTags: ["Outdoor seating", "Rooftop seating"],
-    textKeywords: [
-      "festival hall", "amphitheater", "beer garden", "arena", "stadium",
-      "outdoor", "rooftop", "beach club",
+      "live music", "live music hall", "live music venue", "concert hall",
+      "jazz club", "blues club", "rock music club", "musical club",
+      "auditorium", "philharmonic", "opera house", "festival hall",
+      "amphitheater", "arena", "stadium", "theater", "theatre",
+      "performing arts", "cabaret", "dinner theater", "drama theater",
+      "comedy club", "cultural center", "art center",
     ],
   },
 };
@@ -321,17 +347,15 @@ const VENUE_COLUMNS =
 type RequestBody = {
   home_city?: string;
   target_city?: string;
-  venue_size?: string;
+  venue_character?: string;
   goal?: string;
-  vibe_types?: unknown;
 };
 
 type ValidatedRequest = {
   home_city: string;
   target_city: string;
-  venue_size: VenueSize;
+  venue_character: VenueCharacter;
   goal: Goal;
-  vibe_types: VibeType[];
 };
 
 type Corridor = {
@@ -370,9 +394,15 @@ function validate(
   if (!home_city) return { ok: false, message: "home_city is required." };
   if (!target_city) return { ok: false, message: "target_city is required." };
 
-  const venue_size = body.venue_size;
-  if (typeof venue_size !== "string" || !(VENUE_SIZES as readonly string[]).includes(venue_size)) {
-    return { ok: false, message: `venue_size must be one of: ${VENUE_SIZES.join(", ")}.` };
+  const venue_character = body.venue_character;
+  if (
+    typeof venue_character !== "string" ||
+    !(VENUE_CHARACTERS as readonly string[]).includes(venue_character)
+  ) {
+    return {
+      ok: false,
+      message: `venue_character must be one of: ${VENUE_CHARACTERS.join(", ")}.`,
+    };
   }
 
   const goal = body.goal;
@@ -380,30 +410,18 @@ function validate(
     return { ok: false, message: `goal must be one of: ${GOALS.join(", ")}.` };
   }
 
-  const rawVibes = Array.isArray(body.vibe_types) ? body.vibe_types : [];
-  const vibeSet = new Set<VibeType>();
-  for (const v of rawVibes) {
-    if (typeof v === "string" && (VIBE_TYPES as readonly string[]).includes(v)) {
-      vibeSet.add(v as VibeType);
-    }
-  }
-  if (vibeSet.size === 0) {
-    return { ok: false, message: `vibe_types must include at least one of: ${VIBE_TYPES.join(", ")}.` };
-  }
-
   return {
     ok: true,
     value: {
       home_city,
       target_city,
-      venue_size: venue_size as VenueSize,
+      venue_character: venue_character as VenueCharacter,
       goal: goal as Goal,
-      vibe_types: [...vibeSet],
     },
   };
 }
 
-// ─── Stage 1: corridor + venue_size/goal/vibe_types → type mapping ────────────
+// ─── Stage 1: corridor + venue_character/goal → type mapping ─────────────────
 
 const CORRIDOR_SYSTEM_PROMPT =
   `You help independent musicians and DJs find venues along a plausible GROUND-TRAVEL corridor between two cities. You do NOT build an optimized route or a schedule — just a reasonable, loose list of cities someone touring from the home city to the target city might plausibly pass through or near, plus which venue types and attributes suit what they're looking for.
@@ -419,20 +437,17 @@ CITIES (when plausible):
 - Prefer cities with some nightlife / live-music / cultural presence over tiny waypoints, but don't overthink it.
 - Return AT MOST ${MAX_CITIES} cities total (including the two endpoints). Order them roughly from home toward target. Use the common/widely-used English spelling of each city where one exists (e.g. "Cologne", "Munich", "Prague") since that matches how venue data is stored.
 
-VENUE_SIZE + GOAL + VIBE_TYPES → VENUE TYPES (be explicit, use these as guidance — this output is LOOSE GUIDANCE for a broader downstream search, not a strict filter, so err toward slightly broader rather than narrow):
-- vibe_types (one or more selected — union the types for ALL of them):
-  - "club_nightlife" → Night club, Disco club
-  - "live_music_concert" → Live music venue, Concert hall, Jazz club
-  - "bar_lounge" → Bar, Cocktail bar, Lounge, Wine bar, Pub, Sports bar, Karaoke bar
-  - "theater_performing_arts" → Performing arts theater, Cabaret club, Cultural center
-  - "outdoor_festival" → Event venue, Community center (the allowed type list has no dedicated outdoor/festival type — a broader downstream search independently catches amphitheaters, festival halls, and beer gardens)
+VENUE_CHARACTER + GOAL → VENUE TYPES (be explicit, use these as guidance — this output is LOOSE GUIDANCE for a broader downstream search, not a strict filter, so err toward slightly broader rather than narrow):
+- venue_character (single selection — replaces the old venue_size + vibe_types pair entirely):
+  - "bar_lounge" → ambient/background-music spaces, DJ possible but no live band, rarely rented for full productions (occasionally available for private events): Bar, Cocktail bar, Wine bar, Lounge, Sports bar, Karaoke bar, Gay bar, Pub.
+  - "club_nightlife" → DJ/nightlife-driven spaces, sometimes a live act alongside a DJ, usually rentable or co-produced with staff who work directly with promoters: Night club, Disco club.
+  - "live_music_hall" → spaces built for real productions, most likely to support a full live show or larger act (this tier also covers arena/stadium-scale venues — there is no separate stadium tier): Event venue, Live music venue, Concert hall, Cultural center, Cabaret club, Performing arts theater, Jazz club, Community center.
 - goal:
-  - "get_booked" (the venue programs/curates acts, works with promoters) → lean toward types that traditionally book touring talent: Night club, Live music venue, Jazz club, Cabaret club, Concert hall.
-  - "rent_venue" (a self-produced show, the artist rents the space) → lean toward types that are typically hired out: Event venue, Wedding venue, Community center, Cultural center.
-- venue_size (capacity tier — a steer, not a literal filter): "small" (~<250) favors Bar, Pub, Cocktail bar, Lounge, Jazz club; "mid" (250-500) favors Night club, Live music venue, Disco club, Cabaret club; "large"/"stadium" (500+) favors Concert hall, Event venue — the two allowed types that can plausibly scale up (a broader downstream search independently catches arenas/stadiums/amphitheaters, which aren't in the allowed type list).
-Combine the vibe_types' unioned types with the goal/venue_size steer, then pick the 2-6 best-fitting types overall from the allowed list.
+  - "get_booked" (the venue programs/curates acts, works with promoters) → lean toward types that traditionally book touring talent within the selected venue_character.
+  - "rent_venue" (a self-produced show, the artist rents the space) → lean toward types that are typically hired out within the selected venue_character.
+Combine the venue_character's typical types with the goal steer, then pick the 2-6 best-fitting types overall from the allowed list.
 
-ABOUT-TAGS: pick the attributes (from the allowed list) that fit — e.g. club_nightlife/live_music_concert want "Dancing"/"Live music"/"Live performances"; outdoor_festival wants "Outdoor seating". Optional; pick what fits.`;
+ABOUT-TAGS: pick the attributes (from the allowed list) that fit — e.g. club_nightlife wants "Dancing"; live_music_hall wants "Live music"/"Live performances"; bar_lounge wants "Outdoor seating" for an ambient/relaxed spot. Optional; pick what fits.`;
 
 function corridorTool() {
   return {
@@ -482,9 +497,8 @@ async function reasonCorridor(
   const userContent = JSON.stringify({
     home_city: body.home_city,
     target_city: body.target_city,
-    venue_size: body.venue_size,
+    venue_character: body.venue_character,
     goal: body.goal,
-    vibe_types: body.vibe_types,
   });
 
   const message = await client.messages.create({
@@ -545,17 +559,25 @@ function isPermanentlyClosed(v: VenueRow): boolean {
   return v.business_status === "CLOSED_PERMANENTLY";
 }
 
-// Deterministic backstop for the most obvious venue_size mismatches —
+// Deterministic backstop for the most obvious venue_character mismatches —
 // layered UNDER Stage 3's qualitative judgment, not replacing it (same
 // principle as the business_status=CLOSED_PERMANENTLY exclusion above).
-// Confirmed live: Stage 3 occasionally kept a stadium/arena-scale venue for a
-// small/mid, non-stadium search despite "arena" being explicitly present in
-// that venue's subtypes — the LLM pass is good at nuance but isn't reliable
-// enough on a check this mechanical to be the only guard for it.
+// Confirmed live (pre-v5): Stage 3 occasionally kept a stadium/arena-scale
+// venue for a small/mid, non-stadium search despite "arena" being explicitly
+// present in that venue's subtypes — the LLM pass is good at nuance but isn't
+// reliable enough on a check this mechanical to be the only guard for it.
+//
+// v5 (2026-09): venue_character has no dedicated "stadium" tier — Will's
+// decision was to merge arena/stadium-scale venues into "live_music_hall"
+// (the largest of the three tiers) rather than exclude them entirely or add
+// a 4th tier, since they're rare enough not to warrant their own category.
+// So this backstop now excludes arena/stadium-subtyped venues for
+// "bar_lounge"/"club_nightlife" (neither plausibly fits a stadium) but NOT
+// for "live_music_hall" (where they legitimately belong).
 const STADIUM_SCALE_KEYWORDS = ["arena", "stadium", "amphitheater"];
 
-function isStadiumScaleMismatch(v: VenueRow, requestedSize: VenueSize): boolean {
-  if (requestedSize === "stadium") return false;
+function isStadiumScaleMismatch(v: VenueRow, character: VenueCharacter): boolean {
+  if (character === "live_music_hall") return false;
   const haystack = `${v.type ?? ""} ${v.subtypes ?? ""}`.toLowerCase();
   return STADIUM_SCALE_KEYWORDS.some((k) => haystack.includes(k));
 }
@@ -658,13 +680,17 @@ const CURATE_SYSTEM_PROMPT =
   `You are doing a careful qualitative READ of venue candidates that a broad SQL search already pulled for a musician/DJ's tour plan. This is NOT a pass to narrow down to a curated top pick — that was explicitly rejected. Your job, per city:
 
 1. DROP candidates that clearly don't fit despite passing the broad search:
-   - venue_size is a HARD CONSTRAINT, not a soft preference — check it against the candidate's actual type/subtypes/about text, the same way you'd check goal or vibe fit. If a "small" or "mid" request's candidate has type/subtypes containing stadium-scale signals (Arena, Stadium, Amphitheater, Festival hall, or about-text implying a large outdoor/mass-capacity venue), DROP it even if it also matches on vibe/type keywords — it's too big for the request. Symmetrically, if a "stadium" or "large" request's candidate is unambiguously small-format (e.g. a plain Cocktail bar/Wine bar/Pub with nothing in its subtypes suggesting a bigger room), DROP it — it's too small. A keyword match on vibe alone never excuses an obvious size mismatch.
-   - Also drop anything whose subtypes/about data reveals it's actually something else entirely (e.g. a restaurant with no stage/dancing/live-music signal), or a type flatly mismatched with the requested goal/vibe.
-2. For every SURVIVING venue, write an honest, SPECIFIC match_reason that references what's ACTUALLY in that venue's real subtypes/about data — e.g. "about data mentions 'Live music' and 'Dancing' despite being typed as Cocktail bar" or "subtypes list Amphitheater, Festival hall — fits stadium-scale outdoor booking". NEVER write a generic reason like "matches your vibe" — always ground it in a real field value you can see in the candidate.
+   - venue_character is a HARD CONSTRAINT, not a soft preference — check it against the candidate's actual type/subtypes/about text, the same way you'd check goal fit. The three values, and what actually belongs in each:
+     - "bar_lounge" — ambient/background-music spaces (Bar, Sports bar, Shisha bar, Cafe, Lounge). DJ possible but no live band; rarely rented for full productions. DROP a candidate here if its subtypes/about reveal it's actually built for real productions (Concert hall, Live music venue with a real stage, Arena, Stadium, Amphitheater) — too big/production-focused for an ambient bar/lounge request.
+     - "club_nightlife" — DJ/nightlife-driven spaces (Club, Nightclub, Beach club, Event venue run as nightlife, Disco), sometimes a live act alongside a DJ. DROP a candidate here if it's actually a quiet bar/cafe with no dancing/DJ/nightlife signal (too small/ambient), OR if it's actually a full production hall/arena/stadium-scale venue (too large/production-focused) — nightclubs are DJ-driven, not full-production venues.
+     - "live_music_hall" — spaces built for real productions (Event venue, Live music venue/hall, Concert hall, Cultural center), most likely to support a full live show or larger act. This tier ALSO covers arena/stadium/amphitheater-scale venues — there is no separate stadium tier, so do NOT drop a candidate here just because its subtypes mention Arena/Stadium/Amphitheater; that scale legitimately belongs in this tier. DROP a candidate here only if it's unambiguously a plain small bar/cafe/lounge with nothing in its subtypes suggesting production capability (stage, live music, event hosting) — too small/ambient for a "built for real productions" request.
+     A keyword match alone never excuses an obvious character mismatch in either direction.
+   - Also drop anything whose subtypes/about data reveals it's actually something else entirely (e.g. a restaurant with no stage/dancing/live-music signal), or a type flatly mismatched with the requested goal.
+2. For every SURVIVING venue, write an honest, SPECIFIC match_reason that references what's ACTUALLY in that venue's real subtypes/about data — e.g. "about data mentions 'Live music' and 'Dancing' despite being typed as Cocktail bar" or "subtypes list Amphitheater, Festival hall — fits live_music_hall's production-scale booking". NEVER write a generic reason like "matches your vibe" — always ground it in a real field value you can see in the candidate.
 
-Keep the survivor set BROAD outside of the checks above. This must NOT become a curated 1-2-per-city list — most candidates that reached you should survive; only drop clear misfits (including clear size mismatches — those are not exceptions to "keep it broad", they're the one thing worth being strict about).
+Keep the survivor set BROAD outside of the checks above. This must NOT become a curated 1-2-per-city list — most candidates that reached you should survive; only drop clear misfits (including clear character mismatches — those are not exceptions to "keep it broad", they're the one thing worth being strict about).
 
-Context for judging fit: venue_size (small/mid/large/stadium — a capacity tier; not a literal column in the data, but check it against real type/subtypes/about wording as described above), goal (get_booked = the venue programs/curates acts vs rent_venue = a self-produced show, the artist rents the space), vibe_types (one or more of club_nightlife/live_music_concert/bar_lounge/theater_performing_arts/outdoor_festival).
+Context for judging fit: venue_character (bar_lounge/club_nightlife/live_music_hall — see the tier definitions above; not a literal column in the data, but check it against real type/subtypes/about wording as described), goal (get_booked = the venue programs/curates acts vs rent_venue = a self-produced show, the artist rents the space).
 
 Each candidate's "about" field is raw, sometimes-malformed JSON text scraped from Google Places — read it as best-effort text, don't assume it always parses.
 
@@ -731,15 +757,18 @@ function extractKept(input: Record<string, unknown>): unknown[] {
 }
 
 // ─── Stage 3 fit cache (venue_fit_cache, service-role only) ───────────────────
-// Cross-request cache keyed on (venue_id, venue_size, goal, vibe_types_key) —
-// once Stage 3 has judged a specific venue against a specific parameter
-// combination, that verdict (fits or not, plus its match_reason) is reusable
-// by ANY future request with the same combination, regardless of which
-// corridor or which other venues are in that request's pool. Pure efficiency
-// layer, invisible to the client: cache hits never reach the LLM at all;
-// cache misses go through Stage 3 exactly as before and get written back for
-// next time. No TTL/invalidation — a stale verdict after upstream venue-data
-// changes is an accepted tradeoff, not handled here.
+// Cross-request cache keyed on (venue_id, venue_character, goal) — once Stage
+// 3 has judged a specific venue against a specific parameter combination,
+// that verdict (fits or not, plus its match_reason) is reusable by ANY future
+// request with the same combination, regardless of which corridor or which
+// other venues are in that request's pool. v5 (2026-09) simplified this key
+// from the pre-v5 (venue_id, venue_size, goal, vibe_types_key) shape now that
+// venue_character is single-select — no set-union/sort-key step needed the
+// way multi-select vibe_types required. Pure efficiency layer, invisible to
+// the client: cache hits never reach the LLM at all; cache misses go through
+// Stage 3 exactly as before and get written back for next time. No
+// TTL/invalidation — a stale verdict after upstream venue-data changes is an
+// accepted tradeoff, not handled here.
 
 type FitCacheRow = {
   venue_id: string;
@@ -747,15 +776,10 @@ type FitCacheRow = {
   match_reason: string | null;
 };
 
-/** Sort + join so vibe_types order never produces a spurious cache miss. */
-function vibeTypesKey(vibeTypes: VibeType[]): string {
-  return [...vibeTypes].sort().join(",");
-}
-
 /**
  * One batched lookup across every candidate id in the request, regardless of
- * city — venue_size/goal/vibe_types_key are constant for the whole request,
- * so this is a single query rather than one per city.
+ * city — venue_character/goal are constant for the whole request, so this is
+ * a single query rather than one per city.
  */
 async function lookupFitCache(
   admin: ReturnType<typeof createClient>,
@@ -768,9 +792,8 @@ async function lookupFitCache(
     .from("venue_fit_cache")
     .select("venue_id, fits, match_reason")
     .in("venue_id", venueIds)
-    .eq("venue_size", request.venue_size)
-    .eq("goal", request.goal)
-    .eq("vibe_types_key", vibeTypesKey(request.vibe_types));
+    .eq("venue_character", request.venue_character)
+    .eq("goal", request.goal);
   if (error) {
     console.error("[generate-tour-plan] lookupFitCache error:", error);
     return map;
@@ -785,7 +808,7 @@ async function lookupFitCache(
  * Write fresh Stage-3 verdicts back to the cache — BOTH kept (fits=true) and
  * dropped (fits=false), so a future request with an obvious misfit also
  * skips the LLM for it, not just future keepers. UPSERTs on the table's
- * (venue_id, venue_size, goal, vibe_types_key) unique constraint.
+ * (venue_id, venue_character, goal) unique constraint.
  */
 async function writeFitCache(
   admin: ReturnType<typeof createClient>,
@@ -793,20 +816,17 @@ async function writeFitCache(
   verdicts: FitCacheRow[],
 ): Promise<void> {
   if (!verdicts.length) return;
-  const key = vibeTypesKey(request.vibe_types);
   const rows = verdicts.map((v) => ({
     venue_id: v.venue_id,
-    venue_size: request.venue_size,
+    venue_character: request.venue_character,
     goal: request.goal,
-    vibe_types_key: key,
-    vibe_types: request.vibe_types,
     fits: v.fits,
     match_reason: v.match_reason,
     computed_at: new Date().toISOString(),
   }));
   const { error } = await admin
     .from("venue_fit_cache")
-    .upsert(rows, { onConflict: "venue_id,venue_size,goal,vibe_types_key" });
+    .upsert(rows, { onConflict: "venue_id,venue_character,goal" });
   if (error) {
     console.error("[generate-tour-plan] writeFitCache error:", error);
   }
@@ -872,9 +892,8 @@ async function curateChunk(
   chunk: CurateChunk,
 ): Promise<Map<string, string>> {
   const userContent = JSON.stringify({
-    venue_size: request.venue_size,
+    venue_character: request.venue_character,
     goal: request.goal,
-    vibe_types: request.vibe_types,
     cities: [{
       city: chunk.city,
       candidates: chunk.candidates.map((v) => ({
@@ -927,8 +946,8 @@ async function curateChunk(
 /**
  * Sends only the UNCACHED slice of each city's Stage-2 candidate pool to
  * Anthropic for a qualitative keep/drop + match_reason pass — candidates
- * already judged for this exact (venue_size, goal, vibe_types) combination
- * are resolved straight from venue_fit_cache, no LLM call needed for them.
+ * already judged for this exact (venue_character, goal) combination are
+ * resolved straight from venue_fit_cache, no LLM call needed for them.
  * Uncached candidates are chunked strictly per-city (see buildCurateChunks)
  * and run with bounded concurrency — never one call spanning the whole
  * corridor. Fresh verdicts (both keeps and drops) are written back scoped to
@@ -1121,13 +1140,13 @@ Deno.serve(async (req: Request) => {
 
   const textKeywords = [
     ...new Set(
-      v.value.vibe_types.flatMap((t) => VIBE_KEYWORDS[t].textKeywords)
+      VENUE_CHARACTER_KEYWORDS[v.value.venue_character].textKeywords
         .concat(GOAL_KEYWORDS[v.value.goal]),
     ),
   ];
   const aboutKeywords = [
     ...new Set(
-      v.value.vibe_types.flatMap((t) => VIBE_KEYWORDS[t].aboutTags)
+      VENUE_CHARACTER_KEYWORDS[v.value.venue_character].aboutTags
         .concat(corridor.suggested_about_tags),
     ),
   ];
@@ -1176,7 +1195,7 @@ Deno.serve(async (req: Request) => {
   // not before.
   const perCity = queryCities.map((city) =>
     (curatedByCity.get(city) ?? []).filter(
-      (venue) => !isStadiumScaleMismatch(venue, v.value.venue_size),
+      (venue) => !isStadiumScaleMismatch(venue, v.value.venue_character),
     )
   );
   const venues = roundRobinCap(perCity, MAX_VENUES);
