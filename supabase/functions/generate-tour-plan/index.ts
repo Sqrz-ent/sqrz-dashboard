@@ -60,6 +60,18 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //      100-venue global cap + city-spread round-robin is enforced AFTER
 //      both, not before.
 //
+//      CACHING (venue_fit_cache, service-role only): before calling the LLM,
+//      every candidate is looked up by (venue_id, venue_size, goal,
+//      vibe_types_key — the request's vibe_types sorted+joined so ordering
+//      never causes a spurious miss). A cache hit is resolved directly (fit
+//      or not, with its stored match_reason) with no LLM involvement; only
+//      the uncached remainder is ever sent to Anthropic. Fresh verdicts —
+//      both kept AND dropped — are UPSERTed back afterward, so the next
+//      request sharing that exact combination (same venue, same
+//      venue_size/goal/vibe_types) skips the LLM for that venue entirely.
+//      Purely an internal efficiency layer — same request/response contract,
+//      same per-city ordering, invisible to the client.
+//
 // Keyword design note: `about` is Google-Places-style structured booleans
 // (Highlights/Offerings/Atmosphere/Crowd/…) — verified against live data,
 // there is no literal "we book touring artists" / "rentable for private
@@ -674,80 +686,204 @@ function extractKept(input: Record<string, unknown>): unknown[] {
   return [];
 }
 
+// ─── Stage 3 fit cache (venue_fit_cache, service-role only) ───────────────────
+// Cross-request cache keyed on (venue_id, venue_size, goal, vibe_types_key) —
+// once Stage 3 has judged a specific venue against a specific parameter
+// combination, that verdict (fits or not, plus its match_reason) is reusable
+// by ANY future request with the same combination, regardless of which
+// corridor or which other venues are in that request's pool. Pure efficiency
+// layer, invisible to the client: cache hits never reach the LLM at all;
+// cache misses go through Stage 3 exactly as before and get written back for
+// next time. No TTL/invalidation — a stale verdict after upstream venue-data
+// changes is an accepted tradeoff, not handled here.
+
+type FitCacheRow = {
+  venue_id: string;
+  fits: boolean;
+  match_reason: string | null;
+};
+
+/** Sort + join so vibe_types order never produces a spurious cache miss. */
+function vibeTypesKey(vibeTypes: VibeType[]): string {
+  return [...vibeTypes].sort().join(",");
+}
+
 /**
- * Sends every city's Stage-2 candidate pool to Anthropic in ONE call for a
- * qualitative keep/drop + match_reason pass. Returns a city → surviving
- * OutVenue[] map (cities with no survivors are simply absent). Skips the call
- * entirely (returns an empty map) when Stage 2 found nothing anywhere.
+ * One batched lookup across every candidate id in the request, regardless of
+ * city — venue_size/goal/vibe_types_key are constant for the whole request,
+ * so this is a single query rather than one per city.
+ */
+async function lookupFitCache(
+  admin: ReturnType<typeof createClient>,
+  venueIds: string[],
+  request: ValidatedRequest,
+): Promise<Map<string, FitCacheRow>> {
+  const map = new Map<string, FitCacheRow>();
+  if (!venueIds.length) return map;
+  const { data, error } = await admin
+    .from("venue_fit_cache")
+    .select("venue_id, fits, match_reason")
+    .in("venue_id", venueIds)
+    .eq("venue_size", request.venue_size)
+    .eq("goal", request.goal)
+    .eq("vibe_types_key", vibeTypesKey(request.vibe_types));
+  if (error) {
+    console.error("[generate-tour-plan] lookupFitCache error:", error);
+    return map;
+  }
+  for (const row of (data ?? []) as FitCacheRow[]) {
+    map.set(String(row.venue_id), row);
+  }
+  return map;
+}
+
+/**
+ * Write fresh Stage-3 verdicts back to the cache — BOTH kept (fits=true) and
+ * dropped (fits=false), so a future request with an obvious misfit also
+ * skips the LLM for it, not just future keepers. UPSERTs on the table's
+ * (venue_id, venue_size, goal, vibe_types_key) unique constraint.
+ */
+async function writeFitCache(
+  admin: ReturnType<typeof createClient>,
+  request: ValidatedRequest,
+  verdicts: FitCacheRow[],
+): Promise<void> {
+  if (!verdicts.length) return;
+  const key = vibeTypesKey(request.vibe_types);
+  const rows = verdicts.map((v) => ({
+    venue_id: v.venue_id,
+    venue_size: request.venue_size,
+    goal: request.goal,
+    vibe_types_key: key,
+    vibe_types: request.vibe_types,
+    fits: v.fits,
+    match_reason: v.match_reason,
+    computed_at: new Date().toISOString(),
+  }));
+  const { error } = await admin
+    .from("venue_fit_cache")
+    .upsert(rows, { onConflict: "venue_id,venue_size,goal,vibe_types_key" });
+  if (error) {
+    console.error("[generate-tour-plan] writeFitCache error:", error);
+  }
+}
+
+/**
+ * Sends only the UNCACHED slice of each city's Stage-2 candidate pool to
+ * Anthropic for a qualitative keep/drop + match_reason pass — candidates
+ * already judged for this exact (venue_size, goal, vibe_types) combination
+ * are resolved straight from venue_fit_cache, no LLM call needed for them.
+ * Fresh verdicts (both keeps and drops) are written back before returning.
+ * Returns a city → surviving OutVenue[] map (cities with no survivors are
+ * simply absent) — same shape and same per-city ordering as before caching
+ * existed. Skips the LLM call entirely when nothing needs a fresh judgment
+ * (everything cached, or Stage 2 found nothing).
  */
 async function curateMatches(
   client: Anthropic,
+  admin: ReturnType<typeof createClient>,
   request: ValidatedRequest,
   candidatesByCity: Map<string, CandidateVenue[]>,
 ): Promise<Map<string, OutVenue[]>> {
+  const allCandidates = [...candidatesByCity.values()].flat();
+  const allIds = allCandidates.map((v) => String(v.id));
+
+  const cacheByVenueId = await lookupFitCache(admin, allIds, request);
+  console.log(
+    `[generate-tour-plan] stage 3 cache hits: ${cacheByVenueId.size}/${allIds.length}`,
+  );
+
+  // Only UNCACHED candidates go to the LLM — this is the actual cost win.
   const citiesPayload = [...candidatesByCity.entries()]
-    .filter(([, candidates]) => candidates.length > 0)
     .map(([city, candidates]) => ({
       city,
-      candidates: candidates.map((v) => ({
-        id: v.id,
-        name: v.name,
-        type: v.type ?? null,
-        subtypes: v.subtypes ?? null,
-        about: v.about ?? null,
-        rating: ratingNum(v.rating),
-      })),
-    }));
+      candidates: candidates
+        .filter((v) => !cacheByVenueId.has(String(v.id)))
+        .map((v) => ({
+          id: v.id,
+          name: v.name,
+          type: v.type ?? null,
+          subtypes: v.subtypes ?? null,
+          about: v.about ?? null,
+          rating: ratingNum(v.rating),
+        })),
+    }))
+    .filter((c) => c.candidates.length > 0);
 
-  if (citiesPayload.length === 0) return new Map();
+  // id -> match_reason for venues freshly kept by the LLM this call.
+  const freshKeptById = new Map<string, string>();
 
-  const userContent = JSON.stringify({
-    venue_size: request.venue_size,
-    goal: request.goal,
-    vibe_types: request.vibe_types,
-    cities: citiesPayload,
-  });
+  if (citiesPayload.length > 0) {
+    const userContent = JSON.stringify({
+      venue_size: request.venue_size,
+      goal: request.goal,
+      vibe_types: request.vibe_types,
+      cities: citiesPayload,
+    });
 
-  const message = await client.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 8000,
-    system: CURATE_SYSTEM_PROMPT,
-    tools: [curateTool()],
-    tool_choice: { type: "tool", name: "curate_matches" },
-    messages: [{ role: "user", content: userContent }],
-  });
+    const message = await client.messages.create({
+      model: "claude-sonnet-5",
+      max_tokens: 8000,
+      system: CURATE_SYSTEM_PROMPT,
+      tools: [curateTool()],
+      tool_choice: { type: "tool", name: "curate_matches" },
+      messages: [{ role: "user", content: userContent }],
+    });
 
-  // The model sometimes splits this into multiple curate_matches tool_use
-  // blocks in one response (observed: one per city, likely nudged by this
-  // prompt's own "per city" framing) even under forced tool_choice — forced
-  // tool_choice constrains WHICH tool, not how many times it's called. Taking
-  // only the first block (the original approach here) silently drops every
-  // other block's kept venues — merge ALL of them.
-  const toolUses = message.content.filter(
-    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "curate_matches",
-  );
-  if (!toolUses.length) throw new Error("curate: model returned no tool_use block");
+    // The model sometimes splits this into multiple curate_matches tool_use
+    // blocks in one response (observed: one per city, likely nudged by this
+    // prompt's own "per city" framing) even under forced tool_choice — forced
+    // tool_choice constrains WHICH tool, not how many times it's called. Taking
+    // only the first block (the original approach here) silently drops every
+    // other block's kept venues — merge ALL of them.
+    const toolUses = message.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "curate_matches",
+    );
+    if (!toolUses.length) throw new Error("curate: model returned no tool_use block");
 
-  const kept: unknown[] = [];
-  for (const toolUse of toolUses) {
-    kept.push(...extractKept(toolUse.input as Record<string, unknown>));
+    const kept: unknown[] = [];
+    for (const toolUse of toolUses) {
+      kept.push(...extractKept(toolUse.input as Record<string, unknown>));
+    }
+
+    // id -> match_reason, first occurrence wins on an (unexpected) duplicate id.
+    for (const entry of kept) {
+      if (!entry || typeof entry !== "object") continue;
+      const id = String((entry as Record<string, unknown>).id ?? "").trim();
+      const reason = String((entry as Record<string, unknown>).match_reason ?? "").trim();
+      if (!id || !reason || freshKeptById.has(id)) continue;
+      freshKeptById.set(id, reason);
+    }
+
+    // Cache EVERY uncached candidate's verdict — kept and dropped alike.
+    const verdicts: FitCacheRow[] = citiesPayload.flatMap((c) =>
+      c.candidates.map((cand) => {
+        const id = String(cand.id);
+        return {
+          venue_id: id,
+          fits: freshKeptById.has(id),
+          match_reason: freshKeptById.get(id) ?? null,
+        };
+      })
+    );
+    await writeFitCache(admin, request, verdicts);
   }
 
-  // id -> match_reason, first occurrence wins on an (unexpected) duplicate id.
-  const reasonById = new Map<string, string>();
-  for (const entry of kept) {
-    if (!entry || typeof entry !== "object") continue;
-    const id = String((entry as Record<string, unknown>).id ?? "").trim();
-    const reason = String((entry as Record<string, unknown>).match_reason ?? "").trim();
-    if (!id || !reason || reasonById.has(id)) continue;
-    reasonById.set(id, reason);
+  // Combine cache hits (fits=true only) with fresh keeps into one reason map,
+  // then assemble survivors per city in the SAME order Stage 2 handed them —
+  // exactly the same assembly this function always did, just sourced from
+  // cache-or-fresh instead of fresh-only.
+  const combinedReasonById = new Map<string, string>();
+  for (const [id, row] of cacheByVenueId) {
+    if (row.fits && row.match_reason) combinedReasonById.set(id, row.match_reason);
   }
+  for (const [id, reason] of freshKeptById) combinedReasonById.set(id, reason);
 
   const out = new Map<string, OutVenue[]>();
   for (const [city, candidates] of candidatesByCity) {
     const survivors: OutVenue[] = [];
     for (const v of candidates) {
-      const reason = reasonById.get(String(v.id));
+      const reason = combinedReasonById.get(String(v.id));
       if (reason) survivors.push({ ...v, match_reason: reason });
     }
     if (survivors.length) out.set(city, survivors);
@@ -880,7 +1016,7 @@ Deno.serve(async (req: Request) => {
   // ── Stage 3: qualitative read — drop clear misfits, write grounded reasons ──
   let curatedByCity: Map<string, OutVenue[]>;
   try {
-    curatedByCity = await curateMatches(anthropic, v.value, candidatesByCity);
+    curatedByCity = await curateMatches(anthropic, admin, v.value, candidatesByCity);
   } catch (err) {
     console.error("[generate-tour-plan] stage 3 (curate) error:", err);
     return json({ error: "Could not review venue matches. Please try again." }, 502);
