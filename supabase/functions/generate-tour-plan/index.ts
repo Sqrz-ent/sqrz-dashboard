@@ -3,40 +3,73 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// generate-tour-plan  (v3 — flat venue list, no day scheduling)
+// generate-tour-plan  (v4 — structured pill input, 3-stage: reason → cast wide →
+// qualitative read. Flat venue list, no day scheduling.)
 //
-// Input:  { home_city, target_city, artist_description }
+// Input:  { home_city, target_city, venue_size, goal, vibe_types }
 // Output: { cities: string[], venues: [{ ...venue fields, city, match_reason }] }
 //         (or { cities: [], venues: [], error } when the two cities aren't
 //          plausibly connected by ground travel)
 //
-// A deliberately loose "here are reasonable venues along a plausible corridor"
-// list — NOT an optimized day-by-day itinerary. Two stages:
+// venue_size: "small" (~<250 cap) | "mid" (250-500) | "large" (500-2000+) | "stadium"
+// goal:       "get_booked" (venue programs acts / works with promoters) |
+//             "rent_venue" (self-produced show, artist rents the space)
+// vibe_types: 1+ of "club_nightlife" | "live_music_concert" | "bar_lounge" |
+//             "theater_performing_arts" | "outdoor_festival"
 //
-//   1. Corridor + genre mapping (Anthropic, ONE call) — identify a plausible,
-//      non-optimal list of corridor cities (home + target + intermediates,
-//      capped at MAX_CITIES) and map the artist's genre to venue TYPES +
-//      ABOUT-TAGS via explicit few-shot guidance. Includes a plausibility
-//      guard: if the two cities aren't sensibly ground-connected (different
-//      continents / absurd distance), it returns plausible=false and we stop.
-//   2. Venue matching (deterministic, NO LLM) — first fuzzy-resolve each
-//      corridor city to the real `venues.city` spelling (pg_trgm similarity via
-//      the resolve_venue_cities RPC — catches Hannover→Hanover, ACCRA→Accra,
-//      etc.), then for each city pull venues matching type_norm OR any suggested
-//      about-tag (broad — not requiring both), combine across cities, and cap
-//      the TOTAL at MAX_VENUES by round-robin across cities so no single city
-//      dominates. Each venue is tagged with its city and a deterministic
-//      match_reason.
+// This replaces free-text artist_description entirely — a real architectural
+// shift, not a tweak. Three stages:
 //
-// There is intentionally NO Stage 3 / LLM pruning: the user wants a list of
-// reasonable options, not the AI narrowing to a curated "best pick." Stage 2's
-// output IS the response (grounded to real rows, so nothing hallucinated).
+//   1. Corridor + type mapping (Anthropic, ONE call) — same plausible,
+//      non-optimal corridor-city reasoning as before, but now grounded in
+//      venue_size/goal/vibe_types instead of genre-derived guessing. Output
+//      suggested_types/suggested_about_tags (from the fixed allowed lists —
+//      see TYPE_LABEL_TO_NORM below) is LOOSE GUIDANCE for Stage 2, not a
+//      strict filter.
+//
+//   2. CAST WIDE (deterministic, NO LLM) — per city, fetch a generous
+//      rating-ordered batch (PER_CITY_FETCH) and keep any row where
+//      (type_norm is in Stage 1's suggested_types) OR (subtypes/description
+//      text contains a vibe_type/goal keyword) OR (about JSON text contains a
+//      vibe_type/about keyword). The point is to catch venues whose real
+//      signal lives in subtypes/about/description rather than the primary
+//      type field — a strict type_norm-only query misses those. Matching is
+//      done in JS against the fetched batch (not via PostgREST .or()/ilike
+//      string-building) — the SAME reason the original deterministic version
+//      of this file avoided that path: values like "LGBTQ+ friendly" (and
+//      multi-word keywords generally) are brittle to encode into a raw
+//      .or()-filter string. Scored + capped per city (PER_CITY_STAGE3_CAP) so
+//      Stage 3 gets a generous but bounded pool, not literally everything.
+//
+//   3. QUALITATIVE READ (Anthropic, ONE call, NEW) — NOT a pruning-to-a-top-
+//      pick pass (that was explicitly rejected). Given the full raw candidate
+//      data per city (type, subtypes, the full about JSON, rating) plus the
+//      user's venue_size/goal/vibe_types, the model (a) drops candidates that
+//      clearly don't fit despite passing Stage 2's broad net (e.g. about data
+//      reveals a restaurant with no stage/dancing/live-music signal), and (b)
+//      writes an honest, specific match_reason for each survivor, grounded in
+//      that venue's ACTUAL subtypes/about data — never generic. The survivor
+//      set must stay broad; most candidates that reach this stage should
+//      survive. The existing 100-venue global cap + city-spread round-robin
+//      is enforced AFTER this stage, not before.
+//
+// Keyword design note: `about` is Google-Places-style structured booleans
+// (Highlights/Offerings/Atmosphere/Crowd/…) — verified against live data,
+// there is no literal "we book touring artists" / "rentable for private
+// events" signal anywhere in it. So `goal` rides on type/subtypes/description
+// keywords only (which venue types traditionally curate talent vs. are
+// typically hired out) — it has no about-keyword branch of its own.
+// `description` (Google's short editorial blurb, e.g. "Dance club hosting DJ
+// nights & events") was folded in alongside subtypes as a real keyword-match
+// target — confirmed with Will: it carries stronger literal signal than
+// `about`'s booleans for several vibe_types.
 //
 // Anthropic auth: reuses the project-wide ANTHROPIC_API_KEY (same secret
 // campaign-advisor uses; edge secrets are project-wide). Key never leaves the
 // server. Endpoint is public (verify_jwt: false), publishable-key callable —
-// same pattern as hubspot-beta-slug-request. Cost is bounded by ONE LLM call +
-// MAX_CITIES-bounded queries per request.
+// same pattern as hubspot-beta-slug-request. Cost is now bounded by TWO LLM
+// calls (was one) + MAX_CITIES-bounded queries per request — the added Stage
+// 3 call is the accepted cost of qualitative, vibe-grounded match reasons.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -56,11 +89,33 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-// ─── Fixed venue-type + about-tag lists ───────────────────────────────────────
+// ─── Structured input enums ────────────────────────────────────────────────
+
+const VENUE_SIZES = ["small", "mid", "large", "stadium"] as const;
+type VenueSize = typeof VENUE_SIZES[number];
+
+const GOALS = ["get_booked", "rent_venue"] as const;
+type Goal = typeof GOALS[number];
+
+const VIBE_TYPES = [
+  "club_nightlife",
+  "live_music_concert",
+  "bar_lounge",
+  "theater_performing_arts",
+  "outdoor_festival",
+] as const;
+type VibeType = typeof VIBE_TYPES[number];
+
+// ─── Fixed venue-type + about-tag lists (Stage 1's constrained output) ────────
 // HARDCODED, and MUST be kept in sync with venuefindr-ios/VenueFindr/VenueFindr/
 // Filters.swift (the `VenueTypeFilter` enum) — that Swift enum is the source of
 // truth for the app's type pills, and there is no shared DB config table. If the
-// app's pill list changes, update TYPE_LABEL_TO_NORM here to match.
+// app's pill list changes, update TYPE_LABEL_TO_NORM here to match. The REAL
+// `type`/`subtypes` universe in the data is much bigger than this list (Arena,
+// Stadium, Amphitheater, Festival hall, Opera house, Comedy club, …, verified
+// live) — deliberately NOT added here (out of scope, shared with the venue
+// browse filter); Stage 2's keyword matching (VIBE_KEYWORDS/GOAL_KEYWORDS
+// below) reaches that wider universe directly via free-text search instead.
 //
 // `label` = what the model reasons about + returns (constrained by tool enums);
 // `norm`  = the value matched against the generated `venues.type_norm` column.
@@ -86,13 +141,13 @@ const TYPE_LABEL_TO_NORM: Record<string, string> = {
   "Cultural center": "culturalcenter",
 };
 const TYPE_LABELS = Object.keys(TYPE_LABEL_TO_NORM);
-const NORM_TO_TYPE_LABEL: Record<string, string> = Object.fromEntries(
-  Object.entries(TYPE_LABEL_TO_NORM).map(([label, norm]) => [norm, label]),
-);
 
-// The 6 about-tags the planner reasons over — verbatim keys inside the
-// venues.about JSON (`{ Category: { "Tag": true } }`), verified present in real
-// data.
+// The 6 about-tags Stage 1 reasons over — verbatim keys inside the venues.about
+// JSON (`{ Category: { "Tag": true } }`), verified present in real data. Kept
+// as Stage 1's constrained output vocabulary; Stage 2's about-keyword search
+// (VIBE_KEYWORDS below) additionally uses several more real tag names beyond
+// this list, since that search is free-text substring matching, not a
+// JSON-key-enum lookup, so it isn't bound by what Stage 1 is allowed to say.
 const ABOUT_TAGS = [
   "Live performances",
   "Live music",
@@ -102,12 +157,81 @@ const ABOUT_TAGS = [
   "Accepts reservations",
 ] as const;
 
+// ─── vibe_type / goal → keyword map (Stage 2's deterministic broadening) ──────
+// Verified against live `venues` data (type/subtypes/description/about leaf
+// keys queried directly) before writing this, not guessed. `aboutTags` are
+// literal substrings to search for in the raw `about` text (not required to be
+// valid JSON or match the ABOUT_TAGS enum above — plain substring search is
+// more robust than JSON-key lookup and survives the ~2% malformed/truncated
+// about rows). `textKeywords` are literal substrings searched across
+// `subtypes` + `description` together.
+const VIBE_KEYWORDS: Record<VibeType, { aboutTags: string[]; textKeywords: string[] }> = {
+  club_nightlife: {
+    aboutTags: ["Dancing", "Karaoke"],
+    textKeywords: [
+      "night club", "nightclub", "disco", "dance club", "dance hall",
+      "gay night club", "DJ",
+    ],
+  },
+  live_music_concert: {
+    aboutTags: ["Live music", "Live performances"],
+    textKeywords: [
+      "live music", "concert hall", "jazz club", "blues club",
+      "rock music club", "musical club", "amphitheater", "arena", "stadium",
+      "festival hall", "auditorium", "philharmonic", "opera house",
+    ],
+  },
+  bar_lounge: {
+    aboutTags: ["Great cocktails", "Cosy", "Cozy", "Upscale", "Upmarket"],
+    textKeywords: [
+      "bar", "lounge", "pub", "cocktail bar", "wine bar", "gastropub",
+      "sports bar", "piano bar", "beer garden",
+    ],
+  },
+  theater_performing_arts: {
+    aboutTags: ["Live performances"],
+    textKeywords: [
+      "theater", "theatre", "performing arts", "opera house", "cabaret",
+      "dinner theater", "drama theater", "comedy club", "auditorium",
+      "concert hall", "philharmonic", "cultural center", "art center",
+    ],
+  },
+  outdoor_festival: {
+    aboutTags: ["Outdoor seating", "Rooftop seating"],
+    textKeywords: [
+      "festival hall", "amphitheater", "beer garden", "arena", "stadium",
+      "outdoor", "rooftop", "beach club",
+    ],
+  },
+};
+
+// `about` has no usable "programs acts" / "rents out the space" signal
+// anywhere in the data (verified) — goal rides on type/subtypes/description
+// keywords only, no about-keyword branch.
+const GOAL_KEYWORDS: Record<Goal, string[]> = {
+  get_booked: [
+    "night club", "jazz club", "live music venue", "concert hall",
+    "comedy club", "cabaret club", "blues club", "rock music club",
+    "musical club", "disco club",
+  ],
+  rent_venue: [
+    "event venue", "banquet hall", "wedding venue", "festival hall",
+    "ballroom", "auditorium", "arena", "stadium", "amphitheater",
+    "community center", "cultural center",
+  ],
+};
+
 // Bounds. MAX_CITIES caps Stage-1 output (and thus Stage-2 query count);
-// MAX_VENUES caps the flat combined list. PER_CITY_* bound each city's fetch.
+// MAX_VENUES caps the final flat combined list (enforced after Stage 3).
+// PER_CITY_FETCH is the generous rating-ordered batch Stage 2 scans per city
+// (covers every venue outright for all but a handful of mega-cities — verified
+// against live per-city counts, e.g. New York tops out at 481). Stage 2 then
+// scores + caps its matches at PER_CITY_STAGE3_CAP before handing them to
+// Stage 3, so a 15-city corridor sends at most 300 candidates into that call.
 const MAX_CITIES = 15;
 const MAX_VENUES = 100;
-const PER_CITY_TYPE_FETCH = 40; // precise type_norm matches
-const PER_CITY_GENERAL_FETCH = 60; // broad batch, JS-matched for about-tags
+const PER_CITY_FETCH = 300;
+const PER_CITY_STAGE3_CAP = 20;
 
 // pg_trgm similarity() cutoff for resolving an LLM city spelling to the real
 // `venues.city` value. 0.6 catches the recurring near-spelling/casing/umlaut
@@ -119,9 +243,12 @@ const PER_CITY_GENERAL_FETCH = 60; // broad batch, JS-matched for about-tags
 const CITY_SIMILARITY_THRESHOLD = 0.6;
 
 // Venue projection returned to the client. Explicit (skips the tsvector +
-// scraper long tail) but still "full rows". `about`/`type_norm` drive matching.
+// scraper long tail) but still "full rows". `subtypes`/`description` were
+// added in v4 — Stage 2/3 both read them, and the client's Venue Codable
+// already has optional fields for both (same projection shape the venue
+// browse feature uses), so no client model change was needed to carry them.
 const VENUE_COLUMNS =
-  "id, name, type, type_norm, city, country_code, street, postal_code, state, " +
+  "id, name, type, type_norm, subtypes, description, city, country_code, street, postal_code, state, " +
   "full_address, site, photo, phone, email_1, email_2, email_3, " +
   "facebook, instagram, linkedin, twitter, youtube, whatsapp, " +
   "rating, reviews, latitude, longitude, business_status, about";
@@ -131,7 +258,17 @@ const VENUE_COLUMNS =
 type RequestBody = {
   home_city?: string;
   target_city?: string;
-  artist_description?: string;
+  venue_size?: string;
+  goal?: string;
+  vibe_types?: unknown;
+};
+
+type ValidatedRequest = {
+  home_city: string;
+  target_city: string;
+  venue_size: VenueSize;
+  goal: Goal;
+  vibe_types: VibeType[];
 };
 
 type Corridor = {
@@ -147,17 +284,66 @@ type VenueRow = Record<string, unknown> & {
   city?: string | null;
   type?: string | null;
   type_norm?: string | null;
+  subtypes?: string | null;
+  description?: string | null;
   rating?: unknown;
   about?: string | null;
   business_status?: string | null;
 };
 
-type OutVenue = VenueRow & { match_reason: string };
+/** Stage 2 output — a scored, capped candidate, not yet Stage-3-reviewed. */
+type CandidateVenue = VenueRow & { city: string };
 
-// ─── Stage 1: corridor + genre→type mapping ───────────────────────────────────
+/** Stage 3 output — a surviving candidate with its grounded match_reason. */
+type OutVenue = CandidateVenue & { match_reason: string };
+
+// ─── Request validation ───────────────────────────────────────────────────────
+
+function validate(
+  body: RequestBody,
+): { ok: true; value: ValidatedRequest } | { ok: false; message: string } {
+  const home_city = (body.home_city ?? "").trim();
+  const target_city = (body.target_city ?? "").trim();
+  if (!home_city) return { ok: false, message: "home_city is required." };
+  if (!target_city) return { ok: false, message: "target_city is required." };
+
+  const venue_size = body.venue_size;
+  if (typeof venue_size !== "string" || !(VENUE_SIZES as readonly string[]).includes(venue_size)) {
+    return { ok: false, message: `venue_size must be one of: ${VENUE_SIZES.join(", ")}.` };
+  }
+
+  const goal = body.goal;
+  if (typeof goal !== "string" || !(GOALS as readonly string[]).includes(goal)) {
+    return { ok: false, message: `goal must be one of: ${GOALS.join(", ")}.` };
+  }
+
+  const rawVibes = Array.isArray(body.vibe_types) ? body.vibe_types : [];
+  const vibeSet = new Set<VibeType>();
+  for (const v of rawVibes) {
+    if (typeof v === "string" && (VIBE_TYPES as readonly string[]).includes(v)) {
+      vibeSet.add(v as VibeType);
+    }
+  }
+  if (vibeSet.size === 0) {
+    return { ok: false, message: `vibe_types must include at least one of: ${VIBE_TYPES.join(", ")}.` };
+  }
+
+  return {
+    ok: true,
+    value: {
+      home_city,
+      target_city,
+      venue_size: venue_size as VenueSize,
+      goal: goal as Goal,
+      vibe_types: [...vibeSet],
+    },
+  };
+}
+
+// ─── Stage 1: corridor + venue_size/goal/vibe_types → type mapping ────────────
 
 const CORRIDOR_SYSTEM_PROMPT =
-  `You help independent musicians and DJs find venues along a plausible GROUND-TRAVEL corridor between two cities. You do NOT build an optimized route or a schedule — just a reasonable, loose list of cities someone touring from the home city to the target city might plausibly pass through or near, plus which venue types and attributes suit the artist.
+  `You help independent musicians and DJs find venues along a plausible GROUND-TRAVEL corridor between two cities. You do NOT build an optimized route or a schedule — just a reasonable, loose list of cities someone touring from the home city to the target city might plausibly pass through or near, plus which venue types and attributes suit what they're looking for.
 
 Return everything ONLY through the propose_corridor tool.
 
@@ -170,24 +356,26 @@ CITIES (when plausible):
 - Prefer cities with some nightlife / live-music / cultural presence over tiny waypoints, but don't overthink it.
 - Return AT MOST ${MAX_CITIES} cities total (including the two endpoints). Order them roughly from home toward target. Use the common/widely-used English spelling of each city where one exists (e.g. "Cologne", "Munich", "Prague") since that matches how venue data is stored.
 
-GENRE → VENUE TYPES (be explicit, use these as guidance):
-- "reggaeton DJ" / "latin DJ" → Night club, Bar, Lounge, Disco club
-- "house/techno DJ" / "underground DJ" → Night club, Disco club, Event venue, Bar
-- "rock band" / "indie band" → Live music venue, Concert hall, Bar
-- "classical orchestra" / "chamber ensemble" → Concert hall, Performing arts theater, Cultural center
-- "jazz musician" / "jazz trio" → Jazz club, Lounge, Bar, Cocktail bar
-- "pop/top-40 act" → Event venue, Night club, Bar
-- "singer-songwriter" / "acoustic act" → Bar, Cafe-style Lounge, Live music venue, Wine bar
-- "cabaret / burlesque performer" → Cabaret club, Lounge, Performing arts theater
-Map the ARTIST DESCRIPTION to the closest few types from the allowed list (the tool constrains valid values). Pick the 2-5 most fitting types — err toward slightly broader rather than narrow.
+VENUE_SIZE + GOAL + VIBE_TYPES → VENUE TYPES (be explicit, use these as guidance — this output is LOOSE GUIDANCE for a broader downstream search, not a strict filter, so err toward slightly broader rather than narrow):
+- vibe_types (one or more selected — union the types for ALL of them):
+  - "club_nightlife" → Night club, Disco club
+  - "live_music_concert" → Live music venue, Concert hall, Jazz club
+  - "bar_lounge" → Bar, Cocktail bar, Lounge, Wine bar, Pub, Sports bar, Karaoke bar
+  - "theater_performing_arts" → Performing arts theater, Cabaret club, Cultural center
+  - "outdoor_festival" → Event venue, Community center (the allowed type list has no dedicated outdoor/festival type — a broader downstream search independently catches amphitheaters, festival halls, and beer gardens)
+- goal:
+  - "get_booked" (the venue programs/curates acts, works with promoters) → lean toward types that traditionally book touring talent: Night club, Live music venue, Jazz club, Cabaret club, Concert hall.
+  - "rent_venue" (a self-produced show, the artist rents the space) → lean toward types that are typically hired out: Event venue, Wedding venue, Community center, Cultural center.
+- venue_size (capacity tier — a steer, not a literal filter): "small" (~<250) favors Bar, Pub, Cocktail bar, Lounge, Jazz club; "mid" (250-500) favors Night club, Live music venue, Disco club, Cabaret club; "large"/"stadium" (500+) favors Concert hall, Event venue — the two allowed types that can plausibly scale up (a broader downstream search independently catches arenas/stadiums/amphitheaters, which aren't in the allowed type list).
+Combine the vibe_types' unioned types with the goal/venue_size steer, then pick the 2-6 best-fitting types overall from the allowed list.
 
-ABOUT-TAGS: pick the attributes (from the allowed list) that fit the artist — e.g. a live band wants "Live performances"/"Live music"; a DJ wants "Dancing"; an LGBTQ+ artist may want "LGBTQ+ friendly". Optional; pick what fits.`;
+ABOUT-TAGS: pick the attributes (from the allowed list) that fit — e.g. club_nightlife/live_music_concert want "Dancing"/"Live music"/"Live performances"; outdoor_festival wants "Outdoor seating". Optional; pick what fits.`;
 
 function corridorTool() {
   return {
     name: "propose_corridor",
     description:
-      "Return the plausibility verdict, the corridor cities, and the genre-mapped venue types + about-tags.",
+      "Return the plausibility verdict, the corridor cities, and the venue types + about-tags suited to the request.",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -210,7 +398,7 @@ function corridorTool() {
         },
         suggested_types: {
           type: "array",
-          description: "Genre-mapped venue types, chosen ONLY from the allowed list.",
+          description: "Venue types suited to the request, chosen ONLY from the allowed list.",
           items: { type: "string", enum: TYPE_LABELS },
         },
         suggested_about_tags: {
@@ -226,12 +414,14 @@ function corridorTool() {
 
 async function reasonCorridor(
   client: Anthropic,
-  body: Required<RequestBody>,
+  body: ValidatedRequest,
 ): Promise<Corridor> {
   const userContent = JSON.stringify({
     home_city: body.home_city,
     target_city: body.target_city,
-    artist_description: body.artist_description,
+    venue_size: body.venue_size,
+    goal: body.goal,
+    vibe_types: body.vibe_types,
   });
 
   const message = await client.messages.create({
@@ -281,25 +471,7 @@ async function reasonCorridor(
   };
 }
 
-// ─── Stage 2: deterministic venue matching ────────────────────────────────────
-
-/** True iff `tag` is present AND set true anywhere in a venue's about JSON. */
-function aboutHasTag(about: string | null | undefined, tag: string): boolean {
-  if (!about) return false;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(about);
-  } catch {
-    return false; // ~2% of about rows are malformed/truncated — treat as no tags.
-  }
-  if (!parsed || typeof parsed !== "object") return false;
-  for (const group of Object.values(parsed as Record<string, unknown>)) {
-    if (group && typeof group === "object") {
-      if ((group as Record<string, unknown>)[tag] === true) return true;
-    }
-  }
-  return false;
-}
+// ─── Stage 2: cast a wide net (deterministic, NO LLM) ─────────────────────────
 
 function ratingNum(v: unknown): number {
   const n = Number(v);
@@ -310,85 +482,70 @@ function isPermanentlyClosed(v: VenueRow): boolean {
   return v.business_status === "CLOSED_PERMANENTLY";
 }
 
-/** A city's matched venues, best-first, deduped. Broad match: type OR tag. */
+/**
+ * Fetch a generous rating-ordered batch for one city, then score+filter in JS
+ * against three independent signals: type_norm membership, subtypes/description
+ * text keywords, about-text keywords. Returns the top PER_CITY_STAGE3_CAP by
+ * score (then rating) — a generous but bounded pool for Stage 3 to actually
+ * read, not the full fetch.
+ */
 async function matchCity(
   admin: ReturnType<typeof createClient>,
   city: string,
   norms: string[],
-  tags: string[],
-): Promise<OutVenue[]> {
+  textKeywords: string[],
+  aboutKeywords: string[],
+): Promise<CandidateVenue[]> {
+  const { data, error } = await admin
+    .from("venues")
+    .select(VENUE_COLUMNS)
+    .eq("reported", false)
+    .ilike("city", city)
+    .order("rating", { ascending: false, nullsFirst: false })
+    .limit(PER_CITY_FETCH);
+
+  if (error) {
+    console.error(`[generate-tour-plan] matchCity(${city}) error:`, error);
+    return [];
+  }
+
   const normSet = new Set(norms);
+  const textNeedles = textKeywords.map((k) => k.toLowerCase());
+  const aboutNeedles = aboutKeywords.map((k) => k.toLowerCase());
 
-  // Two lean queries: precise type matches, plus a broad top-rated batch that
-  // catches tag-only matches. Merged + JS-refined below. Ordering by rating in
-  // SQL is a rough prefilter; JS re-sorts. (No SQL business_status/tag filter —
-  // both are handled in JS to avoid brittle .or()/ilike encoding on values like
-  // "LGBTQ+ friendly".)
-  const queries: Promise<{ data: unknown }>[] = [];
-  if (norms.length) {
-    queries.push(
-      admin
-        .from("venues")
-        .select(VENUE_COLUMNS)
-        .eq("reported", false)
-        .ilike("city", city)
-        .in("type_norm", norms)
-        .order("rating", { ascending: false, nullsFirst: false })
-        .limit(PER_CITY_TYPE_FETCH)
-        .then((r) => ({ data: r.data })),
-    );
-  }
-  queries.push(
-    admin
-      .from("venues")
-      .select(VENUE_COLUMNS)
-      .eq("reported", false)
-      .ilike("city", city)
-      .order("rating", { ascending: false, nullsFirst: false })
-      .limit(PER_CITY_GENERAL_FETCH)
-      .then((r) => ({ data: r.data })),
-  );
-
-  const results = await Promise.all(queries);
-  const byId = new Map<string, VenueRow>();
-  for (const { data } of results) {
-    for (const row of (data ?? []) as VenueRow[]) {
-      if (!byId.has(String(row.id))) byId.set(String(row.id), row);
-    }
-  }
-
-  const matched: Array<{ v: OutVenue; score: number; rating: number }> = [];
-  for (const row of byId.values()) {
+  const scored: Array<{ v: CandidateVenue; score: number; rating: number }> = [];
+  for (const row of (data ?? []) as VenueRow[]) {
     if (isPermanentlyClosed(row)) continue;
+
     const typeMatched = !!row.type_norm && normSet.has(String(row.type_norm));
-    const matchedTags = tags.filter((t) => aboutHasTag(row.about, t));
-    if (!typeMatched && matchedTags.length === 0) continue;
 
-    // Deterministic, human-readable reason: matched type and/or matched tags.
-    const parts: string[] = [];
-    if (typeMatched) {
-      parts.push(
-        NORM_TO_TYPE_LABEL[String(row.type_norm)] ?? String(row.type ?? "Venue"),
-      );
-    }
-    if (matchedTags.length) parts.push(matchedTags.join(", "));
-    const match_reason = parts.join(" · ");
+    // subtypes + description together, one substring pass over both.
+    const textHaystack = `${row.subtypes ?? ""} ${row.description ?? ""}`.toLowerCase();
+    const textHits = textNeedles.filter((k) => textHaystack.includes(k)).length;
 
-    matched.push({
-      v: { ...row, city: row.city ?? city, match_reason },
-      score: (typeMatched ? 1 : 0) + matchedTags.length,
+    // Plain substring search over the raw about text — deliberately NOT a
+    // JSON-key lookup, so it still works on the ~2% malformed/truncated rows.
+    const aboutHaystack = (row.about ?? "").toLowerCase();
+    const aboutHits = aboutNeedles.filter((k) => aboutHaystack.includes(k)).length;
+
+    if (!typeMatched && textHits === 0 && aboutHits === 0) continue;
+
+    scored.push({
+      v: { ...row, city: row.city ?? city },
+      score: (typeMatched ? 2 : 0) + textHits + aboutHits,
       rating: ratingNum(row.rating),
     });
   }
 
-  matched.sort((a, b) =>
+  scored.sort((a, b) =>
     b.score !== a.score
       ? b.score - a.score
       : b.rating !== a.rating
       ? b.rating - a.rating
-      : String(a.v.id).localeCompare(String(b.v.id)),
+      : String(a.v.id).localeCompare(String(b.v.id))
   );
-  return matched.map((m) => m.v);
+
+  return scored.slice(0, PER_CITY_STAGE3_CAP).map((s) => s.v);
 }
 
 /**
@@ -417,6 +574,163 @@ async function resolveCities(
   return map;
 }
 
+// ─── Stage 3: qualitative read (Anthropic, NEW) ───────────────────────────────
+
+const CURATE_SYSTEM_PROMPT =
+  `You are doing a careful qualitative READ of venue candidates that a broad SQL search already pulled for a musician/DJ's tour plan. This is NOT a pass to narrow down to a curated top pick — that was explicitly rejected. Your job, per city:
+
+1. DROP candidates that clearly don't fit despite passing the broad search — e.g. a venue whose subtypes/about data reveals it's actually a restaurant with no stage/dancing/live-music signal, or a type flatly mismatched with the requested goal/venue_size/vibe.
+2. For every SURVIVING venue, write an honest, SPECIFIC match_reason that references what's ACTUALLY in that venue's real subtypes/about data — e.g. "about data mentions 'Live music' and 'Dancing' despite being typed as Cocktail bar" or "subtypes list Amphitheater, Festival hall — fits stadium-scale outdoor booking". NEVER write a generic reason like "matches your vibe" — always ground it in a real field value you can see in the candidate.
+
+Keep the survivor set BROAD. This must NOT become a curated 1-2-per-city list — most candidates that reached you should survive; only drop clear misfits.
+
+Context for judging fit: venue_size (small/mid/large/stadium — a capacity tier, informational only, not literally present in the data), goal (get_booked = the venue programs/curates acts vs rent_venue = a self-produced show, the artist rents the space), vibe_types (one or more of club_nightlife/live_music_concert/bar_lounge/theater_performing_arts/outdoor_festival).
+
+Each candidate's "about" field is raw, sometimes-malformed JSON text scraped from Google Places — read it as best-effort text, don't assume it always parses.
+
+Return ONLY through the curate_matches tool. Omit any candidate you're dropping — don't list it with keep=false, just leave it out.`;
+
+function curateTool() {
+  return {
+    name: "curate_matches",
+    description:
+      "Return the venues worth keeping — drop clear non-fits, but keep the survivor set broad. Each kept venue gets a specific, grounded match_reason.",
+    input_schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        kept: {
+          type: "array",
+          description: "One entry per surviving venue. Omit venues that clearly don't fit.",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: {
+                type: "string",
+                description: "Must exactly match a candidate id from the input.",
+              },
+              match_reason: {
+                type: "string",
+                description:
+                  "Specific and honest, grounded in this venue's real type/subtypes/about data. Never generic.",
+              },
+            },
+            required: ["id", "match_reason"],
+          },
+        },
+      },
+      required: ["kept"],
+    },
+  } as const;
+}
+
+/**
+ * Extracts the `kept` array from one curate_matches tool_use's `input`.
+ * Observed live: the model sometimes returns `kept` as a JSON-encoded STRING
+ * instead of a native array — occasionally even double-wrapped as a
+ * stringified `{ kept: [...] }` object rather than the bare array the schema
+ * defines. `Array.isArray(input.kept)` alone silently treats all of these as
+ * empty. Parse defensively (bounded iterations — never trust model output to
+ * terminate on its own) and unwrap either shape.
+ */
+function extractKept(input: Record<string, unknown>): unknown[] {
+  let val: unknown = input.kept;
+  for (let i = 0; i < 3 && typeof val === "string"; i++) {
+    try {
+      val = JSON.parse(val);
+    } catch {
+      return [];
+    }
+  }
+  if (Array.isArray(val)) return val;
+  if (val && typeof val === "object" && Array.isArray((val as Record<string, unknown>).kept)) {
+    return (val as Record<string, unknown>).kept as unknown[];
+  }
+  return [];
+}
+
+/**
+ * Sends every city's Stage-2 candidate pool to Anthropic in ONE call for a
+ * qualitative keep/drop + match_reason pass. Returns a city → surviving
+ * OutVenue[] map (cities with no survivors are simply absent). Skips the call
+ * entirely (returns an empty map) when Stage 2 found nothing anywhere.
+ */
+async function curateMatches(
+  client: Anthropic,
+  request: ValidatedRequest,
+  candidatesByCity: Map<string, CandidateVenue[]>,
+): Promise<Map<string, OutVenue[]>> {
+  const citiesPayload = [...candidatesByCity.entries()]
+    .filter(([, candidates]) => candidates.length > 0)
+    .map(([city, candidates]) => ({
+      city,
+      candidates: candidates.map((v) => ({
+        id: v.id,
+        name: v.name,
+        type: v.type ?? null,
+        subtypes: v.subtypes ?? null,
+        about: v.about ?? null,
+        rating: ratingNum(v.rating),
+      })),
+    }));
+
+  if (citiesPayload.length === 0) return new Map();
+
+  const userContent = JSON.stringify({
+    venue_size: request.venue_size,
+    goal: request.goal,
+    vibe_types: request.vibe_types,
+    cities: citiesPayload,
+  });
+
+  const message = await client.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 8000,
+    system: CURATE_SYSTEM_PROMPT,
+    tools: [curateTool()],
+    tool_choice: { type: "tool", name: "curate_matches" },
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  // The model sometimes splits this into multiple curate_matches tool_use
+  // blocks in one response (observed: one per city, likely nudged by this
+  // prompt's own "per city" framing) even under forced tool_choice — forced
+  // tool_choice constrains WHICH tool, not how many times it's called. Taking
+  // only the first block (the original approach here) silently drops every
+  // other block's kept venues — merge ALL of them.
+  const toolUses = message.content.filter(
+    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "curate_matches",
+  );
+  if (!toolUses.length) throw new Error("curate: model returned no tool_use block");
+
+  const kept: unknown[] = [];
+  for (const toolUse of toolUses) {
+    kept.push(...extractKept(toolUse.input as Record<string, unknown>));
+  }
+
+  // id -> match_reason, first occurrence wins on an (unexpected) duplicate id.
+  const reasonById = new Map<string, string>();
+  for (const entry of kept) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = String((entry as Record<string, unknown>).id ?? "").trim();
+    const reason = String((entry as Record<string, unknown>).match_reason ?? "").trim();
+    if (!id || !reason || reasonById.has(id)) continue;
+    reasonById.set(id, reason);
+  }
+
+  const out = new Map<string, OutVenue[]>();
+  for (const [city, candidates] of candidatesByCity) {
+    const survivors: OutVenue[] = [];
+    for (const v of candidates) {
+      const reason = reasonById.get(String(v.id));
+      if (reason) survivors.push({ ...v, match_reason: reason });
+    }
+    if (survivors.length) out.set(city, survivors);
+  }
+  return out;
+}
+
 /**
  * Combine per-city lists into one flat list capped at MAX_VENUES, spreading
  * across cities: take one from each city per pass (round-robin), so no single
@@ -440,23 +754,6 @@ function roundRobinCap(perCity: OutVenue[][], cap: number): OutVenue[] {
     }
   }
   return out;
-}
-
-// ─── Request validation ───────────────────────────────────────────────────────
-
-function validate(body: RequestBody):
-  | { ok: true; value: Required<RequestBody> }
-  | { ok: false; message: string } {
-  const home_city = (body.home_city ?? "").trim();
-  const target_city = (body.target_city ?? "").trim();
-  const artist_description = (body.artist_description ?? "").trim();
-
-  if (!home_city) return { ok: false, message: "home_city is required." };
-  if (!target_city) return { ok: false, message: "target_city is required." };
-  if (!artist_description) {
-    return { ok: false, message: "artist_description is required." };
-  }
-  return { ok: true, value: { home_city, target_city, artist_description } };
 }
 
 // ─── Handler ──────────────────────────────────────────────────────────────────
@@ -485,7 +782,7 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // ── Stage 1: corridor + genre mapping ──
+  // ── Stage 1: corridor + type/tag mapping ──
   let corridor: Corridor;
   try {
     corridor = await reasonCorridor(anthropic, v.value);
@@ -511,10 +808,23 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  // ── Stage 2: resolve city spellings, match venues per city, combine ──
+  // ── Stage 2: resolve city spellings, cast a wide net per city ──
   const norms = corridor.suggested_types
     .map((label) => TYPE_LABEL_TO_NORM[label])
     .filter((n): n is string => !!n);
+
+  const textKeywords = [
+    ...new Set(
+      v.value.vibe_types.flatMap((t) => VIBE_KEYWORDS[t].textKeywords)
+        .concat(GOAL_KEYWORDS[v.value.goal]),
+    ),
+  ];
+  const aboutKeywords = [
+    ...new Set(
+      v.value.vibe_types.flatMap((t) => VIBE_KEYWORDS[t].aboutTags)
+        .concat(corridor.suggested_about_tags),
+    ),
+  ];
 
   // Fuzzy-resolve each corridor city to the actual spelling stored in `venues`
   // (Hannover → Hanover, ACCRA → Accra, …) so exonym/casing mismatches don't
@@ -533,12 +843,31 @@ Deno.serve(async (req: Request) => {
     queryCities.push(resolved);
   }
 
-  const perCity = await Promise.all(
-    queryCities.map((city) =>
-      matchCity(admin, city, norms, corridor.suggested_about_tags)
-    ),
+  const perCityCandidates = await Promise.all(
+    queryCities.map((city) => matchCity(admin, city, norms, textKeywords, aboutKeywords)),
+  );
+  const candidatesByCity = new Map<string, CandidateVenue[]>();
+  queryCities.forEach((city, i) => candidatesByCity.set(city, perCityCandidates[i]));
+  console.log(
+    "[generate-tour-plan] stage 2 candidates:",
+    JSON.stringify(Object.fromEntries([...candidatesByCity].map(([c, v]) => [c, v.length]))),
   );
 
+  // ── Stage 3: qualitative read — drop clear misfits, write grounded reasons ──
+  let curatedByCity: Map<string, OutVenue[]>;
+  try {
+    curatedByCity = await curateMatches(anthropic, v.value, candidatesByCity);
+  } catch (err) {
+    console.error("[generate-tour-plan] stage 3 (curate) error:", err);
+    return json({ error: "Could not review venue matches. Please try again." }, 502);
+  }
+  console.log(
+    "[generate-tour-plan] stage 3 survivors:",
+    JSON.stringify(Object.fromEntries([...curatedByCity].map(([c, v]) => [c, v.length]))),
+  );
+
+  // Global cap + city-spread AFTER Stage 3, not before.
+  const perCity = queryCities.map((city) => curatedByCity.get(city) ?? []);
   const venues = roundRobinCap(perCity, MAX_VENUES);
 
   return json({ cities: queryCities, venues });
