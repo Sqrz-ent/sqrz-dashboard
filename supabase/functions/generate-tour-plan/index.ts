@@ -41,36 +41,65 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //      .or()-filter string. Scored + capped per city (PER_CITY_STAGE3_CAP) so
 //      Stage 3 gets a generous but bounded pool, not literally everything.
 //
-//   3. QUALITATIVE READ (Anthropic, ONE call, NEW) — NOT a pruning-to-a-top-
-//      pick pass (that was explicitly rejected). Given the full raw candidate
-//      data per city (type, subtypes, the full about JSON, rating) plus the
-//      user's venue_size/goal/vibe_types, the model (a) drops candidates that
-//      clearly don't fit despite passing Stage 2's broad net (e.g. about data
-//      reveals a restaurant with no stage/dancing/live-music signal), and (b)
-//      writes an honest, specific match_reason for each survivor, grounded in
-//      that venue's ACTUAL subtypes/about data — never generic. The survivor
-//      set must stay broad; most candidates that reach this stage should
-//      survive. venue_size is called out in the prompt as a HARD constraint
-//      (not just a preference like goal/vibe), but the LLM isn't 100%
-//      reliable on a check this mechanical, so a deterministic backstop
-//      (isStadiumScaleMismatch) runs after Stage 3 too — drops any survivor
-//      whose type/subtypes mention arena/stadium/amphitheater when
-//      venue_size isn't "stadium", the same principle as the
-//      business_status=CLOSED_PERMANENTLY exclusion in Stage 2. The existing
-//      100-venue global cap + city-spread round-robin is enforced AFTER
-//      both, not before.
+//   3. QUALITATIVE READ (Anthropic, CHUNKED per-city calls) — NOT a pruning-
+//      to-a-top-pick pass (that was explicitly rejected). Given the full raw
+//      candidate data per city (type, subtypes, the full about JSON, rating)
+//      plus the user's venue_size/goal/vibe_types, the model (a) drops
+//      candidates that clearly don't fit despite passing Stage 2's broad net
+//      (e.g. about data reveals a restaurant with no stage/dancing/
+//      live-music signal), and (b) writes an honest, specific match_reason
+//      for each survivor, grounded in that venue's ACTUAL subtypes/about
+//      data — never generic. The survivor set must stay broad; most
+//      candidates that reach this stage should survive. venue_size is called
+//      out in the prompt as a HARD constraint (not just a preference like
+//      goal/vibe), but the LLM isn't 100% reliable on a check this
+//      mechanical, so a deterministic backstop (isStadiumScaleMismatch) runs
+//      after Stage 3 too — drops any survivor whose type/subtypes mention
+//      arena/stadium/amphitheater when venue_size isn't "stadium", the same
+//      principle as the business_status=CLOSED_PERMANENTLY exclusion in
+//      Stage 2. The existing 100-venue global cap + city-spread round-robin
+//      is enforced AFTER both, not before.
+//
+//      CHUNKING (2026-09 fix — see incident note below): one Anthropic call
+//      per CITY, never one call spanning the whole corridor. A single large
+//      call given every city's candidates at once was observed to silently
+//      evaluate ONLY the first city and never touch the rest — a genuine
+//      model completeness failure on big multi-group structured input, not a
+//      max_tokens truncation (stop_reason came back "tool_use", a normal
+//      complete finish, so there was no signal to detect it after the fact).
+//      Chunking structurally prevents this: no single call ever has more
+//      than one city's worth of candidates to lose track of. A city's
+//      uncached pool is further split if it ever exceeds
+//      MAX_CANDIDATES_PER_CURATE_CALL (comfortably above PER_CITY_STAGE3_CAP
+//      today, kept as a safety net if that cap grows later). Chunks run with
+//      bounded concurrency (CURATE_CONCURRENCY), not all-at-once.
+//
+//      COMPLETENESS SAFEGUARD: after combining every chunk's results, any
+//      city that had real Stage-2 candidates but ended up with ZERO verdicts
+//      (cached or fresh, kept or dropped) covering any of them is logged
+//      loudly as a likely recurrence of this exact failure class — a city
+//      simply having nothing worth keeping is normal and silent; a city
+//      never being evaluated AT ALL is not.
 //
 //      CACHING (venue_fit_cache, service-role only): before calling the LLM,
 //      every candidate is looked up by (venue_id, venue_size, goal,
 //      vibe_types_key — the request's vibe_types sorted+joined so ordering
 //      never causes a spurious miss). A cache hit is resolved directly (fit
 //      or not, with its stored match_reason) with no LLM involvement; only
-//      the uncached remainder is ever sent to Anthropic. Fresh verdicts —
-//      both kept AND dropped — are UPSERTed back afterward, so the next
-//      request sharing that exact combination (same venue, same
-//      venue_size/goal/vibe_types) skips the LLM for that venue entirely.
-//      Purely an internal efficiency layer — same request/response contract,
-//      same per-city ordering, invisible to the client.
+//      the uncached remainder is ever sent to Anthropic, one city-scoped
+//      chunk at a time. Fresh verdicts — both kept AND dropped — are
+//      UPSERTed back afterward, so the next request sharing that exact
+//      combination (same venue, same venue_size/goal/vibe_types) skips the
+//      LLM for that venue entirely. Each verdict is written ONLY for
+//      candidates that were actually inside the chunk payload the LLM call
+//      that produced it received — never for candidates elsewhere in the
+//      corridor that call never saw — so a future partial-evaluation bug of
+//      this same shape can only ever poison the one city/chunk it touched,
+//      not the whole corridor (this is what let the original bug silently
+//      write "doesn't fit" for every real candidate in 5 of 9 cities before
+//      it was caught; venue_fit_cache has since been fully truncated by
+//      Will). Purely an internal efficiency layer — same request/response
+//      contract, same per-city ordering, invisible to the client.
 //
 // Keyword design note: `about` is Google-Places-style structured booleans
 // (Highlights/Offerings/Atmosphere/Crowd/…) — verified against live data,
@@ -86,9 +115,14 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // Anthropic auth: reuses the project-wide ANTHROPIC_API_KEY (same secret
 // campaign-advisor uses; edge secrets are project-wide). Key never leaves the
 // server. Endpoint is public (verify_jwt: false), publishable-key callable —
-// same pattern as hubspot-beta-slug-request. Cost is now bounded by TWO LLM
-// calls (was one) + MAX_CITIES-bounded queries per request — the added Stage
-// 3 call is the accepted cost of qualitative, vibe-grounded match reasons.
+// same pattern as hubspot-beta-slug-request. Cost is now bounded by ONE
+// Stage-1 call + up to MAX_CITIES Stage-3 calls (one per city with uncached
+// candidates, run with bounded concurrency — see CHUNKING above) +
+// MAX_CITIES-bounded queries per request. More total calls than the earlier
+// single-call Stage 3, but each is small/cheap and the venue_fit_cache layer
+// means most repeat corridors skip most of them entirely — the accepted cost
+// of both qualitative, vibe-grounded match reasons AND not silently losing
+// cities on large corridors.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -251,6 +285,16 @@ const MAX_CITIES = 15;
 const MAX_VENUES = 100;
 const PER_CITY_FETCH = 300;
 const PER_CITY_STAGE3_CAP = 20;
+
+// Stage 3 is chunked ONE CITY PER LLM CALL (see the CHUNKING doc note above)
+// to structurally prevent the "silently only evaluates the first city"
+// failure. MAX_CANDIDATES_PER_CURATE_CALL further splits a single city's
+// uncached pool if it ever exceeds this — comfortably above
+// PER_CITY_STAGE3_CAP today, kept as a safety net if that cap grows later.
+// CURATE_CONCURRENCY bounds how many of these per-city calls run in parallel
+// (a 15-city corridor could otherwise fire 15 Anthropic calls at once).
+const MAX_CANDIDATES_PER_CURATE_CALL = 45;
+const CURATE_CONCURRENCY = 4;
 
 // pg_trgm similarity() cutoff for resolving an LLM city spelling to the real
 // `venues.city` value. 0.6 catches the recurring near-spelling/casing/umlaut
@@ -768,16 +812,129 @@ async function writeFitCache(
   }
 }
 
+type CurateChunk = { city: string; candidates: CandidateVenue[] };
+
+/**
+ * Splits every city's UNCACHED candidate pool into one-city-only chunks (no
+ * chunk ever spans more than one city), further sliced at
+ * MAX_CANDIDATES_PER_CURATE_CALL if a single city's pool ever exceeds it.
+ * This is the structural fix for the "one big call silently only evaluates
+ * the first city" bug — a chunk simply has no other city's candidates in it
+ * to lose track of. Cities fully covered by cache produce zero chunks.
+ */
+function buildCurateChunks(
+  candidatesByCity: Map<string, CandidateVenue[]>,
+  cacheByVenueId: Map<string, FitCacheRow>,
+): CurateChunk[] {
+  const chunks: CurateChunk[] = [];
+  for (const [city, candidates] of candidatesByCity) {
+    const uncached = candidates.filter((v) => !cacheByVenueId.has(String(v.id)));
+    for (let i = 0; i < uncached.length; i += MAX_CANDIDATES_PER_CURATE_CALL) {
+      chunks.push({ city, candidates: uncached.slice(i, i + MAX_CANDIDATES_PER_CURATE_CALL) });
+    }
+  }
+  return chunks;
+}
+
+/**
+ * Runs `fn` over `items` with at most `limit` in flight at once — a plain
+ * worker-pool, no external dependency. Used so a 15-city corridor doesn't
+ * fire 15 concurrent Anthropic calls at once.
+ */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  );
+  return results;
+}
+
+/**
+ * One Anthropic call scoped to a SINGLE city's candidate chunk — never the
+ * whole corridor. Returns a map of id -> match_reason for venues this chunk
+ * kept (venues it didn't mention are implicitly dropped, exactly as before).
+ */
+async function curateChunk(
+  client: Anthropic,
+  request: ValidatedRequest,
+  chunk: CurateChunk,
+): Promise<Map<string, string>> {
+  const userContent = JSON.stringify({
+    venue_size: request.venue_size,
+    goal: request.goal,
+    vibe_types: request.vibe_types,
+    cities: [{
+      city: chunk.city,
+      candidates: chunk.candidates.map((v) => ({
+        id: v.id,
+        name: v.name,
+        type: v.type ?? null,
+        subtypes: v.subtypes ?? null,
+        about: v.about ?? null,
+        rating: ratingNum(v.rating),
+      })),
+    }],
+  });
+
+  const message = await client.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 8000,
+    system: CURATE_SYSTEM_PROMPT,
+    tools: [curateTool()],
+    tool_choice: { type: "tool", name: "curate_matches" },
+    messages: [{ role: "user", content: userContent }],
+  });
+
+  // The model sometimes splits its response into multiple curate_matches
+  // tool_use blocks even under forced tool_choice (forced tool_choice
+  // constrains WHICH tool, not how many times it's called) — merge ALL of
+  // them rather than taking just the first.
+  const toolUses = message.content.filter(
+    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "curate_matches",
+  );
+  if (!toolUses.length) {
+    throw new Error(`curate: model returned no tool_use block for city "${chunk.city}"`);
+  }
+
+  const kept: unknown[] = [];
+  for (const toolUse of toolUses) {
+    kept.push(...extractKept(toolUse.input as Record<string, unknown>));
+  }
+
+  const keptById = new Map<string, string>();
+  for (const entry of kept) {
+    if (!entry || typeof entry !== "object") continue;
+    const id = String((entry as Record<string, unknown>).id ?? "").trim();
+    const reason = String((entry as Record<string, unknown>).match_reason ?? "").trim();
+    if (!id || !reason || keptById.has(id)) continue;
+    keptById.set(id, reason);
+  }
+  return keptById;
+}
+
 /**
  * Sends only the UNCACHED slice of each city's Stage-2 candidate pool to
  * Anthropic for a qualitative keep/drop + match_reason pass — candidates
  * already judged for this exact (venue_size, goal, vibe_types) combination
  * are resolved straight from venue_fit_cache, no LLM call needed for them.
- * Fresh verdicts (both keeps and drops) are written back before returning.
- * Returns a city → surviving OutVenue[] map (cities with no survivors are
- * simply absent) — same shape and same per-city ordering as before caching
- * existed. Skips the LLM call entirely when nothing needs a fresh judgment
- * (everything cached, or Stage 2 found nothing).
+ * Uncached candidates are chunked strictly per-city (see buildCurateChunks)
+ * and run with bounded concurrency — never one call spanning the whole
+ * corridor. Fresh verdicts (both keeps and drops) are written back scoped to
+ * exactly the chunk that produced them before returning. Returns a city →
+ * surviving OutVenue[] map (cities with no survivors are simply absent) —
+ * same shape and same per-city ordering as before caching/chunking existed.
  */
 async function curateMatches(
   client: Anthropic,
@@ -793,80 +950,49 @@ async function curateMatches(
     `[generate-tour-plan] stage 3 cache hits: ${cacheByVenueId.size}/${allIds.length}`,
   );
 
-  // Only UNCACHED candidates go to the LLM — this is the actual cost win.
-  const citiesPayload = [...candidatesByCity.entries()]
-    .map(([city, candidates]) => ({
-      city,
-      candidates: candidates
-        .filter((v) => !cacheByVenueId.has(String(v.id)))
-        .map((v) => ({
-          id: v.id,
-          name: v.name,
-          type: v.type ?? null,
-          subtypes: v.subtypes ?? null,
-          about: v.about ?? null,
-          rating: ratingNum(v.rating),
-        })),
-    }))
-    .filter((c) => c.candidates.length > 0);
+  const chunks = buildCurateChunks(candidatesByCity, cacheByVenueId);
+  console.log(
+    `[generate-tour-plan] stage 3 chunks: ${chunks.length} ` +
+      `(${chunks.map((c) => `${c.city}:${c.candidates.length}`).join(", ")})`,
+  );
 
-  // id -> match_reason for venues freshly kept by the LLM this call.
+  // id -> match_reason for venues freshly kept across ALL chunks this call.
   const freshKeptById = new Map<string, string>();
+  // Every candidate id that was actually sent to the LLM in some chunk this
+  // request (kept or dropped) — used both to write scoped cache verdicts and
+  // to drive the completeness safeguard below.
+  const freshEvaluatedIds = new Set<string>();
+  const allVerdicts: FitCacheRow[] = [];
 
-  if (citiesPayload.length > 0) {
-    const userContent = JSON.stringify({
-      venue_size: request.venue_size,
-      goal: request.goal,
-      vibe_types: request.vibe_types,
-      cities: citiesPayload,
-    });
-
-    const message = await client.messages.create({
-      model: "claude-sonnet-5",
-      max_tokens: 8000,
-      system: CURATE_SYSTEM_PROMPT,
-      tools: [curateTool()],
-      tool_choice: { type: "tool", name: "curate_matches" },
-      messages: [{ role: "user", content: userContent }],
-    });
-
-    // The model sometimes splits this into multiple curate_matches tool_use
-    // blocks in one response (observed: one per city, likely nudged by this
-    // prompt's own "per city" framing) even under forced tool_choice — forced
-    // tool_choice constrains WHICH tool, not how many times it's called. Taking
-    // only the first block (the original approach here) silently drops every
-    // other block's kept venues — merge ALL of them.
-    const toolUses = message.content.filter(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "curate_matches",
+  if (chunks.length > 0) {
+    const chunkResults = await mapWithConcurrency(
+      chunks,
+      CURATE_CONCURRENCY,
+      (chunk) => curateChunk(client, request, chunk),
     );
-    if (!toolUses.length) throw new Error("curate: model returned no tool_use block");
 
-    const kept: unknown[] = [];
-    for (const toolUse of toolUses) {
-      kept.push(...extractKept(toolUse.input as Record<string, unknown>));
-    }
-
-    // id -> match_reason, first occurrence wins on an (unexpected) duplicate id.
-    for (const entry of kept) {
-      if (!entry || typeof entry !== "object") continue;
-      const id = String((entry as Record<string, unknown>).id ?? "").trim();
-      const reason = String((entry as Record<string, unknown>).match_reason ?? "").trim();
-      if (!id || !reason || freshKeptById.has(id)) continue;
-      freshKeptById.set(id, reason);
-    }
-
-    // Cache EVERY uncached candidate's verdict — kept and dropped alike.
-    const verdicts: FitCacheRow[] = citiesPayload.flatMap((c) =>
-      c.candidates.map((cand) => {
+    chunks.forEach((chunk, i) => {
+      const keptById = chunkResults[i];
+      for (const [id, reason] of keptById) {
+        if (!freshKeptById.has(id)) freshKeptById.set(id, reason);
+      }
+      // Write a verdict for every candidate THIS chunk actually received —
+      // never for a candidate elsewhere in the corridor this call never saw.
+      // This is what keeps a future partial-evaluation bug of this same
+      // shape scoped to the one city/chunk it touches instead of poisoning
+      // the whole corridor's cache the way the original bug did.
+      for (const cand of chunk.candidates) {
         const id = String(cand.id);
-        return {
+        freshEvaluatedIds.add(id);
+        allVerdicts.push({
           venue_id: id,
-          fits: freshKeptById.has(id),
-          match_reason: freshKeptById.get(id) ?? null,
-        };
-      })
-    );
-    await writeFitCache(admin, request, verdicts);
+          fits: keptById.has(id),
+          match_reason: keptById.get(id) ?? null,
+        });
+      }
+    });
+
+    await writeFitCache(admin, request, allVerdicts);
   }
 
   // Combine cache hits (fits=true only) with fresh keeps into one reason map,
@@ -878,6 +1004,26 @@ async function curateMatches(
     if (row.fits && row.match_reason) combinedReasonById.set(id, row.match_reason);
   }
   for (const [id, reason] of freshKeptById) combinedReasonById.set(id, reason);
+
+  // Completeness safeguard: any city with real Stage-2 candidates that ends
+  // up with ZERO verdicts (cached or fresh) covering any of them was never
+  // actually evaluated by anything — the same silent-skip failure class as
+  // the bug this chunking fixes, however it happened this time. A city
+  // genuinely having nothing worth keeping is normal and silent; a city
+  // never being looked at is not, and must be loud.
+  const verdictIds = new Set<string>([...cacheByVenueId.keys(), ...freshEvaluatedIds]);
+  for (const [city, candidates] of candidatesByCity) {
+    if (candidates.length === 0) continue;
+    const hasAnyVerdict = candidates.some((v) => verdictIds.has(String(v.id)));
+    if (!hasAnyVerdict) {
+      console.error(
+        `[generate-tour-plan] STAGE 3 SILENT-SKIP BUG: city "${city}" had ${candidates.length} ` +
+          `stage-2 candidates but received ZERO verdicts (kept or dropped) from cache or the LLM. ` +
+          `This is the same failure class as the 2026-09 multi-city silent-partial-evaluation bug ` +
+          `resurfacing in a different shape — investigate before trusting this response for this city.`,
+      );
+    }
+  }
 
   const out = new Map<string, OutVenue[]>();
   for (const [city, candidates] of candidatesByCity) {
