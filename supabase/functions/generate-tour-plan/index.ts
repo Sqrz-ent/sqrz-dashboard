@@ -50,8 +50,15 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //      writes an honest, specific match_reason for each survivor, grounded in
 //      that venue's ACTUAL subtypes/about data — never generic. The survivor
 //      set must stay broad; most candidates that reach this stage should
-//      survive. The existing 100-venue global cap + city-spread round-robin
-//      is enforced AFTER this stage, not before.
+//      survive. venue_size is called out in the prompt as a HARD constraint
+//      (not just a preference like goal/vibe), but the LLM isn't 100%
+//      reliable on a check this mechanical, so a deterministic backstop
+//      (isStadiumScaleMismatch) runs after Stage 3 too — drops any survivor
+//      whose type/subtypes mention arena/stadium/amphitheater when
+//      venue_size isn't "stadium", the same principle as the
+//      business_status=CLOSED_PERMANENTLY exclusion in Stage 2. The existing
+//      100-venue global cap + city-spread round-robin is enforced AFTER
+//      both, not before.
 //
 // Keyword design note: `about` is Google-Places-style structured booleans
 // (Highlights/Offerings/Atmosphere/Crowd/…) — verified against live data,
@@ -482,6 +489,21 @@ function isPermanentlyClosed(v: VenueRow): boolean {
   return v.business_status === "CLOSED_PERMANENTLY";
 }
 
+// Deterministic backstop for the most obvious venue_size mismatches —
+// layered UNDER Stage 3's qualitative judgment, not replacing it (same
+// principle as the business_status=CLOSED_PERMANENTLY exclusion above).
+// Confirmed live: Stage 3 occasionally kept a stadium/arena-scale venue for a
+// small/mid, non-stadium search despite "arena" being explicitly present in
+// that venue's subtypes — the LLM pass is good at nuance but isn't reliable
+// enough on a check this mechanical to be the only guard for it.
+const STADIUM_SCALE_KEYWORDS = ["arena", "stadium", "amphitheater"];
+
+function isStadiumScaleMismatch(v: VenueRow, requestedSize: VenueSize): boolean {
+  if (requestedSize === "stadium") return false;
+  const haystack = `${v.type ?? ""} ${v.subtypes ?? ""}`.toLowerCase();
+  return STADIUM_SCALE_KEYWORDS.some((k) => haystack.includes(k));
+}
+
 /**
  * Fetch a generous rating-ordered batch for one city, then score+filter in JS
  * against three independent signals: type_norm membership, subtypes/description
@@ -579,12 +601,14 @@ async function resolveCities(
 const CURATE_SYSTEM_PROMPT =
   `You are doing a careful qualitative READ of venue candidates that a broad SQL search already pulled for a musician/DJ's tour plan. This is NOT a pass to narrow down to a curated top pick — that was explicitly rejected. Your job, per city:
 
-1. DROP candidates that clearly don't fit despite passing the broad search — e.g. a venue whose subtypes/about data reveals it's actually a restaurant with no stage/dancing/live-music signal, or a type flatly mismatched with the requested goal/venue_size/vibe.
+1. DROP candidates that clearly don't fit despite passing the broad search:
+   - venue_size is a HARD CONSTRAINT, not a soft preference — check it against the candidate's actual type/subtypes/about text, the same way you'd check goal or vibe fit. If a "small" or "mid" request's candidate has type/subtypes containing stadium-scale signals (Arena, Stadium, Amphitheater, Festival hall, or about-text implying a large outdoor/mass-capacity venue), DROP it even if it also matches on vibe/type keywords — it's too big for the request. Symmetrically, if a "stadium" or "large" request's candidate is unambiguously small-format (e.g. a plain Cocktail bar/Wine bar/Pub with nothing in its subtypes suggesting a bigger room), DROP it — it's too small. A keyword match on vibe alone never excuses an obvious size mismatch.
+   - Also drop anything whose subtypes/about data reveals it's actually something else entirely (e.g. a restaurant with no stage/dancing/live-music signal), or a type flatly mismatched with the requested goal/vibe.
 2. For every SURVIVING venue, write an honest, SPECIFIC match_reason that references what's ACTUALLY in that venue's real subtypes/about data — e.g. "about data mentions 'Live music' and 'Dancing' despite being typed as Cocktail bar" or "subtypes list Amphitheater, Festival hall — fits stadium-scale outdoor booking". NEVER write a generic reason like "matches your vibe" — always ground it in a real field value you can see in the candidate.
 
-Keep the survivor set BROAD. This must NOT become a curated 1-2-per-city list — most candidates that reached you should survive; only drop clear misfits.
+Keep the survivor set BROAD outside of the checks above. This must NOT become a curated 1-2-per-city list — most candidates that reached you should survive; only drop clear misfits (including clear size mismatches — those are not exceptions to "keep it broad", they're the one thing worth being strict about).
 
-Context for judging fit: venue_size (small/mid/large/stadium — a capacity tier, informational only, not literally present in the data), goal (get_booked = the venue programs/curates acts vs rent_venue = a self-produced show, the artist rents the space), vibe_types (one or more of club_nightlife/live_music_concert/bar_lounge/theater_performing_arts/outdoor_festival).
+Context for judging fit: venue_size (small/mid/large/stadium — a capacity tier; not a literal column in the data, but check it against real type/subtypes/about wording as described above), goal (get_booked = the venue programs/curates acts vs rent_venue = a self-produced show, the artist rents the space), vibe_types (one or more of club_nightlife/live_music_concert/bar_lounge/theater_performing_arts/outdoor_festival).
 
 Each candidate's "about" field is raw, sometimes-malformed JSON text scraped from Google Places — read it as best-effort text, don't assume it always parses.
 
@@ -866,8 +890,13 @@ Deno.serve(async (req: Request) => {
     JSON.stringify(Object.fromEntries([...curatedByCity].map(([c, v]) => [c, v.length]))),
   );
 
-  // Global cap + city-spread AFTER Stage 3, not before.
-  const perCity = queryCities.map((city) => curatedByCity.get(city) ?? []);
+  // Deterministic size backstop, then global cap + city-spread AFTER Stage 3,
+  // not before.
+  const perCity = queryCities.map((city) =>
+    (curatedByCity.get(city) ?? []).filter(
+      (venue) => !isStadiumScaleMismatch(venue, v.value.venue_size),
+    )
+  );
   const venues = roundRobinCap(perCity, MAX_VENUES);
 
   return json({ cities: queryCities, venues });
