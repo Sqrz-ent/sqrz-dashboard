@@ -12,7 +12,6 @@ const WIDGET_FIELDS = [
 export type RichProfile = {
   bio?: string | null;
   hasVideos: boolean;
-  hasRefs: boolean;
   hasServices: boolean;
   social_instagram?: string | null;
   social_youtube?: string | null;
@@ -57,7 +56,6 @@ export function getProfileCompletion(p: RichProfile): CompletionResult {
     { key: "socials",    label: "Socials",     done: hasSocial },
     { key: "widgets",    label: "Widgets",     done: hasWidget },
     { key: "videos",     label: "Videos",      done: p.hasVideos },
-    { key: "refs",       label: "References",  done: p.hasRefs },
     { key: "services",   label: "Services",    done: p.hasServices },
     {
       key: "business",

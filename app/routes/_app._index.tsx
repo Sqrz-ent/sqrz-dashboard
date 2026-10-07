@@ -101,7 +101,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       analytics: analytics ?? null,
       hasServices: !!homeData.hasServices,
       hasVideos: !!homeData.hasVideos,
-      hasRefs: !!homeData.hasRefs,
       planName: homeData.planName ?? null,
       refCode: homeData.refCode ?? null,
     },
@@ -136,7 +135,7 @@ export async function action({ request }: Route.ActionArgs) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, analytics, hasServices, hasVideos, hasRefs, planName, refCode } =
+  const { profile, analytics, hasServices, hasVideos, planName, refCode } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;
@@ -160,7 +159,6 @@ export default function DashboardIndex() {
     ...p,
     hasServices,
     hasVideos,
-    hasRefs,
   };
   const completion = getProfileCompletion(richProfile);
   const { score: doneCount, total: totalSections, percentage: pct, items: completionItems } = completion;

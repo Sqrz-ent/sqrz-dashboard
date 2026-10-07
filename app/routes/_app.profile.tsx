@@ -170,24 +170,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   // client returns nothing for unpublished/migrated owners.
   const admin = createSupabaseAdminClient();
 
-  const [videosRes, refsRes] = await Promise.all([
-    admin
-      .from("profile_videos")
-      .select("*")
-      .eq("profile_id", profile.id as string)
-      .order("sort_order", { ascending: true }),
-    admin
-      .from("profile_references")
-      .select("*")
-      .eq("profile_id", profile.id as string)
-      .order("sort_order", { ascending: true }),
-  ]);
+  const videosRes = await admin
+    .from("profile_videos")
+    .select("*")
+    .eq("profile_id", profile.id as string)
+    .order("sort_order", { ascending: true });
 
   return Response.json(
     {
       profile,
       videos: videosRes.data ?? [],
-      references: refsRes.data ?? [],
     },
     { headers }
   );
@@ -294,47 +286,13 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ ok: true }, { headers });
   }
 
-  if (intent === "add_reference") {
-    const isCurrent = formData.get("is_current") === "true";
-    const { error } = await adminClient.from("profile_references").insert({
-      profile_id: profile.id as string,
-      company: formData.get("company") as string,
-      role: formData.get("role") as string,
-      date_start: formData.get("date_start") as string || null,
-      date_end: isCurrent ? null : (formData.get("date_end") as string || null),
-      is_current: isCurrent,
-      sort_order: 0,
-    });
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "delete_reference") {
-    const id = formData.get("id") as string;
-    const { error } = await adminClient.from("profile_references").delete().eq("id", id);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  if (intent === "update_reference") {
-    const id = formData.get("id") as string;
-    const isCurrent = formData.get("is_current") === "true";
-    const { error } = await adminClient.from("profile_references").update({
-      company: formData.get("company") as string,
-      role: formData.get("role") as string,
-      date_start: (formData.get("date_start") as string) || null,
-      date_end: isCurrent ? null : ((formData.get("date_end") as string) || null),
-      is_current: isCurrent,
-    }).eq("id", id);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
   return Response.json({ ok: false, error: "Unknown intent" }, { headers });
 }
 
 export default function ProfilePage() {
-  const { profile, videos, references } = useLoaderData<typeof loader>() as {
+  const { profile, videos } = useLoaderData<typeof loader>() as {
     profile: Record<string, unknown>;
     videos: Record<string, unknown>[];
-    references: Record<string, unknown>[];
   };
 
   const basicFetcher = useFetcher();
@@ -342,7 +300,6 @@ export default function ProfilePage() {
   const widgetsFetcher = useFetcher();
   const videoFetcher = useFetcher();
   const videoReorderFetcher = useFetcher();
-  const refFetcher = useFetcher();
 
   // Videos local state for drag reorder
   const [localVideos, setLocalVideos] = useState<Record<string, unknown>[]>(videos);
@@ -393,9 +350,7 @@ export default function ProfilePage() {
   });
   // Modal state
   const [videoModal, setVideoModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
-  const [refModal, setRefModal] = useState<{ open: boolean; editing: Record<string, unknown> | null }>({ open: false, editing: null });
   const [videoForm, setVideoForm] = useState({ url: "", title: "" });
-  const [refForm, setRefForm] = useState({ company: "", role: "", date_start: "", date_end: "", is_current: false });
 
   function openVideoModal(editing?: Record<string, unknown>) {
     setVideoForm({
@@ -403,17 +358,6 @@ export default function ProfilePage() {
       title: (editing?.title as string) ?? "",
     });
     setVideoModal({ open: true, editing: editing ?? null });
-  }
-
-  function openRefModal(editing?: Record<string, unknown>) {
-    setRefForm({
-      company: (editing?.company as string) ?? "",
-      role: (editing?.role as string) ?? "",
-      date_start: (editing?.date_start as string) ?? "",
-      date_end: (editing?.date_end as string) ?? "",
-      is_current: (editing?.is_current as boolean) ?? false,
-    });
-    setRefModal({ open: true, editing: editing ?? null });
   }
 
   function handleVideoSubmit() {
@@ -429,24 +373,6 @@ export default function ProfilePage() {
     fd.append("title", videoForm.title || videoForm.url);
     videoFetcher.submit(fd, { method: "post" });
     setVideoModal({ open: false, editing: null });
-  }
-
-  function handleRefSubmit() {
-    if (!refForm.company.trim() || !refForm.role.trim()) return;
-    const fd = new FormData();
-    if (refModal.editing) {
-      fd.append("intent", "update_reference");
-      fd.append("id", refModal.editing.id as string);
-    } else {
-      fd.append("intent", "add_reference");
-    }
-    fd.append("company", refForm.company);
-    fd.append("role", refForm.role);
-    fd.append("date_start", refForm.date_start);
-    fd.append("date_end", refForm.date_end);
-    fd.append("is_current", String(refForm.is_current));
-    refFetcher.submit(fd, { method: "post" });
-    setRefModal({ open: false, editing: null });
   }
 
   const profileId = profile.id as string;
@@ -781,44 +707,6 @@ export default function ProfilePage() {
         </button>
       </div>
 
-      {/* Section 6: References */}
-      <div style={card}>
-        <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>References</h2>
-        {references.length === 0 ? (
-          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16 }}>No references added yet.</p>
-        ) : (
-          <div style={{ marginBottom: 16 }}>
-            {references.map((ref) => (
-              <div key={ref.id as string} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }}>{ref.company as string}</div>
-                  <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
-                    {ref.role as string} · {ref.date_start as string}{" "}
-                    → {ref.is_current ? "Present" : (ref.date_end as string) ?? ""}
-                  </div>
-                </div>
-                <MenuDots
-                  onEdit={() => openRefModal(ref)}
-                  onDelete={() => {
-                    const fd = new FormData();
-                    fd.append("intent", "delete_reference");
-                    fd.append("id", ref.id as string);
-                    refFetcher.submit(fd, { method: "post" });
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-        <button
-          onClick={() => openRefModal()}
-          style={{ background: "none", border: `1px solid rgba(245,166,35,0.4)`, color: ACCENT, borderRadius: 10, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FONT_BODY }}
-        >
-          + Add Reference
-        </button>
-      </div>
-
-
       {/* Video Modal */}
       <Modal
         isOpen={videoModal.open}
@@ -851,73 +739,6 @@ export default function ProfilePage() {
             style={{ ...saveBtn, marginTop: 0, alignSelf: "flex-start" }}
           >
             {videoFetcher.state !== "idle" ? "Saving…" : videoModal.editing ? "Save Changes" : "Add Video"}
-          </button>
-        </div>
-      </Modal>
-
-      {/* Reference Modal */}
-      <Modal
-        isOpen={refModal.open}
-        onClose={() => setRefModal({ open: false, editing: null })}
-        title={refModal.editing ? "Edit Reference" : "Add Reference"}
-      >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Company</label>
-              <input
-                style={inputStyle}
-                value={refForm.company}
-                onChange={(e) => setRefForm((f) => ({ ...f, company: e.target.value }))}
-                placeholder="Company name"
-                autoFocus
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Role</label>
-              <input
-                style={inputStyle}
-                value={refForm.role}
-                onChange={(e) => setRefForm((f) => ({ ...f, role: e.target.value }))}
-                placeholder="Your role"
-              />
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              <label style={labelStyle}>Start Date</label>
-              <input
-                type="date"
-                style={inputStyle}
-                value={refForm.date_start}
-                onChange={(e) => setRefForm((f) => ({ ...f, date_start: e.target.value }))}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>End Date</label>
-              <input
-                type="date"
-                style={inputStyle}
-                value={refForm.date_end}
-                onChange={(e) => setRefForm((f) => ({ ...f, date_end: e.target.value }))}
-                disabled={refForm.is_current}
-              />
-            </div>
-          </div>
-          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--text)", cursor: "pointer", fontFamily: FONT_BODY }}>
-            <input
-              type="checkbox"
-              checked={refForm.is_current}
-              onChange={(e) => setRefForm((f) => ({ ...f, is_current: e.target.checked }))}
-            />
-            Currently working here
-          </label>
-          <button
-            onClick={handleRefSubmit}
-            disabled={refFetcher.state !== "idle"}
-            style={{ ...saveBtn, marginTop: 4, alignSelf: "flex-start" }}
-          >
-            {refFetcher.state !== "idle" ? "Saving…" : refModal.editing ? "Save Changes" : "Add Reference"}
           </button>
         </div>
       </Modal>
