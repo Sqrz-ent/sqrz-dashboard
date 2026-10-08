@@ -41,6 +41,10 @@ export default [
 
   // Campaign AI advisor (forwards to the campaign-advisor edge function)
   route("api/campaign-advisor", "routes/api.campaign-advisor.tsx"),
+  // Profile-level AI advisor — sibling of the above, forwards to the
+  // profile-advisor edge function (whole-profile recommendations, not a
+  // single campaign).
+  route("api/profile-advisor", "routes/api.profile-advisor.tsx"),
 
   // Stripe API routes (server-only, action handlers)
   route("api/stripe/webhook", "routes/api.stripe.webhook.tsx"),
