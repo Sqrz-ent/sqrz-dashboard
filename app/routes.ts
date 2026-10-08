@@ -46,6 +46,10 @@ export default [
   // single campaign).
   route("api/profile-advisor", "routes/api.profile-advisor.tsx"),
 
+  // In-app account deletion — iOS-only, forwards to the delete-account edge
+  // function (Apple token revocation + anonymize-in-place + external cleanup).
+  route("api/delete-account", "routes/api.delete-account.tsx"),
+
   // Stripe API routes (server-only, action handlers)
   route("api/stripe/webhook", "routes/api.stripe.webhook.tsx"),
 
