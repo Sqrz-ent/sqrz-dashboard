@@ -8,17 +8,17 @@ import { getCurrentProfile } from "~/lib/profile.server";
 
 // Thin authenticated forwarder to the `profile-advisor` edge function — the
 // profile-level sibling of api.campaign-advisor.tsx (same shape, deliberately
-// mirrored). The ANTHROPIC_API_KEY and REVENUECAT_SECRET_API_KEY live only in
-// the edge function; this route's job is auth + the iOS-app gate, nothing else.
-// No campaign_id / ownership check needed here — there's no second party's row
-// to own, just the caller's own profile, which the edge function resolves
-// itself from the Bearer token.
+// mirrored). ANTHROPIC_API_KEY lives only in the edge function; this route's
+// job is auth + the iOS-app gate, nothing else. No campaign_id / ownership
+// check needed here — there's no second party's row to own, just the
+// caller's own profile, resolved below via getCurrentProfile.
 //
 // Dual auth: the browser flow authenticates via cookies; native callers
-// (sqrz-ios) send a Bearer access token. The entitlement/rate-limit decision
-// (grow_access via RevenueCat, free-tier weekly cap) lives in the edge
-// function itself, not here — this route only decides whether the feature
-// exists for this caller at all (the iOS-app gate below).
+// (sqrz-ios) send a Bearer access token. The rate-limit decision (one free
+// run/week until the profile has an activated campaign, unlimited after —
+// no RevenueCat/grow_access check at all, same rule for everyone) lives in
+// the edge function itself, not here — this route only decides whether the
+// feature exists for this caller at all (the iOS-app gate below).
 export async function action({ request }: Route.ActionArgs) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -66,10 +66,10 @@ export async function action({ request }: Route.ActionArgs) {
   // constraint as campaign-advisor's deployed, non-hardened variant). This
   // forwarder is the security boundary: profile ownership was already
   // resolved above via getCurrentProfile(supabase, user.id), so it's safe to
-  // pass both ids through directly.
+  // pass profile_id through directly.
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.functions.invoke("profile-advisor", {
-    body: { profile_id: profile.id, auth_user_id: user.id },
+    body: { profile_id: profile.id },
   });
 
   if (error || !data) {

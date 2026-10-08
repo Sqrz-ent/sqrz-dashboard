@@ -5,10 +5,10 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // ─────────────────────────────────────────────────────────────────────────────
 // profile-advisor
 //
-// Input:  { profile_id: uuid, auth_user_id: uuid } — both resolved and
-//         owns-checked by the forwarder BEFORE invoking this function (see
-//         the Identity note in the handler below for why this function
-//         cannot verify a Bearer token itself).
+// Input:  { profile_id: uuid } — resolved and owns-checked by the forwarder
+//         BEFORE invoking this function (see the Identity note in the
+//         handler below for why this function cannot verify a Bearer token
+//         itself).
 // Output: { health, summary, insights[] (tagged working/watch/action), actions[] }
 //         — SAME shape as campaign-advisor's AdvisorResult, deliberately, so
 //         the Dashboard welcome card can reuse its existing rendering.
@@ -22,22 +22,17 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // per-campaign judgment here. Works identically for a profile with zero
 // campaigns or near-zero traffic — that is the normal case, not an edge case.
 //
-// Rate limit: free users (no grow_access/multichannel_access RevenueCat
-// entitlement) get ONE run per calendar week, reset every Monday 00:00 UTC.
-// Premium users are unlimited. Checked against profile_advisor_runs itself —
-// no separate "last run" column anywhere. Entitlement is checked via
-// RevenueCat's REST API (GET /v1/subscribers/{id}), the same secret
-// (REVENUECAT_SECRET_API_KEY) and the same appUserID convention
-// (auth.uid(), lowercased — see EntitlementManager.logIn on iOS) the existing
-// redeem-invite-code function already uses for the reverse (grant) direction.
+// Rate limit: SAME rule for everyone — no RevenueCat/grow_access check at
+// all, paid and invite-code users are treated identically. A profile with no
+// ACTIVATED campaign (status 'live' or 'completed' — i.e. launched at least
+// once; see the handler below for the exact query) gets ONE run per calendar
+// week, reset every Monday 00:00 UTC. Once a profile has had at least one
+// activated campaign, runs are unlimited. Checked against profile_advisor_runs
+// itself — no separate "last run" column anywhere.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const REVENUECAT_SECRET_API_KEY = Deno.env.get("REVENUECAT_SECRET_API_KEY")!;
-
-const GROW_ENTITLEMENT_ID = "grow_access";
-const MULTICHANNEL_ENTITLEMENT_ID = "multichannel_access";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -303,38 +298,16 @@ async function getAdvisorRecommendation(payload: ProfileAdvisorPayload): Promise
   return impl(payload);
 }
 
-// ─── Entitlement check (RevenueCat REST, server-side) ────────────────────────
-// Same secret + appUserID convention as redeem-invite-code's grant call, used
-// here in the read direction instead. appUserID = auth.uid() lowercased — see
-// EntitlementManager.logIn on iOS, which is what sets this identity in the
-// first place. Fails CLOSED (treated as not-premium) on any lookup error —
-// this gates a paid LLM call, so an outage must never silently become
-// unlimited free usage.
-async function hasGrowAccess(authUserId: string): Promise<boolean> {
-  const rcAppUserId = authUserId.toLowerCase();
-  try {
-    const res = await fetch(
-      `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(rcAppUserId)}`,
-      { headers: { Authorization: `Bearer ${REVENUECAT_SECRET_API_KEY}` } },
-    );
-    if (!res.ok) {
-      // 404 = RevenueCat has never seen this app user id (no IAP activity yet)
-      // — not an error, just "not premium".
-      if (res.status !== 404) {
-        console.error("[profile-advisor] RevenueCat lookup failed:", res.status, await res.text());
-      }
-      return false;
-    }
-    const data = await res.json();
-    const entitlements = data?.subscriber?.entitlements ?? {};
-    const isActive = (ent: { expires_date?: string | null } | undefined) =>
-      !!ent && (ent.expires_date == null || new Date(ent.expires_date).getTime() > Date.now());
-    return isActive(entitlements[GROW_ENTITLEMENT_ID]) || isActive(entitlements[MULTICHANNEL_ENTITLEMENT_ID]);
-  } catch (err) {
-    console.error("[profile-advisor] RevenueCat lookup error:", err);
-    return false;
-  }
-}
+// Statuses that mean a boost_campaigns row has been LAUNCHED at least once.
+// Confirmed against the live boost_campaigns_status_check CHECK constraint
+// (full enum for campaign_type='boost': pending, booked, in_review,
+// needs_changes, approved, live, completed, rejected) — 'live' and
+// 'completed' are the only two that mean the campaign actually ran;
+// everything else (including 'rejected') never launched. 'grow'-type
+// campaigns aren't constrained by that CHECK, but 'live'/'completed' are the
+// same pipeline-stage names used throughout this codebase for "launched", so
+// the same two values are used here regardless of campaign_type.
+const ACTIVATED_CAMPAIGN_STATUSES = ["live", "completed"];
 
 // Most recent Monday 00:00:00.000 UTC on or before `now` — the free-tier
 // weekly reset boundary. UTC, not the caller's local time zone: every
@@ -371,18 +344,16 @@ Deno.serve(async (req: Request) => {
   // NOT deployed: "would break the service-role web forwarder"). The forwarder
   // is therefore the security boundary — it already resolved and owns-checked
   // profile_id against the caller's real session before invoking this
-  // function, and passes both identifiers through in the body.
+  // function, and passes it through in the body.
   let profileId: string;
-  let authUserId: string;
   try {
     const body = await req.json();
     profileId = String(body?.profile_id ?? "");
-    authUserId = String(body?.auth_user_id ?? "");
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
-  if (!profileId || !authUserId) {
-    return json({ error: "profile_id and auth_user_id required" }, 400);
+  if (!profileId) {
+    return json({ error: "profile_id required" }, 400);
   }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -399,9 +370,25 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Profile not found" }, 404);
   }
 
-  // ── Entitlement + weekly rate limit (free tier only) ───────────────────
-  const premium = await hasGrowAccess(authUserId);
-  if (!premium) {
+  // ── Gather campaigns first — needed both for the activation-based rate
+  // limit below AND the payload itself, so fetch once. Empty array is a
+  // normal result, not an error, for a profile with none yet.
+  const { data: campaignRows } = await admin
+    .from("boost_campaigns")
+    .select(
+      "id, goal, status, starts_at, ends_at, budget_amount, budget_currency, stat_spend, stat_impressions, stat_link_clicks, stat_profile_visits",
+    )
+    .eq("profile_id", profileId)
+    .order("starts_at", { ascending: false, nullsFirst: false });
+
+  const hasActivatedCampaign = (campaignRows ?? []).some((c) =>
+    ACTIVATED_CAMPAIGN_STATUSES.includes(String(c.status ?? "")),
+  );
+
+  // ── Weekly rate limit — ONLY for profiles with no activated campaign yet.
+  // Once a profile has launched at least one campaign (status live or
+  // completed), runs are unlimited, regardless of entitlement.
+  if (!hasActivatedCampaign) {
     const weekStart = startOfCurrentWeekUTC(new Date());
     const { count: runsThisWeek } = await admin
       .from("profile_advisor_runs")
@@ -412,14 +399,14 @@ Deno.serve(async (req: Request) => {
       return json({
         limited: true,
         health: null,
-        summary: "You've used this week's free recommendation. Upgrade to Premium for unlimited recommendations.",
+        summary: "You've used this week's free recommendation. It resets Monday — or run a campaign to unlock unlimited recommendations.",
         insights: [],
         actions: [],
       });
     }
   }
 
-  // ── Gather data ──────────────────────────────────────────────────────────
+  // ── Gather remaining data ───────────────────────────────────────────────
   const artistName =
     (callerProfile.brand_name as string | null) ||
     (callerProfile.name as string | null) ||
@@ -461,19 +448,9 @@ Deno.serve(async (req: Request) => {
     .eq("is_active", true);
   const servicesActive = (activeServiceCount ?? 0) > 0;
 
-  // 3. Every campaign this profile has run — empty array is a normal result,
-  //    not an error, for a profile with none yet.
-  const { data: campaignRows } = await admin
-    .from("boost_campaigns")
-    .select(
-      "id, goal, status, starts_at, ends_at, budget_amount, budget_currency, stat_spend, stat_impressions, stat_link_clicks, stat_profile_visits",
-    )
-    .eq("profile_id", profileId)
-    .order("starts_at", { ascending: false, nullsFirst: false });
-
   const campaignIds = (campaignRows ?? []).map((c) => c.id as string);
 
-  // 4. Each campaign's own LATEST stored advisor result, if any — reused
+  // 3. Each campaign's own LATEST stored advisor result, if any — reused
   //    as-is, never recomputed. One query, then keep only the first (most
   //    recent, since ordered desc) row per campaign id.
   const latestByCampaign = new Map<string, CampaignAdvisorSnapshot>();
