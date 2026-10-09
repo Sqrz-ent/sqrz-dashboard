@@ -294,10 +294,6 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Invalid JSON body" }, 400);
   }
 
-  // TEMP DEBUG LOGGING — remove after the delete-account investigation.
-  // Never logs apple_authorization_code.
-  console.log(`[delete-account] request received — profile_id=${profileId} auth_user_id=${authUserId}`);
-
   if (!profileId || !authUserId || !appleAuthorizationCode) {
     return json({ error: "profile_id, auth_user_id, and apple_authorization_code required" }, 400);
   }
@@ -306,10 +302,9 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // TEMP DEBUG LOGGING — first action taken with the admin client, so we can
-  // tell from account_deletion_log alone whether the function was ever
-  // invoked, independent of every later step (money check, Apple verify,
-  // etc.) that might return early. Remove after the investigation.
+  // First action taken with the admin client — an audit row proving the
+  // function was actually invoked, independent of whichever step it exits
+  // at below (money check, Apple verify, etc.).
   await logStep(admin, profileId, "request_received", "ok");
 
   // ── Step 0: capture every external identifier BEFORE mutating anything ──

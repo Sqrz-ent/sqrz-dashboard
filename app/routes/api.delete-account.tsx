@@ -17,11 +17,6 @@ import { getCurrentProfile } from "~/lib/profile.server";
 // profile-advisor's deployed, non-hardened variant) and trusts whatever this
 // forwarder passes.
 export async function action({ request }: Route.ActionArgs) {
-  // TEMP DEBUG LOGGING — remove after the delete-account investigation.
-  console.log(
-    `[delete-account] action start — method=${request.method} hasAuthHeader=${request.headers.has("Authorization")}`,
-  );
-
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
   if (!bearerToken) {
@@ -55,9 +50,6 @@ export async function action({ request }: Route.ActionArgs) {
 
   const admin = createSupabaseAdminClient();
 
-  // TEMP DEBUG LOGGING
-  console.log(`[delete-account] invoking edge function for profile_id=${profile.id} auth_user_id=${user.id}`);
-
   const { data, error } = await admin.functions.invoke("delete-account", {
     body: {
       profile_id: profile.id,
@@ -65,11 +57,6 @@ export async function action({ request }: Route.ActionArgs) {
       apple_authorization_code: appleAuthorizationCode,
     },
   });
-
-  // TEMP DEBUG LOGGING
-  console.log(
-    `[delete-account] edge function returned — error=${error ? JSON.stringify(error) : "null"} data=${JSON.stringify(data)}`,
-  );
 
   if (error || !data) {
     return Response.json({ error: "Account deletion failed" }, { status: 502 });
