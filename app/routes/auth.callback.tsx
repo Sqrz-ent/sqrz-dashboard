@@ -54,19 +54,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   // PKCE flow (standard magic link, OAuth)
   if (code) {
-    const { data: sessionData } = await supabase.auth.exchangeCodeForSession(code);
-
-    // Referral code from the join form, if present — profiles.referral_codes
-    // was dropped 2026-08-09 (see root CLAUDE.md's Known Open Issues), so a
-    // pending ref can never be validated or written anymore. join.tsx never
-    // sets this cookie now either; only clearing a stale one a browser might
-    // still be carrying from before that drop.
-    const cookieHeader = request.headers.get("Cookie") ?? "";
-    const pendingRef    = cookieHeader.match(/sqrz_pending_ref=([^;]+)/)?.[1];
-
-    if (sessionData?.user && pendingRef) {
-      headers.append("Set-Cookie", "sqrz_pending_ref=; Path=/; Max-Age=0");
-    }
+    await supabase.auth.exchangeCodeForSession(code);
   }
 
   // Token hash flow (admin-generated links)

@@ -386,19 +386,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
-  // Referral codes: profiles.referral_codes was dropped 2026-08-09 (see root
-  // CLAUDE.md's Known Open Issues) — a ?ref= param can never validate now.
-  // refValid/refCode stay in the loader's shape (always false/"") rather than
-  // querying a table that no longer exists on every /join request.
-  const refParam = url.searchParams.get("ref") ?? "";
-  const refValid = false;
-
   return data(
     {
       initialSlug: url.searchParams.get("slug") ?? "",
       templates: (templates ?? []) as Template[],
-      refCode: refValid ? refParam : "",
-      refValid,
     },
     { headers }
   );
@@ -407,7 +398,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Join() {
-  const { initialSlug, refCode, refValid } = useLoaderData<typeof loader>();
+  const { initialSlug } = useLoaderData<typeof loader>();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>("username");
@@ -535,13 +526,6 @@ export default function Join() {
       }}
     >
       <div style={{ width: "100%", maxWidth: 420 }}>
-
-        {/* Referral notice */}
-        {refValid && refCode && (
-          <p style={{ color: "rgba(255,255,255,0.4)", fontSize: 13, textAlign: "center", marginBottom: 16, marginTop: 0 }}>
-            You were invited by a SQRZ partner.
-          </p>
-        )}
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
