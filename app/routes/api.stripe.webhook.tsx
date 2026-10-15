@@ -8,16 +8,6 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 // gated behind this flag — off by default so PII/credentials never hit prod logs.
 const WEBHOOK_DEBUG = process.env.WEBHOOK_DEBUG === "true";
 
-// Escape user-supplied / external values before interpolating them into email HTML.
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 export async function action({ request }: ActionFunctionArgs) {
   const signature = request.headers.get("stripe-signature");
 
@@ -88,109 +78,6 @@ export async function action({ request }: ActionFunctionArgs) {
     if (WEBHOOK_DEBUG) {
       console.log("[webhook] full metadata:", JSON.stringify(session.metadata));
       console.log("[webhook] campaign_id:", session.metadata?.campaign_id, "| client_reference_id:", session.client_reference_id, "| amount_total:", session.amount_total);
-    }
-
-    // ── Campaign setup fee ($25) / reactivation fee ($10) ────────────────────
-    // Allocation-fee model (2026-08-01): a campaign_id session no longer bundles
-    // any ad budget. Two flat, budget-free charges land here, told apart by
-    // metadata.type. Neither credits the wallet or allocates — funding happens
-    // separately via wallet → allocation (where the commission now lives).
-    if (session.metadata?.campaign_id) {
-      const campaignId = session.metadata.campaign_id;
-      const campaignType = session.metadata.type; // 'campaign_setup' | 'reactivation'
-      const paymentIntent = session.payment_intent as string | null;
-      const customerEmail = session.customer_details?.email ?? session.customer_email ?? null;
-
-      console.log("[webhook] campaign charge received — id:", campaignId, "type:", campaignType);
-
-      if (campaignType === "reactivation") {
-        // Unified reactivation ($10): works regardless of WHY the campaign was
-        // inactive (completed-and-archived, or exhausted budget).
-        //   1. Reset boost_campaigns.status → 'pending' (moves it out of the
-        //      Archived lane; pending lands it in No Action Needed on iOS).
-        //      Also record the payment on the row, same as the setup branch.
-        //   2. If the campaign's budget was 'exhausted', flip it back to 'active'
-        //      so pill allocation is allowed against it again — guarded on
-        //      status='exhausted' so it's a no-op when it doesn't apply.
-        // Both writes are idempotent, so a duplicate webhook delivery is safe.
-        const { error: campaignError } = await supabase
-          .from("boost_campaigns")
-          .update({
-            status: "pending",
-            status_updated_at: new Date().toISOString(),
-            stripe_payment_id: paymentIntent,
-            stripe_payment_status: "paid",
-            stripe_mode: stripeMode,
-          })
-          .eq("id", campaignId);
-        if (campaignError) console.error("[webhook] reactivation status reset failed:", campaignError);
-        else console.log("[webhook] campaign reactivated → pending:", campaignId);
-
-        const { error: reErr } = await supabase
-          .from("campaign_budgets")
-          .update({ status: "active", updated_at: new Date().toISOString() })
-          .eq("campaign_id", campaignId)
-          .eq("status", "exhausted");
-        if (reErr) console.error("[webhook] budget exhausted→active flip failed:", reErr);
-      } else {
-        // Setup fee → mark the campaign booked (artist adds content next) and
-        // create its zero-budget, active campaign_budgets row so allocation has a
-        // target. ignoreDuplicates makes the budget insert idempotent.
-        //
-        // DEPRECATED PATH (2026-08-08): the $25 setup fee and its
-        // api/campaigns/checkout.tsx route were removed — campaign creation
-        // now sets status: "booked" directly, client-side, with no payment
-        // involved (see sqrz-ios's BoostView.swift). This branch can no
-        // longer be reached by anything the app initiates going forward, but
-        // is deliberately left in place rather than deleted: it's what
-        // finalizes any checkout session that was already open in a user's
-        // Safari tab at deploy time (a real, if narrow, race), and Stripe
-        // could in principle still redeliver a historical event for one.
-        // Harmless to leave — it only ever fires on a genuine
-        // checkout.session.completed with metadata.type === "campaign_setup",
-        // which nothing can produce anymore.
-        const { error: campaignError } = await supabase
-          .from("boost_campaigns")
-          .update({
-            status: "booked",
-            status_updated_at: new Date().toISOString(),
-            stripe_payment_id: paymentIntent,
-            stripe_payment_status: "paid",
-            stripe_mode: stripeMode,
-          })
-          .eq("id", campaignId);
-        if (campaignError) console.error("[webhook] campaign update failed:", campaignError);
-        else console.log("[webhook] campaign set to booked:", campaignId);
-
-        const { error: budgetError } = await supabase
-          .from("campaign_budgets")
-          .upsert({ campaign_id: campaignId }, { onConflict: "campaign_id", ignoreDuplicates: true });
-        if (budgetError) console.error("[webhook] campaign_budgets create failed:", budgetError);
-      }
-
-      // Notify will@sqrz.com
-      try {
-        const { Resend } = await import("resend");
-        const resend = new Resend(process.env.RESEND_API_KEY);
-        const label = campaignType === "reactivation" ? "reactivation" : "setup";
-        await resend.emails.send({
-          from: "SQRZ <noreply@sqrz.com>",
-          to: "will@sqrz.com",
-          subject: `SQRZ campaign ${label} fee — $${session.metadata.fee}`,
-          html: `
-            <p>A SQRZ Boost campaign ${escapeHtml(label)} fee has been paid.</p>
-            <p><strong>Fee:</strong> $${escapeHtml(session.metadata.fee)}</p>
-            <p><strong>Customer:</strong> ${escapeHtml(customerEmail)}</p>
-            <p><strong>Campaign ID:</strong> ${campaignId}</p>
-            <p><strong>Date:</strong> ${new Date().toLocaleDateString()}</p>
-          `,
-        });
-        console.log("[webhook] campaign notification email sent");
-      } catch (emailErr) {
-        console.error("[webhook] campaign notification email failed:", emailErr);
-      }
-
-      return Response.json({ received: true });
     }
 
     // ── Standalone ad-spend wallet top-up ────────────────────────────────────
