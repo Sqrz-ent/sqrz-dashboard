@@ -307,6 +307,30 @@ Deno.serve(async (req: Request) => {
   // at below (money check, Apple verify, etc.).
   await logStep(admin, profileId, "request_received", "ok");
 
+  // ── Multi-profile guard (2026-10-18) ────────────────────────────────────
+  // This whole flow (money check, external cleanup, profile scrub, THEN
+  // delete the login) is written for exactly one profile per login. An
+  // account that owns more than one profile needs a real decision about
+  // what happens to the others — not silently deleted alongside the login,
+  // not silently orphaned. Abort before touching anything else; nothing
+  // below this point has run yet.
+  const { count: profileCount, error: profileCountErr } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", authUserId);
+  if (profileCountErr) {
+    await logStep(admin, profileId, "multi_profile_check", "failed", profileCountErr.message);
+    return json({ error: "multi_profile_check_failed" });
+  }
+  if ((profileCount ?? 0) > 1) {
+    await logStep(admin, profileId, "multi_profile_check", "failed", `owns ${profileCount} profiles`);
+    return json({
+      error: "multiple_profiles",
+      message: "Your account owns multiple profiles. Please contact support to delete your account.",
+    });
+  }
+  await logStep(admin, profileId, "multi_profile_check", "ok");
+
   // ── Step 0: capture every external identifier BEFORE mutating anything ──
   const { data: callerProfile } = await admin
     .from("profiles")
