@@ -351,19 +351,50 @@ Deno.serve(async (req: Request) => {
     .filter((id): id is string => !!id);
 
   // ── Step 1: money check — refuse and mutate nothing if any balance remains ──
-  const { data: walletRow } = await admin
-    .from("ad_spend_wallets")
-    .select("balance_cents")
-    .eq("profile_id", profileId)
+  // Account-wide (2026-10-18): the ad-spend wallet now lives on
+  // account_wallets, shared by every profile the login owns, and campaign
+  // budgets are funded from it regardless of which profile a given
+  // campaign belongs to — so this has to sum across every profile/campaign
+  // under the account, not just callerProfile. In practice the multi-
+  // profile guard above means there's only ever one profile reachable here
+  // today; written account-wide anyway so it stays correct the moment that
+  // guard is ever relaxed, rather than silently under-counting.
+  const { data: accountRow } = await admin
+    .from("profiles")
+    .select("account_id")
+    .eq("id", profileId)
     .maybeSingle();
-  const walletBalanceCents = Number(walletRow?.balance_cents ?? 0);
+  const accountId = accountRow?.account_id as string | undefined;
+
+  let walletBalanceCents = 0;
+  let accountCampaignIds: string[] = allCampaignIds;
+  if (accountId) {
+    const { data: walletRow } = await admin
+      .from("account_wallets")
+      .select("balance_cents")
+      .eq("account_id", accountId)
+      .maybeSingle();
+    walletBalanceCents = Number(walletRow?.balance_cents ?? 0);
+
+    const { data: accountProfileRows } = await admin
+      .from("profiles")
+      .select("id")
+      .eq("account_id", accountId);
+    const accountProfileIds = (accountProfileRows ?? []).map((p) => p.id as string);
+
+    const { data: accountCampaignRows } = await admin
+      .from("boost_campaigns")
+      .select("id")
+      .in("profile_id", accountProfileIds);
+    accountCampaignIds = (accountCampaignRows ?? []).map((c) => c.id as string);
+  }
 
   let unspentAllocatedCents = 0;
-  if (allCampaignIds.length) {
+  if (accountCampaignIds.length) {
     const { data: budgetRows } = await admin
       .from("campaign_budgets")
       .select("allocated_cents, spent_cents")
-      .in("campaign_id", allCampaignIds);
+      .in("campaign_id", accountCampaignIds);
     unspentAllocatedCents = (budgetRows ?? []).reduce(
       (sum, r) => sum + (Number(r.allocated_cents ?? 0) - Number(r.spent_cents ?? 0)),
       0,

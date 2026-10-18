@@ -78,3 +78,40 @@ export async function getOrCreateStripeCustomer(
 
   return customer.id;
 }
+
+/**
+ * Returns the Stripe customer ID for an ACCOUNT (one per auth login, shared
+ * by every profile that login owns — see the 20261018_account_level_wallet
+ * migration). Used by the wallet top-up flow: the ad-spend wallet lives on
+ * account_wallets now, so the Stripe customer backing its Checkout sessions
+ * belongs to the account, not whichever profile happened to initiate the
+ * top-up.
+ *
+ * `supabase` must be an ADMIN (service-role) client — accounts has no
+ * client-write RLS policy by design (see the migration), so a cookie/Bearer
+ * -scoped client's UPDATE here would silently affect zero rows.
+ */
+export async function getOrCreateAccountStripeCustomer(
+  supabase: SupabaseClient,
+  account: { id: string; stripe_customer_id?: string | null },
+  opts: { email?: string; name?: string } = {},
+): Promise<string> {
+  if (account.stripe_customer_id) {
+    return account.stripe_customer_id;
+  }
+
+  const customer = await stripe.customers.create({
+    email: opts.email,
+    name: opts.name,
+    metadata: {
+      account_id: account.id,
+    },
+  });
+
+  await supabase
+    .from("accounts")
+    .update({ stripe_customer_id: customer.id })
+    .eq("id", account.id);
+
+  return customer.id;
+}

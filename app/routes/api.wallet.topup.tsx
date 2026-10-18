@@ -1,9 +1,9 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/api.wallet.topup";
-import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
+import { createSupabaseServerClient, createSupabaseBearerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
 import { createWalletTopupCheckoutSession } from "~/lib/walletPayments.server";
-import type { StripeMode } from "~/lib/stripe.server";
+import { getOrCreateAccountStripeCustomer, type StripeMode } from "~/lib/stripe.server";
 
 const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 
@@ -77,6 +77,25 @@ export async function action({ request }: Route.ActionArgs) {
   // opening sandbox checkout even after web was confirmed live (2026-08-04 fix).
   const stripeMode: StripeMode = profile.stripe_beta_test_mode ? "test" : "live";
 
+  // The wallet lives on account_wallets now (2026-10-18), shared by every
+  // profile this login owns — resolve THAT account's Stripe customer, not a
+  // per-profile one, so every top-up from any of the account's profiles
+  // lands on the same Stripe customer record. Admin client: accounts has no
+  // client-write RLS policy by design, and getOrCreateAccountStripeCustomer
+  // writes stripe_customer_id back on first use.
+  const admin = createSupabaseAdminClient();
+  const { data: account } = await admin
+    .from("accounts")
+    .select("id, stripe_customer_id")
+    .eq("id", profile.account_id as string)
+    .maybeSingle();
+  if (!account) {
+    return Response.json({ error: "Account not found" }, { status: 404, headers });
+  }
+  const customerId = await getOrCreateAccountStripeCustomer(admin, account, {
+    email: (profile.email as string) ?? undefined,
+  });
+
   // iOS: return straight into the app via the existing sqrz:// custom URL
   // scheme (already registered in Info.plist for Stripe Connect's
   // sqrz://stripe-return) instead of a web confirmation page — SafariSheet on
@@ -96,7 +115,7 @@ export async function action({ request }: Route.ActionArgs) {
     profileId: profile.id as string,
     source,
     stripeMode,
-    customerEmail: (profile.email as string) ?? undefined,
+    customerId,
     successUrl,
     cancelUrl,
   });

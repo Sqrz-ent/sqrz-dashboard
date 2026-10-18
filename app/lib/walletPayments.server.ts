@@ -18,7 +18,14 @@ export type WalletTopupCheckoutParams = {
   // profiles.stripe_beta_test_mode flag, same for web and native (default
   // false = live). See api/wallet/topup.tsx.
   stripeMode: StripeMode;
-  customerEmail?: string;
+  // The ACCOUNT's Stripe customer id (2026-10-18 — the wallet lives on
+  // account_wallets now, shared by every profile the login owns; see
+  // getOrCreateAccountStripeCustomer in stripe.server.ts). Required, not a
+  // plain email: `customer` and `customer_email` are mutually exclusive on
+  // a Checkout Session, and resolving a real customer id is what lets every
+  // top-up from any of the account's profiles land on the same Stripe
+  // customer record.
+  customerId: string;
   successUrl: string;
   cancelUrl: string;
 };
@@ -75,8 +82,12 @@ export async function createWalletTopupCheckoutSession(
     ],
     success_url: params.successUrl,
     cancel_url: params.cancelUrl,
+    // Still the PROFILE, not the account — unused by api.stripe.webhook.tsx
+    // today (it reads session.metadata.profile_id instead) but left as the
+    // same attribution unit as before this migration, since nothing asked
+    // for it to change.
     client_reference_id: params.profileId,
-    customer_email: params.customerEmail,
+    customer: params.customerId,
     // `type` is how api/stripe/webhook.tsx routes this to the wallet-topup
     // branch (vs the campaign branch, which keys on `campaign_id`). `amount_cents`
     // is the BASE top-up (what the wallet is credited) — deliberately NOT the
