@@ -85,24 +85,12 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, code: "code_exhausted", message: "That code has already been used up." }, 410);
   }
 
-  // ── 2. Idempotent retry — already redeemed by this rc_app_user_id? Return
-  // success without re-granting or re-counting. ──
-  const { data: existingRedemption, error: existingError } = await admin
-    .from("invite_code_redemptions")
-    .select("id")
-    .eq("code", code)
-    .eq("rc_app_user_id", rcAppUserId)
-    .maybeSingle();
-
-  if (existingError) {
-    console.error("invite_code_redemptions lookup error:", existingError);
-    return json({ ok: false, code: "grant_failed", message: "Something went wrong — try again." }, 500);
-  }
-  if (existingRedemption) {
-    return json({ ok: true, already_redeemed: true });
-  }
-
-  // ── 3. Grant the entitlement via RevenueCat's promotional-entitlement API ──
+  // ── 2. Grant the entitlement via RevenueCat's promotional-entitlement API ──
+  // No "already redeemed by this rc_app_user_id" check anymore (removed
+  // 2026-10-21) — the same person can redeem the same code again (e.g. after
+  // deleting their account or losing access some other way). Every call that
+  // makes it past the checks above grants grow_access again and records a
+  // new redemption row, exactly like a first redemption.
   const rcRes = await fetch(
     `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(rcAppUserId)}/entitlements/${ENTITLEMENT_ID}/promotional`,
     {
@@ -123,9 +111,9 @@ Deno.serve(async (req: Request) => {
     return json({ ok: false, code: "grant_failed", message: "Something went wrong — try again." }, 502);
   }
 
-  // ── 4. Record the redemption + bump redemption_count atomically (see the
-  // record_invite_code_redemption migration — handles the concurrent-retry
-  // race for a shared/unlimited code). ──
+  // ── 3. Record the redemption + bump redemption_count (see the
+  // record_invite_code_redemption migration — a plain insert now, no longer
+  // an ON CONFLICT upsert, since (code, rc_app_user_id) is no longer unique). ──
   const { error: recordError } = await admin.rpc("record_invite_code_redemption", {
     p_code: code,
     p_rc_app_user_id: rcAppUserId,
