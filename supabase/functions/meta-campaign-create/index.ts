@@ -501,6 +501,12 @@ Deno.serve(async (req) => {
       regional_regulated_categories: ["TAIWAN_UNIVERSAL", "SINGAPORE_UNIVERSAL"],
       targeting: {
         geo_locations: { location_types: ["home", "recent"], country_groups: ["worldwide"] },
+        // Excludes Taiwan from the otherwise-worldwide targeting so Meta
+        // doesn't require a Taiwan universal ads declaration for this ad set
+        // (code 100, subcode 3858498) — regional_regulated_categories above
+        // was expected to clear this but didn't in a live retest; excluding
+        // the country outright does.
+        excluded_geo_locations: { countries: ["TW"] },
         targeting_automation: { advantage_audience: 1 },
       },
     });
