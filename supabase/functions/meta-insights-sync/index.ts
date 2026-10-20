@@ -30,11 +30,26 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // whose numbers are final. Not gated on status — a paused/completed campaign
 // still needs syncing until it falls out of that window.
 //
-// Auth: not user-triggered. Guards on a shared secret that lives only in Vault
-// (meta_sync_secret), read here via the get_meta_sync_secret() SECURITY DEFINER
-// RPC and sent by the pg_cron caller in the x-sync-secret header. Deployed
-// verify_jwt:false (custom auth), same shape as the other non-user-triggered
-// functions in this project.
+// Two entry points now share this one function (2026-10-20):
+//   1. The original scheduled sweep — unchanged. Guards on a shared secret
+//      that lives only in Vault (meta_sync_secret), read via the
+//      get_meta_sync_secret() SECURITY DEFINER RPC and sent by the pg_cron
+//      caller in the x-sync-secret header. No campaign_id in the body.
+//   2. A new user-triggered single-campaign refresh (the "Refresh" button on
+//      an iOS campaign card) — auth is the caller's own Supabase JWT
+//      (Authorization: Bearer), body is { campaign_id }. Ownership is
+//      checked via the real user_owns_profile() RLS helper, called through a
+//      short-lived client scoped to the caller's own JWT (so auth.uid()
+//      resolves) — not reimplemented by hand. Reuses fetchInsights(...) and
+//      writes the exact same stat_* columns via the shared writeStats(...)
+//      helper, both unchanged/not duplicated from the sweep below. Rate
+//      limited to one real Meta call per campaign per 60s — if
+//      stats_updated_at is younger than that, returns the stored values
+//      without calling Meta. Only attempts Meta at all when the campaign has
+//      a meta_campaign_id.
+// Deployed verify_jwt:false either way (custom auth for both paths — the
+// sweep via the shared secret, the single-campaign path via its own manual
+// JWT validation against GoTrue).
 //
 // Out of scope (per spec): currency reconciliation between budget_currency and
 // the ad account's currency (USD is primary now), campaign/ad creation,
@@ -43,6 +58,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 // Overridable without a code change. Bump GRAPH_VERSION when the pinned Graph
 // API version nears end-of-life; swap DATE_PRESET (e.g. to "maximum") if lifetime
@@ -52,6 +68,11 @@ const DATE_PRESET = Deno.env.get("META_DATE_PRESET") ?? "maximum";
 
 const LOOKBACK_DAYS = 28;
 const PACING_MS = 250; // gentle gap between Meta calls (respect the BUC point system)
+// User-triggered single-campaign refresh only — at most one real Meta call
+// per campaign per this many seconds; a tap inside the window just returns
+// the already-stored values. Separate from the sweep, which has no per-
+// campaign cooldown of its own (it only runs once a day).
+const USER_REFRESH_COOLDOWN_SECONDS = 60;
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
@@ -166,6 +187,29 @@ async function fetchInsights(
   };
 }
 
+// The one place that writes stat_* from a fetched Insights row — shared by
+// the sweep and the new user-triggered single-campaign path so the column
+// mapping only exists once.
+async function writeStats(
+  campaignId: string,
+  stats: Insights,
+): Promise<string> {
+  const stamp = new Date().toISOString();
+  await supabase
+    .from("boost_campaigns")
+    .update({
+      stat_impressions: stats.impressions,
+      stat_reach: stats.reach,
+      stat_link_clicks: stats.link_clicks,
+      stat_cost_per_click: stats.cpc,
+      stat_cpm: stats.cpm,
+      stat_spend: stats.spend,
+      stats_updated_at: stamp,
+    })
+    .eq("id", campaignId);
+  return stamp;
+}
+
 type AccountState = {
   acct: MetaAccount;
   logId: number | null;
@@ -174,7 +218,156 @@ type AccountState = {
   visible: number;
 };
 
+type CampaignStatRow = {
+  profile_id: string;
+  meta_campaign_id: string | null;
+  stat_impressions: number | null;
+  stat_reach: number | null;
+  stat_link_clicks: number | null;
+  stat_cost_per_click: number | null;
+  stat_cpm: number | null;
+  stat_spend: number | null;
+  stats_updated_at: string | null;
+};
+
+// User-triggered single-campaign refresh — the "Refresh" button on an iOS
+// campaign card. Auth: the caller's own Supabase JWT (Authorization: Bearer),
+// validated against GoTrue via supabase.auth.getUser(jwt) (works through the
+// service-role client — the token is passed explicitly, not read off the
+// client's own header). Ownership is then checked by calling the real
+// user_owns_profile() RLS helper through a client scoped to that SAME JWT
+// (so auth.uid() resolves inside the RPC) — the service-role client above
+// has no caller identity, so it can't be used for that check.
+async function handleUserTriggeredRefresh(
+  req: Request,
+  campaignId: string,
+): Promise<Response> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
+  if (!bearerToken) return json({ error: "unauthorized" }, 401);
+
+  const { data: userData, error: userErr } = await supabase.auth.getUser(
+    bearerToken,
+  );
+  if (userErr || !userData?.user) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  const { data: campaign, error: campErr } = await supabase
+    .from("boost_campaigns")
+    .select(
+      "profile_id, meta_campaign_id, stat_impressions, stat_reach, stat_link_clicks, stat_cost_per_click, stat_cpm, stat_spend, stats_updated_at",
+    )
+    .eq("id", campaignId)
+    .maybeSingle();
+  if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
+  if (!campaign) return json({ error: "campaign not found" }, 404);
+  const c = campaign as CampaignStatRow;
+
+  const userScoped = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${bearerToken}` } },
+  });
+  const { data: owns, error: ownsErr } = await userScoped.rpc(
+    "user_owns_profile",
+    { p_profile_id: c.profile_id },
+  );
+  if (ownsErr || owns !== true) {
+    return json({ error: "unauthorized" }, 403);
+  }
+
+  let statImpressions = c.stat_impressions;
+  let statReach = c.stat_reach;
+  let statLinkClicks = c.stat_link_clicks;
+  let statCostPerClick = c.stat_cost_per_click;
+  let statCpm = c.stat_cpm;
+  let statSpend = c.stat_spend;
+  let statsUpdatedAt = c.stats_updated_at;
+
+  let refreshed = false;
+  let skippedReason: "not_linked" | "cooldown" | "unresolved" | undefined;
+
+  if (!c.meta_campaign_id) {
+    skippedReason = "not_linked";
+  } else {
+    const secondsSinceUpdate = statsUpdatedAt
+      ? (Date.now() - new Date(statsUpdatedAt).getTime()) / 1000
+      : Infinity;
+    if (secondsSinceUpdate < USER_REFRESH_COOLDOWN_SECONDS) {
+      skippedReason = "cooldown";
+    } else {
+      const { data: accounts, error: acctErr } = await supabase
+        .from("meta_ad_accounts")
+        .select("ad_account_id, system_user_token")
+        .eq("is_active", true);
+      if (acctErr) {
+        return json({ error: `account query: ${acctErr.message}` }, 500);
+      }
+
+      let owned = false;
+      let stats: Insights | null = null;
+      for (
+        const acct of (accounts ?? []) as
+          { ad_account_id: string; system_user_token: string }[]
+      ) {
+        try {
+          stats = await fetchInsights(c.meta_campaign_id, acct.system_user_token);
+          owned = true;
+          break;
+        } catch (_e) {
+          // This token can't access the campaign — try the next account.
+        }
+      }
+
+      if (!owned) {
+        skippedReason = "unresolved";
+      } else {
+        refreshed = true;
+        if (stats) {
+          statImpressions = stats.impressions;
+          statReach = stats.reach;
+          statLinkClicks = stats.link_clicks;
+          statCostPerClick = stats.cpc;
+          statCpm = stats.cpm;
+          statSpend = stats.spend;
+          statsUpdatedAt = await writeStats(campaignId, stats);
+        }
+      }
+    }
+  }
+
+  return json({
+    ok: true,
+    campaign_id: campaignId,
+    refreshed,
+    ...(skippedReason ? { skipped_reason: skippedReason } : {}),
+    stat_impressions: statImpressions,
+    stat_reach: statReach,
+    stat_link_clicks: statLinkClicks,
+    stat_cost_per_click: statCostPerClick,
+    stat_cpm: statCpm,
+    stat_spend: statSpend,
+    stats_updated_at: statsUpdatedAt,
+  });
+}
+
 Deno.serve(async (req) => {
+  // Single-campaign, user-triggered path — dispatched first since it's the
+  // only shape with a campaign_id in the body. The sweep below never sends
+  // one (the cron job's body is always '{}'), so this is a clean split with
+  // zero ambiguity, and the sweep's own shared-secret auth path is otherwise
+  // completely untouched.
+  let body: { campaign_id?: string } = {};
+  try {
+    body = await req.json();
+  } catch {
+    body = {};
+  }
+  if (body.campaign_id) {
+    return await handleUserTriggeredRefresh(req, body.campaign_id);
+  }
+
   // ── Auth: shared secret from Vault ─────────────────────────────────────────
   const provided = req.headers.get("x-sync-secret") ?? "";
   const { data: expected, error: secretErr } = await supabase.rpc(
@@ -256,18 +449,7 @@ Deno.serve(async (req) => {
         );
         owned = true; // no throw = this token can access the campaign
         if (stats) {
-          await supabase
-            .from("boost_campaigns")
-            .update({
-              stat_impressions: stats.impressions,
-              stat_reach: stats.reach,
-              stat_link_clicks: stats.link_clicks,
-              stat_cost_per_click: stats.cpc,
-              stat_cpm: stats.cpm,
-              stat_spend: stats.spend,
-              stats_updated_at: new Date().toISOString(),
-            })
-            .eq("id", c.id);
+          await writeStats(c.id, stats);
           st.synced++;
         }
         await sleep(PACING_MS);
