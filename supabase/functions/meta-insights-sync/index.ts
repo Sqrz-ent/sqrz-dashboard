@@ -48,7 +48,7 @@ const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // API version nears end-of-life; swap DATE_PRESET (e.g. to "maximum") if lifetime
 // totals are ever wanted instead of a rolling window.
 const GRAPH_VERSION = Deno.env.get("META_GRAPH_VERSION") ?? "v21.0";
-const DATE_PRESET = Deno.env.get("META_DATE_PRESET") ?? "last_30d";
+const DATE_PRESET = Deno.env.get("META_DATE_PRESET") ?? "maximum";
 
 const LOOKBACK_DAYS = 28;
 const PACING_MS = 250; // gentle gap between Meta calls (respect the BUC point system)
