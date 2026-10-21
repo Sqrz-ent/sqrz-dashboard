@@ -32,6 +32,12 @@ export default [
   // Grow ad-spend wallet top-up (web + iOS, same Stripe flow)
   route("api/wallet/topup", "routes/api.wallet.topup.tsx"),
 
+  // Free-tier campaign-activation budget payment ("Card" option, 2026-10-21
+  // follow-up) — pays exactly one awaiting_budget campaign's ad budget via
+  // the same Stripe Checkout flow as the wallet top-up above, tagged with
+  // campaign_id so api/stripe/webhook.tsx also allocates + launches it.
+  route("api/campaigns/budget-checkout", "routes/api.campaigns.budget-checkout.tsx"),
+
   // Campaign AI advisor (forwards to the campaign-advisor edge function)
   route("api/campaign-advisor", "routes/api.campaign-advisor.tsx"),
   // Profile-level AI advisor — sibling of the above, forwards to the

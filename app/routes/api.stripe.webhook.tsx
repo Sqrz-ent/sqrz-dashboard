@@ -125,6 +125,38 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       console.log("[webhook] wallet top-up recorded for profile:", profileId);
+
+      // ── Free-tier campaign-activation budget payment (2026-10-21 follow-up) ──
+      // Present ONLY for a budget-checkout session (api/campaigns/budget-
+      // checkout.tsx) — a plain wallet top-up never sets this, so this is a
+      // strictly additive branch on top of the unchanged logic above, not a
+      // replacement of it. complete_campaign_budget_payment does its own
+      // internal record_wallet_topup call, so calling it here would double-
+      // credit — this branch only runs the ALLOCATION half directly instead.
+      const campaignId = session.metadata?.campaign_id;
+      if (campaignId) {
+        console.log("[webhook] budget-checkout for campaign:", campaignId);
+        const { data: allocResult, error: allocError } = await supabase.rpc(
+          "complete_campaign_budget_payment",
+          {
+            p_campaign_id: campaignId,
+            p_amount_cents: amountCents,
+            p_stripe_payment_intent_id: paymentIntent,
+            p_source: source,
+            p_stripe_mode: stripeMode,
+          },
+        );
+        if (allocError) {
+          // The wallet credit above already succeeded and is idempotent on
+          // paymentIntent — a retry of this event re-attempts only this half,
+          // it will not double-credit the wallet.
+          console.error("[webhook] complete_campaign_budget_payment failed:", allocError);
+          await supabase.from("stripe_events").delete().eq("event_id", event.id);
+          return new Response("Campaign budget allocation failed", { status: 500 });
+        }
+        console.log("[webhook] campaign budget payment result:", JSON.stringify(allocResult));
+      }
+
       return Response.json({ received: true });
     }
   }

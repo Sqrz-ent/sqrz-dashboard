@@ -28,6 +28,14 @@ export type WalletTopupCheckoutParams = {
   customerId: string;
   successUrl: string;
   cancelUrl: string;
+  // Free-tier campaign-activation budget payment (2026-10-21 follow-up) — set
+  // ONLY when this checkout is paying a specific campaign's ad budget
+  // (api/campaigns/budget-checkout.tsx), never for a plain wallet top-up. Fee
+  // math below is completely unchanged either way; this only adds a metadata
+  // field api/stripe/webhook.tsx reads to decide whether to ALSO allocate the
+  // paid amount to this campaign (complete_campaign_budget_payment) instead
+  // of leaving it as free wallet balance.
+  campaignId?: string;
 };
 
 export type WalletTopupCheckoutResult = {
@@ -95,10 +103,15 @@ export async function createWalletTopupCheckoutSession(
     // analytics only — never used for gating. record_wallet_topup recomputes
     // the 15% fee itself server-side rather than trusting a client-passed value.
     metadata: {
+      // type stays "wallet_topup" regardless of campaignId — api/stripe/webhook.tsx's
+      // existing wallet_topup branch (record_wallet_topup call, fee row, etc.)
+      // is completely unchanged; campaign_id is read as an ADDITIONAL step
+      // after that branch succeeds, not a different branch.
       type: "wallet_topup",
       profile_id: params.profileId,
       amount_cents: String(params.amountCents),
       source: params.source,
+      ...(params.campaignId ? { campaign_id: params.campaignId } : {}),
     },
   });
 
