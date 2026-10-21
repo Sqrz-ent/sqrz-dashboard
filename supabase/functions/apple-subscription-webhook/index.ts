@@ -12,12 +12,29 @@
 // iOS client sets it to profiles.id (uuid) at purchase time
 // (CompanionSubscriptionManager.purchase()). Renewals for known subscriptions
 // fall back to the existing row's profile when the token is absent.
+//
+// Apple JWS verification (2026-10-21): moved to ../_shared/apple-jws.ts — this
+// is the ONE Apple-facing notification URL Apple is configured to call (Apple
+// only supports one App Store Server Notifications V2 URL per app, so a
+// "sibling" consumable-purchase webhook can't be a second Apple-facing
+// endpoint; see the forwarding guard below instead), so verify-campaign-
+// activation and apple-consumable-webhook now share this same verification
+// code rather than each carrying their own copy.
+//
+// Consumable-activation forwarding (2026-10-21): campaign_activations'
+// products (the per-template consumable IAP, see campaign_activation_products)
+// are NOT subscriptions — a REFUND/ONE_TIME_CHARGE/etc. notification for one
+// of them must never fall into the ios_subscriptions upsert logic below (it
+// would silently create a bogus subscription row for a one-time product).
+// This function stays the single Apple-facing URL; it forwards those
+// specific notification types to the apple-consumable-webhook sibling
+// (already-verified payload, not the raw signedPayload — no need to verify
+// twice) and returns immediately, before any of the subscription-specific
+// code below ever runs for that event.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { compactVerify, decodeProtectedHeader, importX509 } from "npm:jose@5";
-import { X509Certificate } from "node:crypto";
-import { Buffer } from "node:buffer";
+import { verifyAppleJws } from "../_shared/apple-jws.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -25,48 +42,18 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // id (if ever needed) don't require a code change.
 const BUNDLE_ID = Deno.env.get("APPLE_BUNDLE_ID") ?? "com.sqrz.ios";
 
-// Apple Root CA - G3 — the root of the x5c chain in every App Store Server
-// Notification. Fetched once per isolate from Apple and cached; verification
-// FAILS CLOSED (503, so Apple retries) if the root can't be loaded.
-const APPLE_ROOT_CA_URL = "https://www.apple.com/certificateauthority/AppleRootCA-G3.cer";
-let appleRootDer: Buffer | null = null;
+// Notification types apple-consumable-webhook cares about — see its own file
+// header. Anything else for a known consumable-activation product id still
+// falls through to the generic log-only path below (harmless: mapStatus
+// returns null for those types, so nothing is upserted either way).
+const CONSUMABLE_FORWARD_TYPES = new Set([
+  "REFUND",
+  "REFUND_DECLINED",
+  "CONSUMPTION_REQUEST",
+  "ONE_TIME_CHARGE",
+]);
 
-async function getAppleRoot(): Promise<Buffer> {
-  if (appleRootDer) return appleRootDer;
-  const res = await fetch(APPLE_ROOT_CA_URL);
-  if (!res.ok) throw new Error(`Apple root CA fetch failed: ${res.status}`);
-  appleRootDer = Buffer.from(await res.arrayBuffer());
-  return appleRootDer;
-}
-
-// Verifies one Apple JWS (the notification envelope, signedTransactionInfo, or
-// signedRenewalInfo all use the same scheme): x5c chain of [leaf, intermediate,
-// root], root must byte-equal the pinned Apple Root CA, each cert must be
-// signed by the next, and the JWS signature must verify against the leaf key.
-async function verifyAppleJws(jws: string): Promise<Record<string, unknown>> {
-  const header = decodeProtectedHeader(jws);
-  const x5c = header.x5c;
-  if (!Array.isArray(x5c) || x5c.length < 3) {
-    throw new Error("missing or short x5c chain");
-  }
-
-  const certs = x5c.map((b64) => new X509Certificate(Buffer.from(b64, "base64")));
-  const root = certs[certs.length - 1];
-
-  const pinnedRoot = await getAppleRoot();
-  if (!root.raw.equals(pinnedRoot)) {
-    throw new Error("x5c root is not Apple Root CA - G3");
-  }
-  for (let i = 0; i < certs.length - 1; i++) {
-    if (!certs[i].verify(certs[i + 1].publicKey)) {
-      throw new Error(`x5c chain broken at index ${i}`);
-    }
-  }
-
-  const leafKey = await importX509(certs[0].toString(), "ES256");
-  const { payload } = await compactVerify(jws, leafKey);
-  return JSON.parse(new TextDecoder().decode(payload));
-}
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // notificationType (+subtype) → ios_subscriptions.status. Types not listed are
 // log-only (TEST, CONSUMPTION_REQUEST, RENEWAL_EXTENDED, PRICE_INCREASE, …).
@@ -120,8 +107,6 @@ Deno.serve(async (req) => {
   const notificationType = String(notification.notificationType ?? "");
   const subtype = notification.subtype != null ? String(notification.subtype) : undefined;
   const data = (notification.data ?? {}) as Record<string, unknown>;
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
   // ── Inner JWS payloads (transaction + renewal info) ────────────────────────
   let txn: Record<string, unknown> = {};
@@ -180,6 +165,33 @@ Deno.serve(async (req) => {
   if (data.bundleId != null && data.bundleId !== BUNDLE_ID) {
     await markEvent(false, `bundleId mismatch: ${data.bundleId}`);
     return new Response("Wrong bundle", { status: 401 });
+  }
+
+  // ── Forward consumable-activation notifications to the sibling function —
+  // see the file header. Checked by product id (campaign_activation_products),
+  // not just notification type, so a REFUND for an actual subscription still
+  // falls through to the normal path below untouched. ──
+  const productId = txn.productId != null ? String(txn.productId) : null;
+  if (productId && CONSUMABLE_FORWARD_TYPES.has(notificationType)) {
+    const { data: mapped } = await supabase
+      .from("campaign_activation_products")
+      .select("product_id")
+      .eq("product_id", productId)
+      .maybeSingle();
+    if (mapped) {
+      try {
+        const { error: invokeError } = await supabase.functions.invoke("apple-consumable-webhook", {
+          body: { notificationType, subtype, environment, transaction: txn, eventId },
+        });
+        if (invokeError) throw invokeError;
+        await markEvent(true);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[apple-webhook] forward to apple-consumable-webhook failed:", msg);
+        await markEvent(false, `forward failed: ${msg}`);
+      }
+      return new Response("OK", { status: 200 });
+    }
   }
 
   const targetStatus = mapStatus(notificationType, subtype);
