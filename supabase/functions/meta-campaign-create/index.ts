@@ -16,9 +16,14 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // meta_sync_secret from Vault (same secret meta-insights-sync uses), injected as
 // x-sync-secret by the trigger. Deploy verify_jwt:false (custom auth).
 //
-// V1 identity: SQRZ's own Facebook Page is the identity behind every ad (no
-// per-artist Page). Page id is read from meta_ad_accounts.page_id, falling back to
-// the META_PAGE_ID env or the business's first owned page (then cached back).
+// Identity: SQRZ's own Facebook Page by default — page id read from
+// meta_ad_accounts.page_id, falling back to the META_PAGE_ID env or the
+// business's first owned page (then cached back). As of 2026-10-21, a
+// profile with an active profile_meta_connections row (artist connected
+// their own Page via Facebook Login + Meta's business-asset-sharing
+// approval flow) uses that Page/Instagram identity instead — see
+// resolveIdentity below. Budget/billing are entirely unaffected either way;
+// this only changes who the ad appears to be posted by.
 //
 // Targeting: worldwide + Advantage+ audience, automatic placements — no manual
 // audience-building UI exists in V1. An admin narrows targeting before un-pausing.
@@ -226,6 +231,36 @@ async function resolvePageId(acct: AdAccount): Promise<string> {
   return page.id;
 }
 
+// ── Identity resolution (2026-10-21): the profile's own connected Page/IG,
+// else SQRZ's own identity exactly as before this existed ─────────────────────
+
+// If the campaign's profile has an active profile_meta_connections row, its
+// page_id (+ instagram_user_id, if linked) is used as the ad's identity
+// instead of SQRZ's own Page — budget/billing are completely unaffected,
+// this only changes who the ad appears to be posted by. Any other
+// connection status (pending/revoked/failed, or no row at all) falls back
+// to today's resolvePageId behavior exactly, with no Instagram identity set
+// (Meta then uses the Page's own default linked IG account, same as before
+// this existed).
+async function resolveIdentity(
+  acct: AdAccount,
+  profileId: string,
+): Promise<{ pageId: string; instagramUserId: string | null }> {
+  const { data: connection } = await supabase
+    .from("profile_meta_connections")
+    .select("page_id, instagram_user_id")
+    .eq("profile_id", profileId)
+    .eq("status", "active")
+    .maybeSingle();
+  if (connection?.page_id) {
+    return {
+      pageId: connection.page_id as string,
+      instagramUserId: (connection.instagram_user_id as string | null) ?? null,
+    };
+  }
+  return { pageId: await resolvePageId(acct), instagramUserId: null };
+}
+
 // ── Media upload ───────────────────────────────────────────────────────────────
 
 const VIDEO_EXTS = ["mp4", "mov", "m4v", "webm"];
@@ -423,7 +458,7 @@ Deno.serve(async (req) => {
   const created: { campaign?: string; adset?: string; creative?: string; ad?: string } = {};
 
   try {
-    const resolvedPageId = await resolvePageId(acct);
+    const { pageId: resolvedPageId, instagramUserId } = await resolveIdentity(acct, c.profile_id);
 
     // 1) Media
     const isVideo = isVideoUrl(c.creative_asset_url);
@@ -513,10 +548,18 @@ Deno.serve(async (req) => {
     created.adset = adsetRes.id as string;
 
     // 4) Ad Creative — page identity + link/video content + CTA + destination
+    //
+    // instagram_user_id (2026-10-21) — a sibling of page_id, not nested inside
+    // link_data/video_data (confirmed against Meta's current docs; the older
+    // instagram_actor_id field this might be confused with is deprecated).
+    // Omitted entirely when there's no connected profile Instagram account —
+    // Meta then falls back to the Page's own default linked IG account,
+    // exactly like every ad created before this existed.
     const callToAction = { type: cta, value: { link: destination } };
     const objectStorySpec = isVideo
       ? {
           page_id: resolvedPageId,
+          ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
           video_data: {
             video_id: videoId,
             message: primaryText,
@@ -528,6 +571,7 @@ Deno.serve(async (req) => {
         }
       : {
           page_id: resolvedPageId,
+          ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
           link_data: {
             message: primaryText,
             link: destination,
