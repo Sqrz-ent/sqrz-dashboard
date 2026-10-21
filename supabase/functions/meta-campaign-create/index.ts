@@ -210,7 +210,43 @@ type CampaignRow = {
   starts_at: string | null;
   ends_at: string | null;
   meta_campaign_id: string | null;
+  // Geo-targeting (2026-10-21, create-sheet slimdown follow-up) — all three
+  // present together (iOS requires the location picker to launch) or all
+  // absent (older campaigns, or any row predating this column). location_city
+  // is display-only, not part of the Meta targeting payload itself.
+  location_city: string | null;
+  location_latitude: number | null;
+  location_longitude: number | null;
+  location_radius_km: number | null;
 };
+
+// Meta's real custom_locations radius limit is 50 miles ≈ 80.5km — the iOS
+// picker's fixed options (10/25/50/80) were chosen to fit inside it, but
+// clamp defensively anyway so a future bad value can never reach Meta as an
+// invalid radius instead of a clear local error.
+const MAX_CUSTOM_LOCATION_RADIUS_KM = 80;
+
+// geo_locations for the ad set — worldwide (today's exact, unchanged
+// behavior) when the campaign has no location, else a single custom_locations
+// circle. Nothing else about targeting (excluded_geo_locations,
+// targeting_automation, the DSA/regional fields elsewhere in the ad set
+// payload) changes either way — those aren't location-dependent per the task
+// that added this, so they stay exactly as they were.
+function geoLocationsFor(c: CampaignRow): Record<string, unknown> {
+  if (c.location_latitude == null || c.location_longitude == null || c.location_radius_km == null) {
+    return { location_types: ["home", "recent"], country_groups: ["worldwide"] };
+  }
+  const radius = Math.min(c.location_radius_km, MAX_CUSTOM_LOCATION_RADIUS_KM);
+  return {
+    location_types: ["home", "recent"],
+    custom_locations: [{
+      latitude: c.location_latitude,
+      longitude: c.location_longitude,
+      radius,
+      distance_unit: "kilometer",
+    }],
+  };
+}
 
 // ── Page resolution: column → env → business owned_pages (cached back) ─────────
 
@@ -387,7 +423,7 @@ Deno.serve(async (req) => {
   // Load campaign (+ idempotency guard) and the owning profile's slug/name.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, utm_url, starts_at, ends_at, meta_campaign_id")
+    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -535,16 +571,25 @@ Deno.serve(async (req) => {
       // fail silently.
       regional_regulated_categories: ["TAIWAN_UNIVERSAL", "SINGAPORE_UNIVERSAL"],
       targeting: {
-        geo_locations: { location_types: ["home", "recent"], country_groups: ["worldwide"] },
+        // Custom-location circle when the campaign has one (2026-10-21),
+        // else today's exact worldwide targeting — see geoLocationsFor.
+        geo_locations: geoLocationsFor(c),
         // Excludes Taiwan from the otherwise-worldwide targeting so Meta
         // doesn't require a Taiwan universal ads declaration for this ad set
         // (code 100, subcode 3858498) — regional_regulated_categories above
         // was expected to clear this but didn't in a live retest; excluding
-        // the country outright does.
+        // the country outright does. Unconditional, same as before this
+        // change — a custom-location circle that happens to sit in Taiwan
+        // still benefits from it; one that doesn't makes it a harmless no-op.
         excluded_geo_locations: { countries: ["TW"] },
         targeting_automation: { advantage_audience: 1 },
       },
     });
+
+    // Dry-run-verifiable (2026-10-21): logs the exact targeting payload sent
+    // to Meta, so the custom-location-vs-worldwide branch can be confirmed
+    // from function logs alone, without needing a real upload to inspect it.
+    console.log(`[meta-campaign-create] ${campaignId} targeting:`, JSON.stringify(geoLocationsFor(c)));
     created.adset = adsetRes.id as string;
 
     // 4) Ad Creative — page identity + link/video content + CTA + destination
