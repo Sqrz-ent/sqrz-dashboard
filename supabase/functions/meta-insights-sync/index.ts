@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { fetchMetaCampaignStatus, resolveIsPaused } from "../_shared/meta-delivery-status.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // meta-insights-sync
@@ -65,6 +66,21 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // is_paused, and why this doesn't call meta-campaign-toggle directly). Runs
 // in both the sweep and the user-triggered single-campaign refresh, since
 // either path can be the one that pushes spend over the line.
+//
+// Real-Meta pause sync (2026-10-22 — bug fix): SQRZ's boost_campaigns.is_paused
+// used to ONLY change via meta-campaign-toggle, so a campaign paused directly
+// in Meta Ads Manager (bypassing SQRZ entirely) still showed "Live" with a
+// "Pause" button forever — is_paused and meta_delivery_status both just sat
+// stale. Both sync entry points (the cron sweep and the user-triggered
+// refresh) now also read the campaign's real effective_status/status straight
+// from the Graph API — via the ONE shared helper in
+// ../_shared/meta-delivery-status.ts (also used by meta-campaign-toggle's own
+// pre-flight check, so the two functions can never disagree on what "paused"
+// means) — and write both meta_delivery_status (the raw value) and is_paused
+// (mapped; see that file's own comment for the full mapping table and the
+// reasoning behind each value) every time a campaign's token/ownership is
+// already resolved for the insights call anyway, piggy-backing on that same
+// Graph round trip rather than adding a second unrelated one.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -244,6 +260,39 @@ async function maybeStopForBudgetExhaustion(
     .eq("id", campaignId);
 }
 
+// Reads the campaign's REAL Meta status and writes meta_delivery_status +
+// is_paused to match (see ../_shared/meta-delivery-status.ts for the mapping
+// and the bug this fixes). Shared by both entry points below — the cron
+// sweep's Phase 2 loop and handleUserTriggeredRefresh — so there's exactly
+// one place that does this write. A failed read (network/Meta error) is
+// logged and leaves both columns untouched rather than guessing; it does not
+// throw, so it never aborts whatever stats-sync work is already in progress
+// for this campaign in the same pass.
+async function syncDeliveryStatus(
+  campaignId: string,
+  metaCampaignId: string,
+  token: string,
+): Promise<{ metaDeliveryStatus: string | null; isPaused: boolean | undefined }> {
+  let s;
+  try {
+    s = await fetchMetaCampaignStatus(metaCampaignId, token, GRAPH_VERSION);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`[meta-insights-sync] failed to read Meta delivery status for ${campaignId}:`, message);
+    return { metaDeliveryStatus: null, isPaused: undefined };
+  }
+
+  const isPaused = resolveIsPaused(s);
+  const update: Record<string, unknown> = { meta_delivery_status: s.effectiveStatus };
+  if (isPaused !== undefined) update.is_paused = isPaused;
+
+  const { error } = await supabase.from("boost_campaigns").update(update).eq("id", campaignId);
+  if (error) {
+    console.error(`[meta-insights-sync] failed to write delivery status for ${campaignId}:`, error.message);
+  }
+  return { metaDeliveryStatus: s.effectiveStatus, isPaused };
+}
+
 // Connectivity check: number of campaigns visible under this account with this
 // token (validates token + permissions). Default (active) listing is a fine
 // health probe — this is NOT used for ownership resolution (see the module
@@ -347,6 +396,7 @@ type CampaignStatRow = {
   stats_updated_at: string | null;
   end_mode: string | null;
   is_paused: boolean;
+  meta_delivery_status: string | null;
 };
 
 // User-triggered single-campaign refresh — the "Refresh" button on an iOS
@@ -377,7 +427,7 @@ async function handleUserTriggeredRefresh(
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
     .select(
-      "profile_id, meta_campaign_id, stat_impressions, stat_reach, stat_link_clicks, stat_cost_per_click, stat_cpm, stat_spend, stats_updated_at, end_mode, is_paused",
+      "profile_id, meta_campaign_id, stat_impressions, stat_reach, stat_link_clicks, stat_cost_per_click, stat_cpm, stat_spend, stats_updated_at, end_mode, is_paused, meta_delivery_status",
     )
     .eq("id", campaignId)
     .maybeSingle();
@@ -403,6 +453,8 @@ async function handleUserTriggeredRefresh(
   let statCpm = c.stat_cpm;
   let statSpend = c.stat_spend;
   let statsUpdatedAt = c.stats_updated_at;
+  let isPaused = c.is_paused;
+  let metaDeliveryStatus = c.meta_delivery_status;
 
   let refreshed = false;
   let skippedReason: "not_linked" | "cooldown" | "unresolved" | undefined;
@@ -453,9 +505,18 @@ async function handleUserTriggeredRefresh(
           statCpm = stats.cpm;
           statSpend = stats.spend;
           statsUpdatedAt = await writeStats(campaignId, stats);
-          if (c.end_mode === "budget" && !c.is_paused && owningToken) {
-            await maybeStopForBudgetExhaustion(campaignId, c.meta_campaign_id, owningToken, stats.spend);
-          }
+        }
+        // Real-Meta pause sync — same shared helper + same "run it whenever
+        // we have a resolved token" timing as the cron sweep, so a tap of
+        // the Refresh button also catches a pause made directly in Meta Ads
+        // Manager (the bug this task fixes), not just fresh insights.
+        if (owningToken) {
+          const delivery = await syncDeliveryStatus(campaignId, c.meta_campaign_id, owningToken);
+          metaDeliveryStatus = delivery.metaDeliveryStatus;
+          if (delivery.isPaused !== undefined) isPaused = delivery.isPaused;
+        }
+        if (stats && c.end_mode === "budget" && !c.is_paused && owningToken) {
+          await maybeStopForBudgetExhaustion(campaignId, c.meta_campaign_id, owningToken, stats.spend);
         }
       }
     }
@@ -473,6 +534,8 @@ async function handleUserTriggeredRefresh(
     stat_cpm: statCpm,
     stat_spend: statSpend,
     stats_updated_at: statsUpdatedAt,
+    is_paused: isPaused,
+    meta_delivery_status: metaDeliveryStatus,
   });
 }
 
@@ -575,9 +638,13 @@ Deno.serve(async (req) => {
         if (stats) {
           await writeStats(c.id, stats);
           st.synced++;
-          if (c.end_mode === "budget" && !c.is_paused) {
-            await maybeStopForBudgetExhaustion(c.id, c.meta_campaign_id, st.acct.system_user_token, stats.spend);
-          }
+        }
+        // Real-Meta pause sync — runs regardless of whether this campaign had
+        // any delivery to report (a freshly-paused campaign may have no new
+        // insights row at all), piggy-backing on the same resolved token.
+        await syncDeliveryStatus(c.id, c.meta_campaign_id, st.acct.system_user_token);
+        if (stats && c.end_mode === "budget" && !c.is_paused) {
+          await maybeStopForBudgetExhaustion(c.id, c.meta_campaign_id, st.acct.system_user_token, stats.spend);
         }
         await sleep(PACING_MS);
         break; // resolved to this account — don't try the others

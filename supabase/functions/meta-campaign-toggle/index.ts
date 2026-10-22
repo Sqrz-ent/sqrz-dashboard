@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { fetchMetaCampaignStatus, resolveIsPaused } from "../_shared/meta-delivery-status.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // meta-campaign-toggle (2026-10-22)
@@ -28,6 +29,20 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //     campaign, latest value only.
 //   - boost_campaign_toggle_log — append-only, one row per toggle, with a
 //     timestamp, independent of the current-state columns above.
+//
+// Real-Meta pre-flight check (2026-10-22 — bug fix): the idempotent "already
+// in the requested state" check used to trust ONLY the stored is_paused
+// column — which is exactly the bug this task fixes elsewhere (a pause made
+// directly in Meta Ads Manager never updated that column, so this function
+// would see is_paused=false, think a "pause" request was real work, and
+// call Meta again). Before doing anything now, this function reads the
+// campaign's REAL status straight from Meta (via the SAME shared helper
+// meta-insights-sync uses, ../_shared/meta-delivery-status.ts — one mapping,
+// used everywhere, never two). If Meta is already in the requested state,
+// SQRZ's stored is_paused/meta_delivery_status are updated to match (so the
+// DB stops lying) and the function returns already_paused/already_active
+// WITHOUT calling Meta's write endpoint again. Only a genuine mismatch
+// reaches the real metaPost(status: PAUSED|ACTIVE) call below.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -140,17 +155,10 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // ── Idempotent no-op if already in the requested state ──
-  const alreadyPaused = campaign.is_paused === true;
-  if (action === "pause" && alreadyPaused) {
-    return json({ ok: true, is_paused: true, already: true });
-  }
-  if (action === "resume" && !alreadyPaused) {
-    return json({ ok: true, is_paused: false, already: true });
-  }
-
   // ── Credential resolution — SAME lookup meta-campaign-create uses, never
-  // hardcoded, never a second resolution path. ──
+  // hardcoded, never a second resolution path. Moved ahead of the idempotency
+  // check below (2026-10-22) — that check now needs a token to read Meta's
+  // real status before deciding anything. ──
   const { data: acctRow, error: acctErr } = await supabase
     .from("meta_ad_accounts")
     .select("ad_account_id, system_user_token")
@@ -160,6 +168,46 @@ Deno.serve(async (req: Request) => {
     .maybeSingle();
   if (acctErr) return json({ error: `ad account lookup: ${acctErr.message}` }, 500);
   if (!acctRow) return json({ error: "no_active_ad_account" }, 500);
+  const token = acctRow.system_user_token as string;
+
+  // ── Pre-flight: read Meta's REAL current status before changing anything
+  // (2026-10-22 — see the module doc comment for the bug this fixes). A read
+  // failure here is logged and treated as "unknown" — falls through to the
+  // real toggle call below rather than trusting a column that might itself
+  // be stale, which is exactly the bug being fixed. ──
+  let metaNow;
+  try {
+    metaNow = await fetchMetaCampaignStatus(campaign.meta_campaign_id as string, token, GRAPH_VERSION);
+  } catch (e) {
+    console.error(
+      `[meta-campaign-toggle] ${campaignId} failed to read Meta status pre-flight:`,
+      e instanceof Error ? e.message : String(e),
+    );
+    metaNow = null;
+  }
+  const realIsPaused = metaNow ? resolveIsPaused(metaNow) : undefined;
+
+  if (realIsPaused !== undefined) {
+    const alreadyPaused = realIsPaused === true;
+    const matchesRequest = (action === "pause" && alreadyPaused) || (action === "resume" && !alreadyPaused);
+    if (matchesRequest) {
+      // Sync SQRZ's stored state to Meta's real state (it may have been
+      // wrong — that's the whole bug) and skip the Meta write entirely.
+      await supabase
+        .from("boost_campaigns")
+        .update({
+          is_paused: alreadyPaused,
+          meta_delivery_status: metaNow!.effectiveStatus,
+          ...(alreadyPaused && campaign.is_paused !== true ? { paused_at: new Date().toISOString() } : {}),
+        })
+        .eq("id", campaignId);
+      return json({
+        ok: true,
+        is_paused: alreadyPaused,
+        ...(action === "pause" ? { already_paused: true } : { already_active: true }),
+      });
+    }
+  }
 
   const metaStatus = action === "pause" ? "PAUSED" : "ACTIVE";
 
@@ -171,7 +219,7 @@ Deno.serve(async (req: Request) => {
   );
 
   try {
-    await metaPost(campaign.meta_campaign_id, acctRow.system_user_token as string, {
+    await metaPost(campaign.meta_campaign_id, token, {
       status: metaStatus,
     });
   } catch (e) {
@@ -181,7 +229,10 @@ Deno.serve(async (req: Request) => {
   }
 
   const nowIso = new Date().toISOString();
-  const update: Record<string, unknown> = { is_paused: action === "pause" };
+  const update: Record<string, unknown> = {
+    is_paused: action === "pause",
+    meta_delivery_status: metaStatus,
+  };
   if (action === "pause") update.paused_at = nowIso;
 
   const { error: updateErr } = await supabase
