@@ -5,12 +5,12 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // meta-page-connect
 //
 // Starts the "connect your Facebook Page" flow for one profile (v1, 2026-10-21).
-// The artist's Facebook login is used CLIENT-SIDE ONLY (iOS) to list their Pages
-// and each Page's linked Instagram account — this function never sees that
-// token. It receives the page the artist already picked and sends SQRZ's own
-// business-asset-sharing request for it ("client Page" request, ADVERTISE task
-// only — never full admin) using SQRZ's own system-user credentials
-// (meta_ad_accounts.system_user_token), then records the connection as pending.
+// The artist's Facebook login is used CLIENT-SIDE ONLY (iOS) to list their
+// Pages — this function never sees that token. It receives the page the
+// artist already picked and sends SQRZ's own business-asset-sharing request
+// for it ("client Page" request, ADVERTISE task only — never full admin)
+// using SQRZ's own system-user credentials (meta_ad_accounts.system_user_token),
+// then records the connection as pending.
 //
 // Approval happens entirely in Meta Business Suite, on the Page admin's side —
 // there is no API to approve a client-Page request, confirmed against Meta's
@@ -19,10 +19,15 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //
 // No separate request is needed for the linked Instagram account: per Meta's
 // current Instagram Ads guide, ADVERTISE access on the Page is sufficient to
-// use that Page's linked Instagram account as an ad identity too — the
-// instagram_user_id/instagram_username here are stored for display and for
-// meta-campaign-create's identity resolution, not sent to Meta as a separate
-// grant request.
+// use that Page's linked Instagram account as an ad identity too.
+//
+// Instagram data is NOT accepted from the client (2026-10-22) — the iOS login
+// flow no longer requests the instagram_basic scope (it isn't available under
+// this Meta app's Facebook Login use case, and requesting it made the whole
+// login dialog fail), so it has no Instagram info to send in the first place.
+// instagram_user_id/instagram_username are instead resolved server-side, using
+// SQRZ's own business credentials, once the connection becomes active — see
+// meta-page-connection-status.
 //
 // Auth: the caller's own Supabase JWT (same manual-validation pattern as
 // meta-insights-sync's user-triggered path) + user_owns_profile ownership
@@ -78,8 +83,6 @@ type ConnectBody = {
   profile_id?: string;
   page_id?: string;
   page_name?: string;
-  instagram_user_id?: string | null;
-  instagram_username?: string | null;
 };
 
 Deno.serve(async (req: Request) => {
@@ -145,8 +148,6 @@ Deno.serve(async (req: Request) => {
       profile_id: profileId,
       page_id: pageId,
       page_name: pageName,
-      instagram_user_id: body.instagram_user_id ?? null,
-      instagram_username: body.instagram_username ?? null,
       status: "failed",
       requested_at: now,
       approved_at: null,
@@ -160,8 +161,6 @@ Deno.serve(async (req: Request) => {
     profile_id: profileId,
     page_id: pageId,
     page_name: pageName,
-    instagram_user_id: body.instagram_user_id ?? null,
-    instagram_username: body.instagram_username ?? null,
     status: "pending",
     requested_at: now,
     approved_at: null,

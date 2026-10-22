@@ -19,6 +19,21 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // admin declined it (or removed access later) — mapped to 'failed'/'revoked'
 // respectively below.
 //
+// Instagram resolution (2026-10-22): the iOS login flow no longer requests
+// instagram_basic (not available under this Meta app's Facebook Login use
+// case — requesting it made the whole login dialog fail), so it never sends
+// Instagram data anymore. Instead, once a connection is confirmed active,
+// this function looks up the Page's linked Instagram account itself, using
+// SQRZ's own business credentials (the same system_user_token already used
+// for the client_pages/pending_client_pages lookups above) — GET
+// /{page_id}?fields=instagram_business_account{id,username}. If the Page has
+// no linked Instagram account, instagram_user_id/instagram_username are left
+// null; the connection still stays 'active' either way (Instagram is purely
+// supplementary identity info, never a gate on the connection itself). A
+// failed lookup is logged and never blocks the status update — the
+// connection's active/pending/revoked/failed status is Meta's client_pages
+// truth, which this lookup has no bearing on.
+//
 // Auth: same manual JWT + user_owns_profile pattern as meta-page-connect.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -58,6 +73,30 @@ async function metaGetPageIds(path: string, token: string): Promise<Set<string>>
     after = paging?.next ? paging.cursors?.after : undefined;
   } while (after);
   return ids;
+}
+
+// Looks up the Page's linked Instagram professional account, if any, using
+// SQRZ's own system-user credentials (ADVERTISE access on the Page — already
+// granted by the approved client_pages request — is sufficient to read this
+// field, confirmed against Meta's current Instagram Ads guide). Returns null
+// when the Page has no linked Instagram account; that's a normal outcome,
+// not an error.
+async function fetchPageInstagram(
+  pageId: string,
+  token: string,
+): Promise<{ id: string; username: string | null } | null> {
+  const url = new URL(`${GRAPH}/${pageId}`);
+  url.searchParams.set("fields", "instagram_business_account{id,username}");
+  url.searchParams.set("access_token", token);
+  const res = await fetch(url.toString());
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const err = body.error as { message?: string } | undefined;
+  if (!res.ok || err) {
+    throw new Error(`GET ${pageId} (instagram_business_account) → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+  }
+  const ig = body.instagram_business_account as { id?: string; username?: string } | undefined;
+  if (!ig?.id) return null;
+  return { id: ig.id, username: ig.username ?? null };
 }
 
 Deno.serve(async (req: Request) => {
@@ -151,9 +190,35 @@ Deno.serve(async (req: Request) => {
     error = "The request was declined in Meta Business Suite.";
   }
 
+  // Resolve the linked Instagram account server-side once the connection is
+  // active — the iOS client never sends this anymore (see file header). A
+  // Page with no linked Instagram account just leaves these null; the
+  // connection stays 'active' regardless.
+  let instagramUserId = connection.instagram_user_id as string | null;
+  let instagramUsername = connection.instagram_username as string | null;
+  if (nextStatus === "active" && pageId) {
+    try {
+      const ig = await fetchPageInstagram(pageId, acctRow.system_user_token as string);
+      instagramUserId = ig?.id ?? null;
+      instagramUsername = ig?.username ?? null;
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`[meta-page-connection-status] Instagram lookup failed for profile ${profileId}:`, message);
+      // Never block the connection becoming active over this — leave
+      // whatever was already stored (e.g. a prior successful lookup).
+    }
+  }
+
   const { data: updated, error: updateErr } = await supabase
     .from("profile_meta_connections")
-    .update({ status: nextStatus, approved_at: approvedAt, last_checked_at: now, error })
+    .update({
+      status: nextStatus,
+      approved_at: approvedAt,
+      last_checked_at: now,
+      error,
+      instagram_user_id: instagramUserId,
+      instagram_username: instagramUsername,
+    })
     .eq("profile_id", profileId)
     .select("*")
     .single();
