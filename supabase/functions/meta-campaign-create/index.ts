@@ -206,6 +206,12 @@ type CampaignRow = {
   description: string | null;
   notes: string | null;
   creative_asset_url: string | null;
+  // "Promote an existing post" (2026-10-23) — set by the iOS create-campaign
+  // sheet when the artist picks one of the connected Page's own posts
+  // (meta-page-posts) instead of uploading new creative. NULL = upload new
+  // creative, unchanged existing behavior. Format is Meta's own
+  // `{page_id}_{post_id}`, used directly as the AdCreative's object_story_id.
+  existing_post_id: string | null;
   utm_url: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -434,7 +440,7 @@ Deno.serve(async (req) => {
   // Load campaign (+ idempotency guard) and the owning profile's slug/name.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
+    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -445,8 +451,10 @@ Deno.serve(async (req) => {
     // Already pushed — idempotent no-op (e.g. a duplicate trigger delivery).
     return json({ ok: true, skipped: "already has meta_campaign_id" });
   }
-  if (!c.creative_asset_url) {
-    await flagFailed(campaignId, "no creative_asset_url — nothing to upload");
+  // existing_post_id (2026-10-23) means there's no new asset to upload at
+  // all — the ad reuses that post's own media/content, see step 4 below.
+  if (!c.existing_post_id && !c.creative_asset_url) {
+    await flagFailed(campaignId, "no creative_asset_url and no existing_post_id — nothing to upload or promote");
     return json({ error: "no creative asset" }, 200);
   }
 
@@ -507,17 +515,23 @@ Deno.serve(async (req) => {
   try {
     const { pageId: resolvedPageId, instagramUserId } = await resolveIdentity(acct, c.profile_id);
 
-    // 1) Media
-    const isVideo = isVideoUrl(c.creative_asset_url);
+    // 1) Media — skipped entirely when promoting an existing post
+    // (2026-10-23): there's no new asset to upload, the ad reuses the
+    // post's own media exactly as published.
+    const usingExistingPost = !!c.existing_post_id;
+    let isVideo = false;
     let imageHash: string | undefined;
     let videoId: string | undefined;
     let videoThumb: string | null = null;
-    if (isVideo) {
-      const v = await uploadVideo(acct, c.creative_asset_url);
-      videoId = v.videoId;
-      videoThumb = v.thumbnailUrl;
-    } else {
-      imageHash = await uploadImage(acct, c.creative_asset_url);
+    if (!usingExistingPost) {
+      isVideo = isVideoUrl(c.creative_asset_url!);
+      if (isVideo) {
+        const v = await uploadVideo(acct, c.creative_asset_url!);
+        videoId = v.videoId;
+        videoThumb = v.thumbnailUrl;
+      } else {
+        imageHash = await uploadImage(acct, c.creative_asset_url!);
+      }
     }
 
     // 2) Campaign (PAUSED, no special ad category applies but the field is required)
@@ -628,47 +642,80 @@ Deno.serve(async (req) => {
     console.log(`[meta-campaign-create] ${campaignId} targeting:`, JSON.stringify(geoLocationsFor(c)));
     created.adset = adsetRes.id as string;
 
-    // 4) Ad Creative — page identity + link/video content + CTA + destination
+    // 4) Ad Creative — existing-post promotion (2026-10-23) vs. a new upload
+    // (unchanged).
     //
-    // instagram_user_id (2026-10-21) — a sibling of page_id, not nested inside
-    // link_data/video_data (confirmed against Meta's current docs; the older
-    // instagram_actor_id field this might be confused with is deprecated).
-    // Omitted entirely when there's no connected profile Instagram account —
-    // Meta then falls back to the Page's own default linked IG account,
-    // exactly like every ad created before this existed.
-    const callToAction = { type: cta, value: { link: destination } };
-    const objectStorySpec = isVideo
-      ? {
-          page_id: resolvedPageId,
-          ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
-          video_data: {
-            video_id: videoId,
-            message: primaryText,
-            title: headline,
-            link_description: description,
-            call_to_action: { ...callToAction, value: { ...callToAction.value, link_title: headline } },
-            ...(videoThumb ? { image_url: videoThumb } : {}),
-          },
-        }
-      : {
-          page_id: resolvedPageId,
-          ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
-          link_data: {
-            message: primaryText,
-            link: destination,
-            name: headline,
-            ...(description ? { description } : {}),
-            image_hash: imageHash,
-            call_to_action: callToAction,
-          },
-        };
+    // Promoting an existing post locks the ad to that post's content exactly
+    // as published — Meta's object_story_id creatives render the referenced
+    // post as-is; there is no way to override its link, text, image, or
+    // call-to-action button (confirmed against Meta's current Marketing API
+    // docs — this is the documented, by-design behavior of boosting an
+    // organic post, not a gap in this implementation). The one thing that
+    // CAN still be layered on top is url_tags — a creative-level field that
+    // appends query parameters (here, the campaign's own UTM tags) to
+    // whatever link the post already points to, without changing the
+    // visible post content. That is the full extent of what "keep the
+    // destination link/UTMs" can mean for this case.
+    let creativeFields: Record<string, unknown>;
+    if (c.existing_post_id) {
+      let urlTags: string | undefined;
+      try {
+        const destUrl = new URL(destination);
+        if (destUrl.search) urlTags = destUrl.search.replace(/^\?/, "");
+      } catch (_e) { /* destination already validated non-empty above; a parse failure just omits url_tags */ }
+      creativeFields = {
+        name: `${campaignName} — Creative`,
+        object_story_id: c.existing_post_id,
+        ...(urlTags ? { url_tags: urlTags } : {}),
+      };
+    } else {
+      // instagram_user_id (2026-10-21) — a sibling of page_id, not nested inside
+      // link_data/video_data (confirmed against Meta's current docs; the older
+      // instagram_actor_id field this might be confused with is deprecated).
+      // Omitted entirely when there's no connected profile Instagram account —
+      // Meta then falls back to the Page's own default linked IG account,
+      // exactly like every ad created before this existed.
+      const callToAction = { type: cta, value: { link: destination } };
+      const objectStorySpec = isVideo
+        ? {
+            page_id: resolvedPageId,
+            ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
+            video_data: {
+              video_id: videoId,
+              message: primaryText,
+              title: headline,
+              link_description: description,
+              call_to_action: { ...callToAction, value: { ...callToAction.value, link_title: headline } },
+              ...(videoThumb ? { image_url: videoThumb } : {}),
+            },
+          }
+        : {
+            page_id: resolvedPageId,
+            ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
+            link_data: {
+              message: primaryText,
+              link: destination,
+              name: headline,
+              ...(description ? { description } : {}),
+              image_hash: imageHash,
+              call_to_action: callToAction,
+            },
+          };
+      creativeFields = {
+        name: `${campaignName} — Creative`,
+        object_story_spec: objectStorySpec,
+        // Opt into Advantage+ creative standard enhancements is left off in
+        // V1 (deterministic creative); can be added later.
+      };
+    }
 
-    const creativeRes = await metaPost(`${acct.ad_account_id}/adcreatives`, token, {
-      name: `${campaignName} — Creative`,
-      object_story_spec: objectStorySpec,
-      // Opt into Advantage+ creative standard enhancements is left off in V1
-      // (deterministic creative); can be added later.
-    });
+    // Dry-run-verifiable (2026-10-23): logs the exact creative payload sent
+    // to Meta, so the existing-post-vs-upload branch can be confirmed from
+    // function logs alone — no real campaign created in this pass (per the
+    // task's own testing instruction).
+    console.log(`[meta-campaign-create] ${campaignId} creative fields:`, JSON.stringify(creativeFields));
+
+    const creativeRes = await metaPost(`${acct.ad_account_id}/adcreatives`, token, creativeFields);
     created.creative = creativeRes.id as string;
 
     // 5) Ad (PAUSED)
