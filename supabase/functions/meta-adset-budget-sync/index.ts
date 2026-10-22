@@ -27,6 +27,18 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //
 // Not user-invocable — guarded by the shared meta_sync_secret from Vault, injected
 // as x-sync-secret by the trigger. Deploy verify_jwt:false (custom auth).
+//
+// end_mode='budget' campaigns (2026-10-22, see meta-campaign-create) are
+// SKIPPED entirely here — found while checking this function for the end-
+// choice task: their ad set was created with `daily_budget`, not
+// `lifetime_budget`, and Meta's Marketing API does not allow an ad set to
+// carry both budget types at once — PATCHing lifetime_budget onto one would
+// either fail outright or silently convert its budget type, breaking the
+// daily pacing the artist actually chose. It also isn't needed: daily_budget
+// is a PACING rate, independent of the total allocated pool size — topping
+// up more money just extends how many days the campaign can run at the same
+// rate, which doesn't require touching daily_budget at all. Stopping once
+// the allocated total is spent is meta-insights-sync's job, not this one's.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -81,10 +93,10 @@ Deno.serve(async (req) => {
   }
   if (!campaignId) return json({ ok: true, skipped: "no campaign_id" });
 
-  // Campaign's Meta ad set + schedule (for the lifetime-budget floor).
+  // Campaign's Meta ad set + schedule (for the lifetime-budget floor) + end_mode.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, meta_adset_id, starts_at, ends_at")
+    .select("id, meta_adset_id, starts_at, ends_at, end_mode")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -93,6 +105,11 @@ Deno.serve(async (req) => {
   if (!adsetId) {
     // Not pushed to Meta yet (or not a Meta campaign) — nothing to sync. Not an error.
     return json({ ok: true, skipped: "campaign has no meta_adset_id" });
+  }
+  if (campaign?.end_mode === "budget") {
+    // See the module doc comment — this ad set has daily_budget, not
+    // lifetime_budget; PATCHing the latter would break it.
+    return json({ ok: true, skipped: "end_mode=budget — daily_budget ad set, not re-synced on allocation" });
   }
 
   // Running total = the campaign's CURRENT allocated_cents (read fresh, not derived

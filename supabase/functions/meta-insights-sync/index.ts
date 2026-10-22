@@ -54,6 +54,17 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // Out of scope (per spec): currency reconciliation between budget_currency and
 // the ad account's currency (USD is primary now), campaign/ad creation,
 // Conversions API, any UI.
+//
+// Budget-exhaustion auto-stop (2026-10-22, end_mode='budget' campaigns only —
+// see meta-campaign-create/the end-choice task): right after writing stats,
+// if the campaign's total spend has reached its allocated budget
+// (campaign_budgets.allocated_cents — the TOTAL pool, not daily_budget_cents,
+// which is only the pacing rate), the Meta campaign is paused via the Graph
+// API and marked is_paused/paused_at + status='completed' (see
+// maybeStopForBudgetExhaustion's own comment for why 'completed', not just
+// is_paused, and why this doesn't call meta-campaign-toggle directly). Runs
+// in both the sweep and the user-triggered single-campaign refresh, since
+// either path can be the one that pushes spend over the line.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -103,6 +114,8 @@ type EligibleCampaign = {
   id: string;
   meta_campaign_id: string;
   ends_at: string | null;
+  end_mode: string | null;
+  is_paused: boolean;
 };
 
 async function metaGet(
@@ -125,6 +138,110 @@ async function metaGet(
     );
   }
   return body;
+}
+
+// Same shape as meta-campaign-create's / meta-campaign-toggle's metaPost —
+// token in the Authorization header, form-urlencoded body. Used only by
+// maybeStopForBudgetExhaustion below (pausing an exhausted campaign) — this
+// function otherwise never writes to Meta.
+async function metaPost(
+  path: string,
+  token: string,
+  fields: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const form = new URLSearchParams();
+  for (const [k, v] of Object.entries(fields)) {
+    if (v === undefined || v === null) continue;
+    form.set(k, typeof v === "string" ? v : JSON.stringify(v));
+  }
+  const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: form.toString(),
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const err = body.error as { message?: string } | undefined;
+  if (!res.ok || err) {
+    throw new Error(`POST ${path} → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+  }
+  return body;
+}
+
+// Budget-exhaustion auto-stop (2026-10-22) — end_mode='budget' campaigns only.
+// Compares stat_spend (Meta's insights spend, in the account's major currency
+// unit, e.g. dollars) against campaign_budgets.allocated_cents (the TOTAL
+// allocated pool, in cents — NOT daily_budget_cents, which is only the
+// per-day pacing rate). Once spend reaches the allocated total, pauses the
+// Meta campaign and marks the row completed.
+//
+// "Same mechanism as meta-campaign-toggle" (per the task) means the SAME
+// Graph API action (POST the campaign id with status=PAUSED) and the SAME
+// is_paused/paused_at columns — NOT a literal supabase.functions.invoke call
+// to that function. meta-campaign-toggle requires a real end-user JWT for
+// its own user_owns_profile ownership check; this sweep/refresh context is
+// service-role/cron-authenticated with no end-user identity to forward, so
+// calling it directly would just fail its own auth. The Graph API call and
+// DB writes are duplicated here (small, same shape) rather than routed
+// through a function that isn't designed to accept a trusted-but-user-less
+// caller.
+//
+// Status used: is_paused=true + paused_at=now() (same columns meta-campaign-
+// toggle writes) AND status='completed' — not just is_paused, because this
+// is the campaign's budget actually running out (a natural end, same
+// terminal status every other end-of-life path in this app already uses),
+// not a deliberate temporary stop with intent to resume (which is what a
+// manual pause via meta-campaign-toggle is, and why that path leaves status
+// at 'live'). A 'completed' campaign already has an existing path back to
+// life — allocate_campaign_budget's reactivation-via-allocation — so topping
+// up more budget later naturally revives it through infrastructure that
+// already exists, rather than needing a new one.
+//
+// Idempotent: the caller only invokes this when is_paused is not already
+// true (see the two call sites) — skips re-pausing/re-marking a campaign
+// that already stopped on a previous sync.
+async function maybeStopForBudgetExhaustion(
+  campaignId: string,
+  metaCampaignId: string,
+  token: string,
+  spendDollars: number | null,
+): Promise<void> {
+  if (spendDollars == null) return;
+
+  const { data: budget } = await supabase
+    .from("campaign_budgets")
+    .select("allocated_cents")
+    .eq("campaign_id", campaignId)
+    .maybeSingle();
+  const allocatedCents = Number(budget?.allocated_cents ?? 0);
+  if (allocatedCents <= 0) return; // nothing allocated yet — nothing to exhaust
+
+  const spendCents = Math.round(spendDollars * 100);
+  if (spendCents < allocatedCents) return;
+
+  console.log(
+    `[meta-insights-sync] campaign ${campaignId} budget exhausted (spend ${spendCents}c >= allocated ${allocatedCents}c) — pausing`,
+  );
+  try {
+    await metaPost(metaCampaignId, token, { status: "PAUSED" });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error(`[meta-insights-sync] failed to pause exhausted campaign ${campaignId}:`, message);
+    return; // don't mark completed if the actual Meta pause failed
+  }
+
+  const nowIso = new Date().toISOString();
+  await supabase
+    .from("boost_campaigns")
+    .update({
+      is_paused: true,
+      paused_at: nowIso,
+      status: "completed",
+      status_updated_at: nowIso,
+    })
+    .eq("id", campaignId);
 }
 
 // Connectivity check: number of campaigns visible under this account with this
@@ -228,6 +345,8 @@ type CampaignStatRow = {
   stat_cpm: number | null;
   stat_spend: number | null;
   stats_updated_at: string | null;
+  end_mode: string | null;
+  is_paused: boolean;
 };
 
 // User-triggered single-campaign refresh — the "Refresh" button on an iOS
@@ -258,7 +377,7 @@ async function handleUserTriggeredRefresh(
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
     .select(
-      "profile_id, meta_campaign_id, stat_impressions, stat_reach, stat_link_clicks, stat_cost_per_click, stat_cpm, stat_spend, stats_updated_at",
+      "profile_id, meta_campaign_id, stat_impressions, stat_reach, stat_link_clicks, stat_cost_per_click, stat_cpm, stat_spend, stats_updated_at, end_mode, is_paused",
     )
     .eq("id", campaignId)
     .maybeSingle();
@@ -307,6 +426,7 @@ async function handleUserTriggeredRefresh(
 
       let owned = false;
       let stats: Insights | null = null;
+      let owningToken: string | null = null;
       for (
         const acct of (accounts ?? []) as
           { ad_account_id: string; system_user_token: string }[]
@@ -314,6 +434,7 @@ async function handleUserTriggeredRefresh(
         try {
           stats = await fetchInsights(c.meta_campaign_id, acct.system_user_token);
           owned = true;
+          owningToken = acct.system_user_token;
           break;
         } catch (_e) {
           // This token can't access the campaign — try the next account.
@@ -332,6 +453,9 @@ async function handleUserTriggeredRefresh(
           statCpm = stats.cpm;
           statSpend = stats.spend;
           statsUpdatedAt = await writeStats(campaignId, stats);
+          if (c.end_mode === "budget" && !c.is_paused && owningToken) {
+            await maybeStopForBudgetExhaustion(campaignId, c.meta_campaign_id, owningToken, stats.spend);
+          }
         }
       }
     }
@@ -383,7 +507,7 @@ Deno.serve(async (req) => {
     .slice(0, 10);
   const { data: campaigns, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, meta_campaign_id, ends_at")
+    .select("id, meta_campaign_id, ends_at, end_mode, is_paused")
     .not("meta_campaign_id", "is", null)
     .or(`ends_at.is.null,ends_at.gte.${cutoff}`);
   if (campErr) return json({ error: `campaign query: ${campErr.message}` }, 500);
@@ -451,6 +575,9 @@ Deno.serve(async (req) => {
         if (stats) {
           await writeStats(c.id, stats);
           st.synced++;
+          if (c.end_mode === "budget" && !c.is_paused) {
+            await maybeStopForBudgetExhaustion(c.id, c.meta_campaign_id, st.acct.system_user_token, stats.spend);
+          }
         }
         await sleep(PACING_MS);
         break; // resolved to this account — don't try the others

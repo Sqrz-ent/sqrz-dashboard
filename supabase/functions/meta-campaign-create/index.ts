@@ -218,6 +218,17 @@ type CampaignRow = {
   location_latitude: number | null;
   location_longitude: number | null;
   location_radius_km: number | null;
+  // End choice (2026-10-22, replaces the create-sheet's duration pills).
+  // NULL = legacy — treated exactly like 'date' (ends_at + the lifetime_budget
+  // floor, unchanged). 'date' behaves identically to legacy too, since both
+  // just read starts_at/ends_at the same way the campaignDays/floor math
+  // always has — ends_at now simply holds the artist's real chosen end
+  // instant instead of a canned 7/14/28-day value. 'budget' is the one real
+  // branch: daily_budget_cents + no end_time at all (see the ad set
+  // creation below) — stopped by meta-insights-sync once stat_spend reaches
+  // the allocated budget, not by Meta's own end_time.
+  end_mode: string | null;
+  daily_budget_cents: number | null;
 };
 
 // Meta's real custom_locations radius limit is 50 miles ≈ 80.5km — the iOS
@@ -423,7 +434,7 @@ Deno.serve(async (req) => {
   // Load campaign (+ idempotency guard) and the owning profile's slug/name.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km")
+    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -526,14 +537,40 @@ Deno.serve(async (req) => {
     });
     created.campaign = campaignRes.id as string;
 
-    // 3) Ad Set — lifetime_budget floor, worldwide + Advantage+, automatic placements
+    // 3) Ad Set — worldwide + Advantage+, automatic placements. Budget/end
+    // shape depends on end_mode (2026-10-22, replaces the create-sheet's
+    // duration pills): NULL/'date' → lifetime_budget floor + end_time
+    // (unchanged — ends_at/days now just reflect the artist's real chosen
+    // end instant instead of a canned 7/14/28-day value for 'date'; NULL
+    // rows are untouched legacy campaigns, same computation either way).
+    // 'budget' → daily_budget pacing, no end_time at all — the ad set runs
+    // indefinitely until meta-insights-sync pauses it once stat_spend
+    // reaches the allocated budget (or it's paused manually).
     const days = campaignDays(c.starts_at, c.ends_at);
     const minDaily = await minDailyBudgetCents(acct);
-    const floorLifetime = minDaily * days;
     const startTime = c.starts_at ? new Date(c.starts_at).toISOString() : new Date().toISOString();
-    const endTime = c.ends_at
-      ? new Date(c.ends_at).toISOString()
-      : new Date(Date.now() + days * 86_400_000).toISOString();
+
+    const useDailyBudget = c.end_mode === "budget" && c.daily_budget_cents != null;
+    const budgetFields: Record<string, unknown> = useDailyBudget
+      ? {
+          // Floored against Meta's real per-account minimum — same
+          // protective purpose as the lifetime floor below; an unclamped
+          // daily_budget_cents under Meta's minimum would otherwise fail
+          // outright at the API with a non-obvious error.
+          daily_budget: String(Math.max(c.daily_budget_cents!, minDaily)),
+        }
+      : {
+          lifetime_budget: String(minDaily * days),
+          end_time: c.ends_at
+            ? new Date(c.ends_at).toISOString()
+            : new Date(Date.now() + days * 86_400_000).toISOString(),
+        };
+
+    // Dry-run-verifiable: logs the exact budget/end shape before sending it,
+    // so the date-vs-budget branch can be confirmed from function logs alone
+    // (per the task's own testing instruction — no real campaign to create
+    // in this pass).
+    console.log(`[meta-campaign-create] ${campaignId} budget fields:`, JSON.stringify(budgetFields));
 
     const adsetRes = await metaPost(`${acct.ad_account_id}/adsets`, token, {
       name: `${campaignName} — Ad Set`,
@@ -544,9 +581,8 @@ Deno.serve(async (req) => {
       // Advantage+ V1 posture where users do not manage ad-tech controls.
       bid_strategy: "LOWEST_COST_WITHOUT_CAP",
       optimization_goal: optimizationGoalFor(objective),
-      lifetime_budget: String(floorLifetime),
       start_time: startTime,
-      end_time: endTime,
+      ...budgetFields,
       // promoted_object alone does NOT clear Meta's "No advertiser indicated"
       // (subcode 3858081) for this account — a live retest with promoted_object
       // present still failed, this time with error_data.blame_field_specs
