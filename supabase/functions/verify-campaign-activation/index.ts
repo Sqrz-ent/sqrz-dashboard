@@ -2,11 +2,26 @@
 // priced per template (2026-10-21). Verifies the client's StoreKit 2 signed
 // transaction (Transaction.jwsRepresentation — the SAME JWS format/shape
 // Apple's server notifications use, verified with the identical function),
-// then atomically records the purchase and advances the campaign through
-// the exact same booked/needs_changes → in_review transition
-// BoostContentSheet's own "Submit" button already performs (which is what
-// on_boost_campaign_submit_meta_create fires off, unchanged — see
-// record_campaign_activation in the campaign_activations migration).
+// then atomically records the purchase and advances the campaign.
+//
+// Budget-after-booking fix (2026-10-22): campaign creation/activation never
+// looks at money, for free AND paying (grow_access) users alike — budget
+// always comes after the campaign is booked. This REPLACES the 2026-10-21
+// free-tier follow-up, which branched the campaign's post-activation status
+// on a live RevenueCat grow_access check (premium -> in_review immediately,
+// free -> awaiting_budget) — that branch, and the hasGrowAccess() RevenueCat
+// call backing it, are both removed here. record_campaign_activation is now
+// called with NO p_target_status at all, so EVERY successful activation
+// lands on its default, 'awaiting_budget' (see the
+// budget_after_booking migration) — regardless of tier. What happens next is
+// entirely a client-side routing decision (which screen to show — the
+// existing free-tier budget-payment screen, or the new premium Allocate
+// screen), not a server-enforced one: the real money-moving actions
+// (allocate_campaign_budget, complete_campaign_budget_payment) each do their
+// own ownership/balance checks independently and are what actually advances
+// awaiting_budget -> in_review (which is what fires
+// on_boost_campaign_submit_meta_create) — so Meta's campaign is only ever
+// created once real budget has moved, for both paths, never before.
 //
 // Does NOT touch wallet top-up, allocate_campaign_budget, meta-campaign-
 // create, or api/campaigns/checkout — those are a completely separate
@@ -140,7 +155,9 @@ Deno.serve(async (req: Request) => {
     ? new Date(Number(txn.purchaseDate)).toISOString()
     : new Date().toISOString();
 
-  // ── Record + advance, atomically (record_campaign_activation) ──
+  // ── Record + advance, atomically (record_campaign_activation) — no
+  // p_target_status passed, so every activation lands on the RPC's own
+  // default, 'awaiting_budget', regardless of tier (see the module header). ──
   try {
     const { data: result, error } = await supabase.rpc("record_campaign_activation", {
       p_campaign_id: campaignId,
