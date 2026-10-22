@@ -19,6 +19,19 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // admin declined it (or removed access later) — mapped to 'failed'/'revoked'
 // respectively below.
 //
+// "Asset already belongs to this Business Manager" (2026-10-23) — a row can
+// be stuck 'failed' because meta-page-connect's client_pages POST got this
+// exact error (SQRZ's business already has advertise access — either it
+// owns the page directly, via owned_pages, or it's already a client page).
+// That's recorded as 'failed' at request time, but it isn't really a
+// failure, so this function's terminal-status short-circuit below makes an
+// exception for exactly that case: a 'failed' row whose stored `error` text
+// matches is re-checked here (via owned_pages, in addition to the existing
+// client_pages/pending_client_pages checks) rather than treated as
+// permanently stuck — letting "Check status" resolve it to 'active' without
+// a reconnect. Every other 'failed' row, and all 'revoked' rows, stay
+// terminal exactly as before.
+//
 // Instagram resolution (2026-10-22): the iOS login flow no longer requests
 // instagram_basic (not available under this Meta app's Facebook Login use
 // case — requesting it made the whole login dialog fail), so it never sends
@@ -50,6 +63,11 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// "Asset already belongs to this Business Manager" — see the file header.
+function isAlreadyBelongsError(message: string | null | undefined): boolean {
+  return (message ?? "").toLowerCase().includes("already belongs to this business");
 }
 
 async function metaGetPageIds(path: string, token: string): Promise<Set<string>> {
@@ -135,7 +153,13 @@ Deno.serve(async (req: Request) => {
   // 'revoked'/'failed' are terminal from this function's point of view —
   // reconnecting creates a fresh 'pending' row via meta-page-connect, so
   // there's nothing further to check against Meta for either state here.
-  if (connection.status === "revoked" || connection.status === "failed") {
+  // Exception (2026-10-23, see file header): a 'failed' row recorded for
+  // the "already belongs to this business" reason isn't really terminal —
+  // it's re-checked below instead of short-circuited here.
+  if (connection.status === "revoked") {
+    return json({ ok: true, connection });
+  }
+  if (connection.status === "failed" && !isAlreadyBelongsError(connection.error as string | null)) {
     return json({ ok: true, connection });
   }
 
@@ -154,10 +178,14 @@ Deno.serve(async (req: Request) => {
   const now = new Date().toISOString();
   let approvedIds: Set<string>;
   let pendingIds: Set<string>;
+  let ownedIds: Set<string>;
   try {
-    [approvedIds, pendingIds] = await Promise.all([
+    [approvedIds, pendingIds, ownedIds] = await Promise.all([
       metaGetPageIds(`${acctRow.business_id}/client_pages`, acctRow.system_user_token as string),
       metaGetPageIds(`${acctRow.business_id}/pending_client_pages`, acctRow.system_user_token as string),
+      // Added 2026-10-23 — a page SQRZ's business owns directly (not via a
+      // client-page grant) also has advertise access; see file header.
+      metaGetPageIds(`${acctRow.business_id}/owned_pages`, acctRow.system_user_token as string),
     ]);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -171,19 +199,31 @@ Deno.serve(async (req: Request) => {
 
   const pageId = connection.page_id as string | null;
   let nextStatus = connection.status as string;
-  let error: string | null = null;
+  let error: string | null = connection.error as string | null;
   let approvedAt = connection.approved_at as string | null;
 
-  if (pageId && approvedIds.has(pageId)) {
+  // owned_pages added 2026-10-23 alongside the existing client_pages check —
+  // either one means SQRZ's business can advertise with the page, see file
+  // header.
+  if (pageId && (approvedIds.has(pageId) || ownedIds.has(pageId))) {
     nextStatus = "active";
     approvedAt = approvedAt ?? now;
+    error = null;
   } else if (pageId && pendingIds.has(pageId)) {
     nextStatus = "pending";
+    error = null;
   } else if (connection.status === "active") {
     // Was active, no longer in the approved list — access was removed on
     // Meta's side (e.g. the admin revoked it from Business Suite directly).
     nextStatus = "revoked";
     error = "Access was removed in Meta Business Suite.";
+  } else if (connection.status === "failed" && isAlreadyBelongsError(connection.error as string | null)) {
+    // Re-checked here specifically because of the "already belongs" reason
+    // (see the terminal-status exception above) and still not found in
+    // owned_pages/client_pages — genuinely not advertisable yet. This was
+    // never actually a pending client-Page request, so it doesn't become
+    // "declined" — leave it failed with its original stored reason.
+    nextStatus = "failed";
   } else {
     // Was pending, now in neither list — the admin declined the request.
     nextStatus = "failed";

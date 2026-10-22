@@ -21,6 +21,21 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // current Instagram Ads guide, ADVERTISE access on the Page is sufficient to
 // use that Page's linked Instagram account as an ad identity too.
 //
+// "Asset already belongs to this Business Manager" (2026-10-23) — Meta
+// returns this as a 400 on the client_pages POST when SQRZ's business
+// already has advertise access to the page outright, either because it
+// owns the Page directly (owned_pages) or it's already a client page
+// (client_pages) from an earlier grant. That's not a failure — there's
+// nothing for a Page admin to approve, since SQRZ already has access. In
+// that case this function verifies advertise access directly (checking
+// both owned_pages and client_pages) and, if confirmed, marks the
+// connection 'active' immediately (approved_at = now), skipping the
+// pending/approval step entirely — same Instagram-lookup logic as
+// meta-page-connection-status, inlined here (no shared module between these
+// functions currently). If verification can't confirm advertise access
+// after all, it falls through to the normal failed-recording path below
+// rather than claiming success without proof.
+//
 // Instagram data is NOT accepted from the client (2026-10-22) — the iOS login
 // flow no longer requests the instagram_basic scope (it isn't available under
 // this Meta app's Facebook Login use case, and requesting it made the whole
@@ -77,6 +92,68 @@ async function metaPost(
     throw new Error(`POST ${path} → ${res.status}${err ? ` ${formatMetaError(err)}` : ""}`);
   }
   return body;
+}
+
+// "Asset already belongs to this Business Manager" — see the file header.
+function isAlreadyBelongsError(message: string): boolean {
+  return message.toLowerCase().includes("already belongs to this business");
+}
+
+// Same paginated-listing helper as meta-page-connection-status (no shared
+// module between these functions currently, so duplicated as-is).
+async function metaGetPageIds(path: string, token: string): Promise<Set<string>> {
+  const ids = new Set<string>();
+  let after: string | undefined;
+  do {
+    const url = new URL(`${GRAPH}/${path}`);
+    url.searchParams.set("fields", "id");
+    url.searchParams.set("limit", "200");
+    if (after) url.searchParams.set("after", after);
+    const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${token}` } });
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const err = body.error as { message?: string } | undefined;
+    if (!res.ok || err) {
+      throw new Error(`GET ${path} → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+    }
+    for (const row of (body.data as { id?: string }[] | undefined) ?? []) {
+      if (row.id) ids.add(row.id);
+    }
+    const paging = body.paging as { next?: string; cursors?: { after?: string } } | undefined;
+    after = paging?.next ? paging.cursors?.after : undefined;
+  } while (after);
+  return ids;
+}
+
+// Checks both edges a business can have advertise access through: pages it
+// owns directly, and pages shared to it as a client page (same two edges
+// meta-page-connection-status already uses for client_pages/pending_client_pages,
+// plus owned_pages here).
+async function verifyAdvertiseAccess(businessId: string, token: string, pageId: string): Promise<boolean> {
+  const [owned, client] = await Promise.all([
+    metaGetPageIds(`${businessId}/owned_pages`, token),
+    metaGetPageIds(`${businessId}/client_pages`, token),
+  ]);
+  return owned.has(pageId) || client.has(pageId);
+}
+
+// Same Instagram lookup as meta-page-connection-status (duplicated, see
+// that function's own comment on this).
+async function fetchPageInstagram(
+  pageId: string,
+  token: string,
+): Promise<{ id: string; username: string | null } | null> {
+  const url = new URL(`${GRAPH}/${pageId}`);
+  url.searchParams.set("fields", "instagram_business_account{id,username}");
+  url.searchParams.set("access_token", token);
+  const res = await fetch(url.toString());
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const err = body.error as { message?: string } | undefined;
+  if (!res.ok || err) {
+    throw new Error(`GET ${pageId} (instagram_business_account) → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
+  }
+  const ig = body.instagram_business_account as { id?: string; username?: string } | undefined;
+  if (!ig?.id) return null;
+  return { id: ig.id, username: ig.username ?? null };
 }
 
 type ConnectBody = {
@@ -141,6 +218,40 @@ Deno.serve(async (req: Request) => {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
+
+    if (isAlreadyBelongsError(message)) {
+      try {
+        const hasAdvertiseAccess = await verifyAdvertiseAccess(
+          acctRow.business_id,
+          acctRow.system_user_token as string,
+          pageId,
+        );
+        if (hasAdvertiseAccess) {
+          const instagram = await fetchPageInstagram(pageId, acctRow.system_user_token as string).catch((igErr) => {
+            console.error(`[meta-page-connect] Instagram lookup failed for profile ${profileId}:`, igErr);
+            return null;
+          });
+          await supabase.from("profile_meta_connections").upsert({
+            profile_id: profileId,
+            page_id: pageId,
+            page_name: pageName,
+            status: "active",
+            requested_at: now,
+            approved_at: now,
+            last_checked_at: now,
+            error: null,
+            instagram_user_id: instagram?.id ?? null,
+            instagram_username: instagram?.username ?? null,
+          }, { onConflict: "profile_id" });
+          return json({ ok: true, status: "active" });
+        }
+      } catch (verifyErr) {
+        console.error(`[meta-page-connect] advertise-access verification failed for profile ${profileId}:`, verifyErr);
+        // Fall through to the generic failed-recording path below — don't
+        // claim success without having actually confirmed advertise access.
+      }
+    }
+
     console.error(`[meta-page-connect] client_pages request failed for profile ${profileId}:`, message);
     // Record the attempt as failed rather than silently dropping it — the
     // artist picked a Page and should see *something* happened, not nothing.
