@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { StreamChat } from "stream-chat";
 
 import { createSupabaseAdminClient } from "~/lib/supabase.server";
@@ -144,6 +145,60 @@ function toInquirySession(input: {
     },
     token: createStreamUserToken(ownerStreamUserId),
   };
+}
+
+/**
+ * Resolves which profile a stream-inquiry request is for.
+ *
+ * Multi-profile ownership (2026-10-18) — one auth login can now own more
+ * than one `profiles` row, so a bare `.eq("user_id", userId).maybeSingle()`
+ * silently returns null (not an error) the moment a login owns more than
+ * one — that's exactly what was producing stream-inquiry's reported 404
+ * for those logins. A caller that knows which profile it means (iOS's
+ * ActiveProfileStore) sends `requestedProfileId`; it's resolved by id and
+ * ownership is verified against `userId` here, in application code — not
+ * left to RLS, since `profiles` currently has a known wide-open policy
+ * (see root CLAUDE.md's Known Open Issues). A caller that sends nothing
+ * (an older app build, or anything else not yet updated) falls back to the
+ * user's oldest profile — the same `order(created_at asc).limit(1)`
+ * fallback `get-or-create-invite-code` already uses for this exact
+ * situation.
+ *
+ * Returns null — never throws — when nothing resolves (no such profile,
+ * wrong owner, or the query itself failed); callers turn that into their
+ * own 404.
+ */
+export async function resolveOwnedProfileId(
+  supabase: SupabaseClient,
+  userId: string,
+  requestedProfileId?: string | null
+): Promise<string | null> {
+  if (requestedProfileId) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("id, user_id")
+      .eq("id", requestedProfileId)
+      .maybeSingle();
+    if (error) {
+      console.error("[inquiry] resolveOwnedProfileId (by id) failed:", error);
+      return null;
+    }
+    if (!data || data.user_id !== userId) return null;
+    return data.id as string;
+  }
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[inquiry] resolveOwnedProfileId (fallback) failed:", error);
+    return null;
+  }
+  return (data?.id as string | undefined) ?? null;
 }
 
 export async function listOpenInquiryThreadsForProfile(profileId: string) {

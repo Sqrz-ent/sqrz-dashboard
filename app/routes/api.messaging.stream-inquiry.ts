@@ -1,5 +1,5 @@
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
-import { listOpenInquiryThreadsForProfile } from "~/lib/messaging/inquiry.server";
+import { listOpenInquiryThreadsForProfile, resolveOwnedProfileId } from "~/lib/messaging/inquiry.server";
 
 export async function loader({ request }: { request: Request }) {
   const authHeader = request.headers.get("Authorization");
@@ -28,21 +28,20 @@ export async function loader({ request }: { request: Request }) {
       return Response.json({ error: "Unauthorized" }, { status: 401, headers });
     }
 
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // Multi-profile ownership (2026-10-18) — a login can own more than one
+    // profile, so this can no longer assume .eq("user_id", user.id) ever
+    // resolves to exactly one row. iOS's ActiveProfileStore sends which
+    // profile it means via ?profile_id=; an older/unaware caller falls
+    // back to the oldest profile. See resolveOwnedProfileId's own doc
+    // comment for the full story (this is what was producing the 404).
+    const requestedProfileId = new URL(request.url).searchParams.get("profile_id");
+    const profileId = await resolveOwnedProfileId(supabase, user.id, requestedProfileId);
 
-    if (profileError) {
-      console.error(`[stream-inquiry] (${authPath}) profile query failed:`, profileError);
-    }
-
-    if (!profile?.id) {
+    if (!profileId) {
       return Response.json({ error: "Profile not found" }, { status: 404, headers });
     }
 
-    const session = await listOpenInquiryThreadsForProfile(profile.id as string);
+    const session = await listOpenInquiryThreadsForProfile(profileId);
     return Response.json(session ?? { threads: [] }, { headers });
   } catch (error) {
     console.error(`[stream-inquiry] (${authPath}) loader failed:`, error);

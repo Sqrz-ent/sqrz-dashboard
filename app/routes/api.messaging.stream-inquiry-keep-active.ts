@@ -1,5 +1,5 @@
 import { createSupabaseAdminClient, createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
-import { fetchInquiryMessagePreview } from "~/lib/messaging/inquiry.server";
+import { fetchInquiryMessagePreview, resolveOwnedProfileId } from "~/lib/messaging/inquiry.server";
 
 // "Keep Active" action for an inquiry thread. Lightweight: upserts the corresponding
 // `leads` row as active and bumps its updated_at so it sorts to the top of the Active
@@ -32,13 +32,12 @@ export async function action({ request }: { request: Request }) {
 
   const admin = createSupabaseAdminClient();
 
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
+  // Multi-profile ownership (2026-10-18) — same fix as the sibling
+  // stream-inquiry loader; see resolveOwnedProfileId's own doc comment.
+  const requestedProfileId = new URL(request.url).searchParams.get("profile_id");
+  const profileId = await resolveOwnedProfileId(admin, user.id, requestedProfileId);
 
-  if (!profile?.id) {
+  if (!profileId) {
     return Response.json({ error: "Profile not found" }, { status: 404, headers });
   }
 
@@ -48,7 +47,7 @@ export async function action({ request }: { request: Request }) {
     .eq("id", threadId)
     .maybeSingle();
 
-  if (!thread || thread.profile_id !== profile.id) {
+  if (!thread || thread.profile_id !== profileId) {
     return Response.json({ error: "Forbidden" }, { status: 403, headers });
   }
 
@@ -59,7 +58,7 @@ export async function action({ request }: { request: Request }) {
 
   const leadRow: Record<string, unknown> = {
     thread_id: threadId,
-    profile_id: profile.id,
+    profile_id: profileId,
     name: thread.visitor_name,
     email: thread.visitor_email,
     source: "chat",
