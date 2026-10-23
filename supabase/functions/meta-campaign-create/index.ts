@@ -207,11 +207,15 @@ type CampaignRow = {
   notes: string | null;
   creative_asset_url: string | null;
   // "Promote an existing post" (2026-10-23) — set by the iOS create-campaign
-  // sheet when the artist picks one of the connected Page's own posts
-  // (meta-page-posts) instead of uploading new creative. NULL = upload new
-  // creative, unchanged existing behavior. Format is Meta's own
-  // `{page_id}_{post_id}`, used directly as the AdCreative's object_story_id.
+  // sheet when the artist picks one of the connected Page's own posts, or
+  // one of its linked Instagram account's media items (meta-page-posts),
+  // instead of uploading new creative. NULL = upload new creative,
+  // unchanged existing behavior. existing_post_source disambiguates which
+  // platform existing_post_id belongs to (NULL/'facebook' = Meta's own
+  // `{page_id}_{post_id}` format, used as the AdCreative's object_story_id;
+  // 'instagram' = the IG media id, used as source_instagram_media_id).
   existing_post_id: string | null;
+  existing_post_source: string | null;
   utm_url: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -440,7 +444,7 @@ Deno.serve(async (req) => {
   // Load campaign (+ idempotency guard) and the owning profile's slug/name.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
+    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, existing_post_source, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -642,22 +646,48 @@ Deno.serve(async (req) => {
     console.log(`[meta-campaign-create] ${campaignId} targeting:`, JSON.stringify(geoLocationsFor(c)));
     created.adset = adsetRes.id as string;
 
-    // 4) Ad Creative — existing-post promotion (2026-10-23) vs. a new upload
-    // (unchanged).
+    // 4) Ad Creative — existing-post promotion (Facebook, 2026-10-23;
+    // Instagram, same pass) vs. a new upload (unchanged).
     //
-    // Promoting an existing post locks the ad to that post's content exactly
-    // as published — Meta's object_story_id creatives render the referenced
-    // post as-is; there is no way to override its link, text, image, or
-    // call-to-action button (confirmed against Meta's current Marketing API
-    // docs — this is the documented, by-design behavior of boosting an
-    // organic post, not a gap in this implementation). The one thing that
-    // CAN still be layered on top is url_tags — a creative-level field that
-    // appends query parameters (here, the campaign's own UTM tags) to
-    // whatever link the post already points to, without changing the
-    // visible post content. That is the full extent of what "keep the
-    // destination link/UTMs" can mean for this case.
+    // Facebook existing post: object_story_id locks the ad to that post's
+    // content exactly as published — there is no way to override its link,
+    // text, image, or call-to-action button (confirmed against Meta's
+    // current Marketing API docs — this is the documented, by-design
+    // behavior of boosting an organic post, not a gap in this
+    // implementation). The one thing that CAN still be layered on top is
+    // url_tags — a creative-level field that appends query parameters
+    // (here, the campaign's own UTM tags) to whatever link the post already
+    // points to, without changing the visible post content.
+    //
+    // Instagram existing post (2026-10-23): source_instagram_media_id +
+    // instagram_user_id, NOT object_story_id/object_story_spec at all.
+    // Checked against Meta's current "Use Posts as Instagram Ads" guide,
+    // as asked: unlike the Facebook case above, a call_to_action WITH a
+    // link CAN be added to this creative type ("If you would like, you can
+    // update the call_to_action field for your promotion" — the guide's own
+    // wording) — deliberately NOT added here; this pass only reports the
+    // finding, per its own explicit instruction not to implement it yet.
+    // One documented caveat worth flagging for later: posts with
+    // copyrighted music or interactive filters/elements aren't eligible to
+    // be boosted at all (the guide recommends checking boost_eligibility_info
+    // before attempting this) — not checked here either, same "not yet" scope.
     let creativeFields: Record<string, unknown>;
-    if (c.existing_post_id) {
+    if (c.existing_post_id && c.existing_post_source === "instagram") {
+      // instagram_user_id is the same value resolveIdentity already
+      // resolved above (this profile's connection's own linked IG account).
+      // Required by Meta alongside source_instagram_media_id — if it's
+      // somehow missing (shouldn't happen: the client only offers Instagram
+      // posts when a connection has a linked IG account), fail loudly
+      // rather than send a malformed creative.
+      if (!instagramUserId) {
+        throw new Error("existing_post_source is 'instagram' but no instagram_user_id is resolved for this profile's connection");
+      }
+      creativeFields = {
+        name: `${campaignName} — Creative`,
+        source_instagram_media_id: c.existing_post_id,
+        instagram_user_id: instagramUserId,
+      };
+    } else if (c.existing_post_id) {
       let urlTags: string | undefined;
       try {
         const destUrl = new URL(destination);
