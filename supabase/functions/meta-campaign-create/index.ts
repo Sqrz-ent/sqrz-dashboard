@@ -62,28 +62,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── Meta enum mappings (verified against Meta's real enums, not blind casing) ──
 
-// Campaign objective (ODAX) — keyed on campaign_template (2026-10-24), the
-// source of truth for which template a campaign came from. template_01 =
-// Awareness (existing Instagram post + fixed Learn More CTA), template_02 =
-// Traffic (new creative upload). 'custom' never reaches this function in
-// practice (Large Boost/Managed opens a discovery call instead of inserting
-// a self-serve row) but is handled defensively, matching objectiveForGoal's
-// old default.
-function objectiveForTemplate(templateId: string): string {
-  switch (templateId) {
-    case "template_01": return "OUTCOME_AWARENESS";
-    case "template_02": return "OUTCOME_TRAFFIC";
-    default:             return "OUTCOME_TRAFFIC";
-  }
-}
-
 // goal is deprecated (2026-10-24) — this is ONLY the legacy fallback for a
 // campaign whose campaign_template is NULL (created before that column was
-// wired up). Never consulted for a row that has a real campaign_template.
-// Sending traffic to a profile/private-link URL, so TRAFFIC is the
-// deliverable default; awareness/engagement for the softer goals. 'audience'
-// is kept here only because old rows may still carry it — no current
-// template ever produces it.
+// wired up), OR whose campaign_template points at a row with no
+// meta_objective set. Sending traffic to a profile/private-link URL, so
+// TRAFFIC is the deliverable default; awareness/engagement for the softer
+// goals. 'audience' is kept here only because old rows may still carry it —
+// no current template ever produces it.
 function objectiveForGoal(goal: string | null): string {
   switch (goal) {
     case "visibility": return "OUTCOME_AWARENESS";
@@ -536,11 +521,25 @@ Deno.serve(async (req) => {
   const headline = c.headline?.trim() || displayName;
   const primaryText = c.primary_text?.trim() || c.notes?.trim() || `Discover ${displayName} on SQRZ.`;
   const description = c.description?.trim() || undefined;
-  // 2026-10-24: campaign_template decides the objective now; goal is only
-  // consulted as objectiveForGoal's legacy fallback for a NULL-template row.
-  const objective = c.campaign_template
-    ? objectiveForTemplate(c.campaign_template)
-    : objectiveForGoal(c.goal);
+
+  // 2026-10-25: campaign_templates is now pure configuration Will edits
+  // directly — no template id/name is ever hardcoded here. When the
+  // campaign's campaign_template resolves to a real row, its meta_objective
+  // / cta_type columns drive Meta's objective and the existing-Instagram-post
+  // CTA below. No row yet (Will hasn't populated the table) or a NULL
+  // campaign_template (legacy row) both fall back to exactly today's
+  // behavior: objectiveForGoal(c.goal) for the objective, "LEARN_MORE" for
+  // the Instagram existing-post CTA.
+  let template: { meta_objective: string | null; cta_type: string | null } | null = null;
+  if (c.campaign_template) {
+    const { data: templateRow } = await supabase
+      .from("campaign_templates")
+      .select("meta_objective, cta_type")
+      .eq("id", c.campaign_template)
+      .maybeSingle();
+    template = templateRow ?? null;
+  }
+  const objective = template?.meta_objective || objectiveForGoal(c.goal);
   const cta = ctaFor(c.cta_type);
 
   // Track created objects for rollback (reverse order on failure).
@@ -690,24 +689,26 @@ Deno.serve(async (req) => {
     // points to, without changing the visible post content.
     //
     // Instagram existing post (2026-10-23, CTA added same day for Template
-    // 01/Awareness): source_instagram_media_id + instagram_user_id, NOT
+    // 01/Awareness; 2026-10-25, CTA re-pointed at the template row's
+    // cta_type): source_instagram_media_id + instagram_user_id, NOT
     // object_story_id/object_story_spec at all. Checked against Meta's
     // current "Use Posts as Instagram Ads" guide, as asked in the pass that
     // added this branch: unlike the Facebook case above, a call_to_action
     // WITH a link CAN be added to this creative type ("If you would like,
     // you can update the call_to_action field for your promotion" — the
-    // guide's own wording). Now implemented: Template 01/Awareness always
-    // promotes an Instagram post with a fixed LEARN_MORE button, so the CTA
-    // is hardcoded here rather than derived from ctaFor(c.cta_type) (that
-    // mapping is for the upload branch's artist-chosen CTA, a different
-    // concept) — link is `destination`, the same campaign-destination URL
-    // (already UTM-tagged — see its own computation above) every other
-    // branch in this function also uses. One documented caveat flagged but
-    // NOT checked here: posts with copyrighted music or interactive
-    // filters/elements aren't eligible to be boosted at all — meta-page-posts
-    // already checks this per-post (boost_eligibility_info) and the iOS
-    // picker greys those out before they can ever reach this far, so this
-    // branch trusts that an incoming existing_post_id was already eligible.
+    // guide's own wording). The button type comes from the campaign's
+    // template row (template?.cta_type — a fixed per-template default, e.g.
+    // 'LEARN_MORE'), falling back to today's literal "LEARN_MORE" default
+    // when no template row resolves — this is a DIFFERENT concept from
+    // ctaFor(c.cta_type), the upload branch's artist-chosen CTA below — link
+    // is `destination`, the same campaign-destination URL (already
+    // UTM-tagged — see its own computation above) every other branch in this
+    // function also uses. One documented caveat flagged but NOT checked
+    // here: posts with copyrighted music or interactive filters/elements
+    // aren't eligible to be boosted at all — meta-page-posts already checks
+    // this per-post (boost_eligibility_info) and the iOS picker greys those
+    // out before they can ever reach this far, so this branch trusts that an
+    // incoming existing_post_id was already eligible.
     let creativeFields: Record<string, unknown>;
     if (c.existing_post_id && c.existing_post_source === "instagram") {
       // instagram_user_id is the same value resolveIdentity already
@@ -723,7 +724,7 @@ Deno.serve(async (req) => {
         name: `${campaignName} — Creative`,
         source_instagram_media_id: c.existing_post_id,
         instagram_user_id: instagramUserId,
-        call_to_action: { type: "LEARN_MORE", value: { link: destination } },
+        call_to_action: { type: template?.cta_type || "LEARN_MORE", value: { link: destination } },
       };
     } else if (c.existing_post_id) {
       let urlTags: string | undefined;

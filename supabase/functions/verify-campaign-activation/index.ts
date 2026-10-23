@@ -27,10 +27,14 @@
 // create, or api/campaigns/checkout — those are a completely separate
 // money flow (ad spend) from this one (paying to submit a campaign at all).
 //
-// Product resolution (2026-10-24): keyed on the campaign's campaign_template
-// (the source of truth — see boost_campaigns.campaign_template's column
-// comment), never goal. goal is deprecated; legacyTemplateFromGoal below is
-// ONLY consulted for a legacy row with campaign_template NULL.
+// Product resolution (2026-10-24, re-pointed 2026-10-25): keyed on the
+// campaign's campaign_template (the source of truth — see
+// boost_campaigns.campaign_template's column comment), never goal. goal is
+// deprecated; legacyTemplateFromGoal below is ONLY consulted for a legacy
+// row with campaign_template NULL. As of 2026-10-25, the expected product
+// id is read straight off campaign_templates.iap_product_id (a real FK
+// target now, a pure-config table Will edits directly) — NOT
+// campaign_activation_products, which is deprecated and superseded.
 //
 // Auth: the caller's own Supabase JWT (same manual-validation pattern as
 // meta-insights-sync's user-triggered path / the meta-page-* functions) +
@@ -157,7 +161,10 @@ Deno.serve(async (req: Request) => {
   // ── Product must match this campaign's template (2026-10-24: keyed on
   // campaign_template now, not goal — goal is deprecated and kept only as
   // the legacy fallback for a NULL-campaign_template row, via
-  // legacyTemplateFromGoal below) ──
+  // legacyTemplateFromGoal below). 2026-10-25: the expected product id
+  // comes from campaign_templates.iap_product_id (the template is now a
+  // pure-config row Will edits directly) instead of
+  // campaign_activation_products. ──
   const templateId = campaign.campaign_template ?? legacyTemplateFromGoal(campaign.goal as string | null);
   if (!templateId) {
     return json({
@@ -165,13 +172,13 @@ Deno.serve(async (req: Request) => {
       message: "This campaign has no template to match a product against.",
     }, 400);
   }
-  const { data: mapping, error: mappingErr } = await supabase
-    .from("campaign_activation_products")
-    .select("product_id")
-    .eq("template_id", templateId)
+  const { data: template, error: templateErr } = await supabase
+    .from("campaign_templates")
+    .select("iap_product_id")
+    .eq("id", templateId)
     .maybeSingle();
-  if (mappingErr) return json({ error: `product mapping lookup: ${mappingErr.message}` }, 500);
-  if (!mapping || mapping.product_id !== productId) {
+  if (templateErr) return json({ error: `template lookup: ${templateErr.message}` }, 500);
+  if (!template?.iap_product_id || template.iap_product_id !== productId) {
     return json({
       error: "product_mismatch",
       message: "This product doesn't match the campaign's template.",

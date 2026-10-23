@@ -34,11 +34,12 @@
 //                          already recorded this transaction, this is a
 //                          no-op. If not, this can ONLY auto-resolve the
 //                          unambiguous case: appAccountToken → profile_id,
-//                          the purchased product_id → its mapped
-//                          template_id (campaign_activation_products,
-//                          re-keyed 2026-10-24 — goal is deprecated, no
-//                          longer the lookup key), then EXACTLY ONE campaign
-//                          for that profile in a draft-like status
+//                          the purchased product_id → its matching
+//                          campaign_templates row (via iap_product_id —
+//                          2026-10-25, a pure-config table Will edits
+//                          directly; campaign_activation_products is
+//                          deprecated and superseded), then EXACTLY ONE
+//                          campaign for that profile in a draft-like status
 //                          ('booked'/'needs_changes') matching that template
 //                          (campaign_template, or — legacy rows only — the
 //                          equivalent goal, see legacyGoalForTemplate).
@@ -177,17 +178,20 @@ Deno.serve(async (req) => {
         return json({ ok: true, skipped: "no_app_account_token" });
       }
 
-      // 2026-10-24: keyed on template_id now, not goal — goal is deprecated.
-      const { data: mapping } = await supabase
-        .from("campaign_activation_products")
-        .select("template_id")
-        .eq("product_id", productId)
+      // 2026-10-24: keyed on template id, not goal — goal is deprecated.
+      // 2026-10-25: resolved via campaign_templates.iap_product_id (a
+      // pure-config row Will edits directly) instead of
+      // campaign_activation_products, which is deprecated and superseded.
+      const { data: template } = await supabase
+        .from("campaign_templates")
+        .select("id")
+        .eq("iap_product_id", productId)
         .maybeSingle();
-      if (!mapping) {
-        await appendEventError(eventId, `ONE_TIME_CHARGE: product ${productId} has no campaign_activation_products mapping`);
+      if (!template) {
+        await appendEventError(eventId, `ONE_TIME_CHARGE: product ${productId} has no campaign_templates mapping`);
         return json({ ok: true, skipped: "unmapped_product" });
       }
-      const templateId = mapping.template_id as string;
+      const templateId = template.id as string;
 
       // Candidates match EITHER a real campaign_template (new rows) OR —
       // only because campaign_template is a recent column — a legacy row
