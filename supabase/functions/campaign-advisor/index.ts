@@ -428,17 +428,6 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Caller's own profile — the identity ownership is checked against.
-  const { data: callerProfile } = await admin
-    .from("profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if (!callerProfile?.id) {
-    return json({ error: "Forbidden" }, 403);
-  }
-  const callerProfileId = callerProfile.id as string;
-
   // 1. Campaign row.
   const { data: campaign, error: campaignErr } = await admin
     .from("boost_campaigns")
@@ -455,22 +444,37 @@ Deno.serve(async (req: Request) => {
   const profileId = campaign.profile_id as string;
 
   // ── Authorization ───────────────────────────────────────────────────────
-  // The caller may only run the advisor on their OWN campaigns.
-  if (profileId !== callerProfileId) {
+  // Multi-profile ownership (2026-10-18) — a login can now own more than one
+  // profile, so this can no longer resolve "the caller's profile" in
+  // isolation via .eq("user_id", user.id).maybeSingle() (silently null —
+  // not an error — the moment a login owns more than one, which previously
+  // 403'd a genuine owner outright). The campaign being analyzed already
+  // names its own profile unambiguously (profileId above); ownership is
+  // verified by checking that SPECIFIC profile belongs to this user, never
+  // by resolving "the" caller profile first and comparing ids.
+  const { data: ownedProfile } = await admin
+    .from("profiles")
+    .select("id")
+    .eq("id", profileId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  if (!ownedProfile) {
     return json({ error: "Forbidden" }, 403);
   }
 
   // ── Rate limit ──────────────────────────────────────────────────────────
   // Cap advisor runs per profile per hour. Each run is a paid LLM call, so this
   // bounds cost/abuse even for an authenticated, authorized caller. Counts runs
-  // across all of the caller's campaigns (campaign_advisor_runs has no
-  // profile_id column, so we scope by the caller's campaign IDs).
+  // across all of this profile's campaigns (campaign_advisor_runs has no
+  // profile_id column, so we scope by this profile's campaign IDs) — scoped
+  // per PROFILE, not per login, so a multi-profile login's quota on one
+  // profile is independent of its others.
   const RATE_LIMIT_PER_HOUR = 20;
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
   const { data: ownCampaignRows } = await admin
     .from("boost_campaigns")
     .select("id")
-    .eq("profile_id", callerProfileId);
+    .eq("profile_id", profileId);
   const ownCampaignIds = (ownCampaignRows ?? []).map((r) => r.id as string);
   if (ownCampaignIds.length) {
     const { count: recentRuns } = await admin

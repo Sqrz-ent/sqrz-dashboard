@@ -9,9 +9,14 @@ import { getCurrentProfile } from "~/lib/profile.server";
 // app" 200 — there's no legitimate reason a web session would ever call
 // this.
 //
-// This is the trust boundary: resolves the caller's OWN profile_id/
-// auth_user_id from their real session and NEVER accepts either as client
-// input. The edge function is invoked via a service-role admin client, whose
+// This is the trust boundary: resolves the caller's OWN auth_user_id from
+// their real session and NEVER accepts it as client input. profile_id MAY be
+// requested by the client (?profile_id=, multi-profile ownership, 2026-10-18
+// — a login can own more than one profile, and iOS needs to say which one
+// it's deleting), but it's never trusted as-is: getCurrentProfile verifies
+// the requested id actually belongs to this auth_user_id before it's ever
+// passed along, so a client can only ever name one of its OWN profiles. The
+// edge function is invoked via a service-role admin client, whose
 // Authorization header carries the SERVICE ROLE key, not this caller's own
 // token — so it cannot verify a Bearer token itself (same constraint as
 // profile-advisor's deployed, non-hardened variant) and trusts whatever this
@@ -32,7 +37,8 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const requestedProfileId = new URL(request.url).searchParams.get("profile_id");
+  const profile = await getCurrentProfile(supabase, user.id, requestedProfileId);
   if (!profile) {
     return Response.json({ error: "Profile not found" }, { status: 404 });
   }

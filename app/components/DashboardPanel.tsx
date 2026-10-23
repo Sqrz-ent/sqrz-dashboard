@@ -183,6 +183,13 @@ function ProfilePanel({ userId }: { userId: string }) {
         widget_soundcloud: form.widget_soundcloud.trim(),
         website_url: form.website_url.trim(),
       })
+      // TODO (multi-profile ownership, 2026-10-18): this UPDATE matches every
+      // profiles row owned by this login, not just the one this panel is
+      // editing — a login that owns more than one profile would silently
+      // overwrite all of them with the same form values. Not fixed here
+      // (web-only page, out of scope for the iOS-route pass this was found
+      // in) — needs a specific profile id, same as getCurrentProfile's
+      // requestedProfileId.
       .eq("user_id", userId);
 
     setSaving(false);

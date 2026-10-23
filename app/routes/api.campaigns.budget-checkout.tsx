@@ -56,7 +56,10 @@ export async function action({ request }: Route.ActionArgs) {
     if (!user) return redirect("/login", { headers });
   }
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  // Multi-profile ownership (2026-10-18) — iOS sends the active profile
+  // explicitly; see getCurrentProfile's own doc comment for the fallback.
+  const requestedProfileId = new URL(request.url).searchParams.get("profile_id");
+  const profile = await getCurrentProfile(supabase, user.id, requestedProfileId);
   if (!profile) {
     return isNative
       ? Response.json({ error: "Unauthorized" }, { status: 401 })
