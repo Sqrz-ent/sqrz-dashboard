@@ -14,7 +14,17 @@ const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 // from HubSpot → Settings → Objects → Deals → Pipelines → "Boost Campaigns".
 // ─────────────────────────────────────────────────────────────────────────────
 const BOOST_PIPELINE_ID = "916004525";
+// "pending" (2026-10-26) — a delivery='contact' template's request
+// (NewBoostCampaignSheet.isRequestMode on iOS), saved BEFORE the artist's
+// booking call rather than after. The "Boost Campaigns" pipeline has no
+// stage for this yet — it needs a new stage added in HubSpot (Settings →
+// Objects → Deals → Pipelines → "Boost Campaigns"), positioned before
+// "Booked", e.g. "Requested". Until BOOST_PENDING_STAGE_ID is set, this
+// entry resolves to "" (falsy), so a pending campaign's sync skips
+// gracefully (same 200 "No pipeline stage..." response as any other
+// unmapped status) rather than erroring against a nonexistent stage id.
 const BOOST_STAGE_IDS: Record<string, string> = {
+  pending:       Deno.env.get("BOOST_PENDING_STAGE_ID") ?? "",
   booked:        "1396005686",
   in_review:     "1396005687",
   needs_changes: "1396005688",
@@ -24,17 +34,15 @@ const BOOST_STAGE_IDS: Record<string, string> = {
   rejected:      "1396005692",
 };
 
-// Template labels (2026-10-24) — campaigns are described by template now,
-// not goal. GOAL_LABELS is kept ONLY as the legacy fallback for a row whose
-// campaign_template is NULL (created before that column existed); 'audience'
-// has no template equivalent (no creation path has ever produced it) and is
-// kept here purely so a legacy row carrying it still gets a readable label
-// instead of the raw string.
-const TEMPLATE_LABELS: Record<string, string> = {
-  template_01: "Awareness",
-  template_02: "Traffic",
-  custom: "Custom",
-};
+// goal is deprecated (2026-10-24) — GOAL_LABELS is kept ONLY as the legacy
+// fallback for a row whose campaign_template is NULL (created before that
+// column existed); 'audience' has no template equivalent (no creation path
+// has ever produced it) and is kept here purely so a legacy row carrying it
+// still gets a readable label instead of the raw string. The hardcoded
+// TEMPLATE_LABELS map this used to fall back to for a real campaign_template
+// (template_01/template_02/custom only) is gone (2026-10-26) — templates are
+// pure config now (campaign_templates.name, edited by Will), so the real
+// label is looked up live instead; see templateLabel below.
 const GOAL_LABELS: Record<string, string> = {
   bookings: "Bookings",
   visibility: "Visibility",
@@ -117,14 +125,25 @@ Deno.serve(async (req: Request) => {
 
   // 2026-10-24: label by campaign_template (the source of truth); goal is
   // deprecated and only consulted here for a legacy NULL-campaign_template
-  // row, via GOAL_LABELS above.
+  // row, via GOAL_LABELS above. 2026-10-26: the real label is now read live
+  // off campaign_templates.name — templates are pure config Will edits
+  // directly, so no template id/name is hardcoded here anymore. Falls back
+  // to the raw campaign_template string if the row can't be found (e.g.
+  // Will hasn't added it yet), same "never guess, show the raw value"
+  // convention the old TEMPLATE_LABELS fallback used.
   const campaignTemplate = (campaign.campaign_template as string | null) ?? null;
-  const templateLabel = campaignTemplate
-    ? (TEMPLATE_LABELS[campaignTemplate] ?? campaignTemplate)
-    : (() => {
-        const goalRaw = (campaign.goal as string) ?? "";
-        return GOAL_LABELS[goalRaw] ?? goalRaw;
-      })();
+  let templateLabel: string;
+  if (campaignTemplate) {
+    const { data: template } = await supabase
+      .from("campaign_templates")
+      .select("name")
+      .eq("id", campaignTemplate)
+      .maybeSingle();
+    templateLabel = (template?.name as string | undefined) ?? campaignTemplate;
+  } else {
+    const goalRaw = (campaign.goal as string) ?? "";
+    templateLabel = GOAL_LABELS[goalRaw] ?? goalRaw;
+  }
 
   // Campaign naming became required at creation 2026-08-03, so prefer the
   // user's own name for dealname — falls back to the old composed
@@ -138,14 +157,21 @@ Deno.serve(async (req: Request) => {
   // Plain-text description — a human-readable reference block (no custom props).
   const channelList = Array.isArray(campaign.channels) ? (campaign.channels as string[]) : [];
   const channelText = channelList.length ? channelList.join(", ") : (campaign.channel as string | null) ?? "";
+  // A request-mode submission (is_managed=true — see "pending" in
+  // BOOST_STAGE_IDS above) writes its free-text "Tell us about your goals"
+  // field into `notes`, the one and only writer of that column today — so
+  // for those rows this is relabeled "Goals:" rather than the generic
+  // "Notes:" label, for clarity on the deal. Both read the same column.
+  const notesLabel = campaign.is_managed ? "Goals" : "Notes";
   const descriptionLines = [
+    `Template: ${templateLabel}`,
     isGrow
       ? "Pricing: Grow — 20% management fee on ad spend"
       : "Pricing: Boost — flat activation fee + ad spend",
     channelText ? `Channels: ${channelText}` : null,
     (campaign.starts_at && campaign.ends_at) ? `Campaign dates: ${campaign.starts_at} – ${campaign.ends_at}` : null,
     campaign.target_audience ? `Target audience: ${campaign.target_audience}` : null,
-    campaign.notes ? `Notes: ${campaign.notes}` : null,
+    campaign.notes ? `${notesLabel}: ${campaign.notes}` : null,
     campaign.creative_asset_url ? `Creative: ${campaign.creative_asset_url}` : null,
     `SQRZ Campaign ID: ${campaign.id}`,
   ].filter(Boolean);
