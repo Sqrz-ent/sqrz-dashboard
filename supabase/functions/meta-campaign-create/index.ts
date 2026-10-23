@@ -659,18 +659,25 @@ Deno.serve(async (req) => {
     // (here, the campaign's own UTM tags) to whatever link the post already
     // points to, without changing the visible post content.
     //
-    // Instagram existing post (2026-10-23): source_instagram_media_id +
-    // instagram_user_id, NOT object_story_id/object_story_spec at all.
-    // Checked against Meta's current "Use Posts as Instagram Ads" guide,
-    // as asked: unlike the Facebook case above, a call_to_action WITH a
-    // link CAN be added to this creative type ("If you would like, you can
-    // update the call_to_action field for your promotion" — the guide's own
-    // wording) — deliberately NOT added here; this pass only reports the
-    // finding, per its own explicit instruction not to implement it yet.
-    // One documented caveat worth flagging for later: posts with
-    // copyrighted music or interactive filters/elements aren't eligible to
-    // be boosted at all (the guide recommends checking boost_eligibility_info
-    // before attempting this) — not checked here either, same "not yet" scope.
+    // Instagram existing post (2026-10-23, CTA added same day for Template
+    // 01/Awareness): source_instagram_media_id + instagram_user_id, NOT
+    // object_story_id/object_story_spec at all. Checked against Meta's
+    // current "Use Posts as Instagram Ads" guide, as asked in the pass that
+    // added this branch: unlike the Facebook case above, a call_to_action
+    // WITH a link CAN be added to this creative type ("If you would like,
+    // you can update the call_to_action field for your promotion" — the
+    // guide's own wording). Now implemented: Template 01/Awareness always
+    // promotes an Instagram post with a fixed LEARN_MORE button, so the CTA
+    // is hardcoded here rather than derived from ctaFor(c.cta_type) (that
+    // mapping is for the upload branch's artist-chosen CTA, a different
+    // concept) — link is `destination`, the same campaign-destination URL
+    // (already UTM-tagged — see its own computation above) every other
+    // branch in this function also uses. One documented caveat flagged but
+    // NOT checked here: posts with copyrighted music or interactive
+    // filters/elements aren't eligible to be boosted at all — meta-page-posts
+    // already checks this per-post (boost_eligibility_info) and the iOS
+    // picker greys those out before they can ever reach this far, so this
+    // branch trusts that an incoming existing_post_id was already eligible.
     let creativeFields: Record<string, unknown>;
     if (c.existing_post_id && c.existing_post_source === "instagram") {
       // instagram_user_id is the same value resolveIdentity already
@@ -686,6 +693,7 @@ Deno.serve(async (req) => {
         name: `${campaignName} — Creative`,
         source_instagram_media_id: c.existing_post_id,
         instagram_user_id: instagramUserId,
+        call_to_action: { type: "LEARN_MORE", value: { link: destination } },
       };
     } else if (c.existing_post_id) {
       let urlTags: string | undefined;

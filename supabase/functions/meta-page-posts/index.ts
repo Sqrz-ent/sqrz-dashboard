@@ -23,6 +23,28 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // Instagram items are listed first in the array (the client is expected to
 // enforce this ordering itself too, not just rely on it).
 //
+// Boost eligibility (2026-10-23, Instagram only — Template 01/Awareness
+// needs this since it ONLY offers Instagram posts) — each Instagram item
+// also requests `boost_eligibility_info` and carries `eligible`/
+// `ineligible_reason` back. Meta's own IG Media reference page names this
+// field and describes its purpose ("information about boosting eligibility
+// of a ... media as an ad and additional details if not eligible") but —
+// confirmed by direct inspection of that page — does not publish its actual
+// sub-field shape anywhere fetchable from here. parseBoostEligibility below
+// is deliberately defensive: it tries the handful of shapes Meta's other
+// "_eligibility"-style Graph API fields are known to use (an `is_eligible`/
+// `eligible` boolean alongside an `invalid_reasons`/`reasons` array or a
+// bare boolean) and FAILS OPEN (treated as eligible) on anything
+// unrecognized — an eligibility check this function can't parse should
+// never silently block a real post from being promotable. The raw value is
+// logged on every real call specifically so the actual shape Meta returns
+// can be confirmed/narrowed once this runs against a real connected
+// Instagram account — same "log raw, narrow later" approach already used by
+// meta-status-webhook's payload extractor. Facebook items carry no
+// eligibility fields at all (not requested, not checked) — Template 01 is
+// Instagram-only, and Facebook's own existing-post flow (Traffic template)
+// was never asked to add this.
+//
 // A missing/unlinked Instagram account, or an Instagram-specific fetch
 // failure, is NOT a hard failure of this endpoint — Facebook posts are
 // still returned, with instagram_error ("not_linked" | "missing_permission"
@@ -132,7 +154,45 @@ type RawInstagramMedia = {
   thumbnail_url?: string;
   permalink?: string;
   media_type?: string;
+  boost_eligibility_info?: unknown;
 };
+
+// See the header comment's "Boost eligibility" section for why this is
+// deliberately defensive rather than typed to one confirmed shape.
+function parseBoostEligibility(raw: unknown): { eligible: boolean; reason: string | null } {
+  if (raw == null) return { eligible: true, reason: null };
+  if (typeof raw === "boolean") return { eligible: raw, reason: null };
+  if (typeof raw !== "object") return { eligible: true, reason: null };
+  const obj = raw as Record<string, unknown>;
+
+  const reasonFrom = (v: unknown): string | null => {
+    if (typeof v === "string" && v.trim()) return v;
+    if (Array.isArray(v)) {
+      const strs = v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+      return strs.length ? strs.join(", ") : null;
+    }
+    return null;
+  };
+
+  if (typeof obj.is_eligible === "boolean") {
+    return {
+      eligible: obj.is_eligible,
+      reason: obj.is_eligible
+        ? null
+        : (reasonFrom(obj.invalid_reasons) ?? reasonFrom(obj.reasons) ?? "Not eligible to be promoted."),
+    };
+  }
+  if (typeof obj.eligible === "boolean") {
+    return {
+      eligible: obj.eligible,
+      reason: obj.eligible
+        ? null
+        : (reasonFrom(obj.reason) ?? reasonFrom(obj.reasons) ?? "Not eligible to be promoted."),
+    };
+  }
+  // Unrecognized shape — fail open rather than silently block a real post.
+  return { eligible: true, reason: null };
+}
 
 type FacebookPostItem = {
   source: "facebook";
@@ -152,6 +212,8 @@ type InstagramPostItem = {
   thumbnail_url: string | null;
   permalink: string | null;
   media_type: string | null;
+  eligible: boolean;
+  ineligible_reason: string | null;
 };
 
 Deno.serve(async (req: Request) => {
@@ -262,7 +324,10 @@ Deno.serve(async (req: Request) => {
     instagramMessage = "No Instagram account is linked to this Page.";
   } else {
     const igUrl = new URL(`${GRAPH}/${instagramAccount.id}/media`);
-    igUrl.searchParams.set("fields", "id,timestamp,caption,media_url,thumbnail_url,permalink,media_type");
+    igUrl.searchParams.set(
+      "fields",
+      "id,timestamp,caption,media_url,thumbnail_url,permalink,media_type,boost_eligibility_info",
+    );
     igUrl.searchParams.set("limit", String(MAX_POSTS));
     igUrl.searchParams.set("access_token", pageToken);
     const igRes = await fetch(igUrl.toString());
@@ -275,18 +340,30 @@ Deno.serve(async (req: Request) => {
       instagramMessage = message;
     } else {
       const rawMedia = (igBody.data as RawInstagramMedia[] | undefined) ?? [];
+      // Logged raw so the real boost_eligibility_info shape can be
+      // confirmed/narrowed against a live connected account — see the
+      // header comment's "Boost eligibility" section.
+      console.log(
+        `[meta-page-posts] profile ${profileId} boost_eligibility_info raw:`,
+        JSON.stringify(rawMedia.map((m) => ({ id: m.id, boost_eligibility_info: m.boost_eligibility_info }))),
+      );
       instagramPosts = rawMedia
         .filter((m): m is RawInstagramMedia & { id: string } => !!m.id)
-        .map((m) => ({
-          source: "instagram",
-          id: m.id,
-          timestamp: m.timestamp ?? null,
-          caption: m.caption ? m.caption.slice(0, MESSAGE_PREVIEW_LENGTH) : null,
-          media_url: m.media_url ?? null,
-          thumbnail_url: m.thumbnail_url ?? null,
-          permalink: m.permalink ?? null,
-          media_type: m.media_type ?? null,
-        }));
+        .map((m) => {
+          const eligibility = parseBoostEligibility(m.boost_eligibility_info);
+          return {
+            source: "instagram",
+            id: m.id,
+            timestamp: m.timestamp ?? null,
+            caption: m.caption ? m.caption.slice(0, MESSAGE_PREVIEW_LENGTH) : null,
+            media_url: m.media_url ?? null,
+            thumbnail_url: m.thumbnail_url ?? null,
+            permalink: m.permalink ?? null,
+            media_type: m.media_type ?? null,
+            eligible: eligibility.eligible,
+            ineligible_reason: eligibility.reason,
+          };
+        });
     }
   }
 
