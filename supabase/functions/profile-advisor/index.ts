@@ -77,7 +77,11 @@ type CampaignAdvisorSnapshot = {
 
 type ProfileAdvisorCampaign = {
   id: string;
-  goal: string | null; // bookings | visibility | audience — the self-serve campaign's OWN goal field, distinct from profiles.goal
+  // Resolved via effectiveTemplate (2026-10-24) — the self-serve campaign's
+  // OWN template (template_01/template_02/null), distinct from
+  // profiles.goal below. boost_campaigns.goal is deprecated, never sent to
+  // the model directly — see effectiveTemplate's own comment.
+  template: string | null;
   status: string | null;
   starts_at: string | null;
   ends_at: string | null;
@@ -125,6 +129,23 @@ type ProfileAdvisorPayload = {
   campaigns: ProfileAdvisorCampaign[];
 };
 
+// boost_campaigns.goal is deprecated (2026-10-24) — campaigns are defined by
+// campaign_template now, never by goal. This is ONLY the legacy-compat path
+// for a row created before campaign_template existed (NULL); never
+// consulted for a row that already has a real campaign_template. 'audience'
+// has no template equivalent (no creation path has ever produced it) and
+// correctly falls through to null. NOT to be confused with profiles.goal
+// (ProfileAdvisorPayload.goal above) — a completely different column/
+// feature, untouched by this.
+function effectiveTemplate(campaignTemplate: string | null, goal: string | null): string | null {
+  if (campaignTemplate) return campaignTemplate;
+  switch (goal) {
+    case "visibility": return "template_01";
+    case "bookings":   return "template_02";
+    default:           return null;
+  }
+}
+
 // ─── LLM boundary ─────────────────────────────────────────────────────────────
 // getAdvisorRecommendation is the ONLY place any provider's API is called —
 // same provider-swap pattern as campaign-advisor (ADVISOR_PROVIDERS keyed by
@@ -144,19 +165,19 @@ insights: ONE combined list, maximum 5 items total. Each item is { type, text } 
 
 actions: maximum 2-3 items, each { action, reason, confidence }. reason cites the specific number(s) that drove it, capped at ~10 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
 
-Goal-aware weighting — payload.goal is one of grow_views, get_booked, other, or null (not chosen yet — if null, keep advice general and do not assume a goal on the artist's behalf):
+Goal-aware weighting — payload.goal (the artist's own stated Dashboard goal, NOT a campaign's template) is one of grow_views, get_booked, other, or null (not chosen yet — if null, keep advice general and do not assume a goal on the artist's behalf):
 - grow_views: weight analytics.organic_views, analytics.campaign_views, and the views_7d vs. views_prev_7d trend.
-- get_booked: weight analytics.booking_modal_opens_7d/total and chat_opens_7d/total, and whether any existing campaign's own goal was "bookings".
+- get_booked: weight analytics.booking_modal_opens_7d/total and chat_opens_7d/total, and whether any existing campaign's own template was template_02 (Traffic).
 - other: weight overall traffic and engagement broadly — no single metric should dominate.
 
 WHAT A RECOMMENDED ACTION CAN ACTUALLY BE — read carefully, this is a hard constraint on every action you write:
-The artist can self-serve create exactly ONE kind of campaign in the app today: a Meta (Facebook + Instagram) ad campaign with one of three goals — "bookings", "visibility", or "audience". There is no self-serve retargeting, lookalike-audience, or multi-channel campaign creation, and no other ad platform is available self-serve. Anything beyond that — real retargeting or lookalike targeting, another ad channel, or a larger/managed campaign — requires booking a human discovery call inside the app; it is not a one-tap, in-app action.
-You MAY use natural, motivating language to describe the STRATEGY behind a suggestion — e.g. calling a visibility-goal campaign aimed at a near-empty profile "a short warm-up campaign", or calling a bookings-goal campaign aimed at an artist with a lot of organic traffic "a more sales-oriented push". Artists respond better to that framing than to raw mechanics. But every action's underlying route must be exactly one of these two, and you must not blur them:
-  1. Starting a new self-serve campaign (in-app, Meta only, goal = bookings / visibility / audience) — only ever the right route when what you're recommending IS achievable with one of those three goal pills, however you choose to describe it.
-  2. Booking the discovery call — required whenever the real right move needs something self-serve cannot do (genuine retargeting/lookalike targeting, another channel, a bigger or managed campaign).
+The artist can self-serve create exactly ONE kind of campaign in the app today: a Meta (Facebook + Instagram) ad campaign using one of two templates — Awareness (promotes an existing Instagram post, builds passive reach) or Traffic (uploads new creative, drives visits/bookings). There is no self-serve retargeting, lookalike-audience, or multi-channel campaign creation, and no other ad platform is available self-serve. Anything beyond that — real retargeting or lookalike targeting, another ad channel, or a larger/managed campaign — requires booking a human discovery call inside the app; it is not a one-tap, in-app action.
+You MAY use natural, motivating language to describe the STRATEGY behind a suggestion — e.g. calling an Awareness-template campaign aimed at a near-empty profile "a short warm-up campaign", or calling a Traffic-template campaign aimed at an artist with a lot of organic traffic "a more sales-oriented push". Artists respond better to that framing than to raw mechanics. But every action's underlying route must be exactly one of these two, and you must not blur them:
+  1. Starting a new self-serve campaign (in-app, Meta only, template = Awareness or Traffic) — only ever the right route when what you're recommending IS achievable with one of those two templates, however you choose to describe it.
+  2. Booking the discovery call — required whenever the real right move needs something self-serve cannot do (genuine retargeting/lookalike targeting, another channel, a bigger or managed campaign — this is also the Custom template's own route, never a self-serve row).
 Never say or imply something is "one tap away", "available now", or that a specific targeting mechanic (e.g. "set up retargeting") exists self-serve when it doesn't. If you are unsure which of the two routes fits, prefer recommending the discovery call — it is always a real, available option for anything self-serve can't do.
 
-Campaigns: for each entry in payload.campaigns, status/goal/dates/stats are always present. latest_advisor_result is present ONLY when that specific campaign has already been analyzed individually (campaign_advisor_runs has a stored row for it) — when present, trust and reuse its health/summary/top_action rather than re-deriving your own judgment of that one campaign from its raw stats. When a campaign has no latest_advisor_result, you may still cite its raw numbers (spend, impressions, clicks) in service of the PROFILE-level picture, but do not invent an individual health verdict for it.
+Campaigns: for each entry in payload.campaigns, status/template/dates/stats are always present (template is template_01/template_02/null — null means an older campaign whose template isn't known; treat it like "other" above, don't assume a skew). latest_advisor_result is present ONLY when that specific campaign has already been analyzed individually (campaign_advisor_runs has a stored row for it) — when present, trust and reuse its health/summary/top_action rather than re-deriving your own judgment of that one campaign from its raw stats. When a campaign has no latest_advisor_result, you may still cite its raw numbers (spend, impressions, clicks) in service of the PROFILE-level picture, but do not invent an individual health verdict for it.
 
 Services / bookings gating: if services_active is false, do NOT treat booking-related metrics as a problem — state plainly that booking performance can't be judged yet because there's nothing to book.
 
@@ -208,7 +229,7 @@ const ADVISOR_TOOL = {
             action: {
               type: "string",
               description:
-                "What the artist should DO. Must route to either starting a self-serve campaign (bookings/visibility/audience) or booking the discovery call — never imply a one-tap action that doesn't exist.",
+                "What the artist should DO. Must route to either starting a self-serve campaign (template = Awareness or Traffic) or booking the discovery call — never imply a one-tap action that doesn't exist.",
             },
             reason: {
               type: "string",
@@ -376,7 +397,7 @@ Deno.serve(async (req: Request) => {
   const { data: campaignRows } = await admin
     .from("boost_campaigns")
     .select(
-      "id, goal, status, starts_at, ends_at, budget_amount, budget_currency, stat_spend, stat_impressions, stat_link_clicks, stat_profile_visits",
+      "id, campaign_template, goal, status, starts_at, ends_at, budget_amount, budget_currency, stat_spend, stat_impressions, stat_link_clicks, stat_profile_visits",
     )
     .eq("profile_id", profileId)
     .order("starts_at", { ascending: false, nullsFirst: false });
@@ -474,7 +495,7 @@ Deno.serve(async (req: Request) => {
 
   const campaigns: ProfileAdvisorCampaign[] = (campaignRows ?? []).map((c) => ({
     id: c.id as string,
-    goal: (c.goal as string | null) ?? null,
+    template: effectiveTemplate(c.campaign_template as string | null, c.goal as string | null),
     status: (c.status as string | null) ?? null,
     starts_at: (c.starts_at as string | null) ?? null,
     ends_at: (c.ends_at as string | null) ?? null,

@@ -62,9 +62,29 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ── Meta enum mappings (verified against Meta's real enums, not blind casing) ──
 
-// Campaign objective (ODAX). Sending traffic to a profile / private-link URL, so
-// TRAFFIC is the deliverable default; awareness/engagement for the softer goals.
-function objectiveFor(goal: string | null): string {
+// Campaign objective (ODAX) — keyed on campaign_template (2026-10-24), the
+// source of truth for which template a campaign came from. template_01 =
+// Awareness (existing Instagram post + fixed Learn More CTA), template_02 =
+// Traffic (new creative upload). 'custom' never reaches this function in
+// practice (Large Boost/Managed opens a discovery call instead of inserting
+// a self-serve row) but is handled defensively, matching objectiveForGoal's
+// old default.
+function objectiveForTemplate(templateId: string): string {
+  switch (templateId) {
+    case "template_01": return "OUTCOME_AWARENESS";
+    case "template_02": return "OUTCOME_TRAFFIC";
+    default:             return "OUTCOME_TRAFFIC";
+  }
+}
+
+// goal is deprecated (2026-10-24) — this is ONLY the legacy fallback for a
+// campaign whose campaign_template is NULL (created before that column was
+// wired up). Never consulted for a row that has a real campaign_template.
+// Sending traffic to a profile/private-link URL, so TRAFFIC is the
+// deliverable default; awareness/engagement for the softer goals. 'audience'
+// is kept here only because old rows may still carry it — no current
+// template ever produces it.
+function objectiveForGoal(goal: string | null): string {
   switch (goal) {
     case "visibility": return "OUTCOME_AWARENESS";
     case "audience":   return "OUTCOME_ENGAGEMENT";
@@ -199,6 +219,12 @@ type CampaignRow = {
   id: string;
   profile_id: string;
   name: string | null;
+  // Source of truth for which template this campaign came from (2026-10-24
+  // — see boost_campaigns.campaign_template's column comment). goal is
+  // deprecated: kept only as the legacy fallback input to objectiveForGoal
+  // for a row whose campaign_template is NULL (created before this column
+  // existed) — never read for any other decision in this function.
+  campaign_template: string | null;
   goal: string | null;
   cta_type: string | null;
   primary_text: string | null;
@@ -444,7 +470,7 @@ Deno.serve(async (req) => {
   // Load campaign (+ idempotency guard) and the owning profile's slug/name.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, name, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, existing_post_source, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
+    .select("id, profile_id, name, campaign_template, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, existing_post_source, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -510,7 +536,11 @@ Deno.serve(async (req) => {
   const headline = c.headline?.trim() || displayName;
   const primaryText = c.primary_text?.trim() || c.notes?.trim() || `Discover ${displayName} on SQRZ.`;
   const description = c.description?.trim() || undefined;
-  const objective = objectiveFor(c.goal);
+  // 2026-10-24: campaign_template decides the objective now; goal is only
+  // consulted as objectiveForGoal's legacy fallback for a NULL-template row.
+  const objective = c.campaign_template
+    ? objectiveForTemplate(c.campaign_template)
+    : objectiveForGoal(c.goal);
   const cta = ctaFor(c.cta_type);
 
   // Track created objects for rollback (reverse order on failure).

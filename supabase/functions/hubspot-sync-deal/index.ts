@@ -24,6 +24,17 @@ const BOOST_STAGE_IDS: Record<string, string> = {
   rejected:      "1396005692",
 };
 
+// Template labels (2026-10-24) — campaigns are described by template now,
+// not goal. GOAL_LABELS is kept ONLY as the legacy fallback for a row whose
+// campaign_template is NULL (created before that column existed); 'audience'
+// has no template equivalent (no creation path has ever produced it) and is
+// kept here purely so a legacy row carrying it still gets a readable label
+// instead of the raw string.
+const TEMPLATE_LABELS: Record<string, string> = {
+  template_01: "Awareness",
+  template_02: "Traffic",
+  custom: "Custom",
+};
 const GOAL_LABELS: Record<string, string> = {
   bookings: "Bookings",
   visibility: "Visibility",
@@ -104,17 +115,25 @@ Deno.serve(async (req: Request) => {
     (profile?.slug as string) ||
     "Unknown";
 
-  const goalRaw = (campaign.goal as string) ?? "";
-  const goalLabel = GOAL_LABELS[goalRaw] ?? goalRaw;
+  // 2026-10-24: label by campaign_template (the source of truth); goal is
+  // deprecated and only consulted here for a legacy NULL-campaign_template
+  // row, via GOAL_LABELS above.
+  const campaignTemplate = (campaign.campaign_template as string | null) ?? null;
+  const templateLabel = campaignTemplate
+    ? (TEMPLATE_LABELS[campaignTemplate] ?? campaignTemplate)
+    : (() => {
+        const goalRaw = (campaign.goal as string) ?? "";
+        return GOAL_LABELS[goalRaw] ?? goalRaw;
+      })();
 
   // Campaign naming became required at creation 2026-08-03, so prefer the
   // user's own name for dealname — falls back to the old composed
-  // "Boost/Grow — artist — goal" name for legacy rows that predate it
+  // "Boost/Grow — artist — template" name for legacy rows that predate it
   // (name null/blank), so nothing breaks on those.
   const campaignName = (campaign.name as string | null)?.trim();
   const dealName = campaignName
     ? campaignName
-    : [isGrow ? "Grow" : "Boost", artistName, goalLabel].filter(Boolean).join(" — ");
+    : [isGrow ? "Grow" : "Boost", artistName, templateLabel].filter(Boolean).join(" — ");
 
   // Plain-text description — a human-readable reference block (no custom props).
   const channelList = Array.isArray(campaign.channels) ? (campaign.channels as string[]) : [];

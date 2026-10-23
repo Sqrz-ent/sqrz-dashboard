@@ -14,7 +14,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // the get_analytics_page RPC), server-computed cost-efficiency metrics, the
 // retargetable audience size, and the artist's own previous campaigns (the only
 // benchmark source) — then asks one LLM to reason over the whole thing and
-// return structured, goal-aware advice. Each result is persisted (append-only)
+// return structured, template-aware advice. Each result is persisted (append-only)
 // to campaign_advisor_runs. No caching: computed live on every call.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,9 @@ type Derived = {
 };
 
 type PreviousCampaign = {
-  goal: string | null;
+  // Resolved via effectiveTemplate (2026-10-24) — goal is deprecated, never
+  // sent to the model directly. See effectiveTemplate's own comment.
+  template: string | null;
   status: string | null;
   spend: number | null;
   impressions: number | null;
@@ -59,7 +61,9 @@ type PreviousCampaign = {
 
 type AdvisorPayload = {
   currency: string | null;
-  goal: string | null;
+  // Resolved via effectiveTemplate (2026-10-24) — goal is deprecated, never
+  // sent to the model directly.
+  template: string | null;
   artist: {
     name: string | null;
     city: string | null;
@@ -122,6 +126,22 @@ type AdvisorResult = {
 };
 
 type AdvisorImpl = (payload: AdvisorPayload) => Promise<AdvisorResult>;
+
+// goal is deprecated (2026-10-24) — campaigns are defined by
+// campaign_template now, never by goal. This is ONLY the legacy-compat path
+// for a row created before campaign_template existed (NULL); it's never
+// consulted for a row that already has a real campaign_template. 'audience'
+// has no template equivalent (no creation path has ever produced it) and
+// correctly falls through to null — the prompt's template-aware weighting
+// has no case for it either.
+function effectiveTemplate(campaignTemplate: string | null, goal: string | null): string | null {
+  if (campaignTemplate) return campaignTemplate;
+  switch (goal) {
+    case "visibility": return "template_01";
+    case "bookings":   return "template_02";
+    default:           return null;
+  }
+}
 
 // ─── Derived metrics (Part 4) ─────────────────────────────────────────────────
 // Every division is guarded. A null/zero denominator yields `null` for that
@@ -194,14 +214,14 @@ insights: ONE combined list, maximum 5 items total (not three separate sections)
 
 actions: maximum 2-3 items, each { action, reason, confidence }. action is what the artist should DO (never a bare restated metric). reason cites the specific number(s) that drove it, capped at ~10 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
 
-Goal-aware metric weighting — lead with the metrics that match payload.goal (one of audience, bookings, visibility); do not weight them all equally:
-- visibility: passive reach. Weight impressions, reach, CPM, and low frequency.
-- audience: active audience-building — turning attention into engaged fans, not just eyeballs. Weight CTA clicks (especially streaming-platform links like Spotify/SoundCloud), widget engagement (opens/plays), and retargetable-audience growth.
-- bookings: booking flow opens and CTA clicks toward booking.
+Template-aware metric weighting — lead with the metrics that match payload.template (one of template_01, template_02, or null for an older campaign whose template isn't known); do not weight them all equally:
+- template_01 (Awareness — promotes an existing Instagram post): passive reach. Weight impressions, reach, CPM, and low frequency.
+- template_02 (Traffic — drives visits with new creative): booking flow opens and CTA clicks toward booking.
+- null (older campaign, template unknown): weight broadly across reach, clicks, and booking signals — do not assume either skew.
 
 Benchmarks: compare ONLY against previous_campaigns — the artist's own past campaigns — and only when that array is non-empty. If it is empty, do not compare; historical comparison is not available yet. NEVER fabricate genre, country, or SQRZ-average comparisons; that data does not exist.
 
-Views / unique visitors: sqrz_analytics.views_driven is the trustworthy on-site view count (client-side, matches the platform's own landing-page-view count). sqrz_analytics.unique_visitors is null for campaign traffic because it is tracked cookielessly — treat null as "not measurable", never as zero, and do not fault it. For an audience goal, lean on retargetable_audience and views_driven instead.
+Views / unique visitors: sqrz_analytics.views_driven is the trustworthy on-site view count (client-side, matches the platform's own landing-page-view count). sqrz_analytics.unique_visitors is null for campaign traffic because it is tracked cookielessly — treat null as "not measurable", never as zero, and do not fault it.
 
 Services / bookings gating: if services_active is false, do NOT treat booking_flow_opens or any booking-related metric as a problem. State plainly that booking performance cannot be judged because there is nothing to book yet.
 
@@ -423,7 +443,7 @@ Deno.serve(async (req: Request) => {
   const { data: campaign, error: campaignErr } = await admin
     .from("boost_campaigns")
     .select(
-      "id, profile_id, goal, status, budget_amount, budget_currency, stat_spend, stat_impressions, stat_reach, stat_link_clicks, stat_profile_visits, stat_cpm, starts_at, ends_at",
+      "id, profile_id, campaign_template, goal, status, budget_amount, budget_currency, stat_spend, stat_impressions, stat_reach, stat_link_clicks, stat_profile_visits, stat_cpm, starts_at, ends_at",
     )
     .eq("id", campaignId)
     .single();
@@ -482,7 +502,7 @@ Deno.serve(async (req: Request) => {
   const { data: priorRows } = await admin
     .from("boost_campaigns")
     .select(
-      "id, goal, status, stat_spend, stat_impressions, stat_cpm, stat_profile_visits",
+      "id, campaign_template, goal, status, stat_spend, stat_impressions, stat_cpm, stat_profile_visits",
     )
     .eq("profile_id", profileId)
     .in("status", ["completed", "live"])
@@ -495,7 +515,7 @@ Deno.serve(async (req: Request) => {
     const pVisits =
       p.stat_profile_visits == null ? null : Number(p.stat_profile_visits);
     return {
-      goal: (p.goal as string | null) ?? null,
+      template: effectiveTemplate(p.campaign_template as string | null, p.goal as string | null),
       status: (p.status as string | null) ?? null,
       spend: pSpend,
       impressions:
@@ -582,7 +602,7 @@ Deno.serve(async (req: Request) => {
   //    cost_per_landing_page_view divides ONLY by the Meta stat_profile_visits.
   const payload: AdvisorPayload = {
     currency: (campaign.budget_currency as string | null)?.toUpperCase() ?? null,
-    goal: (campaign.goal as string | null) ?? null,
+    template: effectiveTemplate(campaign.campaign_template as string | null, campaign.goal as string | null),
     artist: {
       name: artistName,
       city: (profile?.city as string | null) ?? null,

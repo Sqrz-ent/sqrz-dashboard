@@ -34,10 +34,14 @@
 //                          already recorded this transaction, this is a
 //                          no-op. If not, this can ONLY auto-resolve the
 //                          unambiguous case: appAccountToken → profile_id,
-//                          the purchased product_id → its mapped goal
-//                          (campaign_activation_products), then EXACTLY ONE
-//                          campaign for that profile in a draft-like status
-//                          ('booked'/'needs_changes') with that same goal.
+//                          the purchased product_id → its mapped
+//                          template_id (campaign_activation_products,
+//                          re-keyed 2026-10-24 — goal is deprecated, no
+//                          longer the lookup key), then EXACTLY ONE campaign
+//                          for that profile in a draft-like status
+//                          ('booked'/'needs_changes') matching that template
+//                          (campaign_template, or — legacy rows only — the
+//                          equivalent goal, see legacyGoalForTemplate).
 //                          Zero or multiple matches are logged and left
 //                          alone — never guessed. See the task write-up for
 //                          why this ambiguity exists (the primary path's
@@ -71,6 +75,21 @@ async function appendEventError(eventId: number | undefined, note: string): Prom
     .from("apple_webhook_events")
     .update({ error: `${prior}${note}`.slice(0, 2000) })
     .eq("id", eventId);
+}
+
+// goal is deprecated (2026-10-24) — campaigns are defined by
+// campaign_template now. This is ONLY the legacy-compat reverse mapping, so
+// the candidate query above can also catch a draft campaign that predates
+// campaign_template (NULL). 'audience' has no equivalent template (no
+// creation path has ever produced it), so there's no reverse case for it —
+// an audience-goal legacy row simply can't be auto-resolved here, same as
+// today.
+function legacyGoalForTemplate(templateId: string): string | null {
+  switch (templateId) {
+    case "template_01": return "visibility";
+    case "template_02": return "bookings";
+    default:            return null;
+  }
 }
 
 type ForwardedBody = {
@@ -158,27 +177,38 @@ Deno.serve(async (req) => {
         return json({ ok: true, skipped: "no_app_account_token" });
       }
 
+      // 2026-10-24: keyed on template_id now, not goal — goal is deprecated.
       const { data: mapping } = await supabase
         .from("campaign_activation_products")
-        .select("goal")
+        .select("template_id")
         .eq("product_id", productId)
         .maybeSingle();
       if (!mapping) {
         await appendEventError(eventId, `ONE_TIME_CHARGE: product ${productId} has no campaign_activation_products mapping`);
         return json({ ok: true, skipped: "unmapped_product" });
       }
+      const templateId = mapping.template_id as string;
 
-      const { data: candidates } = await supabase
+      // Candidates match EITHER a real campaign_template (new rows) OR —
+      // only because campaign_template is a recent column — a legacy row
+      // that still has campaign_template NULL but the equivalent goal, so
+      // an in-flight purchase against an old draft isn't missed just
+      // because this pass shipped mid-flight. legacyGoalForTemplate is the
+      // ONLY place goal is read in this function now.
+      const legacyGoal = legacyGoalForTemplate(templateId);
+      const candidatesQuery = supabase
         .from("boost_campaigns")
         .select("id")
         .eq("profile_id", appAccountToken)
-        .eq("goal", mapping.goal)
         .in("status", ["booked", "needs_changes"]);
+      const { data: candidates } = await (legacyGoal
+        ? candidatesQuery.or(`campaign_template.eq.${templateId},and(campaign_template.is.null,goal.eq.${legacyGoal})`)
+        : candidatesQuery.eq("campaign_template", templateId));
 
       if (!candidates || candidates.length !== 1) {
         await appendEventError(
           eventId,
-          `ONE_TIME_CHARGE: cannot auto-resolve campaign for profile ${appAccountToken} / goal ${mapping.goal} — ${candidates?.length ?? 0} draft-like candidate(s), needs manual reconciliation`,
+          `ONE_TIME_CHARGE: cannot auto-resolve campaign for profile ${appAccountToken} / template ${templateId} — ${candidates?.length ?? 0} draft-like candidate(s), needs manual reconciliation`,
         );
         return json({ ok: true, skipped: "ambiguous_campaign", candidate_count: candidates?.length ?? 0 });
       }

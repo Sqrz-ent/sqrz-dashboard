@@ -27,6 +27,11 @@
 // create, or api/campaigns/checkout — those are a completely separate
 // money flow (ad spend) from this one (paying to submit a campaign at all).
 //
+// Product resolution (2026-10-24): keyed on the campaign's campaign_template
+// (the source of truth — see boost_campaigns.campaign_template's column
+// comment), never goal. goal is deprecated; legacyTemplateFromGoal below is
+// ONLY consulted for a legacy row with campaign_template NULL.
+//
 // Auth: the caller's own Supabase JWT (same manual-validation pattern as
 // meta-insights-sync's user-triggered path / the meta-page-* functions) +
 // user_owns_profile ownership check on the CAMPAIGN'S profile — deployed
@@ -55,6 +60,21 @@ type Body = {
   signed_transaction?: string;
 };
 
+// goal is deprecated (2026-10-24) — campaigns are defined by campaign_template
+// now, never by goal. This is ONLY the legacy-compat path for a row created
+// before campaign_template existed (NULL); it must never be consulted for a
+// row that already has a real campaign_template. 'audience' has no
+// equivalent template (no creation path has ever produced it) and correctly
+// falls through to null — an audience-goal legacy row has no product to
+// match, same as any other unresolvable template.
+function legacyTemplateFromGoal(goal: string | null): string | null {
+  switch (goal) {
+    case "visibility": return "template_01";
+    case "bookings":   return "template_02";
+    default:           return null;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
@@ -77,11 +97,11 @@ Deno.serve(async (req: Request) => {
     return json({ error: "missing_fields", message: "campaign_id and signed_transaction are required." }, 400);
   }
 
-  // ── Load the campaign (profile_id + goal decide ownership and the
-  // expected product) ──
+  // ── Load the campaign (profile_id decides ownership; campaign_template —
+  // or, for a legacy NULL row, goal — decides the expected product) ──
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, goal, status")
+    .select("id, profile_id, campaign_template, goal, status")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -134,11 +154,21 @@ Deno.serve(async (req: Request) => {
     return json({ error: "invalid_transaction", message: "Transaction is missing required fields." }, 400);
   }
 
-  // ── Product must match this campaign's template (via its goal) ──
+  // ── Product must match this campaign's template (2026-10-24: keyed on
+  // campaign_template now, not goal — goal is deprecated and kept only as
+  // the legacy fallback for a NULL-campaign_template row, via
+  // legacyTemplateFromGoal below) ──
+  const templateId = campaign.campaign_template ?? legacyTemplateFromGoal(campaign.goal as string | null);
+  if (!templateId) {
+    return json({
+      error: "product_mismatch",
+      message: "This campaign has no template to match a product against.",
+    }, 400);
+  }
   const { data: mapping, error: mappingErr } = await supabase
     .from("campaign_activation_products")
     .select("product_id")
-    .eq("goal", campaign.goal ?? "")
+    .eq("template_id", templateId)
     .maybeSingle();
   if (mappingErr) return json({ error: `product mapping lookup: ${mappingErr.message}` }, 500);
   if (!mapping || mapping.product_id !== productId) {
