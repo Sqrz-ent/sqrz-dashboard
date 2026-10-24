@@ -7,9 +7,10 @@
 // "already has X" short-circuit shape as meta_campaign_id in
 // meta-campaign-create.
 //
-// NOT wired into any campaign flow yet — nothing currently imports or calls
-// ensureLeadgenForm. meta-campaign-create's lead_form creative branch (the
-// actual call site) is a later pass.
+// Wired in (2026-10-25) — meta-campaign-create's lead_form creative branch
+// is the one call site, calling ensureLeadgenForm before building the
+// creative for any campaign whose resolved template has
+// creative_source==='lead_form'.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GRAPH_VERSION = Deno.env.get("META_GRAPH_VERSION") ?? "v26.0";

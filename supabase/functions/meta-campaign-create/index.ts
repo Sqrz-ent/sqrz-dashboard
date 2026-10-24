@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { resolveAndStorePageInstagram } from "../_shared/meta-instagram.ts";
+import { ensureLeadgenForm, type LeadFormConfig } from "../_shared/meta-leadgen-form.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // meta-campaign-create
@@ -80,12 +81,21 @@ function objectiveForGoal(goal: string | null): string {
 }
 
 // Ad set optimization_goal paired with the objective. billing_event is IMPRESSIONS
-// for all three (valid + simplest across objectives).
+// for all four (valid + simplest across objectives).
+//
+// OUTCOME_LEADS (2026-10-25) — template-driven only: this objective value
+// only ever comes from a lead_form template's own meta_objective column
+// (Will sets it to OUTCOME_LEADS directly, see the template-resolution
+// block below), never from objectiveForGoal's deprecated goal-based
+// fallback. Keying this switch on the objective string — which already
+// flows from the template — is what "driven by the template, not goal"
+// means in practice; there's no separate isLeadForm parameter needed here.
 function optimizationGoalFor(objective: string): string {
   switch (objective) {
     case "OUTCOME_AWARENESS":  return "REACH";
     case "OUTCOME_ENGAGEMENT": return "POST_ENGAGEMENT";
     case "OUTCOME_TRAFFIC":    return "LINK_CLICKS";
+    case "OUTCOME_LEADS":      return "LEAD_GENERATION";
     default:                    return "LINK_CLICKS";
   }
 }
@@ -232,6 +242,10 @@ type CampaignRow = {
   starts_at: string | null;
   ends_at: string | null;
   meta_campaign_id: string | null;
+  // Lead Ads (2026-10-25) — the per-campaign Meta Instant Form id, created
+  // (and cached here) by ensureLeadgenForm. Idempotent, same shape as
+  // meta_campaign_id itself.
+  meta_leadgen_form_id: string | null;
   // Geo-targeting (2026-10-21, create-sheet slimdown follow-up) — all three
   // present together (iOS requires the location picker to launch) or all
   // absent (older campaigns, or any row predating this column). location_city
@@ -482,7 +496,7 @@ Deno.serve(async (req) => {
   // Load campaign (+ idempotency guard) and the owning profile's slug/name.
   const { data: campaign, error: campErr } = await supabase
     .from("boost_campaigns")
-    .select("id, profile_id, name, campaign_template, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, existing_post_source, utm_url, starts_at, ends_at, meta_campaign_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
+    .select("id, profile_id, name, campaign_template, goal, cta_type, primary_text, headline, description, notes, creative_asset_url, existing_post_id, existing_post_source, utm_url, starts_at, ends_at, meta_campaign_id, meta_leadgen_form_id, location_city, location_latitude, location_longitude, location_radius_km, end_mode, daily_budget_cents")
     .eq("id", campaignId)
     .maybeSingle();
   if (campErr) return json({ error: `campaign lookup: ${campErr.message}` }, 500);
@@ -557,17 +571,30 @@ Deno.serve(async (req) => {
   // campaign_template (legacy row) both fall back to exactly today's
   // behavior: objectiveForGoal(c.goal) for the objective, "LEARN_MORE" for
   // the Instagram existing-post CTA.
-  let template: { meta_objective: string | null; cta_type: string | null } | null = null;
+  let template: {
+    meta_objective: string | null;
+    cta_type: string | null;
+    // Lead Ads (2026-10-25) — creative_source is the ONLY signal used to
+    // decide the lead_form branch below (isLeadForm); c.goal is never
+    // consulted for this. lead_form_config is Will's hand-edited Instant
+    // Form definition, passed straight through to ensureLeadgenForm.
+    creative_source: string | null;
+    lead_form_config: LeadFormConfig | null;
+  } | null = null;
   if (c.campaign_template) {
     const { data: templateRow } = await supabase
       .from("campaign_templates")
-      .select("meta_objective, cta_type")
+      .select("meta_objective, cta_type, creative_source, lead_form_config")
       .eq("id", c.campaign_template)
       .maybeSingle();
     template = templateRow ?? null;
   }
   const objective = template?.meta_objective || objectiveForGoal(c.goal);
   const cta = ctaFor(c.cta_type);
+  // Template-driven only — never branch any Lead Ads behavior on c.goal
+  // (deprecated). See optimizationGoalFor's own comment for why that
+  // function needs no separate parameter for this.
+  const isLeadForm = template?.creative_source === "lead_form";
 
   // Track created objects for rollback (reverse order on failure).
   const created: { campaign?: string; adset?: string; creative?: string; ad?: string } = {};
@@ -666,6 +693,12 @@ Deno.serve(async (req) => {
       // required and correct (every ad here is Page-anchored via
       // object_story_spec.page_id below) but is not sufficient on its own.
       promoted_object: { page_id: resolvedPageId },
+      // Lead Ads (2026-10-25) — the form opens directly on the ad itself
+      // rather than navigating anywhere else, required by Meta for a
+      // LEAD_GENERATION-optimized ad set. Absent (and irrelevant) for every
+      // other template — contributes no key at all when isLeadForm is
+      // false, so this is a no-op for existing payloads.
+      ...(isLeadForm ? { destination_type: "ON_AD" } : {}),
       // dsa_beneficiary = who's being promoted (the artist); dsa_payor = who's
       // financially responsible for the spend (always SQRZ — the shared ad
       // account/wallet, never the artist's own Meta identity).
@@ -737,7 +770,61 @@ Deno.serve(async (req) => {
     // out before they can ever reach this far, so this branch trusts that an
     // incoming existing_post_id was already eligible.
     let creativeFields: Record<string, unknown>;
-    if (c.existing_post_id && c.existing_post_source === "instagram") {
+    if (isLeadForm) {
+      // Lead Ads (2026-10-25) — always an uploaded-asset campaign, never an
+      // existing-post promotion (lead_form templates don't offer that
+      // picker), so step 1 above already ran the normal image/video upload
+      // for this row. ensureLeadgenForm is idempotent — a retry after a
+      // later step failed reuses the form created on the first attempt
+      // rather than creating a duplicate (mirrors meta_campaign_id's own
+      // idempotent short-circuit).
+      const formId = await ensureLeadgenForm({
+        supabase,
+        campaign: { id: c.id, meta_leadgen_form_id: c.meta_leadgen_form_id },
+        template: { id: c.campaign_template as string, lead_form_config: template?.lead_form_config ?? null },
+        pageId: resolvedPageId,
+        systemUserToken: token,
+      });
+
+      // Distinct default from ctaFor's "LEARN_MORE" — Meta's own Lead Ads
+      // guidance defaults to a sign-up-style action, not a generic
+      // learn-more. template?.cta_type is used raw here (not run through
+      // ctaFor's book_now/learn_more/contact_us map, which doesn't cover
+      // Lead Ads CTA values at all).
+      const leadCallToAction = { type: template?.cta_type ?? "SIGN_UP", value: { lead_gen_form_id: formId } };
+      const objectStorySpec = isVideo
+        ? {
+            page_id: resolvedPageId,
+            ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
+            video_data: {
+              video_id: videoId,
+              message: primaryText,
+              title: headline,
+              link_description: description,
+              call_to_action: leadCallToAction,
+              ...(videoThumb ? { image_url: videoThumb } : {}),
+            },
+          }
+        : {
+            page_id: resolvedPageId,
+            ...(instagramUserId ? { instagram_user_id: instagramUserId } : {}),
+            link_data: {
+              message: primaryText,
+              // Meta requires a link even though the form is what actually
+              // opens — same destination (with its existing UTM tags) every
+              // other upload-path branch already uses.
+              link: destination,
+              name: headline,
+              ...(description ? { description } : {}),
+              image_hash: imageHash,
+              call_to_action: leadCallToAction,
+            },
+          };
+      creativeFields = {
+        name: `${campaignName} — Creative`,
+        object_story_spec: objectStorySpec,
+      };
+    } else if (c.existing_post_id && c.existing_post_source === "instagram") {
       // instagram_user_id is the same value resolveIdentity already
       // resolved above — including, as of 2026-10-27, a live Meta lookup
       // when the stored column was empty (see resolveIdentity's own
