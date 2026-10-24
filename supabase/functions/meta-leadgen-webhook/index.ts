@@ -46,6 +46,16 @@ const META_APP_SECRET = Deno.env.get("META_APP_SECRET") ?? "";
 const META_WEBHOOK_VERIFY_TOKEN = Deno.env.get("META_WEBHOOK_VERIFY_TOKEN") ?? "";
 const GRAPH_VERSION = Deno.env.get("META_GRAPH_VERSION") ?? "v26.0";
 
+// Interim override (2026-10-25) — a non-expiring Page token for ONE Page,
+// generated from Will's own login, used until leads_retrieval has Advanced
+// Access for the system user (see root CLAUDE.md's Known Open Issues: the
+// system user already has every Page task incl. MANAGE, and leads_retrieval
+// in its token scopes, but subscribed_apps still 403s with "one of these
+// permissions is needed: leads_retrieval" — an App-Review/Advanced-Access
+// gap, not a Page-task or token-scope gap). Optional; unset = no override,
+// exactly today's system-user-derived behavior.
+const META_LEADS_PAGE_TOKEN = Deno.env.get("META_LEADS_PAGE_TOKEN") ?? "";
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 function text(body: string, status = 200): Response {
@@ -140,7 +150,53 @@ function metaErrorMessage(err: MetaError): string {
   return `message=${err.message ?? "(none)"} code=${err.code ?? "(none)"} error_subcode=${err.error_subcode ?? "(none)"}`;
 }
 
+// Which Page META_LEADS_PAGE_TOKEN belongs to — resolved once via
+// GET /me?fields=id (a Page token's own /me returns that Page's id) and
+// cached for the isolate's lifetime. `undefined` = not yet resolved;
+// `null` = unset or resolution failed, meaning the override never applies.
+// Never logs the token itself — only the outcome, and only on failure.
+let leadsOverridePageId: string | null | undefined;
+
+async function resolveLeadsOverridePageId(): Promise<string | null> {
+  if (leadsOverridePageId !== undefined) return leadsOverridePageId;
+  if (!META_LEADS_PAGE_TOKEN) {
+    leadsOverridePageId = null;
+    return null;
+  }
+  try {
+    const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/me`);
+    url.searchParams.set("fields", "id");
+    url.searchParams.set("access_token", META_LEADS_PAGE_TOKEN);
+    const res = await fetch(url.toString());
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    const err = body.error as MetaError | undefined;
+    if (!res.ok || err) {
+      console.error(
+        `[meta-leadgen-webhook] META_LEADS_PAGE_TOKEN /me lookup failed${err ? `: ${metaErrorMessage(err)}` : ` (HTTP ${res.status})`}`,
+      );
+      leadsOverridePageId = null;
+    } else {
+      leadsOverridePageId = (body.id as string | undefined) ?? null;
+    }
+  } catch (e) {
+    console.error("[meta-leadgen-webhook] META_LEADS_PAGE_TOKEN /me lookup threw:", e instanceof Error ? e.message : String(e));
+    leadsOverridePageId = null;
+  }
+  return leadsOverridePageId;
+}
+
+// META_LEADS_PAGE_TOKEN override (2026-10-25): if set and it resolves to
+// this exact pageId, returned directly — no system-user call at all. Any
+// other pageId, an unset secret, or a failed /me resolution falls through
+// to the system-user derivation exactly as before.
 async function getPageAccessToken(pageId: string, systemUserToken: string): Promise<string> {
+  const overridePageId = await resolveLeadsOverridePageId();
+  if (overridePageId && overridePageId === pageId) {
+    console.log(`[meta-leadgen-webhook] page token source: override, pageId=${pageId}`);
+    return META_LEADS_PAGE_TOKEN;
+  }
+
+  console.log(`[meta-leadgen-webhook] page token source: system_user, pageId=${pageId}`);
   const url = new URL(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}`);
   url.searchParams.set("fields", "access_token");
   url.searchParams.set("access_token", systemUserToken);
