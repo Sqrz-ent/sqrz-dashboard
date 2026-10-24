@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { fetchPageInstagram } from "../_shared/meta-instagram.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // meta-page-connection-status
@@ -32,14 +33,16 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 // a reconnect. Every other 'failed' row, and all 'revoked' rows, stay
 // terminal exactly as before.
 //
-// Instagram resolution (2026-10-22): the iOS login flow no longer requests
-// instagram_basic (not available under this Meta app's Facebook Login use
-// case — requesting it made the whole login dialog fail), so it never sends
-// Instagram data anymore. Instead, once a connection is confirmed active,
-// this function looks up the Page's linked Instagram account itself, using
-// SQRZ's own business credentials (the same system_user_token already used
-// for the client_pages/pending_client_pages lookups above) — GET
-// /{page_id}?fields=instagram_business_account{id,username}. If the Page has
+// Instagram resolution (2026-10-22, moved to _shared/meta-instagram.ts
+// 2026-10-27): the iOS login flow no longer requests instagram_basic (not
+// available under this Meta app's Facebook Login use case — requesting it
+// made the whole login dialog fail), so it never sends Instagram data
+// anymore. Instead, on EVERY check that finds the connection active (not
+// only the first time it becomes active — see that check's own comment
+// below), this function looks up the Page's linked Instagram account
+// itself, using SQRZ's own business credentials (the same
+// system_user_token already used for the client_pages/pending_client_pages
+// lookups above) via the shared fetchPageInstagram helper. If the Page has
 // no linked Instagram account, instagram_user_id/instagram_username are left
 // null; the connection still stays 'active' either way (Instagram is purely
 // supplementary identity info, never a gate on the connection itself). A
@@ -91,30 +94,6 @@ async function metaGetPageIds(path: string, token: string): Promise<Set<string>>
     after = paging?.next ? paging.cursors?.after : undefined;
   } while (after);
   return ids;
-}
-
-// Looks up the Page's linked Instagram professional account, if any, using
-// SQRZ's own system-user credentials (ADVERTISE access on the Page — already
-// granted by the approved client_pages request — is sufficient to read this
-// field, confirmed against Meta's current Instagram Ads guide). Returns null
-// when the Page has no linked Instagram account; that's a normal outcome,
-// not an error.
-async function fetchPageInstagram(
-  pageId: string,
-  token: string,
-): Promise<{ id: string; username: string | null } | null> {
-  const url = new URL(`${GRAPH}/${pageId}`);
-  url.searchParams.set("fields", "instagram_business_account{id,username}");
-  url.searchParams.set("access_token", token);
-  const res = await fetch(url.toString());
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-  const err = body.error as { message?: string } | undefined;
-  if (!res.ok || err) {
-    throw new Error(`GET ${pageId} (instagram_business_account) → ${res.status}${err?.message ? ` ${err.message}` : ""}`);
-  }
-  const ig = body.instagram_business_account as { id?: string; username?: string } | undefined;
-  if (!ig?.id) return null;
-  return { id: ig.id, username: ig.username ?? null };
 }
 
 Deno.serve(async (req: Request) => {
@@ -233,12 +212,19 @@ Deno.serve(async (req: Request) => {
   // Resolve the linked Instagram account server-side once the connection is
   // active — the iOS client never sends this anymore (see file header). A
   // Page with no linked Instagram account just leaves these null; the
-  // connection stays 'active' regardless.
+  // connection stays 'active' regardless. This condition is keyed on
+  // `nextStatus === "active"`, not on "just transitioned into active" — so
+  // it refreshes on EVERY check of an already-active connection too, not
+  // only the first time (2026-10-27, made explicit after meta-campaign-
+  // create hit a connection stuck with a null instagram_user_id despite
+  // being active — see _shared/meta-instagram.ts's header for the full
+  // incident). A real Meta-side change (the Page's linked Instagram account
+  // was swapped) is picked up the same way a never-resolved one is.
   let instagramUserId = connection.instagram_user_id as string | null;
   let instagramUsername = connection.instagram_username as string | null;
   if (nextStatus === "active" && pageId) {
     try {
-      const ig = await fetchPageInstagram(pageId, acctRow.system_user_token as string);
+      const ig = await fetchPageInstagram(pageId, acctRow.system_user_token as string, GRAPH_VERSION);
       instagramUserId = ig?.id ?? null;
       instagramUsername = ig?.username ?? null;
     } catch (e) {

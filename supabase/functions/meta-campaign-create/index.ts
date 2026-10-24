@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { resolveAndStorePageInstagram } from "../_shared/meta-instagram.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // meta-campaign-create
@@ -321,9 +322,35 @@ async function resolveIdentity(
     .eq("status", "active")
     .maybeSingle();
   if (connection?.page_id) {
+    let instagramUserId = (connection.instagram_user_id as string | null) ?? null;
+    // The stored column can be missing even on an active connection — e.g.
+    // one activated before this lookup existed, or before the artist's
+    // Facebook login had the instagram_basic scope (see
+    // _shared/meta-instagram.ts's own header for the exact incident this
+    // fixes). Resolve it live rather than trusting the column at face
+    // value whenever it's empty; a found result is also stored back onto
+    // the row so a future campaign never needs to re-resolve it.
+    if (!instagramUserId) {
+      try {
+        const resolved = await resolveAndStorePageInstagram(
+          supabase,
+          profileId,
+          connection.page_id as string,
+          acct.system_user_token,
+          GRAPH_VERSION,
+        );
+        instagramUserId = resolved?.id ?? null;
+      } catch (e) {
+        console.error(`[meta-campaign-create] live Instagram resolution failed for profile ${profileId}:`, e);
+        // Fall through with null — the Instagram existing-post branch below
+        // fails loudly with a clear message if this campaign actually
+        // needed it; a transient lookup failure here must not silently
+        // block the rest of this function for campaigns that don't.
+      }
+    }
     return {
       pageId: connection.page_id as string,
-      instagramUserId: (connection.instagram_user_id as string | null) ?? null,
+      instagramUserId,
     };
   }
   return { pageId: await resolvePageId(acct), instagramUserId: null };
@@ -712,13 +739,16 @@ Deno.serve(async (req) => {
     let creativeFields: Record<string, unknown>;
     if (c.existing_post_id && c.existing_post_source === "instagram") {
       // instagram_user_id is the same value resolveIdentity already
-      // resolved above (this profile's connection's own linked IG account).
-      // Required by Meta alongside source_instagram_media_id — if it's
-      // somehow missing (shouldn't happen: the client only offers Instagram
-      // posts when a connection has a linked IG account), fail loudly
-      // rather than send a malformed creative.
+      // resolved above — including, as of 2026-10-27, a live Meta lookup
+      // when the stored column was empty (see resolveIdentity's own
+      // comment). Required by Meta alongside source_instagram_media_id —
+      // reaching this still null means the live lookup genuinely found no
+      // Instagram account linked to the Page (or the lookup itself failed),
+      // since the client only offers Instagram posts when one exists. Fail
+      // loudly with a message that points at the actual fix, rather than
+      // sending a malformed creative.
       if (!instagramUserId) {
-        throw new Error("existing_post_source is 'instagram' but no instagram_user_id is resolved for this profile's connection");
+        throw new Error("This Facebook Page has no Instagram professional account linked — connect one in Meta Business Suite, then retry.");
       }
       creativeFields = {
         name: `${campaignName} — Creative`,
