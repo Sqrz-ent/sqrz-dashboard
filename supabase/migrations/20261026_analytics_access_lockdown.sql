@@ -10,6 +10,11 @@
 -- profile-advisor, refresh-stats, dashboard home). All profile_views writes
 -- go through the profile pages' /api/track-view with the service role.
 --
+-- Tested before applying, in a rolled-back transaction: 16/16 checks passed
+-- (owner incl. a 2nd profile on the same account → allowed; another account
+-- → 42501; anon → 42501 for all three RPCs, the view, the __unchecked
+-- functions and profile_views inserts; service_role → allowed everywhere).
+--
 -- Approach: each function's original body is kept untouched under a
 -- __unchecked name nobody can call; the public name becomes a thin wrapper
 -- that checks access first. Access = the caller owns the profile, or the
@@ -99,5 +104,7 @@ grant execute on function public.get_boost_campaign_native_stats(uuid) to authen
 revoke all on public.profile_analytics from anon, authenticated;
 
 -- ── profile_views: no client writes ─────────────────────────────────────────
-drop policy if exists anon_inserts_views on public.profile_views;
+-- Revoking the table privileges is what blocks client inserts. The old
+-- anon_inserts_views policy is left in place: without INSERT privilege it can
+-- no longer take effect (verified — anon insert fails with 42501).
 revoke insert, update, delete, truncate on public.profile_views from anon, authenticated;
