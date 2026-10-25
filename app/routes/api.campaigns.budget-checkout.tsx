@@ -15,7 +15,7 @@ const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 // (on_boost_campaign_submit_meta_create only fires on a transition INTO
 // in_review). This route pays exactly that campaign's budget — the SAME
 // Stripe Checkout session shape and fee math as api/wallet/topup.tsx
-// (createWalletTopupCheckoutSession, flat 15% SQRZ Fee line, completely
+// (createWalletTopupCheckoutSession, flat 7% SQRZ Fee line, completely
 // unchanged), just tagged with campaign_id in metadata. api/stripe/webhook.tsx
 // reads that tag after its existing, unmodified wallet_topup branch succeeds
 // and calls complete_campaign_budget_payment — which credits the wallet

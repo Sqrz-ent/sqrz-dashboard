@@ -83,7 +83,7 @@ export async function action({ request }: ActionFunctionArgs) {
     // ── Standalone ad-spend wallet top-up ────────────────────────────────────
     // Credits the wallet with the BASE top-up amount. Fee-at-topup (2026-08-03,
     // superseding the 2026-08-01 allocation-fee pivot): record_wallet_topup both
-    // credits the wallet AND records a flat 15% management_fee_charges row,
+    // credits the wallet AND records a flat 7% management_fee_charges row,
     // linked to this same topup ledger entry — allocate_campaign_budget no
     // longer charges anything. Idempotent on stripe_payment_intent_id (ON
     // CONFLICT DO NOTHING): a duplicate delivery is a safe no-op (returns null,

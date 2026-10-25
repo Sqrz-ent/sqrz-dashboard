@@ -15,9 +15,9 @@ const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 //
 // Sane bounds guard typos/abuse; the exact amount is client-chosen ("custom
 // top-ups"). The checkout session (createWalletTopupCheckoutSession) charges
-// the top-up amount + a flat 15% SQRZ Fee line item, one Checkout session;
+// the top-up amount + a flat 7% SQRZ Fee line item, one Checkout session;
 // record_wallet_topup credits the wallet the full base amount and records the
-// 15% separately as management_fee_charges (2026-08-03 — commission moved here
+// 7% separately as management_fee_charges (2026-08-03 — commission moved here
 // from allocation; allocate_campaign_budget no longer charges anything). No gating.
 const MIN_TOPUP_CENTS = 500;      // $5
 const MAX_TOPUP_CENTS = 50_000;  // $500 (lowered from $50,000 on 2026-08-01)
