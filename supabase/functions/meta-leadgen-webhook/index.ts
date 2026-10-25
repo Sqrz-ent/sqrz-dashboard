@@ -150,17 +150,18 @@ function metaErrorMessage(err: MetaError): string {
   return `message=${err.message ?? "(none)"} code=${err.code ?? "(none)"} error_subcode=${err.error_subcode ?? "(none)"}`;
 }
 
-// Which Page META_LEADS_PAGE_TOKEN belongs to — resolved once via
-// GET /me?fields=id (a Page token's own /me returns that Page's id) and
-// cached for the isolate's lifetime. `undefined` = not yet resolved;
-// `null` = unset or resolution failed, meaning the override never applies.
-// Never logs the token itself — only the outcome, and only on failure.
-let leadsOverridePageId: string | null | undefined;
+// Which Page META_LEADS_PAGE_TOKEN belongs to — resolved via GET /me?fields=id
+// (a Page token's own /me returns that Page's id). `undefined` = not yet
+// resolved. Only a SUCCESSFUL resolution is cached for the isolate's
+// lifetime — an unset secret or a failed /me call is never cached, so a
+// transient /me failure retries on the next request rather than being stuck
+// permanently falling back to the system user. Never logs the token itself.
+let leadsOverridePageId: string | undefined;
 
 async function resolveLeadsOverridePageId(): Promise<string | null> {
   if (leadsOverridePageId !== undefined) return leadsOverridePageId;
   if (!META_LEADS_PAGE_TOKEN) {
-    leadsOverridePageId = null;
+    console.log("[meta-leadgen-webhook] override: secret not set");
     return null;
   }
   try {
@@ -171,18 +172,16 @@ async function resolveLeadsOverridePageId(): Promise<string | null> {
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     const err = body.error as MetaError | undefined;
     if (!res.ok || err) {
-      console.error(
-        `[meta-leadgen-webhook] META_LEADS_PAGE_TOKEN /me lookup failed${err ? `: ${metaErrorMessage(err)}` : ` (HTTP ${res.status})`}`,
-      );
-      leadsOverridePageId = null;
-    } else {
-      leadsOverridePageId = (body.id as string | undefined) ?? null;
+      console.log(`[meta-leadgen-webhook] override: /me failed: ${err ? metaErrorMessage(err) : `HTTP ${res.status}`}`);
+      return null;
     }
+    const id = (body.id as string | undefined) ?? null;
+    if (id) leadsOverridePageId = id;
+    return id;
   } catch (e) {
-    console.error("[meta-leadgen-webhook] META_LEADS_PAGE_TOKEN /me lookup threw:", e instanceof Error ? e.message : String(e));
-    leadsOverridePageId = null;
+    console.log(`[meta-leadgen-webhook] override: /me failed: ${e instanceof Error ? e.message : String(e)}`);
+    return null;
   }
-  return leadsOverridePageId;
 }
 
 // META_LEADS_PAGE_TOKEN override (2026-10-25): if set and it resolves to
@@ -194,6 +193,9 @@ async function getPageAccessToken(pageId: string, systemUserToken: string): Prom
   if (overridePageId && overridePageId === pageId) {
     console.log(`[meta-leadgen-webhook] page token source: override, pageId=${pageId}`);
     return META_LEADS_PAGE_TOKEN;
+  }
+  if (overridePageId) {
+    console.log(`[meta-leadgen-webhook] override: token belongs to id=${overridePageId}, requested pageId=${pageId}`);
   }
 
   console.log(`[meta-leadgen-webhook] page token source: system_user, pageId=${pageId}`);
