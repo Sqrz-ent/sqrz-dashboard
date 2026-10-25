@@ -780,7 +780,7 @@ Deno.serve(async (req) => {
       // idempotent short-circuit).
       const formId = await ensureLeadgenForm({
         supabase,
-        campaign: { id: c.id, meta_leadgen_form_id: c.meta_leadgen_form_id },
+        campaign: { id: c.id, profile_id: c.profile_id, meta_leadgen_form_id: c.meta_leadgen_form_id },
         template: { id: c.campaign_template as string, lead_form_config: template?.lead_form_config ?? null },
         pageId: resolvedPageId,
         systemUserToken: token,

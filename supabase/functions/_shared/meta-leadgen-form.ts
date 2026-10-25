@@ -46,20 +46,48 @@ export type LeadFormConfig = {
   };
 };
 
-type MinimalCampaign = { id: string; meta_leadgen_form_id: string | null };
+type MinimalCampaign = { id: string; profile_id: string; meta_leadgen_form_id: string | null };
 type MinimalTemplate = { id: string; lead_form_config: LeadFormConfig | null };
 
 type MetaError = { message?: string; code?: number; error_subcode?: number };
 
 // Minimal shape of whatever Supabase client the caller already has (admin or
 // otherwise) — same convention as _shared/meta-instagram.ts's MinimalSupabase.
+// select(...) added alongside the existing update(...) shape — needed to
+// resolve the campaign's profile slug for the {profile_url} placeholder.
 type MinimalSupabase = {
   from(table: string): {
     update(values: Record<string, unknown>): {
       eq(column: string, value: unknown): PromiseLike<{ error: { message: string } | null }>;
     };
+    select(columns: string): {
+      eq(column: string, value: unknown): {
+        maybeSingle(): PromiseLike<{ data: Record<string, unknown> | null; error: { message: string } | null }>;
+      };
+    };
   };
 };
+
+// Deep-replaces every "{profile_url}" occurrence in any string value of a
+// LeadFormConfig (including inside nested objects/arrays, e.g. questions[],
+// privacy_policy, thank_you_page) — a fresh copy, the source config is never
+// mutated.
+function replaceProfileUrlPlaceholder<T>(value: T, profileUrl: string): T {
+  if (typeof value === "string") {
+    return value.split("{profile_url}").join(profileUrl) as unknown as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => replaceProfileUrlPlaceholder(v, profileUrl)) as unknown as T;
+  }
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = replaceProfileUrlPlaceholder(v, profileUrl);
+    }
+    return out as T;
+  }
+  return value;
+}
 
 // Deliberately keeps message/code/error_subcode verbatim rather than folding
 // them into a prose string — the caller stores this directly in
@@ -157,6 +185,22 @@ export async function ensureLeadgenForm(args: {
     throw new Error(`Template ${template.id} has no lead_form_config`);
   }
 
+  // {profile_url} support — resolved fresh every call (not cached; profile
+  // slugs are rare/one-time writes, not worth the complexity of caching
+  // here). Substitution happens on a deep copy — the template row's own
+  // lead_form_config is never mutated.
+  const { data: profileRow, error: profileErr } = await supabase
+    .from("profiles")
+    .select("slug")
+    .eq("id", campaign.profile_id)
+    .maybeSingle();
+  const slug = profileRow?.slug as string | undefined;
+  if (profileErr || !slug) {
+    throw new Error(`Could not resolve profile slug for campaign ${campaign.id}`);
+  }
+  const profileUrl = `https://${slug}.sqrz.com`;
+  const substitutedConfig = replaceProfileUrlPlaceholder(config, profileUrl);
+
   const pageToken = await getPageAccessToken(pageId, systemUserToken);
 
   // Meta allows duplicate form names on the same Page — a stable,
@@ -167,13 +211,13 @@ export async function ensureLeadgenForm(args: {
 
   const form = new URLSearchParams();
   form.set("access_token", pageToken);
-  form.set("name", `${config.name} — ${shortSuffix}`);
-  if (config.locale) form.set("locale", config.locale);
+  form.set("name", `${substitutedConfig.name} — ${shortSuffix}`);
+  if (substitutedConfig.locale) form.set("locale", substitutedConfig.locale);
   // Objects/arrays go over as JSON-encoded form fields — Graph expects the
   // string-encoded form, not nested multipart/JSON body fields.
-  if (config.questions) form.set("questions", JSON.stringify(config.questions));
-  if (config.privacy_policy) form.set("privacy_policy", JSON.stringify(config.privacy_policy));
-  if (config.thank_you_page) form.set("thank_you_page", JSON.stringify(config.thank_you_page));
+  if (substitutedConfig.questions) form.set("questions", JSON.stringify(substitutedConfig.questions));
+  if (substitutedConfig.privacy_policy) form.set("privacy_policy", JSON.stringify(substitutedConfig.privacy_policy));
+  if (substitutedConfig.thank_you_page) form.set("thank_you_page", JSON.stringify(substitutedConfig.thank_you_page));
 
   const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/leadgen_forms`, {
     method: "POST",
