@@ -618,10 +618,6 @@ Deno.serve(async (req: Request) => {
       custom_domain_verified: false,
       location_iso: null,
       referred_by_code: null,
-      availability_status: null,
-      // Silences generate_claim_token_for_trigger()'s regeneration (it only
-      // fires when is_claimed = false AND claim_token IS NULL) — see 4f.
-      is_claimed: true,
       // Watched by on_profile_hubspot_sync — see 4f for why this update (A)
       // deliberately still has the REAL hubspot_contact_id in place, and why
       // that id is only nulled afterward, in update B.
@@ -649,12 +645,7 @@ Deno.serve(async (req: Request) => {
       hubspot_tracking_enabled: false,
       stripe_customer_id: null,
       stripe_customer_id_test: null,
-      stripe_connect_id: null,
-      stripe_connect_id_test: null,
-      stripe_connect_status: null,
-      stripe_connect_status_test: null,
       apns_device_token: null,
-      claim_token: null,
       user_id: null,
     })
     .eq("id", profileId);

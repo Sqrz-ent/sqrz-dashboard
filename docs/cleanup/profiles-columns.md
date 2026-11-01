@@ -2,6 +2,18 @@
 
 Read-only investigation, 2026-11-01. No migrations, no data changes. Supabase project `fmjefvdtnmgdfauedpmg`, `profiles` table currently has **14 rows total**.
 
+## Execution (2026-11-02) — code removed, migration written, NOT applied
+
+Will confirmed dropping all 12 code-dead columns, **plus `is_demo`** (flagged "confirm with Will first" below — now confirmed, included in the drop). `stripe_beta_test_mode` and `is_partner` stay, per the audit's own recommendation; `stripe_customer_id`/`stripe_customer_id_test` were out of scope throughout (never flagged for removal).
+
+**Code changes** (all repos, build-verified):
+- **sqrz-ios** (`Models/Profile.swift`) — removed `isBeta`/`is_beta` (non-optional `Bool`, the real TestFlight decode-risk field) and `showGigHistory`/`show_gig_history` (optional, zero readers) + their `CodingKeys` cases. `xcodebuild` clean.
+- **sqrz-dashboard** (`app/routes/_app.tsx`) — removed the `is_beta`-gated "Beta" nav badge (the whole now-empty trailing `<div>` was removed too, not left as dead markup). `supabase/functions/delete-account/index.ts` — stopped writing `availability_status`/`is_claimed` (scrub A) and `stripe_connect_id`/`_test`/`stripe_connect_status`/`_test`/`claim_token` (scrub B); the "silences `generate_claim_token_for_trigger()`" comment went with it since that trigger is dropped in the same migration. `npm run typecheck` clean on `app/` (the only errors anywhere are pre-existing Deno-vs-Node tsconfig noise across every edge function, unrelated to this change — confirmed present on untouched functions too).
+- **sqrz-profiles** (`app/api/links/checkout/route.ts`) — removed the Connect-account lookup/gate (`stripe_connect_id`/`stripe_connect_status`, hard-required `status === 'active'`) and the destination-charge `transfer_data`. The route now creates a plain Stripe Checkout session charged directly to the SQRZ platform account — payment-gated private links keep working for the visitor, just without a Connect split (which could never actually fire again: 0/14 profiles have ever reached `status = 'active'`, and Connect onboarding is gone from every client). `npm run build` clean.
+- **sqrz-cast** — no changes; the earlier investigation found zero references to any of these columns.
+
+**Migration written, not applied**: `sqrz-dashboard/supabase/migrations/20261102_drop_dead_profile_columns.sql` — rewrites `handle_new_user()` (drops the claim_token-matching branch + `is_claimed` references), drops triggers `set_claim_token`/`on_claim_token_set` + their functions (`generate_claim_token_for_trigger`, `auto_qualify_seeded_profile`) + both orphaned `generate_claim_token` overloads, recreates `profile_hubspot_enrichment` without `stripe_connect_status`/`onboarding_completed`/`grow_qualified` (and the derived `stripe_connected`), then drops the 12 columns (their 3 dependent indexes — `profiles_claim_token_key`, `profiles_claim_token_idx`, `profiles_is_claimed_idx` — go automatically with `claim_token`/`is_claimed`). Header comment flags the iOS-build-must-ship-first dependency for `is_beta`. **Apply only after confirming the `is_beta`-free iOS build has reached all active TestFlight testers** (non-optional field — an older build would throw a `DecodingError` on every profile load otherwise).
+
 Repos checked: sqrz-ios, sqrz-dashboard (app + `supabase/migrations` + `supabase/functions`), sqrz-profiles, sqrz-cast. DB checked directly: `pg_proc` (functions/triggers), `pg_trigger` (attached triggers only), `pg_policies` (RLS), `pg_views`, `cron.job`, deployed edge functions (remote list, which includes several functions not described in any repo's CLAUDE.md — audited the ones plausibly touching `profiles`).
 
 ---
@@ -199,7 +211,7 @@ Repos checked: sqrz-ios, sqrz-dashboard (app + `supabase/migrations` + `supabase
 
 **Current data**: 0/14 rows `true`.
 
-**Recommendation**: **Drop.** No live reader or writer found anywhere, at any layer, despite CLAUDE.md's description of it as an active app-wide gate — flag this discrepancy for Will before dropping, since either (a) the gate was removed without updating docs (safe to drop), or (b) there's a demo-mode mechanism elsewhere this investigation didn't catch under a different name. Worth a quick confirmation given the "demo mode retirement" note already in this user's memory — don't drop until Will confirms there's no near-term plan to resurrect gating on this exact column.
+**Recommendation**: **Drop.** No live reader or writer found anywhere, at any layer, despite CLAUDE.md's description of it as an active app-wide gate — flagged for Will before dropping. **Confirmed 2026-11-02**: Will included it in the drop list. Included in `20261102_drop_dead_profile_columns.sql`.
 
 ---
 
@@ -239,7 +251,7 @@ Repos checked: sqrz-ios, sqrz-dashboard (app + `supabase/migrations` + `supabase
 | `availability_status` | none (scrub only) | none | none | 13/14 | Drop |
 | `show_gig_history` | none | none | low, optional | 0/14 | Drop |
 | `grow_qualified` | none | 1 trigger (dormant), 1 view (unused) | none | 1/14 | Drop (with claim_token cleanup) |
-| `is_demo` | none found (contradicts CLAUDE.md) | none | none | 0/14 | Drop — confirm with Will first |
+| `is_demo` | none found (contradicts CLAUDE.md) | none | none | 0/14 | Drop — confirmed with Will 2026-11-02 |
 | `is_partner` | **yes** — invite-code gate, iOS UI | edge function only | **yes**, non-optional | 1/14 | **Keep** |
 
-**Net**: 12 of 15 columns are genuine drop candidates; 2 (`stripe_beta_test_mode`, `is_partner`) are live and should stay; `is_demo` is a likely-dead column whose drop should be confirmed with Will given it contradicts an existing documentation claim. Two columns (`is_beta`, `is_partner`) carry iOS decode risk as non-optional `Bool` fields — only `is_beta` is actually a drop candidate, so its Swift field needs removing before (or in the same release as) any schema drop to avoid breaking older TestFlight builds' JSON decoding. The `profile_hubspot_enrichment` view and two `profiles` triggers (`set_claim_token`/`generate_claim_token_for_trigger`, `on_claim_token_set`/`auto_qualify_seeded_profile`) need to be updated or dropped in the same migration pass as their respective columns — none of this was touched, per the read-only scope of this investigation.
+**Net**: 13 of 15 columns are genuine drop candidates (12 plus `is_demo`, confirmed with Will on 2026-11-02 despite its contradiction with an existing documentation claim); 2 (`stripe_beta_test_mode`, `is_partner`) are live and stay. `is_beta`'s non-optional Swift field was removed from `Models/Profile.swift` ahead of the schema drop (see "Execution" above) — `is_partner`'s non-optional field stays, since that column isn't being dropped. The `profile_hubspot_enrichment` view and the `claim_token`/`grow_qualified` triggers are rewritten/dropped in `20261102_drop_dead_profile_columns.sql`, in the same migration as their respective columns, per this audit's own recommendation.
