@@ -4,7 +4,7 @@ const ACCENT = "#F5A623";
 
 export type NotificationRow = {
   id: string;
-  type: "campaign_status" | "campaign_ended" | "booking" | "advisor_warning" | "chat_request";
+  type: "campaign_status" | "campaign_ended" | "booking" | "advisor_warning" | "chat_request" | "wallet_bonus";
   subtype: string | null;
   related_id: string | null;
   deep_link: string | null;
@@ -36,6 +36,14 @@ const TYPE_META: Record<NotificationRow["type"], { icon: string; label: (subtype
   chat_request: {
     icon: "💬",
     label: () => "New inquiry",
+  },
+  // subtype carries the dollar amount as plain text (e.g. "25"), not a status
+  // word like the other types — whoever writes the row formats it off the
+  // wallet_ledger_entries row's amount_cents. No live inserter yet (same as
+  // campaign_ended/booking when they were first added) — see root CLAUDE.md.
+  wallet_bonus: {
+    icon: "🎁",
+    label: (s) => `You received a $${s ?? ""} bonus!`,
   },
 };
 

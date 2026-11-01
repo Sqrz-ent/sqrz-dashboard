@@ -46,7 +46,7 @@ const inputStyle: React.CSSProperties = {
 // Pixel/tracking fields moved here from the old standalone /domain route
 // (2026-08-01 nav consolidation — folded the whole page into Account rather
 // than splitting it, since it was one page/section before). Untouched logic.
-const ALLOWED_PIXEL_FIELDS = ["pixel_facebook", "pixel_google", "pixel_linkedin", "hubspot_portal_id"];
+const ALLOWED_PIXEL_FIELDS = ["pixel_facebook", "pixel_google", "pixel_linkedin", "pixel_tiktok", "hubspot_portal_id"];
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -604,6 +604,14 @@ export default function AccountPage() {
         whyLabel="WHY INSTALL THE"
         explanation="The LinkedIn Insight Tag tracks professional visitors to your SQRZ page. Use it to build retargeting audiences and run highly targeted campaigns toward decision-makers and companies."
         initialValue={(profile.pixel_linkedin as string) ?? ""}
+      />
+
+      <FieldCard
+        field="pixel_tiktok"
+        title="TikTok Pixel"
+        whyLabel="WHY INSTALL THE"
+        explanation="The TikTok Pixel tracks visitors to your SQRZ page and builds retargeting audiences for TikTok Ads. Install it to measure ad performance and reach people who already showed interest."
+        initialValue={(profile.pixel_tiktok as string) ?? ""}
       />
 
       <FieldCard

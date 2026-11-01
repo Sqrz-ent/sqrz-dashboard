@@ -262,7 +262,6 @@ export async function action({ request }: Route.ActionArgs) {
       price_label: priceOnRequest ? "Price on request" : ((formData.get("price_label") as string) || null),
       currency: priceOnRequest ? null : ((formData.get("currency") as string) || "EUR"),
       price_unit: priceOnRequest ? null : ((formData.get("price_unit") as string) || "flat"),
-      booking_type: "quote",
       is_active: true,
       sort_order: 0,
     });
@@ -299,7 +298,6 @@ export async function action({ request }: Route.ActionArgs) {
       price_label: priceOnRequest ? "Price on request" : ((formData.get("price_label") as string) || null),
       currency: priceOnRequest ? null : ((formData.get("currency") as string) || "EUR"),
       price_unit: priceOnRequest ? null : ((formData.get("price_unit") as string) || "flat"),
-      booking_type: "quote",
     }).eq("id", id);
     return Response.json({ ok: !error, error: error?.message }, { headers });
   }

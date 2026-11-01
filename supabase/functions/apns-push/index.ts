@@ -90,6 +90,11 @@ const TYPE_META: Record<string, (subtype: string | null) => string> = {
     : `Booking update${s ? ` — ${s}` : ""}`,
   advisor_warning: () => "Advisor alert — campaign needs attention",
   chat_request: () => "New inquiry",
+  // subtype carries the dollar amount as plain text (e.g. "25"), matching
+  // NotificationList.tsx's TYPE_META exactly — see that file's comment for
+  // the full contract (no live inserter yet, same as campaign_ended/booking
+  // when they were first added).
+  wallet_bonus: (s) => `You received a $${s ?? ""} bonus!`,
 };
 
 function alertText(type: string, subtype: string | null): string {
@@ -159,7 +164,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: profile, error: profileErr } = await supabase
     .from("profiles")
-    .select("apns_device_token")
+    .select("apns_device_token, user_id")
     .eq("id", notification.profile_id as string)
     .maybeSingle();
   if (profileErr) {
@@ -185,6 +190,12 @@ Deno.serve(async (req: Request) => {
     type,
     related_id: notification.related_id,
     deep_link: notification.deep_link,
+    // The intended recipient (auth user id, = profiles.user_id). iOS uses this
+    // to identity-check a buffered push-tap route against the currently
+    // signed-in user, so a stale push addressed to a previously-signed-in
+    // account never routes a different user (see PendingPushRoute in
+    // sqrz-ios/App/AppDelegate.swift). Additive; older app builds ignore it.
+    user_id: profile?.user_id ?? null,
   };
 
   let authToken: string;
