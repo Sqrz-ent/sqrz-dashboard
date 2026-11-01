@@ -42,13 +42,14 @@ export type WalletTopupCheckoutResult = {
   checkoutUrl: string | null;
 };
 
-// Flat 15% standard rate (2026-08-03) — commission moved off allocation and
+// Flat 7% standard rate (2026-10-25; was 15% since 2026-08-03 — lowered once
+// campaign package templates replaced manual setup). Commission moved off allocation and
 // onto this Checkout session, since Stripe Checkout only ever handles card
 // payments (wire transfers are a separate, off-platform process with their own
-// pricing, not built here). Must match the hardcoded 15% in record_wallet_topup
+// pricing, not built here). Must match the hardcoded 7% in record_wallet_topup
 // (the DB function is the actual source of truth for what gets recorded as
 // revenue — this is only what the customer sees at checkout).
-const SQRZ_TOPUP_FEE_PCT = 15;
+const SQRZ_TOPUP_FEE_PCT = 7;
 
 export function walletTopupFeeCents(baseCents: number): number {
   return Math.round(baseCents * (SQRZ_TOPUP_FEE_PCT / 100));
@@ -101,7 +102,7 @@ export async function createWalletTopupCheckoutSession(
     // is the BASE top-up (what the wallet is credited) — deliberately NOT the
     // charge total, which also includes the SQRZ Fee line. `source` is
     // analytics only — never used for gating. record_wallet_topup recomputes
-    // the 15% fee itself server-side rather than trusting a client-passed value.
+    // the 7% fee itself server-side rather than trusting a client-passed value.
     metadata: {
       // type stays "wallet_topup" regardless of campaignId — api/stripe/webhook.tsx's
       // existing wallet_topup branch (record_wallet_topup call, fee row, etc.)
