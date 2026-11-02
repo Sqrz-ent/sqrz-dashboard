@@ -74,8 +74,8 @@ export function laneFor(c: Pick<CampaignRow, "status">): PipelineLane {
 }
 
 export const LANE_TITLES: Record<PipelineLane, string> = {
-  needsAction: "Needs action",
-  inProgress: "In progress",
+  needsAction: "Needs Action",
+  inProgress: "In Progress",
   completed: "Completed",
 };
 

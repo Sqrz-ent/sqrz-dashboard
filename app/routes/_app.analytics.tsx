@@ -61,7 +61,7 @@ export default function GrowPage() {
   const tab: GrowTab = data.tab;
 
   return (
-    <div style={{ padding: "28px 20px 60px", maxWidth: 640, margin: "0 auto", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ padding: "28px 20px 60px", maxWidth: tab === "campaigns" ? 1140 : 640, margin: "0 auto", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1
         style={{
           fontFamily: FONT_DISPLAY, fontSize: 38, fontWeight: 800, color: ACCENT, textTransform: "uppercase",

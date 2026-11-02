@@ -34,7 +34,7 @@ function CampaignCard({
   const lane = laneFor(c);
 
   return (
-    <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
         <div style={{ minWidth: 0 }}>
           <Link to={campaignPath(c.id)} style={{ color: "var(--text)", fontWeight: 700, fontSize: 15, textDecoration: "none" }}>
@@ -83,7 +83,7 @@ function CampaignCard({
   );
 }
 
-// The read-only campaign pipeline (Needs action / In progress / Completed) shown
+// The read-only campaign pipeline (Needs Action / In Progress / Completed kanban) shown
 // inside Grow — data from loadCampaignPipeline (lib/campaigns.server.ts).
 export default function CampaignPipeline({
   campaigns,
@@ -106,35 +106,65 @@ export default function CampaignPipeline({
           <ManageInAppNote />
         </div>
       ) : (
-        lanes.map((lane) => {
-          let items = campaigns.filter((c) => laneFor(c) === lane);
-          if (lane === "inProgress") items = [...items].sort((a, b) => inProgressRank(a) - inProgressRank(b));
-          return (
-            <section key={lane} style={{ marginBottom: 28 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <h2 style={{ margin: 0, fontSize: 13, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: ACCENT }}>
-                  {LANE_TITLES[lane]}
-                </h2>
-                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{items.length}</span>
-              </div>
-              {items.length === 0 ? (
-                <p style={{ margin: 0, fontSize: 13, color: "var(--text-muted)" }}>Nothing here.</p>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {items.map((c) => (
-                    <CampaignCard
-                      key={c.id}
-                      c={c}
-                      budget={budgets[c.id]}
-                      templateName={c.campaign_template ? templateNames[c.campaign_template] : undefined}
-                      metrics={metrics[c.id] ?? null}
-                    />
-                  ))}
+        // The iOS kanban board: lanes side by side as columns that scroll
+        // horizontally (snapping, a peek of the next column) — never stacked.
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 12,
+            overflowX: "auto",
+            scrollSnapType: "x mandatory",
+            paddingBottom: 8,
+          }}
+        >
+          {lanes.map((lane) => {
+            let items = campaigns.filter((c) => laneFor(c) === lane);
+            // In Progress sorts by proximity to running (live, approved, in review, rest);
+            // the other lanes keep the newest-first order they load in — same as iOS.
+            if (lane === "inProgress") items = [...items].sort((a, b) => inProgressRank(a) - inProgressRank(b));
+            return (
+              <section
+                key={lane}
+                style={{
+                  flex: "0 0 min(86%, 360px)",
+                  scrollSnapAlign: "start",
+                  background: "var(--surface)",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 16px 10px", borderBottom: "1px solid var(--border)" }}>
+                  <h2 style={{ margin: 0, fontSize: 12, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: ACCENT }}>
+                    {LANE_TITLES[lane]}
+                  </h2>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)" }}>{items.length}</span>
                 </div>
-              )}
-            </section>
-          );
-        })
+                {items.length === 0 ? (
+                  <p style={{ margin: 0, padding: 16, fontSize: 14, color: "var(--text-muted)" }}>Nothing here yet</p>
+                ) : (
+                  items.map((c, i) => (
+                    <div
+                      key={c.id}
+                      style={{
+                        borderTop: i === 0 ? "none" : "1px solid var(--border)",
+                        // iOS gives In Progress extra separation between its taller cards.
+                        paddingTop: i === 0 || lane !== "inProgress" ? 0 : 10,
+                      }}
+                    >
+                      <CampaignCard
+                        c={c}
+                        budget={budgets[c.id]}
+                        templateName={c.campaign_template ? templateNames[c.campaign_template] : undefined}
+                        metrics={metrics[c.id] ?? null}
+                      />
+                    </div>
+                  ))
+                )}
+              </section>
+            );
+          })}
+        </div>
       )}
     </>
   );
