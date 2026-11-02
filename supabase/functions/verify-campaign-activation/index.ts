@@ -44,6 +44,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { verifyAppleJws } from "../_shared/apple-jws.ts";
+import { grantProForActivation } from "../_shared/pro-grant.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -208,10 +209,18 @@ Deno.serve(async (req: Request) => {
       p_purchased_at: purchasedAt,
     });
     if (error) throw error;
-    return json({ ok: true, ...result });
+    // Template Pro period (campaign_templates.pro_days): grant after the purchase
+    // is recorded. Idempotent per transaction and never fails the activation —
+    // see _shared/pro-grant.ts. `pro` is informational for the client.
+    const pro = await grantProForActivation(supabase, transactionId);
+    return json({ ok: true, ...result, pro });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("23505") || msg.includes("duplicate key")) {
+      // Already recorded (client retry, or the webhook won the race). Still try
+      // the Pro grant: a no-op if it already happened, a heal if the first
+      // attempt failed (e.g. RevenueCat was down).
+      await grantProForActivation(supabase, transactionId);
       return json({ error: "already_used", message: "This transaction has already been used." }, 409);
     }
     console.error(`[verify-campaign-activation] record_campaign_activation failed for campaign ${campaignId}:`, msg);

@@ -51,6 +51,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { grantProForActivation } from "../_shared/pro-grant.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -170,7 +171,10 @@ Deno.serve(async (req) => {
         .eq("transaction_id", transactionId)
         .maybeSingle();
       if (existingActivation) {
-        return json({ ok: true, skipped: "already_recorded" });
+        // Heal path: grant the template's Pro period if the first attempt
+        // didn't complete (idempotent — no-op once recorded).
+        const pro = await grantProForActivation(supabase, transactionId);
+        return json({ ok: true, skipped: "already_recorded", pro });
       }
 
       if (!appAccountToken) {
@@ -235,12 +239,14 @@ Deno.serve(async (req) => {
           p_purchased_at: purchasedAt,
         });
         if (error) throw error;
-        return json({ ok: true, backup_path: true, ...result });
+        const pro = await grantProForActivation(supabase, transactionId);
+        return json({ ok: true, backup_path: true, ...result, pro });
       } catch (err) {
         // A 23505 here means verify-campaign-activation won the race in the
         // meantime — harmless, already handled.
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("23505") || msg.includes("duplicate key")) {
+          await grantProForActivation(supabase, transactionId);
           return json({ ok: true, skipped: "already_used_race" });
         }
         await appendEventError(eventId, `ONE_TIME_CHARGE: record_campaign_activation failed: ${msg}`);
