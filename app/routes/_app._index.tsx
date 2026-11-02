@@ -2,6 +2,7 @@ import { useState } from "react";
 import { redirect, useLoaderData, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
+import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import DashboardPills from "~/components/DashboardPills";
@@ -177,7 +178,7 @@ export default function DashboardIndex() {
   };
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px", fontFamily: FONT }}>
+    <div style={pageContainerStyle}>
 
       {/* Welcome header */}
       <h1 style={{ color: "var(--text)", fontSize: 26, fontWeight: 700, margin: "0 0 4px" }}>

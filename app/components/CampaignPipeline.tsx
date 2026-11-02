@@ -84,14 +84,14 @@ function CampaignCard({
 }
 
 // Board layout. Narrow: columns scroll horizontally with snapping (86% wide, the next
-// one peeking — like iOS). Wide (the board itself ≥ 880px): the three columns share the
+// one peeking — like iOS). Wide (the board itself ≥ 600px): the three columns share the
 // width equally, all visible, no scrolling. A container query on the board's own width
 // (not the viewport) decides, so it's correct whatever the page padding is.
 const KANBAN_CSS = `
 .kb-wrap { container-type: inline-size; container-name: kb; }
 .kb-board { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; }
 .kb-col { flex: 0 0 min(86%, 360px); scroll-snap-align: start; background: var(--surface); border-radius: 12px; overflow: hidden; min-width: 0; overflow-wrap: anywhere; }
-@container kb (min-width: 880px) {
+@container kb (min-width: 600px) {
   .kb-board { overflow-x: visible; scroll-snap-type: none; }
   .kb-col { flex: 1 1 0; }
 }

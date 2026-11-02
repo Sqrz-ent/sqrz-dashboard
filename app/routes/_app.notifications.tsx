@@ -1,6 +1,7 @@
 import { redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/_app.notifications";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import { NotificationList, type NotificationRow } from "~/components/NotificationList";
@@ -49,7 +50,7 @@ export default function NotificationsPage() {
   const { notifications } = useLoaderData() as { notifications: NotificationRow[] };
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 80px" }}>
+    <div style={pageContainerStyle}>
       <span
         style={{
           fontSize: 11,

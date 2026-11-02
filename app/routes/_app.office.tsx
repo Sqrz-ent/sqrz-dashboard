@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { redirect } from "react-router";
 import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 
@@ -269,8 +270,8 @@ export default function OfficePage() {
   const archivedLeads = leads.filter((l) => l.status === "archived");
 
   return (
-    <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+    <div style={pageContainerStyle}>
+      <div>
         {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>

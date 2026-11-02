@@ -1,6 +1,7 @@
 import { redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import CampaignPipeline from "~/components/CampaignPipeline";
@@ -61,7 +62,7 @@ export default function GrowPage() {
   const tab: GrowTab = data.tab;
 
   return (
-    <div style={{ padding: "28px 20px 60px", maxWidth: 1140, margin: "0 auto", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={pageContainerStyle}>
       <h1
         style={{
           fontFamily: FONT_DISPLAY, fontSize: 38, fontWeight: 800, color: ACCENT, textTransform: "uppercase",
@@ -82,7 +83,7 @@ export default function GrowPage() {
           metrics={data.pipeline.metrics}
         />
       ) : (
-        <div style={{ maxWidth: 640, margin: "0 auto" }}>
+        <div>
           {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />}
           {data.tab === "links" && <GrowLinks links={data.links} stats={data.stats} slug={data.slug} />}
           {data.tab === "analytics" && <GrowAnalytics data={data.analytics} days={data.days} />}

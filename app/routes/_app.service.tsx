@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import DashboardPills from "~/components/DashboardPills";
@@ -995,7 +996,7 @@ export default function ServicePage() {
   );
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={pageContainerStyle}>
       <h1 style={{ ...sectionTitle, marginBottom: 16 }}>Business</h1>
       <DashboardPills />
 

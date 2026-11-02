@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.account";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import DashboardPills from "~/components/DashboardPills";
@@ -422,7 +423,7 @@ export default function AccountPage() {
   const slug = (profile.slug as string) ?? "";
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={pageContainerStyle}>
       <h1 style={{
         fontFamily: FONT_DISPLAY,
         fontSize: 30,
