@@ -389,7 +389,7 @@ export default function ProfileSwitcher({
                 <span>{formatCents(cents)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span>SQRZ fee (7%)</span>
+                <span>Payment & processing fee · {Math.round(TOPUP_FEE_PCT * 100)}%</span>
                 <span>{formatCents(fee)}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, borderTop: "1px solid var(--border)", fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
@@ -397,6 +397,12 @@ export default function ProfileSwitcher({
                 <span>{formatCents(cents + fee)}</span>
               </div>
             </div>
+          )}
+
+          {cents != null && (
+            <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.45 }}>
+              Covers payment processing, bank charges and handling. Your full amount goes to your ad budget.
+            </p>
           )}
 
           <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.45 }}>

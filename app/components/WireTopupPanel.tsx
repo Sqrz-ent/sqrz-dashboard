@@ -170,7 +170,7 @@ function QuotePreview({
           <span>{money(quote.amount_cents, "USD")}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-          <span>Bank transfer fee ({quote.fee_pct}%)</span>
+          <span>Bank transfer processing · {quote.fee_pct}%</span>
           <span>{money(quote.fee_cents, "USD")}</span>
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, borderTop: "1px solid var(--border)", fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
@@ -178,6 +178,7 @@ function QuotePreview({
           <span>{exact}</span>
         </div>
       </div>
+      <p style={{ ...small, margin: "0 0 10px" }}>Covers payment processing, bank charges and handling. Your full amount goes to your ad budget.</p>
       {bank && (
         <>
           <CopyRow name="Account holder" value={bank.account_holder} />
@@ -362,7 +363,7 @@ export default function WireTopupPanel({
             <span>{money(amountCents, "USD")}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-            <span>Bank transfer fee ({options.fee_pct}%)</span>
+            <span>Bank transfer processing · {options.fee_pct}%</span>
             <span>{money(fee, "USD")}</span>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, borderTop: "1px solid var(--border)", fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
@@ -375,6 +376,10 @@ export default function WireTopupPanel({
             </div>
           )}
         </div>
+      )}
+
+      {amountCents != null && inRange && (
+        <p style={{ ...small, margin: "0 0 10px" }}>Covers payment processing, bank charges and handling. Your full amount goes to your ad budget.</p>
       )}
 
       <p style={{ ...small, margin: "0 0 10px" }}>
