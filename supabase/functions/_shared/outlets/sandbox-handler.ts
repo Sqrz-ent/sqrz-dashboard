@@ -67,6 +67,14 @@ function landingUrlFromSlug(slug: string): string {
   return `https://${slug}.sqrz.com`;
 }
 
+/** Optional params.extra — an object of outlet-specific variant inputs (see CreateCampaignInput.extra). */
+function extraObject(p: Params): Record<string, unknown> | undefined {
+  const v = p.extra;
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "object" || Array.isArray(v)) throw new ParamError("params.extra must be an object");
+  return v as Record<string, unknown>;
+}
+
 export async function handleSandboxRequest(
   req: Request,
   cfg: { outlet: OutletName; makeAdapter: () => OutletAdapter },
@@ -140,6 +148,7 @@ export async function handleSandboxRequest(
             ? { latitude: Number(geo.latitude), longitude: Number(geo.longitude), radiusKm: Number(geo.radius_km) }
             : undefined,
           validateOnly: params.validate_only === true,
+          extra: extraObject(params),
         });
         created = out.objects;
         result = out;

@@ -20,7 +20,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Extend as outlets are added ("tiktok" | "linkedin" | …). */
-export type OutletName = "google" | "microsoft" | "snapchat" | "openai" | "spotify";
+export type OutletName =
+  | "google" | "microsoft" | "snapchat" | "openai" | "spotify"
+  | "tiktok" | "reddit" | "linkedin" | "pinterest" | "x" | "amazon" | "taboola" | "adquick";
 
 /** One external object created by an adapter call (campaign, ad group, ad, asset, video, …). */
 export interface OutletObject {
@@ -83,6 +85,13 @@ export interface CreateCampaignInput {
   geo?: { latitude: number; longitude: number; radiusKm: number };
   /** Ask the outlet to validate only and create nothing (if the outlet supports it). */
   validateOnly?: boolean;
+  /**
+   * Outlet-specific variant inputs that don't fit the common fields, e.g. TikTok
+   * Spark Ads { tiktok_item_id }, Reddit { communities }, AdQuick { start_date, end_date }.
+   * Each adapter documents the keys it reads and ignores the rest. (Added 2026-11 —
+   * optional, so existing adapters are unaffected.)
+   */
+  extra?: Record<string, unknown>;
 }
 
 export interface CreatedCampaign {
