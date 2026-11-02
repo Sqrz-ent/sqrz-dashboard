@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { redirect } from "react-router";
 import type { Route } from "./+types/_app.office";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getActiveProfile } from "~/lib/profile.server";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   // Flat lead list — Active + Archived, newest first. No stages, no pipeline.
@@ -61,7 +61,7 @@ export async function action({ request }: Route.ActionArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();

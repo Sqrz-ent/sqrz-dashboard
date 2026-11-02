@@ -1,7 +1,7 @@
 import type { Route } from "./+types/api.campaigns.refresh-stats";
 import { redirect } from "react-router";
 import { createSupabaseServerClient, createSupabaseBearerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getActiveProfile } from "~/lib/profile.server";
 import { fetchInsightsResolvingAccount } from "~/lib/metaInsights.server";
 
 // On-demand, single-campaign variant of the daily meta-insights-sync edge
@@ -49,7 +49,7 @@ export async function action({ request }: Route.ActionArgs) {
     if (!user) return redirect("/login", { headers });
   }
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) {
     return isNative
       ? Response.json({ error: "Unauthorized" }, { status: 401 })

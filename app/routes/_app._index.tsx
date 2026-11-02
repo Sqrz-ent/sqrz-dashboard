@@ -2,6 +2,7 @@ import { useState } from "react";
 import { redirect, useLoaderData, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
+import { getActiveProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { useTheme, writeThemeCookie } from "~/lib/theme";
 
@@ -74,16 +75,14 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login");
 
-  const homeDataPromise = supabase.rpc("get_dashboard_home");
-  const profileIdPromise = supabase
-    .from("profiles")
-    .select("id")
-    .eq("user_id", user.id)
-    .single();
-  const analyticsPromise = profileIdPromise.then(async ({ data: profileRow, error }) => {
-    if (error || !profileRow?.id) return null;
-    return getDashboardAnalytics(profileRow.id as string);
-  });
+  // The profile selected in the header switcher (cookie, verified against this
+  // login; falls back to the oldest owned profile). Both the RPC and the
+  // analytics reads below are scoped to it.
+  const active = await getActiveProfile(request, supabase, user.id);
+  const activeProfileId = (active?.id as string | undefined) ?? null;
+
+  const homeDataPromise = supabase.rpc("get_dashboard_home", { p_profile_id: activeProfileId });
+  const analyticsPromise = activeProfileId ? getDashboardAnalytics(activeProfileId) : Promise.resolve(null);
 
   const [{ data: homeData, error: homeError }, analytics] = await Promise.all([
     homeDataPromise,

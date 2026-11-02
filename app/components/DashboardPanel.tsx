@@ -10,7 +10,6 @@ type Profile = Record<string, unknown>;
 interface DashboardPanelProps {
   panel: PanelKey | null;
   profile: Profile | null;
-  userId: string;
   onClose: () => void;
 }
 
@@ -118,7 +117,7 @@ function field(key: keyof ProfileForm, raw: Profile | null): string {
   return (raw?.[key] as string) ?? "";
 }
 
-function ProfilePanel({ userId }: { userId: string }) {
+function ProfilePanel({ profileId }: { profileId: string }) {
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -134,7 +133,7 @@ function ProfilePanel({ userId }: { userId: string }) {
       .select(
         "first_name, last_name, bio, city, social_instagram, social_youtube, social_tiktok, widget_spotify, widget_soundcloud, website_url"
       )
-      .eq("user_id", userId)
+      .eq("id", profileId)
       .maybeSingle()
       .then(({ data }) => {
         if (cancelled) return;
@@ -155,7 +154,7 @@ function ProfilePanel({ userId }: { userId: string }) {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [profileId]);
 
   function set(key: keyof ProfileForm, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -183,14 +182,9 @@ function ProfilePanel({ userId }: { userId: string }) {
         widget_soundcloud: form.widget_soundcloud.trim(),
         website_url: form.website_url.trim(),
       })
-      // TODO (multi-profile ownership, 2026-10-18): this UPDATE matches every
-      // profiles row owned by this login, not just the one this panel is
-      // editing — a login that owns more than one profile would silently
-      // overwrite all of them with the same form values. Not fixed here
-      // (web-only page, out of scope for the iOS-route pass this was found
-      // in) — needs a specific profile id, same as getCurrentProfile's
-      // requestedProfileId.
-      .eq("user_id", userId);
+      // Scoped to the ACTIVE profile (header switcher) — a login that owns
+      // several profiles must never overwrite the others.
+      .eq("id", profileId);
 
     setSaving(false);
     if (error) {
@@ -378,7 +372,6 @@ function AccountPanel({ profile: _profile }: { profile: Profile | null }) {
 export default function DashboardPanel({
   panel,
   profile: _profile,
-  userId,
   onClose,
 }: DashboardPanelProps) {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -406,7 +399,7 @@ export default function DashboardPanel({
   function renderContent() {
     switch (panel) {
       case "profile":
-        return <ProfilePanel userId={userId} />;
+        return <ProfilePanel profileId={(_profile?.id as string) ?? ""} />;
       case "service":
         return <PlaceholderPanel title="Services" />;
       case "media":

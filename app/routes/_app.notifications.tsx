@@ -1,7 +1,7 @@
 import { redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/_app.notifications";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getActiveProfile } from "~/lib/profile.server";
 import { NotificationList, type NotificationRow } from "~/components/NotificationList";
 
 // Reads go through the user-scoped client so the notifications RLS policy
@@ -11,7 +11,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   const { data: notifications } = await supabase

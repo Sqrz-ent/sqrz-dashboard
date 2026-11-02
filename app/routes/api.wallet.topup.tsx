@@ -1,7 +1,7 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/api.wallet.topup";
 import { createSupabaseServerClient, createSupabaseBearerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getActiveProfile } from "~/lib/profile.server";
 import { createWalletTopupCheckoutSession } from "~/lib/walletPayments.server";
 import { getOrCreateAccountStripeCustomer, type StripeMode } from "~/lib/stripe.server";
 
@@ -44,7 +44,7 @@ export async function action({ request }: Route.ActionArgs) {
   // Multi-profile ownership (2026-10-18) — iOS sends the active profile
   // explicitly; see getCurrentProfile's own doc comment for the fallback.
   const requestedProfileId = new URL(request.url).searchParams.get("profile_id");
-  const profile = await getCurrentProfile(supabase, user.id, requestedProfileId);
+  const profile = await getActiveProfile(request, supabase, user.id, requestedProfileId);
   if (!profile) {
     return isNative
       ? Response.json({ error: "Unauthorized" }, { status: 401 })
@@ -108,10 +108,10 @@ export async function action({ request }: Route.ActionArgs) {
   // from stripe-return. Web is untouched.
   const successUrl = isNative
     ? "sqrz://checkout-return?status=success"
-    : `${APP_URL}/boost?wallet_topup=success`;
+    : `${APP_URL}/?wallet_topup=success`;
   const cancelUrl = isNative
     ? "sqrz://checkout-return?status=cancelled"
-    : `${APP_URL}/boost?wallet_topup=cancelled`;
+    : `${APP_URL}/?wallet_topup=cancelled`;
 
   const { checkoutUrl } = await createWalletTopupCheckoutSession({
     amountCents,

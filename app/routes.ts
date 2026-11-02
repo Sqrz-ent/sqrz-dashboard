@@ -20,6 +20,8 @@ export default [
   ]),
 
   // API routes (server-only, action handlers)
+  // Switch the active profile (web header switcher) — sets the preference cookie.
+  route("api/active-profile", "routes/api.active-profile.tsx"),
   // Inquiry chat: token/thread list, Keep Active (bump lead active). Archive
   // (the old stream-inquiry-status route) and the thread→booking convert
   // route were both removed — Archive now happens via the set_lead_status

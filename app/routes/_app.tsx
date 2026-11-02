@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getActiveProfile, listOwnedProfiles, getAccountBalanceCents } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
+import ProfileSwitcher, { TopupReturnNotice, type SwitcherProfile } from "~/components/ProfileSwitcher";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -16,7 +17,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect("/login", { headers });
   }
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
 
   // Guest profiles are deprecated (booking magic-link viewer removed with the
   // staged booking pipeline) — fall through to the home dashboard.
@@ -24,10 +25,20 @@ export async function loader({ request }: Route.LoaderArgs) {
     return redirect('/');
   }
 
+  // Header switcher data (web counterpart of iOS ActiveProfileStore + the
+  // account sheet's wallet card): every profile this login owns, plus the
+  // ACCOUNT-level wallet balance (account_wallets via profiles.account_id).
+  const [profiles, balanceCents] = await Promise.all([
+    listOwnedProfiles(supabase, user.id),
+    getAccountBalanceCents(supabase, profile?.account_id as string | null | undefined),
+  ]);
+
   return Response.json(
     {
       user,
       profile,
+      profiles,
+      balanceCents,
     },
     { headers }
   );
@@ -72,7 +83,12 @@ const bottomNavItems = [
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
 export default function AppLayout() {
-  const { user, profile } = useLoaderData<typeof loader>();
+  // Response.json() loses the loader's types, so type the shape explicitly.
+  const { profile, profiles, balanceCents } = useLoaderData<typeof loader>() as unknown as {
+    profile: Record<string, unknown> | null;
+    profiles: SwitcherProfile[];
+    balanceCents: number;
+  };
 
   const p = profile as Record<string, unknown> | null;
 
@@ -245,7 +261,18 @@ export default function AppLayout() {
               ))}
             </div>
           )}
+
+          {/* Profile switcher + account balance + top up */}
+          {profile && profiles.length > 0 && (
+            <ProfileSwitcher
+              profiles={profiles}
+              activeProfileId={profile.id as string}
+              balanceCents={balanceCents}
+            />
+          )}
       </nav>
+
+      <TopupReturnNotice balanceCents={balanceCents} />
 
       {/* ── Compliance warning banner ────────────────────────────────────────── */}
       {showComplianceBanner && (
@@ -313,7 +340,6 @@ export default function AppLayout() {
       <DashboardPanel
         panel={activePanel}
         profile={profile as Record<string, unknown> | null}
-        userId={(user as { id: string }).id}
         onClose={closePanel}
       />
 

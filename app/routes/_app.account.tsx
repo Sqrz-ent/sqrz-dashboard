@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.account";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
+import { getActiveProfile } from "~/lib/profile.server";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
 
 const ACCENT = "#F5A623";
@@ -52,7 +52,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   return Response.json(
@@ -68,7 +68,7 @@ export async function action({ request }: Route.ActionArgs) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
 
-  const profile = await getCurrentProfile(supabase, user.id);
+  const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();
