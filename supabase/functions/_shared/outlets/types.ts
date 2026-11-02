@@ -20,7 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Extend as outlets are added ("tiktok" | "linkedin" | …). */
-export type OutletName = "google";
+export type OutletName = "google" | "microsoft" | "snapchat" | "openai" | "spotify";
 
 /** One external object created by an adapter call (campaign, ad group, ad, asset, video, …). */
 export interface OutletObject {
