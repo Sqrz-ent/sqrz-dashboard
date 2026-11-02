@@ -2,6 +2,7 @@ import { useState } from "react";
 import { redirect, useLoaderData, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
+import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { useTheme, writeThemeCookie } from "~/lib/theme";
@@ -74,6 +75,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login");
+  await requirePro(supabase, user.id, headers);
 
   // The profile selected in the header switcher (cookie, verified against this
   // login; falls back to the oldest owned profile). Both the RPC and the

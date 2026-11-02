@@ -1,6 +1,7 @@
 import type { Route } from "./+types/api.campaigns.refresh-stats";
 import { redirect } from "react-router";
 import { createSupabaseServerClient, createSupabaseBearerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { proDeniedResponse } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import { fetchInsightsResolvingAccount } from "~/lib/metaInsights.server";
 
@@ -47,6 +48,10 @@ export async function action({ request }: Route.ActionArgs) {
     ({ supabase, headers } = createSupabaseServerClient(request));
     ({ data: { user } } = await supabase.auth.getUser());
     if (!user) return redirect("/login", { headers });
+    {
+      const denied = await proDeniedResponse(supabase, user.id, headers);
+      if (denied) return denied;
+    }
   }
 
   const profile = await getActiveProfile(request, supabase, user.id);

@@ -2,6 +2,7 @@ import { useState, useRef } from "react";
 import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.account";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
 
@@ -51,6 +52,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
+  await requirePro(supabase, user.id, headers);
 
   const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
@@ -78,6 +80,9 @@ export async function action({ request }: Route.ActionArgs) {
     await supabase.auth.signOut();
     return redirect("/login", { headers });
   }
+
+  // Everything below is a dashboard write — Pro only (sign-out above stays open).
+  await requirePro(supabase, user.id, headers);
 
   // ── Pixel / tracking field save (moved from /domain) ──────────────────────
   if (intent === "save_field") {

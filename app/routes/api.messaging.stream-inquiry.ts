@@ -1,4 +1,5 @@
 import { createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
+import { proDeniedResponse } from "~/lib/pro.server";
 import { listOpenInquiryThreadsForProfile, resolveOwnedProfileId } from "~/lib/messaging/inquiry.server";
 
 export async function loader({ request }: { request: Request }) {
@@ -26,6 +27,12 @@ export async function loader({ request }: { request: Request }) {
 
     if (!user) {
       return Response.json({ error: "Unauthorized" }, { status: 401, headers });
+    }
+
+    // Web (cookie) callers need Pro; the iOS app (Bearer) has its own gating.
+    if (!bearerToken) {
+      const denied = await proDeniedResponse(supabase, user.id, headers);
+      if (denied) return denied;
     }
 
     // Multi-profile ownership (2026-10-18) — a login can own more than one

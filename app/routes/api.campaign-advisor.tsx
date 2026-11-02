@@ -5,6 +5,7 @@ import {
   createSupabaseAdminClient,
 } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
+import { proDeniedResponse } from "~/lib/pro.server";
 
 // Thin authenticated forwarder to the `campaign-advisor` edge function.
 // Verifies the caller owns the campaign, then invokes the function server-side
@@ -33,6 +34,10 @@ export async function action({ request }: Route.ActionArgs) {
     ({ supabase, headers } = createSupabaseServerClient(request));
     ({ data: { user } } = await supabase.auth.getUser());
     if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
+    {
+      const denied = await proDeniedResponse(supabase, user.id, headers);
+      if (denied) return denied;
+    }
   }
 
   // Multi-profile ownership (2026-10-18) — iOS sends the active profile

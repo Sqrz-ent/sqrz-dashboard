@@ -7,6 +7,9 @@ export default [
   route("join", "routes/join.tsx"),
   route("login", "routes/login.tsx"),
   route("auth/callback", "routes/auth.callback.tsx"),
+  // Signed-in users without SQRZ Pro land here (every dashboard route redirects
+  // to it). Public/outside the _app layout so it can never redirect-loop.
+  route("pro-required", "routes/pro-required.tsx"),
 
   // Protected app (session required)
   layout("routes/_app.tsx", [

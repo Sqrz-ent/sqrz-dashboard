@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile, listOwnedProfiles, getAccountBalanceCents } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import ProfileSwitcher, { TopupReturnNotice, type SwitcherProfile } from "~/components/ProfileSwitcher";
@@ -16,6 +17,10 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!user) {
     return redirect("/login", { headers });
   }
+
+  // SQRZ Pro gate — every dashboard route sits under this layout; each child
+  // loader/action ALSO enforces it itself (child actions don't run this loader).
+  await requirePro(supabase, user.id, headers);
 
   const profile = await getActiveProfile(request, supabase, user.id);
 

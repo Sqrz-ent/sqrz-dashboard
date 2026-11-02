@@ -1,6 +1,7 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/api.wallet.topup";
 import { createSupabaseServerClient, createSupabaseBearerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
+import { proDeniedResponse } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import { createWalletTopupCheckoutSession } from "~/lib/walletPayments.server";
 import { getOrCreateAccountStripeCustomer, type StripeMode } from "~/lib/stripe.server";
@@ -39,6 +40,10 @@ export async function action({ request }: Route.ActionArgs) {
     ({ supabase, headers } = createSupabaseServerClient(request));
     ({ data: { user } } = await supabase.auth.getUser());
     if (!user) return redirect("/login", { headers });
+    {
+      const denied = await proDeniedResponse(supabase, user.id, headers);
+      if (denied) return denied;
+    }
   }
 
   // Multi-profile ownership (2026-10-18) — iOS sends the active profile

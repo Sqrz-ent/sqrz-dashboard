@@ -1,6 +1,7 @@
 import { redirect } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
+import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import GetTheAppSection from "~/components/GetTheAppSection";
 
@@ -25,6 +26,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return redirect("/login", { headers });
+  await requirePro(supabase, user.id, headers);
 
   const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });

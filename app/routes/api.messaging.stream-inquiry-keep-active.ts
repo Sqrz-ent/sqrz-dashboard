@@ -1,4 +1,5 @@
 import { createSupabaseAdminClient, createSupabaseServerClient, createSupabaseBearerClient } from "~/lib/supabase.server";
+import { proDeniedResponse } from "~/lib/pro.server";
 import { fetchInquiryMessagePreview, resolveOwnedProfileId } from "~/lib/messaging/inquiry.server";
 
 // "Keep Active" action for an inquiry thread. Lightweight: upserts the corresponding
@@ -18,6 +19,11 @@ export async function action({ request }: { request: Request }) {
     const { supabase: cookieClient, headers: cookieHeaders } = createSupabaseServerClient(request);
     headers = cookieHeaders;
     ({ data: { user } } = await cookieClient.auth.getUser());
+    // Web (cookie) callers need Pro; the iOS app (Bearer) has its own gating.
+    if (user) {
+      const denied = await proDeniedResponse(cookieClient, user.id, headers);
+      if (denied) return denied;
+    }
   }
 
   if (!user) {
