@@ -16,6 +16,9 @@ export default [
     route("service", "routes/_app.service.tsx"),
     route("account", "routes/_app.account.tsx"),
     route("analytics", "routes/_app.analytics.tsx"),
+    // Read-only campaigns (mirrors the iOS pipeline; managing stays in the app)
+    route("campaigns", "routes/_app.campaigns.tsx"),
+    route("campaigns/:id", "routes/_app.campaigns.$id.tsx"),
     route("notifications", "routes/_app.notifications.tsx"),
   ]),
 
