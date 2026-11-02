@@ -1,7 +1,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireSandboxKey } from "../_shared/outlets/sandbox-guard.ts";
-import { finishRun, sandboxSql, startRun } from "../_shared/outlets/sandbox-db.ts";
-import { ParamError } from "../_shared/outlets/types.ts";
+import { finishRun, profileExists, sandboxSql, startRun } from "../_shared/outlets/sandbox-db.ts";
+import { parseClientLinks } from "../_shared/outlets/sandbox-common.ts";
+import { type ClientLinks, ParamError } from "../_shared/outlets/types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // sandbox-manual
@@ -13,6 +14,8 @@ import { ParamError } from "../_shared/outlets/types.ts";
 // via curl. Nothing is sent to any platform.
 //
 // POST { action: "create" | "update" | "list" | "get", params: {...} }
+// Client linkage: optional params.profile_id (UUID of a public.profiles row) and params.hubspot_deal_id
+// (numeric HubSpot deal id) — stored on create/update (null clears on update), usable as list filters.
 // Auth: header x-sandbox-key must equal secret SANDBOX_ADMIN_KEY, else 401.
 // Deploy with verify_jwt:false. Every call is also logged to outlet_sandbox.outlet_runs
 // (outlet = "manual"), before it runs — if logging fails the call is refused.
@@ -130,9 +133,21 @@ Deno.serve(async (req) => {
     return json({ error: `body must be { action: ${ACTIONS.join(" | ")}, params?: {} }` }, 400);
   }
 
+  // Optional client linkage: profile_id (public.profiles.id) and hubspot_deal_id. On create/update they are
+  // stored on the campaign; on list they are filters; on every action they also tag the outlet_runs row.
+  let links: ClientLinks;
+  try {
+    links = parseClientLinks(params);
+    if (links.profileId && !(await profileExists(links.profileId))) throw new ParamError("params.profile_id does not match any profile");
+  } catch (e) {
+    if (e instanceof ParamError) return json({ ok: false, action, error: e.message }, 400);
+    console.error("[sandbox-manual] client link check failed:", e);
+    return json({ error: "sandbox database unavailable" }, 500);
+  }
+
   let runId: string;
   try {
-    runId = await startRun("manual", action, params);
+    runId = await startRun("manual", action, params, links);
   } catch (e) {
     console.error("[sandbox-manual] could not write outlet_runs:", e);
     return json({ error: "sandbox logging unavailable (is the outlet_sandbox migration applied?)" }, 500);
@@ -154,11 +169,12 @@ Deno.serve(async (req) => {
         const bookedAt = when(params, "booked_at") ?? (["booked", "running", "done"].includes(st) ? new Date().toISOString() : null);
         const [row] = await sql`
           insert into outlet_sandbox.manual_campaigns
-            (outlet, name, status, booked_at, starts_at, ends_at, budget, currency, spend, targeting, creative_ref, landing_url, results, notes)
+            (outlet, name, status, booked_at, starts_at, ends_at, budget, currency, spend, targeting, creative_ref, landing_url, results, notes, profile_id, hubspot_deal_id)
           values
             (${outlet}, ${name}, ${st}, ${bookedAt}, ${startsAt}, ${endsAt}, ${money(params, "budget") ?? null}, ${currency(params) ?? "USD"},
              ${money(params, "spend") ?? 0}, ${sql.json((obj(params, "targeting") ?? {}) as never)}, ${text(params, "creative_ref", 500) ?? null},
-             ${landing(params) ?? null}, ${sql.json((obj(params, "results") ?? {}) as never)}, ${text(params, "notes", 5000) ?? null})
+             ${landing(params) ?? null}, ${sql.json((obj(params, "results") ?? {}) as never)}, ${text(params, "notes", 5000) ?? null},
+             ${links.profileId}, ${links.hubspotDealId})
           returning *`;
         result = { campaign: row };
         break;
@@ -188,7 +204,12 @@ Deno.serve(async (req) => {
         checkFlight(startsAt, endsAt);
         if (notes !== undefined && notesAppend) throw new ParamError("pass either params.notes (replace) or params.notes_append, not both");
 
-        const touched = [st, startsAt, endsAt, bookedAt, name, outlet, budget, spend, cur, targeting, creativeRef, landingUrl, results, notes, notesAppend];
+        // present-but-null clears the link; absent leaves it unchanged
+        const setProfile = "profile_id" in params;
+        const setDeal = "hubspot_deal_id" in params;
+
+        const touched = [st, startsAt, endsAt, bookedAt, name, outlet, budget, spend, cur, targeting, creativeRef, landingUrl, results, notes, notesAppend,
+          setProfile || undefined, setDeal || undefined];
         if (touched.every((v) => v === undefined)) throw new ParamError("nothing to update: pass at least one field");
 
         const [row] = await sql`
@@ -212,6 +233,8 @@ Deno.serve(async (req) => {
                 // shallow merge; a null value removes that key
                 : sql`, results = jsonb_strip_nulls(coalesce(results, '{}'::jsonb) || ${sql.json(results as never)})`)
               : sql``}
+            ${setProfile ? sql`, profile_id = ${links.profileId}` : sql``}
+            ${setDeal ? sql`, hubspot_deal_id = ${links.hubspotDealId}` : sql``}
             ${notes !== undefined ? sql`, notes = ${notes}` : sql``}
             ${notesAppend ? sql`, notes = coalesce(notes || E'\n', '') || ${`[${new Date().toISOString().slice(0, 16).replace("T", " ")}Z] ${notesAppend}`}` : sql``}
           where id = ${id}
@@ -242,6 +265,8 @@ Deno.serve(async (req) => {
           where true
             ${outlet !== undefined ? sql`and outlet = ${outlet}` : sql``}
             ${st !== undefined ? sql`and status = ${st}` : sql``}
+            ${links.profileId ? sql`and profile_id = ${links.profileId}` : sql``}
+            ${links.hubspotDealId ? sql`and hubspot_deal_id = ${links.hubspotDealId}` : sql``}
           order by created_at desc
           limit ${lim} offset ${off}`;
         const total = rows.length ? Number(rows[0].total) : 0;

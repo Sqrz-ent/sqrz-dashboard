@@ -6,7 +6,7 @@
 // with the transaction pooler.
 
 import postgres from "npm:postgres@3.4.4";
-import type { OutletObject } from "./types.ts";
+import type { ClientLinks, OutletObject } from "./types.ts";
 
 let _sql: ReturnType<typeof postgres> | null = null;
 
@@ -45,10 +45,10 @@ export function redact(value: unknown): unknown {
 const asJson = (v: unknown): any => sql().json((v ?? null) as never);
 
 /** Insert the run row BEFORE calling the outlet, so nothing happens untracked. */
-export async function startRun(outlet: string, action: string, request: unknown): Promise<string> {
+export async function startRun(outlet: string, action: string, request: unknown, links?: ClientLinks): Promise<string> {
   const [row] = await sql()`
-    insert into outlet_sandbox.outlet_runs (outlet, action, request, status)
-    values (${outlet}, ${action}, ${asJson(redact(request))}, 'running')
+    insert into outlet_sandbox.outlet_runs (outlet, action, request, status, profile_id, hubspot_deal_id)
+    values (${outlet}, ${action}, ${asJson(redact(request))}, 'running', ${links?.profileId ?? null}, ${links?.hubspotDealId ?? null})
     returning id`;
   return row.id as string;
 }
@@ -71,12 +71,19 @@ export async function recordObjects(
   outlet: string,
   runId: string,
   objects: OutletObject[],
+  links?: ClientLinks,
 ): Promise<void> {
   for (const o of objects) {
     await sql()`
       insert into outlet_sandbox.outlet_objects
-        (outlet, object_type, external_id, parent_external_id, raw, run_id)
+        (outlet, object_type, external_id, parent_external_id, raw, run_id, profile_id, hubspot_deal_id)
       values (${outlet}, ${o.objectType}, ${o.externalId}, ${o.parentExternalId ?? null},
-              ${asJson(o.raw)}, ${runId})`;
+              ${asJson(o.raw)}, ${runId}, ${links?.profileId ?? null}, ${links?.hubspotDealId ?? null})`;
   }
+}
+
+/** Read-only check that a profile exists (the only touch of the live schema), so a bad profile_id is a clean 400, not an FK error. */
+export async function profileExists(profileId: string): Promise<boolean> {
+  const rows = await sql()`select 1 from public.profiles where id = ${profileId} limit 1`;
+  return rows.length > 0;
 }

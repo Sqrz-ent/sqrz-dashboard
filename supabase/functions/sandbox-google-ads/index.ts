@@ -1,8 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireSandboxKey } from "../_shared/outlets/sandbox-guard.ts";
-import { finishRun, recordObjects, startRun } from "../_shared/outlets/sandbox-db.ts";
+import { finishRun, profileExists, recordObjects, startRun } from "../_shared/outlets/sandbox-db.ts";
+import { parseClientLinks } from "../_shared/outlets/sandbox-common.ts";
 import { GoogleAdsAdapter, googleConfigFromEnv } from "../_shared/outlets/google.ts";
-import { ConfigError, OutletError, type OutletObject, ParamError } from "../_shared/outlets/types.ts";
+import { type ClientLinks, ConfigError, OutletError, type OutletObject, ParamError } from "../_shared/outlets/types.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // sandbox-google-ads
@@ -92,10 +93,21 @@ Deno.serve(async (req) => {
     return json({ error: `body must be { action: ${ACTIONS.join(" | ")}, params?: {} }` }, 400);
   }
 
+  // Optional client linkage (profile_id / hubspot_deal_id), validated before anything is logged or sent.
+  let links: ClientLinks;
+  try {
+    links = parseClientLinks(params);
+    if (links.profileId && !(await profileExists(links.profileId))) throw new ParamError("params.profile_id does not match any profile");
+  } catch (e) {
+    if (e instanceof ParamError) return json({ ok: false, action, error: e.message }, 400);
+    console.error("[sandbox-google-ads] client link check failed:", e);
+    return json({ error: "sandbox database unavailable" }, 500);
+  }
+
   // Log first: nothing may hit Google untracked.
   let runId: string;
   try {
-    runId = await startRun("google", action, params);
+    runId = await startRun("google", action, params, links);
   } catch (e) {
     console.error("[sandbox-google-ads] could not write outlet_runs:", e);
     return json({ error: "sandbox logging unavailable (is the outlet_sandbox migration applied?)" }, 500);
@@ -165,7 +177,7 @@ Deno.serve(async (req) => {
         break;
     }
 
-    if (created.length) await recordObjects("google", runId, created);
+    if (created.length) await recordObjects("google", runId, created, links);
     await finishRun(runId, "ok", result);
     return json({ ok: true, run_id: runId, action, result });
   } catch (e) {
@@ -175,7 +187,7 @@ Deno.serve(async (req) => {
 
     // Best effort: still log whatever exists on Google's side despite the failure.
     try {
-      if (created.length) await recordObjects("google", runId, created);
+      if (created.length) await recordObjects("google", runId, created, links);
       await finishRun(runId, "error", e instanceof OutletError ? e.detail ?? null : null, message);
     } catch (logErr) {
       console.error("[sandbox-google-ads] failed to finalize run log:", logErr);

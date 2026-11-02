@@ -1,6 +1,8 @@
 import { requireSandboxKey } from "./sandbox-guard.ts";
-import { finishRun, recordObjects, startRun } from "./sandbox-db.ts";
+import { finishRun, profileExists, recordObjects, startRun } from "./sandbox-db.ts";
+import { parseClientLinks } from "./sandbox-common.ts";
 import {
+  type ClientLinks,
   ConfigError,
   OutletError,
   type OutletAdapter,
@@ -15,6 +17,8 @@ import {
 // sandbox-google-ads/index.ts — guard → log run first → call adapter → log
 // objects → finalize run — with the generic action set:
 //   ping | upload_asset | create_campaign | insights | pause
+// Any action accepts optional params.profile_id (UUID, public.profiles.id) and
+// params.hubspot_deal_id (numeric), stored on the run row and on every object created.
 // Everything an adapter creates is paused/draft; final URLs are always
 // https://<slug>.sqrz.com.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,10 +101,21 @@ export async function handleSandboxRequest(
     return json({ error: `body must be { action: ${ACTIONS.join(" | ")}, params?: {} }` }, 400);
   }
 
+  // Optional client linkage (profile_id / hubspot_deal_id) — validated before anything is logged or sent.
+  let links: ClientLinks;
+  try {
+    links = parseClientLinks(params);
+    if (links.profileId && !(await profileExists(links.profileId))) throw new ParamError("params.profile_id does not match any profile");
+  } catch (e) {
+    if (e instanceof ParamError) return json({ ok: false, action, error: e.message }, 400);
+    console.error(`${tag} client link check failed:`, e);
+    return json({ error: "sandbox database unavailable" }, 500);
+  }
+
   // Log first: nothing may hit the outlet untracked.
   let runId: string;
   try {
-    runId = await startRun(cfg.outlet, action, params);
+    runId = await startRun(cfg.outlet, action, params, links);
   } catch (e) {
     console.error(`${tag} could not write outlet_runs:`, e);
     return json({ error: "sandbox logging unavailable (is the outlet_sandbox migration applied?)" }, 500);
@@ -169,7 +184,7 @@ export async function handleSandboxRequest(
         break;
     }
 
-    if (created.length) await recordObjects(cfg.outlet, runId, created);
+    if (created.length) await recordObjects(cfg.outlet, runId, created, links);
     await finishRun(runId, "ok", result);
     return json({ ok: true, run_id: runId, action, result });
   } catch (e) {
@@ -178,7 +193,7 @@ export async function handleSandboxRequest(
     // Objects created before a later step failed still exist (paused/draft) — log them.
     if (e instanceof OutletError) created = [...created, ...e.created];
     try {
-      if (created.length) await recordObjects(cfg.outlet, runId, created);
+      if (created.length) await recordObjects(cfg.outlet, runId, created, links);
       await finishRun(runId, "error", e instanceof OutletError ? e.detail ?? null : null, message);
     } catch (logErr) {
       console.error(`${tag} failed to finalize run log:`, logErr);

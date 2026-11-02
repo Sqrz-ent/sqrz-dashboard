@@ -2,7 +2,7 @@
 // (google.ts predates this file and keeps its own copies; it is untouched.)
 
 import {
-  ConfigError, type CreateCampaignInput, type CreatedCampaign, type InsightsQuery, OutletError, type OutletObject, ParamError,
+  type ClientLinks, ConfigError, type CreateCampaignInput, type CreatedCampaign, type InsightsQuery, OutletError, type OutletObject, ParamError,
 } from "./types.ts";
 
 /** Placeholder id returned by validate_only dry runs. */
@@ -225,4 +225,23 @@ export async function oauth1Header(
   const sig = btoa(String.fromCharCode(...new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(base)))));
   const header = { ...oauth, oauth_signature: sig };
   return "OAuth " + Object.entries(header).map(([k2, v]) => `${rfc3986(k2)}="${rfc3986(v)}"`).join(", ");
+}
+
+// ── Client linkage (profile_id / hubspot_deal_id) ────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Parses the optional params.profile_id (UUID) and params.hubspot_deal_id (numeric id). Absent/null/"" → null. */
+export function parseClientLinks(params: Record<string, unknown>): ClientLinks {
+  const pick = (k: string): string | null => {
+    const v = params[k];
+    if (v === undefined || v === null || v === "") return null;
+    if (typeof v !== "string" && typeof v !== "number") throw new ParamError(`params.${k} must be a string`);
+    return String(v).trim();
+  };
+  const profileId = pick("profile_id")?.toLowerCase() ?? null;
+  if (profileId && !UUID_RE.test(profileId)) throw new ParamError("params.profile_id must be a UUID (public.profiles.id)");
+  const hubspotDealId = pick("hubspot_deal_id");
+  if (hubspotDealId && !/^[0-9]{1,20}$/.test(hubspotDealId)) throw new ParamError("params.hubspot_deal_id must be a numeric HubSpot deal id");
+  return { profileId, hubspotDealId };
 }

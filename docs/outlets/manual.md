@@ -5,7 +5,7 @@ Some channels we want to test have **no ads API**: they are booked by hand in a 
 Files: `supabase/migrations/20261103_outlet_sandbox_manual_campaigns.sql` (table `outlet_sandbox.manual_campaigns`), `supabase/functions/sandbox-manual/index.ts`. Same isolation as the other sandboxes: own schema, not exposed via PostgREST, service role only, guarded by `x-sandbox-key`, every call also logged to `outlet_sandbox.outlet_runs` (outlet `manual`).
 
 ## Deploy checklist (manual)
-1. Apply `20261101_outlet_sandbox.sql` (if not yet) and `20261103_outlet_sandbox_manual_campaigns.sql`. Keep `outlet_sandbox` out of the PostgREST exposed schemas.
+1. Apply, in order, `20261101_outlet_sandbox.sql` (if not yet), `20261103_outlet_sandbox_manual_campaigns.sql` and `20261104_outlet_sandbox_client_links.sql` (client linking). Keep `outlet_sandbox` out of the PostgREST exposed schemas.
 2. Set `SANDBOX_ADMIN_KEY` (same secret as the other sandbox functions).
 3. Deploy `sandbox-manual` with `--no-verify-jwt`.
 
@@ -43,9 +43,11 @@ Add any other platform by simply using a new lowercase `outlet` token (`a-z`, `0
 | `landing_url` | Must be `https://<slug>.sqrz.com` (a path is allowed). |
 | `results` | Free-form object of whatever the platform reports. **`update` shallow-merges** into it; a `null` value removes that key; pass `"results_mode":"replace"` to overwrite. |
 | `notes` | Free text. On `update`, `notes` replaces; **`notes_append`** adds a timestamped line instead (use one or the other). |
+| `profile_id` | Optional UUID of the client's `public.profiles` row. Must exist (checked read-only; unknown → 400). `null` on `update` clears it. |
+| `hubspot_deal_id` | Optional numeric HubSpot deal id (`"4321098765"`; a number is accepted and stored as text). `null` on `update` clears it. |
 
 ## Actions
-`create` · `update` (by `id`, any subset of fields) · `list` (filters `outlet`, `status`; `limit` 1–200 default 50, `offset`) · `get` (by `id`). Responses: `{ ok, run_id, action, result }` with `result.campaign` / `result.campaigns` (+ `total`, `count`).
+`create` · `update` (by `id`, any subset of fields; omitting `profile_id` / `hubspot_deal_id` leaves them unchanged) · `list` (filters `outlet`, `status`, **`profile_id`**, **`hubspot_deal_id`** — combinable; `limit` 1–200 default 50, `offset`) · `get` (by `id`). Responses: `{ ok, run_id, action, result }` with `result.campaign` / `result.campaigns` (+ `total`, `count`).
 
 ### Log a campaign
 ```bash
@@ -90,6 +92,56 @@ curl -s $URL -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' \
 curl -s $URL -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' \
   -d '{"action":"get","params":{"id":"<campaign id>"}}'
 ```
+
+## Client campaigns — link to a profile and a HubSpot deal
+Every sandbox call can carry the client it is for, so campaigns, runs and created objects can be traced back to a client and a deal. Pass **both** IDs (each is optional on its own):
+- `profile_id` — the client's `public.profiles.id` (UUID). Not the auth user id.
+- `hubspot_deal_id` — the HubSpot deal's record id (numeric; the long number in the deal's URL).
+
+**Manual outlet** (stored on the campaign; also tagged on the run):
+```bash
+curl -s $URL -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' -d '{
+  "action":"create",
+  "params":{
+    "outlet":"acast","name":"Client A — podcast ads","status":"booked","budget":500,
+    "starts_at":"2026-12-01","ends_at":"2026-12-31","landing_url":"https://clientslug.sqrz.com",
+    "profile_id":"11111111-1111-1111-1111-111111111111",
+    "hubspot_deal_id":"4321098765"}}'
+```
+Link it later, or re-point it (`null` clears a link; leaving a key out changes nothing):
+```bash
+curl -s $URL -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' -d '{
+  "action":"update","params":{"id":"<campaign id>","profile_id":"11111111-1111-1111-1111-111111111111","hubspot_deal_id":"4321098765"}}'
+```
+Everything for one client or one deal:
+```bash
+curl -s $URL -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"action":"list","params":{"profile_id":"11111111-1111-1111-1111-111111111111"}}'
+
+curl -s $URL -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"action":"list","params":{"hubspot_deal_id":"4321098765","status":"running"}}'
+```
+
+**API outlets** (`sandbox-google-ads` and every `sandbox-<outlet>`): add the same two params to `create_campaign` (or `create_demand_gen` for Google) — or any other action. They are stored on that call's `outlet_sandbox.outlet_runs` row and on every `outlet_sandbox.outlet_objects` row it creates (campaign, ad group, ad, assets …):
+```bash
+curl -s https://fmjefvdtnmgdfauedpmg.supabase.co/functions/v1/sandbox-tiktok \
+  -H "x-sandbox-key: $KEY" -H 'Content-Type: application/json' -d '{
+  "action":"create_campaign",
+  "params":{"name":"Client A","slug":"clientslug","asset_id":"<video_id>","business_name":"Client A",
+    "headlines":["Book Client A"],"descriptions":["unused"],"daily_budget_cents":2000,
+    "profile_id":"11111111-1111-1111-1111-111111111111","hubspot_deal_id":"4321098765","validate_only":true}}'
+```
+Invalid input (non-UUID `profile_id`, non-numeric `hubspot_deal_id`, or a `profile_id` that matches no profile) returns `400` before anything is logged or sent to a platform.
+
+Everything for a client across all sandbox tables (SQL editor / service role):
+```sql
+select 'manual' as src, id::text, outlet, name as what, status, created_at from outlet_sandbox.manual_campaigns where profile_id = '<uuid>'
+union all select 'object', external_id, outlet, object_type, null, created_at from outlet_sandbox.outlet_objects where profile_id = '<uuid>'
+union all select 'run', id::text, outlet, action, status, created_at from outlet_sandbox.outlet_runs where profile_id = '<uuid>'
+order by created_at desc;
+-- same by deal: replace `profile_id = '<uuid>'` with `hubspot_deal_id = '4321098765'`
+```
+Deleting a profile does not delete the log: `profile_id` is set to `NULL` (`ON DELETE SET NULL`).
 
 Or straight in SQL (service role / SQL editor): `select outlet, name, status, budget, spend, results from outlet_sandbox.manual_campaigns order by created_at desc;`
 

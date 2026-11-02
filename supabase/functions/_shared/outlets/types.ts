@@ -24,6 +24,12 @@ export type OutletName =
   | "google" | "microsoft" | "snapchat" | "openai" | "spotify"
   | "tiktok" | "reddit" | "linkedin" | "pinterest" | "x" | "amazon" | "taboola" | "adquick";
 
+/** Optional client linkage stored on sandbox runs/objects/manual campaigns (see 20261104_outlet_sandbox_client_links.sql). */
+export interface ClientLinks {
+  profileId: string | null;
+  hubspotDealId: string | null;
+}
+
 /** One external object created by an adapter call (campaign, ad group, ad, asset, video, …). */
 export interface OutletObject {
   objectType: string;
