@@ -19,6 +19,11 @@ function sql() {
   return _sql;
 }
 
+/** Shared connection for sandbox functions that query their own outlet_sandbox tables (e.g. sandbox-manual). */
+export function sandboxSql() {
+  return sql();
+}
+
 const SECRET_KEY = /token|secret|password|authorization|api[-_]?key|^key$/i;
 
 /** Deep-copy with secret-looking keys masked, so params never leak into the log. */
