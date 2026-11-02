@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
-import { redirect, useLoaderData, useFetcher, Link } from "react-router";
+import { useState } from "react";
+import { redirect, useLoaderData, Link } from "react-router";
 import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
-import { getCurrentProfile } from "~/lib/profile.server";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { useTheme, writeThemeCookie } from "~/lib/theme";
 
@@ -108,30 +107,6 @@ export async function loader({ request }: Route.LoaderArgs) {
   );
 }
 
-// ─── Action ───────────────────────────────────────────────────────────────────
-
-export async function action({ request }: Route.ActionArgs) {
-  const { supabase, headers } = createSupabaseServerClient(request);
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect("/login", { headers });
-
-  const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/login", { headers });
-
-  const formData = await request.formData();
-  const intent = formData.get("intent") as string;
-
-  if (intent === "update_template") {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ template_id: formData.get("template_id") as string })
-      .eq("id", profile.id as string);
-    return Response.json({ ok: !error, error: error?.message }, { headers });
-  }
-
-  return Response.json({ ok: false }, { headers });
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
@@ -162,12 +137,6 @@ export default function DashboardIndex() {
   };
   const completion = getProfileCompletion(richProfile);
   const { score: doneCount, total: totalSections, percentage: pct, items: completionItems } = completion;
-
-  // Theme picker
-  const templateFetcher = useFetcher();
-  const [selectedTemplate, setSelectedTemplate] = useState<string>(
-    (p.template_id as string) || "midnight"
-  );
 
   // Dark/light mode — theme lives in the root Layout (server-rendered from a
   // cookie so <html> has the right class at first paint). Toggling updates that
@@ -350,89 +319,6 @@ export default function DashboardIndex() {
           <Link to="/analytics" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
             View full analytics →
           </Link>
-        </div>
-      </div>
-
-      {/* Theme picker */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <p style={{ ...metaLabel, margin: "0 0 14px" }}>Your theme</p>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-            gap: 10,
-          }}
-        >
-          {([
-            { key: "midnight", label: "Midnight", accent: "#F3B130", live: true },
-            { key: "neon",     label: "Neon",     accent: "#A855F7", live: true },
-            { key: "studio",   label: "Studio",   accent: "#38BDF8", live: true },
-            { key: "noir",     label: "Noir",     accent: "#22C55E", live: false },
-          ] as const).map(({ key, label, accent, live }) => {
-            const active = selectedTemplate === key;
-            return (
-              <button
-                key={key}
-                onClick={() => {
-                  if (!live) return;
-                  setSelectedTemplate(key);
-                  const fd = new FormData();
-                  fd.append("intent", "update_template");
-                  fd.append("template_id", key);
-                  templateFetcher.submit(fd, { method: "post" });
-                }}
-                style={{
-                  minWidth: 0,
-                  padding: 0,
-                  background: active ? "var(--surface-muted)" : "var(--bg)",
-                  border: active ? `2px solid ${accent}` : live ? "2px solid var(--border)" : "2px dashed var(--border)",
-                  borderRadius: 14,
-                  cursor: live ? "pointer" : "default",
-                  display: "flex",
-                  flexDirection: "column",
-                  transition: "border-color 0.15s, background 0.15s",
-                  fontFamily: FONT,
-                  aspectRatio: "1 / 1",
-                  opacity: live ? 1 : 0.72,
-                  overflow: "hidden",
-                }}
-                disabled={!live}
-              >
-                <div
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flex: 1,
-                    padding: "16px 14px 12px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 20,
-                      fontWeight: 800,
-                      color: active ? accent : "var(--text)",
-                      letterSpacing: "0.02em",
-                      textAlign: "center",
-                    }}
-                  >
-                    {label}
-                  </span>
-                </div>
-                <div
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flex: 1,
-                    background: accent,
-                  }}
-                />
-              </button>
-            );
-          })}
         </div>
       </div>
 

@@ -54,6 +54,21 @@ Not changed: `auth.callback.tsx`, `reset-password.tsx`, the `handle_new_user`
 trigger, the `pending_signups` table (now unused by app code; the trigger still
 reads and cleans it — drop it in a later cleanup), `sqrz-ios`.
 
+### Follow-up cleanup (2026-11-02, second pass)
+Login is now **email → 6-digit code only**. Removed: the password login path
+and "Use password instead" (`login.tsx`), "Forgot password?" and the
+`/reset-password` route (`reset-password.tsx` deleted, route removed from
+`routes.ts`), the Account page "Set a Password" card (`_app.account.tsx`), and
+the home-page template/theme picker plus its `update_template` action
+(`_app._index.tsx`). The dark/light "Appearance" toggle on the home page is
+unrelated (cookie-based) and stays. `profiles.template_id` and its data are
+untouched. `/join` still redirects to `/login`; no other signup/claim/onboarding
+routes existed.
+Dashboard consequences: the Supabase **Reset Password** email template and the
+"Confirm signup" template are no longer reachable from the web app (leave them
+as is); existing users who only had a password now log in with an emailed code.
+`/auth/callback` is kept — it still serves admin-generated/invite links.
+
 ### Links to `/join` still outside this repo (not touched)
 These all hit the redirect, so they are harmless but now lead to a login page
 for visitors who wanted to sign up. Repoint them at the App Store / TestFlight

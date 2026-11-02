@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { redirect, Link, useLoaderData } from "react-router";
+import { redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/login";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { supabase } from "~/lib/supabase.client";
@@ -131,15 +131,12 @@ export default function Login() {
   const { error: urlError } = useLoaderData<typeof loader>();
 
   const [email, setEmail]               = useState("");
-  const [password, setPassword]         = useState("");
   const [code, setCode]                 = useState("");
-  const [usePassword, setUsePassword]   = useState(false);
   const [loading, setLoading]           = useState(false);
   const [verifying, setVerifying]       = useState(false);
   const [error, setError]               = useState("");
   const [codeSent, setCodeSent]         = useState(false);
   const [cooldown, setCooldown]         = useState(0);
-  const [authPhase, setAuthPhase]       = useState<"idle" | "password" | "code">("idle");
 
   // Resend cooldown: counts down once per second.
   useEffect(() => {
@@ -155,7 +152,6 @@ export default function Login() {
     if (loading || cooldown > 0) return;
     if (!normalizedEmail.includes("@")) { setError("Enter a valid email address"); return; }
     setLoading(true);
-    setAuthPhase("code");
     setError("");
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
@@ -180,7 +176,6 @@ export default function Login() {
       }
     } finally {
       setLoading(false);
-      setAuthPhase("idle");
     }
   }
 
@@ -202,37 +197,6 @@ export default function Login() {
       setError(verifyErrorMessage(asAuthError(raw)));
       setVerifying(false);
     }
-  }
-
-  async function loginWithPassword() {
-    if (loading) return;
-    if (!normalizedEmail.includes("@")) { setError("Enter a valid email address"); return; }
-    if (!password)                      { setError("Enter your password"); return; }
-    setLoading(true);
-    setAuthPhase("password");
-    setError("");
-    let didRedirect = false;
-    try {
-      const { error: err } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
-      if (err) throw err;
-      didRedirect = true;
-      window.location.href = "/";
-    } catch (raw) {
-      const e = asAuthError(raw);
-      if (isRateLimit(e)) setError("Too many attempts. Please wait a minute and try again.");
-      else if (isNetworkError(e)) setError("Couldn't reach the server. Check your connection and try again.");
-      else setError("Invalid email or password");
-      setAuthPhase("idle");
-    } finally {
-      if (!didRedirect) {
-        setLoading(false);
-      }
-    }
-  }
-
-  function switchMode(toPassword: boolean) {
-    setUsePassword(toPassword);
-    setError("");
   }
 
   return (
@@ -266,7 +230,7 @@ export default function Login() {
             />
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ fontSize: 15, color: "rgba(23,23,23,0.68)" }}>
-                {authPhase === "password" ? "Loading..." : "Sending your code..."}
+                Sending your code...
               </div>
             </div>
             <div
@@ -406,38 +370,12 @@ export default function Login() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter") return;
-                  if (usePassword) loginWithPassword(); else sendCode();
-                }}
+                onKeyDown={(e) => e.key === "Enter" && sendCode()}
                 placeholder="you@example.com"
                 style={inputStyle}
                 autoComplete="email"
                 autoFocus
               />
-
-              {/* ── Password field — only in the secondary password mode ─── */}
-              {usePassword && (
-                <div>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && loginWithPassword()}
-                    placeholder="Password"
-                    style={inputStyle}
-                    autoComplete="current-password"
-                  />
-                  <div style={{ textAlign: "right", marginTop: -6, marginBottom: 12 }}>
-                    <Link
-                      to="/reset-password"
-                      style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}
-                    >
-                      Forgot password?
-                    </Link>
-                  </div>
-                </div>
-              )}
 
               {/* ── Error ───────────────────────────────────────────────── */}
               {error && (
@@ -448,33 +386,19 @@ export default function Login() {
 
               {/* ── Primary CTA ─────────────────────────────────────────── */}
               <button
-                onClick={usePassword ? loginWithPassword : sendCode}
-                disabled={loading || (!usePassword && cooldown > 0)}
+                onClick={sendCode}
+                disabled={loading || cooldown > 0}
                 style={{
                   ...primaryButtonStyle,
-                  marginBottom: 16,
-                  opacity: loading || (!usePassword && cooldown > 0) ? 0.6 : 1,
+                  opacity: loading || cooldown > 0 ? 0.6 : 1,
                 }}
               >
-                {usePassword
-                  ? loading ? "Logging in…" : "Log in"
-                  : loading
-                    ? "Sending…"
-                    : cooldown > 0
-                      ? `Try again in ${cooldown}s`
-                      : "Email me a login code"}
+                {loading
+                  ? "Sending…"
+                  : cooldown > 0
+                    ? `Try again in ${cooldown}s`
+                    : "Email me a login code"}
               </button>
-
-              {/* ── Secondary link ──────────────────────────────────────── */}
-              <div style={{ textAlign: "center" }}>
-                <button
-                  onClick={() => switchMode(!usePassword)}
-                  disabled={loading}
-                  style={{ ...linkButtonStyle, opacity: loading ? 0.6 : 1 }}
-                >
-                  {usePassword ? "Email me a code instead" : "Use password instead"}
-                </button>
-              </div>
             </>
           )}
         </div>

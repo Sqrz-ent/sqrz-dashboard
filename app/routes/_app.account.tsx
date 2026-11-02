@@ -3,7 +3,6 @@ import { redirect, useLoaderData, useFetcher } from "react-router";
 import type { Route } from "./+types/_app.account";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { getCurrentProfile } from "~/lib/profile.server";
-import { supabase } from "~/lib/supabase.client";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
 
 const ACCENT = "#F5A623";
@@ -414,31 +413,6 @@ export default function AccountPage() {
 
   const signOutFetcher = useFetcher();
 
-  const [newPassword, setNewPassword]       = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [passwordLoading, setPasswordLoading] = useState(false);
-  const [passwordError, setPasswordError]   = useState("");
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
-
-  async function handleSetPassword() {
-    setPasswordError("");
-    setPasswordSuccess(false);
-    if (newPassword.length < 8) { setPasswordError("Password must be at least 8 characters"); return; }
-    if (newPassword !== confirmPassword) { setPasswordError("Passwords don't match"); return; }
-    setPasswordLoading(true);
-    try {
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) throw error;
-      setPasswordSuccess(true);
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (err) {
-      setPasswordError(err instanceof Error ? err.message : "Failed to set password");
-    } finally {
-      setPasswordLoading(false);
-    }
-  }
-
   const slug = (profile.slug as string) ?? "";
 
   return (
@@ -467,83 +441,7 @@ export default function AccountPage() {
         </p>
       </div>
 
-      {/* Card 2: Password */}
-      <div style={card}>
-        <span style={labelStyle}>Set a Password</span>
-        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 16px", fontFamily: FONT_BODY }}>
-          Set a password so you can log in without a magic link
-        </p>
-        <input
-          type="password"
-          value={newPassword}
-          onChange={(e) => setNewPassword(e.target.value)}
-          placeholder="New password"
-          minLength={8}
-          style={{
-            width: "100%",
-            padding: "12px 14px",
-            background: "var(--surface-muted)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            fontSize: 15,
-            color: "var(--text)",
-            outline: "none",
-            marginBottom: 10,
-            boxSizing: "border-box",
-            fontFamily: FONT_BODY,
-          }}
-        />
-        <input
-          type="password"
-          value={confirmPassword}
-          onChange={(e) => setConfirmPassword(e.target.value)}
-          placeholder="Confirm password"
-          minLength={8}
-          style={{
-            width: "100%",
-            padding: "12px 14px",
-            background: "var(--surface-muted)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            fontSize: 15,
-            color: "var(--text)",
-            outline: "none",
-            marginBottom: 12,
-            boxSizing: "border-box",
-            fontFamily: FONT_BODY,
-          }}
-        />
-        {passwordError && (
-          <p style={{ fontSize: 13, color: "#ef4444", margin: "0 0 10px", fontFamily: FONT_BODY }}>
-            {passwordError}
-          </p>
-        )}
-        {passwordSuccess && (
-          <p style={{ fontSize: 13, color: "#22c55e", margin: "0 0 10px", fontFamily: FONT_BODY }}>
-            Password set successfully
-          </p>
-        )}
-        <button
-          onClick={handleSetPassword}
-          disabled={passwordLoading}
-          style={{
-            padding: "10px 22px",
-            background: ACCENT,
-            color: "#fff",
-            border: "none",
-            borderRadius: 10,
-            fontSize: 14,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontFamily: FONT_BODY,
-            opacity: passwordLoading ? 0.6 : 1,
-          }}
-        >
-          {passwordLoading ? "Saving…" : "Set Password"}
-        </button>
-      </div>
-
-      {/* Card 3: Sign Out */}
+      {/* Card 2: Sign Out */}
       <div style={card}>
         <span style={labelStyle}>Session</span>
         <signOutFetcher.Form method="post">

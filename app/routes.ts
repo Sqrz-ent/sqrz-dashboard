@@ -6,7 +6,6 @@ export default [
   // created in the iOS app); kept so old links don't 404.
   route("join", "routes/join.tsx"),
   route("login", "routes/login.tsx"),
-  route("reset-password", "routes/reset-password.tsx"),
   route("auth/callback", "routes/auth.callback.tsx"),
 
   // Protected app (session required)
