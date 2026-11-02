@@ -18,6 +18,9 @@ import WireTopupPanel, { type WireBank, type WireOptions, type WireTransferRow }
 // - Bank transfer (2026-11): when app_config.wire_topup_enabled is on (and a bank account is set up),
 //   the popover offers a second option, "Bank transfer — no card fees", with a "Save $X" badge — see
 //   WireTopupPanel + docs/wallet/wire-topup.md. The amount field is shared by both options.
+//   "Show bank details" only requests a non-committal quote (nothing written); the transfer itself is
+//   only created once the user explicitly confirms ("I'll send this transfer"), and a pending one can
+//   still be cancelled from the list afterward — all of that flow/state lives in WireTopupPanel, not here.
 
 export type SwitcherProfile = {
   id: string;

@@ -3,6 +3,13 @@ import { useState } from "react";
 // Bank-transfer option of the web Top up popover (docs/wallet/wire-topup.md). Pure UI: all logic is
 // server-side (wire-topup-create via /api/wire-topup). The amount field lives in ProfileSwitcher and is
 // passed in as `amountCents` (the wallet credit, USD cents).
+//
+// Non-committal until explicitly confirmed (2026-11): "Show bank details" only requests a QUOTE
+// (nothing written server-side) — the form → QuotePreview ("Nothing is booked yet.", Back / "I'll
+// send this transfer") → Instructions (reference code assigned) flow. Only "I'll send this transfer"
+// actually creates the wire_topups row. Pending transfers in the list below can be cancelled before
+// money is sent; the list itself only ever shows pending rows and recently-received ones (filtered
+// server-side, in app/routes/api.wire-topup.tsx).
 
 export type WireOptions = {
   enabled: boolean;
@@ -48,7 +55,9 @@ export function money(cents: number, currency: string): string {
 const label: React.CSSProperties = { fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-muted)" };
 const small: React.CSSProperties = { fontSize: 12, color: "var(--text-muted)", lineHeight: 1.45 };
 
-function effectiveStatus(t: WireTransferRow): "pending" | "expired" | "received" | "cancelled" {
+// Exported so server-side code (app/routes/api.wire-topup.tsx) can reuse the same "is this row still
+// pending, or has its expiry just not been flipped in the DB yet" logic when deciding what to show.
+export function effectiveStatus(t: WireTransferRow): "pending" | "expired" | "received" | "cancelled" {
   if (t.status === "pending" && new Date(t.expires_at).getTime() < Date.now()) return "expired";
   return t.status as "pending" | "received" | "cancelled" | "expired";
 }
@@ -97,6 +106,7 @@ function Instructions({ data, onBack }: { data: WireInstructions; onBack: () => 
         {t.currency !== "USD" ? ` (converted to ${t.currency})` : ""}.
       </p>
       <CopyRow name="Payment reference — required" value={t.reference_code} strong />
+      <p style={{ ...small, margin: "4px 0 10px" }}>Include this reference in your transfer.</p>
       <CopyRow name="Amount" value={(t.transfer_amount_cents / 100).toFixed(2)} />
       {bank && (
         <>
@@ -121,6 +131,88 @@ function Instructions({ data, onBack }: { data: WireInstructions; onBack: () => 
   );
 }
 
+// Non-committal preview — the response shape of wire-topup-create's "quote" action. No reference
+// code, no expiry, no row: nothing is created until the user explicitly confirms.
+export type WireQuote = {
+  amount_cents: number;
+  fee_cents: number;
+  fee_pct: number;
+  currency: string;
+  fx_rate: number;
+  transfer_amount_cents: number;
+  bank: WireBank | null;
+};
+
+function QuotePreview({
+  quote,
+  onBack,
+  onConfirm,
+  submitting,
+  error,
+}: {
+  quote: WireQuote;
+  onBack: () => void;
+  onConfirm: () => void;
+  submitting: boolean;
+  error: string;
+}) {
+  const bank = quote.bank;
+  const exact = money(quote.transfer_amount_cents, quote.currency);
+  return (
+    <div>
+      <button type="button" onClick={onBack} disabled={submitting} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: submitting ? "default" : "pointer", fontSize: 12, padding: 0, marginBottom: 8 }}>
+        ← Back
+      </button>
+      <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 800, color: "var(--text)" }}>Send exactly {exact}</p>
+      <div style={{ marginBottom: 10, fontSize: 12, color: "var(--text-muted)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span>Ad budget</span>
+          <span>{money(quote.amount_cents, "USD")}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span>Bank transfer fee ({quote.fee_pct}%)</span>
+          <span>{money(quote.fee_cents, "USD")}</span>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 6, borderTop: "1px solid var(--border)", fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+          <span>You send</span>
+          <span>{exact}</span>
+        </div>
+      </div>
+      {bank && (
+        <>
+          <CopyRow name="Account holder" value={bank.account_holder} />
+          <CopyRow name="Bank" value={bank.bank_name} />
+          <CopyRow name={quote.currency === "EUR" ? "IBAN" : "Account number"} value={bank.account_number} />
+          {bank.routing_number && <CopyRow name="Routing number (ABA)" value={bank.routing_number} />}
+          {bank.swift_bic && <CopyRow name="SWIFT / BIC" value={bank.swift_bic} />}
+          {bank.bank_address && <CopyRow name="Bank address" value={bank.bank_address} />}
+          {bank.notes && <p style={{ ...small, margin: "8px 0 0" }}>{bank.notes}</p>}
+        </>
+      )}
+      <p style={{ margin: "10px 0 12px", fontSize: 12, fontWeight: 700, color: "var(--text)" }}>Nothing is booked yet.</p>
+      {error && <p role="alert" style={{ margin: "0 0 10px", fontSize: 12, color: "#ef4444" }}>{error}</p>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={submitting}
+          style={{ flex: 1, background: "transparent", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 10, padding: 12, fontSize: 14, fontWeight: 700, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.6 : 1 }}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={submitting}
+          style={{ flex: 2, background: ACCENT, color: "#111", border: "none", borderRadius: 10, padding: 12, fontSize: 14, fontWeight: 700, cursor: submitting ? "default" : "pointer", opacity: submitting ? 0.6 : 1 }}
+        >
+          {submitting ? "Creating…" : "I'll send this transfer"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function WireTopupPanel({
   options,
   banks,
@@ -134,11 +226,17 @@ export default function WireTopupPanel({
   transfers: WireTransferRow[];
   amountCents: number | null;
   profileId: string;
+  // Called after any mutation that should refresh the account's wire state (a transfer was created
+  // OR cancelled) — the name predates cancel support but the parent (ProfileSwitcher) just reloads
+  // the same /api/wire-topup data either way, so one callback still covers both.
   onCreated: () => void;
 }) {
   const [currency, setCurrency] = useState<"USD" | "EUR">(options.currencies[0]?.currency ?? "USD");
+  const [quoting, setQuoting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [quote, setQuote] = useState<WireQuote | null>(null);
   const [view, setView] = useState<WireInstructions | null>(null);
 
   const fx = options.currencies.find((c) => c.currency === currency)?.fx_rate ?? 1;
@@ -151,6 +249,28 @@ export default function WireTopupPanel({
   const saving = Math.max(0, cardFee - fee);
   const sendCents = amountCents != null ? Math.ceil((amountCents + fee) / fx) : 0;
 
+  // "Show bank details" — non-committal preview, writes nothing server-side.
+  async function requestQuote() {
+    if (!inRange || amountCents == null || quoting) return;
+    setQuoting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/wire-topup?profile_id=${encodeURIComponent(profileId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "quote", currency, amount_cents: amountCents }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) throw new Error(data?.error ?? "Couldn't load the bank details. Please try again.");
+      setQuote(data as WireQuote);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't load the bank details. Please try again.");
+    } finally {
+      setQuoting(false);
+    }
+  }
+
+  // "I'll send this transfer" — the explicit, committing step. Only reachable from the quote view.
   async function create() {
     if (!inRange || amountCents == null || submitting) return;
     setSubmitting(true);
@@ -159,10 +279,11 @@ export default function WireTopupPanel({
       const res = await fetch(`/api/wire-topup?profile_id=${encodeURIComponent(profileId)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currency, amount_cents: amountCents }),
+        body: JSON.stringify({ action: "create", currency, amount_cents: amountCents }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.transfer) throw new Error(data?.error ?? "Couldn't create the transfer. Please try again.");
+      setQuote(null);
       setView({ transfer: data.transfer as WireTransferRow, bank: data.bank as WireBank });
       onCreated();
     } catch (e) {
@@ -170,6 +291,41 @@ export default function WireTopupPanel({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function cancel(id: string) {
+    if (cancellingId) return;
+    setCancellingId(id);
+    setError("");
+    try {
+      const res = await fetch(`/api/wire-topup?profile_id=${encodeURIComponent(profileId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "cancel", wire_topup_id: id }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error ?? "Couldn't cancel the transfer. Please try again.");
+      onCreated();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't cancel the transfer. Please try again.");
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
+  if (quote) {
+    return (
+      <QuotePreview
+        quote={quote}
+        onBack={() => {
+          setQuote(null);
+          setError("");
+        }}
+        onConfirm={create}
+        submitting={submitting}
+        error={error}
+      />
+    );
   }
 
   return (
@@ -229,8 +385,8 @@ export default function WireTopupPanel({
 
       <button
         type="button"
-        onClick={create}
-        disabled={!inRange || submitting}
+        onClick={requestQuote}
+        disabled={!inRange || quoting}
         style={{
           width: "100%",
           background: ACCENT,
@@ -240,11 +396,11 @@ export default function WireTopupPanel({
           padding: 12,
           fontSize: 14,
           fontWeight: 700,
-          cursor: !inRange || submitting ? "default" : "pointer",
-          opacity: !inRange || submitting ? 0.5 : 1,
+          cursor: !inRange || quoting ? "default" : "pointer",
+          opacity: !inRange || quoting ? 0.5 : 1,
         }}
       >
-        {submitting ? "Creating…" : "Show bank details →"}
+        {quoting ? "Loading…" : "Show bank details →"}
       </button>
 
       {transfers.length > 0 && (
@@ -255,20 +411,31 @@ export default function WireTopupPanel({
             const bank = banks.find((b) => b.currency === t.currency) ?? null;
             const color = st === "received" ? GREEN : st === "expired" ? "var(--text-muted)" : ACCENT;
             return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setView({ transfer: t, bank })}
-                style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: "transparent", border: "none", borderBottom: "1px solid var(--border)", padding: "8px 0", cursor: "pointer", color: "var(--text)" }}
-              >
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{money(t.amount_cents, "USD")} · {t.reference_code}</span>
-                  <span style={{ display: "block", fontSize: 11, color: "var(--text-muted)" }}>
-                    {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid var(--border)", padding: "8px 0" }}>
+                <button
+                  type="button"
+                  onClick={() => setView({ transfer: t, bank })}
+                  style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "var(--text)" }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{money(t.amount_cents, "USD")} · {t.reference_code}</span>
+                    <span style={{ display: "block", fontSize: 11, color: "var(--text-muted)" }}>
+                      {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    </span>
                   </span>
-                </span>
-                <span style={{ fontSize: 11, fontWeight: 700, color, textTransform: "capitalize" }}>{st}</span>
-              </button>
+                  <span style={{ fontSize: 11, fontWeight: 700, color, textTransform: "capitalize" }}>{st}</span>
+                </button>
+                {st === "pending" && (
+                  <button
+                    type="button"
+                    onClick={() => cancel(t.id)}
+                    disabled={cancellingId === t.id}
+                    style={{ flexShrink: 0, background: "transparent", border: "1px solid var(--border)", borderRadius: 8, padding: "4px 8px", fontSize: 11, fontWeight: 600, color: cancellingId === t.id ? "var(--text-muted)" : "#ef4444", cursor: cancellingId === t.id ? "default" : "pointer" }}
+                  >
+                    {cancellingId === t.id ? "Cancelling…" : "Cancel"}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>

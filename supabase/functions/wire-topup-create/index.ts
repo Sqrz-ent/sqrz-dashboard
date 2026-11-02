@@ -12,19 +12,72 @@ import {
 // POST { action: "options" }
 //   → { enabled, min_cents, max_cents, fee_pct, card_fee_pct, expiry_days, currencies: [{currency, fx_rate}] }
 //     (only currencies that have an ACTIVE wire_accounts row and a valid FX rate)
+// POST { action: "quote", currency: "USD"|"EUR", amount_cents }
+//   Non-committal preview — same validation as "create" (enabled, currency, active bank row, FX rate,
+//   min/max) but writes NOTHING (no row, no reference code, no expiry, no open-transfer-cap check —
+//   that cap only applies once a request is actually created).
+//   → { amount_cents, fee_cents, fee_pct, currency, fx_rate, transfer_amount_cents,
+//       bank: { ...wire_accounts row (user-visible cols) } }
+//   Errors: same codes as "create" below, minus too_many_pending.
 // POST { action: "create", currency: "USD"|"EUR", amount_cents, profile_id?, source?: "web"|"ios" }
 //   amount_cents = what the WALLET is credited, in USD cents. The user sends amount + fee (converted at
-//   the configured rate for EUR).
+//   the configured rate for EUR). The caller should have already shown a "quote" before calling this —
+//   this is the explicit, committing step that actually creates the request.
 //   → { transfer: { id, reference_code, currency, amount_cents, fee_cents, transfer_amount_cents,
 //                   fx_rate, expires_at, status }, bank: { ...wire_accounts row (user-visible cols) },
 //       card_comparison: { card_fee_cents, wire_fee_cents, savings_cents } }
 //   Errors: { error, code } — wire_disabled 403 · invalid_amount / below_min / above_max /
 //   currency_unavailable 400 · too_many_pending 429.
+// POST { action: "cancel", wire_topup_id }
+//   The caller may cancel only a row belonging to THEIR OWN account, and only while it is still
+//   'pending' (an expired or already-received row can't be cancelled this way — see wire-topup-admin
+//   for the admin-side cancel, which also allows 'expired').
+//   → { transfer: { id, status } }
+//   Errors: { error, code } — bad_request 400 (missing id) · not_cancellable 404 (not found / not
+//   yours / not pending — deliberately the same error either way, so this can't be used to probe for
+//   other accounts' transfer ids).
 // Config (app_config wire_*): wire_topup_enabled, _min_cents, _max_cents, wire_fee_pct, wire_expiry_days,
 // wire_topup_max_pending, wire_fx_rates.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const err = (error: string, code: string, status: number) => json({ error, code }, status);
+
+// Shared by "quote" and "create" — same checks, same order, same error codes. Returns the validated
+// inputs, or the Response to return immediately if validation failed.
+function validateAmount(
+  cfg: Awaited<ReturnType<typeof loadWireConfig>>,
+  available: readonly string[],
+  activeAccounts: Array<Record<string, unknown>>,
+  body: Record<string, unknown>,
+): { currency: string; bank: Record<string, unknown>; amount: number } | Response {
+  if (!cfg.enabled) return err("Bank transfers are not available right now.", "wire_disabled", 403);
+
+  const currency = String(body.currency ?? "").toUpperCase();
+  if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(currency) || !available.includes(currency)) {
+    return err("That currency isn't available for bank transfers right now.", "currency_unavailable", 400);
+  }
+  const bank = activeAccounts.find((a) => a.currency === currency)!;
+
+  const amount = Number(body.amount_cents);
+  if (!Number.isInteger(amount) || amount <= 0) return err("amount_cents must be a positive integer.", "invalid_amount", 400);
+  if (amount < cfg.minCents) return err(`Minimum bank transfer top-up is ${(cfg.minCents / 100).toFixed(2)} USD.`, "below_min", 400);
+  if (amount > cfg.maxCents) return err(`Maximum bank transfer top-up is ${(cfg.maxCents / 100).toFixed(2)} USD.`, "above_max", 400);
+
+  return { currency, bank, amount };
+}
+
+function bankPublicFields(bank: Record<string, unknown>) {
+  return {
+    currency: bank.currency,
+    account_holder: bank.account_holder,
+    bank_name: bank.bank_name,
+    account_number: bank.account_number,
+    routing_number: bank.routing_number ?? null,
+    swift_bic: bank.swift_bic ?? null,
+    bank_address: bank.bank_address ?? null,
+    notes: bank.notes ?? null,
+  };
+}
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return err("Method not allowed", "method_not_allowed", 405);
@@ -61,20 +114,56 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (action !== "create") return err("action must be one of: options, create", "bad_request", 400);
+  if (action === "cancel") {
+    const wireTopupId = typeof body.wire_topup_id === "string" ? body.wire_topup_id.trim() : "";
+    if (!wireTopupId) return err("wire_topup_id is required.", "bad_request", 400);
 
-  if (!cfg.enabled) return err("Bank transfers are not available right now.", "wire_disabled", 403);
+    const { data: account } = await admin.from("accounts").select("id").eq("user_id", user.id).maybeSingle();
+    if (!account) return err("Account not found.", "no_account", 404);
 
-  const currency = String(body.currency ?? "").toUpperCase();
-  if (!(SUPPORTED_CURRENCIES as readonly string[]).includes(currency) || !available.includes(currency as "USD" | "EUR")) {
-    return err("That currency isn't available for bank transfers right now.", "currency_unavailable", 400);
+    // account_id + status='pending' scoped in the UPDATE itself — a row that's not pending, or
+    // belongs to a different account, simply matches 0 rows and falls through to the same generic
+    // error below, so this can't be used to probe for other accounts' transfer ids.
+    const { data: cancelled, error } = await admin.from("wire_topups")
+      .update({ status: "cancelled" })
+      .eq("id", wireTopupId)
+      .eq("account_id", account.id as string)
+      .eq("status", "pending")
+      .select("id, status")
+      .maybeSingle();
+    if (error) {
+      console.error("[wire-topup-create] cancel failed:", error.message);
+      return err("Couldn't cancel the transfer. Please try again.", "cancel_failed", 500);
+    }
+    if (!cancelled) return err("That transfer can't be cancelled.", "not_cancellable", 404);
+    return json({ transfer: cancelled });
   }
-  const bank = activeAccounts.find((a) => a.currency === currency)!;
 
-  const amount = Number(body.amount_cents);
-  if (!Number.isInteger(amount) || amount <= 0) return err("amount_cents must be a positive integer.", "invalid_amount", 400);
-  if (amount < cfg.minCents) return err(`Minimum bank transfer top-up is ${(cfg.minCents / 100).toFixed(2)} USD.`, "below_min", 400);
-  if (amount > cfg.maxCents) return err(`Maximum bank transfer top-up is ${(cfg.maxCents / 100).toFixed(2)} USD.`, "above_max", 400);
+  if (action === "quote") {
+    const validated = validateAmount(cfg, available, activeAccounts, body);
+    if (validated instanceof Response) return validated;
+    const { currency, bank, amount } = validated;
+
+    const fx = cfg.fxRates[currency];
+    const fee = feeCents(amount, cfg.feePct);
+    const transferCents = transferAmountCents(amount, fee, fx);
+
+    return json({
+      amount_cents: amount,
+      fee_cents: fee,
+      fee_pct: cfg.feePct,
+      currency,
+      fx_rate: fx,
+      transfer_amount_cents: transferCents,
+      bank: bankPublicFields(bank),
+    });
+  }
+
+  if (action !== "create") return err("action must be one of: options, quote, create, cancel", "bad_request", 400);
+
+  const validated = validateAmount(cfg, available, activeAccounts, body);
+  if (validated instanceof Response) return validated;
+  const { currency, bank, amount } = validated;
 
   // Resolve the account (must be this user's) and the profile the request is made from.
   const { data: account } = await admin.from("accounts").select("id").eq("user_id", user.id).maybeSingle();
@@ -129,16 +218,7 @@ Deno.serve(async (req) => {
   const cardFee = feeCents(amount, CARD_TOPUP_FEE_PCT);
   return json({
     transfer: row,
-    bank: {
-      currency: bank.currency,
-      account_holder: bank.account_holder,
-      bank_name: bank.bank_name,
-      account_number: bank.account_number,
-      routing_number: bank.routing_number ?? null,
-      swift_bic: bank.swift_bic ?? null,
-      bank_address: bank.bank_address ?? null,
-      notes: bank.notes ?? null,
-    },
+    bank: bankPublicFields(bank),
     card_comparison: { card_fee_cents: cardFee, wire_fee_cents: fee, savings_cents: Math.max(0, cardFee - fee) },
   });
 });
