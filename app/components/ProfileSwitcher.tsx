@@ -11,7 +11,7 @@ import WireTopupPanel, { type WireBank, type WireOptions, type WireTransferRow }
 //   deliberately NO "add profile" here — profiles are created in the iOS app.
 // - Balance: the ACCOUNT-level wallet (account_wallets.balance_cents), shared by
 //   every profile, formatted as USD like iOS (NumberFormatter .currency / USD).
-// - Top up: same rules as iOS and /api/wallet/topup — $50 minimum, $500 maximum,
+// - Top up: same rules as iOS and /api/wallet/topup — $50 minimum, $5,000 maximum,
 //   a flat 7% SQRZ fee added on top (shown as a breakdown), checkout on Stripe.
 //   No payment logic lives here: it POSTs the amount to the existing route and
 //   redirects to the Stripe Checkout URL it returns.
@@ -36,7 +36,7 @@ export function profileDisplayName(p: SwitcherProfile): string {
 
 // Mirrors WalletTopupCard (iOS): bounds are convenience only; the route enforces its own.
 const MIN_TOPUP_CENTS = 5_000; // $50
-const MAX_TOPUP_CENTS = 50_000; // $500
+const MAX_TOPUP_CENTS = 500_000; // $5,000 (raised from $500 on 2026-11-02)
 const TOPUP_FEE_PCT = 0.07; // matches walletTopupFeeCents in walletPayments.server.ts
 
 export function formatCents(cents: number): string {
@@ -62,7 +62,7 @@ function topupValidationMessage(input: string): string | null {
   if (!input.trim() || !Number.isFinite(dollars)) return null;
   const cents = Math.round(dollars * 100);
   if (cents < MIN_TOPUP_CENTS) return "Minimum top-up is $50.";
-  if (cents > MAX_TOPUP_CENTS) return "Maximum top-up is $500.";
+  if (cents > MAX_TOPUP_CENTS) return "Maximum top-up is $5,000.";
   return null;
 }
 
@@ -397,7 +397,7 @@ export default function ProfileSwitcher({
           )}
 
           <p style={{ margin: "0 0 12px", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.45 }}>
-            Minimum $50, maximum $500. A 7% SQRZ fee is added on top of your ad budget. Checkout opens in a secure Stripe page.
+            Minimum $50, maximum $5,000. A 7% SQRZ fee is added on top of your ad budget. Checkout opens in a secure Stripe page.
           </p>
 
           {(validation || error) && (

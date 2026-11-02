@@ -21,7 +21,7 @@ const APP_URL = process.env.PUBLIC_URL ?? "https://dashboard.sqrz.com";
 // 7% separately as management_fee_charges (2026-08-03 — commission moved here
 // from allocation; allocate_campaign_budget no longer charges anything). No gating.
 const MIN_TOPUP_CENTS = 500;      // $5
-const MAX_TOPUP_CENTS = 50_000;  // $500 (lowered from $50,000 on 2026-08-01)
+const MAX_TOPUP_CENTS = 500_000;  // $5,000 (raised from $500 on 2026-11-02)
 
 export async function action({ request }: Route.ActionArgs) {
   const authHeader = request.headers.get("Authorization");
