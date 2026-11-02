@@ -64,7 +64,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 const topNavItems = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/profile", label: "Profile" },
-  { to: "/campaigns", label: "Campaigns" },
   { to: "/service", label: "Business" },
   { to: "/account", label: "Account" },
 ];
@@ -83,7 +82,6 @@ const bottomNavItems = [
   // identical rename. Route path (/office), file/route name (_app.office.tsx,
   // OfficePage), and internal comments/symbols are deliberately untouched.
   { to: "/office", label: "Leads", icon: "📋" },
-  { to: "/campaigns", label: "Campaigns", icon: "🎯" },
   { to: "/analytics", label: "Grow", icon: "📊" },
 ];
 

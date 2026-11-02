@@ -10,6 +10,9 @@ export default [
   // Signed-in users without SQRZ Pro land here (every dashboard route redirects
   // to it). Public/outside the _app layout so it can never redirect-loop.
   route("pro-required", "routes/pro-required.tsx"),
+  // Old standalone Campaigns URLs → their new place inside Grow.
+  route("campaigns", "routes/legacy-campaigns.tsx"),
+  route("campaigns/:id", "routes/legacy-campaign.tsx"),
 
   // Protected app (session required)
   layout("routes/_app.tsx", [
@@ -19,9 +22,9 @@ export default [
     route("service", "routes/_app.service.tsx"),
     route("account", "routes/_app.account.tsx"),
     route("analytics", "routes/_app.analytics.tsx"),
-    // Read-only campaigns (mirrors the iOS pipeline; managing stays in the app)
-    route("campaigns", "routes/_app.campaigns.tsx"),
-    route("campaigns/:id", "routes/_app.campaigns.$id.tsx"),
+    // Read-only campaign detail — a sub-route of Grow (the pipeline itself is on
+    // the Grow page, /analytics; managing campaigns stays in the iOS app)
+    route("analytics/campaigns/:id", "routes/_app.analytics.campaigns.$id.tsx"),
     route("notifications", "routes/_app.notifications.tsx"),
   ]),
 

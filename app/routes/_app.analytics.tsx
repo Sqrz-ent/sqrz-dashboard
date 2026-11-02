@@ -1,9 +1,11 @@
-import { redirect } from "react-router";
+import { redirect, useLoaderData } from "react-router";
 import type { Route } from "./+types/_app.analytics";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import GetTheAppSection from "~/components/GetTheAppSection";
+import CampaignPipeline from "~/components/CampaignPipeline";
+import { loadCampaignPipeline, type CampaignPipelineData } from "~/lib/campaigns.server";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -31,10 +33,16 @@ export async function loader({ request }: Route.LoaderArgs) {
   const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) return redirect("/login", { headers });
 
-  return Response.json({}, { headers });
+  // Read-only campaign pipeline for the ACTIVE profile (mirrors the iOS Grow
+  // tab's Campaigns pill) — shown below the iOS call-to-action content.
+  const pipeline = await loadCampaignPipeline(supabase, profile.id as string);
+
+  return Response.json({ pipeline }, { headers });
 }
 
 export default function AnalyticsPage() {
+  const { pipeline } = useLoaderData<typeof loader>() as unknown as { pipeline: CampaignPipelineData };
+
   return (
     <div
       style={{
@@ -60,7 +68,7 @@ export default function AnalyticsPage() {
         Grow
       </h1>
       <p style={{ fontSize: 14, color: "var(--text-muted)", margin: "0 0 32px", lineHeight: 1.6 }}>
-        Campaigns, results, and the ad-spend wallet now live in the SQRZ iOS app.
+        Start and manage campaigns, results, and the ad-spend wallet in the SQRZ iOS app. Your campaigns are shown below, read-only.
       </p>
 
       <GetTheAppSection />
@@ -104,6 +112,30 @@ export default function AnalyticsPage() {
           Book a call →
         </a>
       </div>
+
+      {/* Campaigns — read-only pipeline (mirrors the iOS Grow tab's Campaigns pill) */}
+      <section style={{ marginTop: 40 }}>
+        <h2
+          style={{
+            fontFamily: FONT_DISPLAY,
+            fontSize: 26,
+            fontWeight: 800,
+            color: ACCENT,
+            textTransform: "uppercase",
+            letterSpacing: "0.03em",
+            margin: "0 0 16px",
+            lineHeight: 1,
+          }}
+        >
+          Campaigns
+        </h2>
+        <CampaignPipeline
+          campaigns={pipeline.campaigns}
+          budgets={pipeline.budgets}
+          templateNames={pipeline.templateNames}
+          metrics={pipeline.metrics}
+        />
+      </section>
     </div>
   );
 }

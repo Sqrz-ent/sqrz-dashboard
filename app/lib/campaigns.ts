@@ -261,4 +261,11 @@ export function keyMetrics(
   return items.filter((i) => !isZeroValue(i.raw)).map(({ label, value }) => ({ label, value }));
 }
 
+// Campaigns live INSIDE Grow (the iOS Grow tab's Campaigns pill): Grow is the
+// /analytics route (nav label "Grow"), the detail page is a sub-route of it.
+export const GROW_PATH = "/analytics";
+export function campaignPath(id: string): string {
+  return `${GROW_PATH}/campaigns/${id}`;
+}
+
 export const MANAGE_IN_APP_NOTE = "Manage this campaign in the SQRZ app";

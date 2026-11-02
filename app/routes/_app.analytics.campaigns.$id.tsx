@@ -1,5 +1,5 @@
 import { redirect, useLoaderData, Link } from "react-router";
-import type { Route } from "./+types/_app.campaigns.$id";
+import type { Route } from "./+types/_app.analytics.campaigns.$id";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
@@ -11,6 +11,7 @@ import {
   campaignDisplayName,
   formatCents,
   formatDate,
+  GROW_PATH,
   laneFor,
   rendersStats,
 } from "~/lib/campaigns";
@@ -124,7 +125,7 @@ export default function CampaignDetail() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <Link to="/campaigns" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaigns</Link>
+      <Link to={GROW_PATH} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Grow</Link>
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, margin: "12px 0 6px" }}>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800, color: ACCENT, textTransform: "uppercase", letterSpacing: "0.03em", margin: 0, lineHeight: 1.05 }}>
