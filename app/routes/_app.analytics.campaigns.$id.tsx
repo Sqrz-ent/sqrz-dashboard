@@ -125,7 +125,7 @@ export default function CampaignDetail() {
   const remaining = budget ? Math.max(budget.allocated_cents - budget.spent_cents, 0) : 0;
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ maxWidth: 680, fontFamily: FONT_BODY, color: "var(--text)" }}>
       <Link to={GROW_CAMPAIGNS_PATH} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaigns</Link>
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, margin: "12px 0 6px" }}>

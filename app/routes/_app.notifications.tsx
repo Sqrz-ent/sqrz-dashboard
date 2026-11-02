@@ -49,21 +49,7 @@ export default function NotificationsPage() {
   const { notifications } = useLoaderData() as { notifications: NotificationRow[] };
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 80px" }}>
-      <span
-        style={{
-          fontSize: 11,
-          fontWeight: 700,
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
-          color: "var(--text-muted)",
-          marginBottom: 12,
-          display: "block",
-        }}
-      >
-        Notifications
-      </span>
-
+    <div style={{ maxWidth: 720 }}>
       <div
         style={{
           background: "var(--surface)",

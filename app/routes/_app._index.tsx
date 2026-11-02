@@ -176,7 +176,7 @@ export default function DashboardIndex() {
   };
 
   return (
-    <div style={{ maxWidth: 860, margin: "0 auto", padding: "36px 24px", fontFamily: FONT }}>
+    <div style={{ maxWidth: 860, fontFamily: FONT }}>
 
       {/* Welcome header */}
       <h1 style={{ color: "var(--text)", fontSize: 26, fontWeight: 700, margin: "0 0 4px" }}>

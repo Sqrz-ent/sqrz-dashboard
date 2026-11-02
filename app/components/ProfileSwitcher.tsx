@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation, useRevalidator, useSearchParams } from "react-router";
+import { Link, useLocation, useRevalidator, useSearchParams } from "react-router";
 
 // Header profile switcher + account balance + wallet top-up (web counterpart of
 // sqrz-ios's ProfileSwitcherSheet / WalletTopupCard, 2026-11).
@@ -264,6 +264,16 @@ export default function ProfileSwitcher({
               </form>
             );
           })}
+          <div style={{ borderTop: "1px solid var(--border)", margin: "8px 0 0", paddingTop: 4 }}>
+            <Link
+              to="/account"
+              role="menuitem"
+              onClick={() => setOpen(null)}
+              style={{ display: "block", padding: "10px 8px", borderRadius: 10, fontSize: 14, fontWeight: 600, color: "var(--text)", textDecoration: "none" }}
+            >
+              Account
+            </Link>
+          </div>
           <p style={{ margin: "8px 8px 4px", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>
             New profiles are created in the SQRZ iOS app.
           </p>

@@ -269,18 +269,8 @@ export default function OfficePage() {
   const archivedLeads = leads.filter((l) => l.status === "archived");
 
   return (
-    <div style={{ padding: "28px 24px", fontFamily: FONT_BODY }}>
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
-        {/* Header */}
-        <div style={{ marginBottom: 28 }}>
-          <h1 style={{ color: "var(--text)", fontSize: 22, fontWeight: 700, margin: "0 0 4px" }}>
-            Leads
-          </h1>
-          <p style={{ color: "var(--text-muted)", fontSize: 14, margin: 0 }}>
-            Your leads
-          </p>
-        </div>
-
+    <div style={{ fontFamily: FONT_BODY }}>
+      <div style={{ maxWidth: 680 }}>
         {/* ─── Active ─── */}
         <div style={{ marginBottom: 10 }}>
           <span style={{ color: "var(--text)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>

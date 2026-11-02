@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { redirect, Outlet, useLoaderData, NavLink, useSearchParams, useNavigation, useLocation } from "react-router";
+import { redirect, Link, Outlet, useLoaderData, useSearchParams, useNavigation, useLocation } from "react-router";
 import type { Route } from "./+types/_app";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile, listOwnedProfiles, getAccountBalanceCents } from "~/lib/profile.server";
 import DashboardPanel, { type PanelKey } from "~/components/DashboardPanel";
 import ProfileSwitcher, { TopupReturnNotice, type SwitcherProfile } from "~/components/ProfileSwitcher";
+import SectionPills from "~/components/SectionPills";
+import { MAIN_TABS, frameFor } from "~/lib/nav";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
@@ -51,39 +53,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
-// No Boost/Grow item here — Boost and Grow live exclusively in the Grow nav
-// section (the /analytics route, reached via the main dashboard nav). This
-// profile-builder menu is profile setup only.
-// "Links" was removed 2026-08-01 — it now lives as a nav pill inside the Grow
-// tab bar (/analytics) instead of this submenu. "Domain" was removed
-// 2026-08-01 too — the custom-domain card moved into Account (see
-// _app.account.tsx), folding the whole page in rather than leaving a
-// half-empty destination. Final structure is exactly four: Dashboard,
-// Profile, Business, Account — "Dashboard" itself stays as-is, an
-// explicitly deferred rename from an earlier pass.
-const topNavItems = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/profile", label: "Profile" },
-  { to: "/service", label: "Business" },
-  { to: "/account", label: "Account" },
-];
-
-// "Analytics" → "Grow": the /analytics route is now a static promo page
-// (2026-08-06 collapse — see _app.analytics.tsx). Route path kept as /analytics.
-//
-// Bottom-nav "Profile" (2026-08-01) is the internal dashboard/profile-editing
-// home (`/`) — distinct from `fourthNav`'s "Preview" below, which is the
-// external link to the artist's own public page. Renamed from "Dashboard" +
-// swapped the icon from a generic grid glyph to a person glyph so it reads as
-// profile-appropriate; "Preview" got the freed-up-in-spirit eye glyph.
-const bottomNavItems = [
-  { to: "/", label: "Profile", icon: "👤", end: true },
-  // "Office" → "Leads" (2026-08-07) — display-only, matching sqrz-ios's
-  // identical rename. Route path (/office), file/route name (_app.office.tsx,
-  // OfficePage), and internal comments/symbols are deliberately untouched.
-  { to: "/office", label: "Leads", icon: "📋" },
-  { to: "/analytics", label: "Grow", icon: "📊" },
-];
+// One content width for every page (header, title, pills and content share it).
+const CONTAINER_MAX = 1140;
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
@@ -97,11 +68,9 @@ export default function AppLayout() {
 
   const p = profile as Record<string, unknown> | null;
 
-  // 4th bottom-nav slot — own profile preview. Used to branch on isPartner
-  // (beta invite access took precedence) before the invitees/partners
-  // dashboard section was removed 2026-08-08; always the profile link now.
+  // "Preview" (the iOS tab that shows the artist's own public page) opens it in a new tab.
   const profileSlug = (p?.slug as string | null) ?? "";
-  const fourthNav = { to: `https://${profileSlug}.sqrz.com`, external: true, icon: "👁", label: "Preview" };
+  const previewUrl = `https://${profileSlug}.sqrz.com`;
 
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -133,14 +102,9 @@ export default function AppLayout() {
   const location = useLocation();
   const pathname = location.pathname;
 
-  // Grow (/analytics) and Office (/office) are both standalone destinations
-  // outside the Dashboard/Profile/Business/Account tab flow — the submenu
-  // doesn't belong above either. Logo stays for branding/wayfinding home;
-  // only the submenu links are hidden. Office used to get its own minimal
-  // "← Back" work-mode header instead of this nav entirely; removed
-  // 2026-08-07 in favor of this same logo-only nav treatment.
-  const hideTopSubmenuRoutes = ["/analytics", "/office"];
-  const hideTopSubmenu = hideTopSubmenuRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
+  // One frame for every page: which main tab is active, the page title and the
+  // sub-section pills — all derived from the URL in lib/nav.ts (mirrors the iOS tabs).
+  const frame = frameFor(pathname, searchParams);
 
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
@@ -217,57 +181,54 @@ export default function AppLayout() {
       </div>
 
       {/* ── Top nav ──────────────────────────────────────────────────────────── */}
-      <nav
-        className="flex"
+      {/* ── Header (identical on every page) ─────────────────────────────────────
+          Logo left; balance, Top up and the profile switcher right. On desktop the
+          main navigation (the iOS tabs) sits next to the logo; on mobile it lives in
+          the bottom bar, so the mobile header is only logo + balance + Top up + switcher. */}
+      <header
         style={{
-          alignItems: "center",
-          gap: 16,
-          padding: "0 16px",
-          height: 56,
           borderBottom: "1px solid var(--border)",
           position: "sticky",
           top: 0,
           background: "var(--bg)",
           zIndex: 10,
-          width: "100vw",
-          maxWidth: "100vw",
-          overflowX: "auto",
         }}
       >
+        <div style={{ display: "flex", alignItems: "center", gap: 16, maxWidth: CONTAINER_MAX, margin: "0 auto", padding: "0 20px", height: 56 }}>
           <img
             src="/sqrz-logo.png"
             alt="SQRZ"
-            style={{ height: "36px", width: "auto", display: "block", marginRight: 8 }}
+            style={{ height: "36px", width: "auto", display: "block", flexShrink: 0 }}
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
 
-          {/* Top nav tabs */}
-          {!hideTopSubmenu && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap", minWidth: "max-content" }}>
-              {topNavItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  style={({ isActive }) => ({
-                    textDecoration: "none",
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: isActive ? "#F5A623" : "var(--text-muted)",
-                    padding: "6px 12px",
-                    borderRadius: 8,
-                    borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
-                    letterSpacing: "0.01em",
-                    transition: "color 0.15s",
-                  })}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          )}
+          {/* Main navigation — desktop */}
+          <nav className="hidden md:flex" aria-label="Main" style={{ alignItems: "center", gap: 4 }}>
+            {MAIN_TABS.map((tab) => {
+              const active = frame.tab === tab.key;
+              const style: React.CSSProperties = {
+                textDecoration: "none",
+                fontSize: 14,
+                fontWeight: 600,
+                color: active ? "#F5A623" : "var(--text-muted)",
+                padding: "6px 12px",
+                borderRadius: 8,
+                borderBottom: active ? "2px solid #F5A623" : "2px solid transparent",
+                whiteSpace: "nowrap",
+              };
+              return tab.to ? (
+                <Link key={tab.key} to={tab.to} prefetch="intent" aria-current={active ? "page" : undefined} style={style}>
+                  {tab.label}
+                </Link>
+              ) : (
+                <a key={tab.key} href={previewUrl} target="_blank" rel="noopener noreferrer" style={style}>
+                  {tab.label} ↗
+                </a>
+              );
+            })}
+          </nav>
 
-          {/* Profile switcher + account balance + top up */}
+          {/* Balance + Top up + profile switcher */}
           {profile && profiles.length > 0 && (
             <ProfileSwitcher
               profiles={profiles}
@@ -275,7 +236,8 @@ export default function AppLayout() {
               balanceCents={balanceCents}
             />
           )}
-      </nav>
+        </div>
+      </header>
 
       <TopupReturnNotice balanceCents={balanceCents} />
 
@@ -338,7 +300,28 @@ export default function AppLayout() {
         }}
         className="md:pb-0"
       >
-        <Outlet />
+        {/* One content container for every page: same max width and left edge for the
+            title, the pills and the content. */}
+        <div style={{ maxWidth: CONTAINER_MAX, margin: "0 auto", padding: "28px 20px 60px" }}>
+          {frame.title && (
+            <h1
+              style={{
+                fontFamily: "'Barlow Condensed', sans-serif",
+                fontSize: 38,
+                fontWeight: 800,
+                color: "#F5A623",
+                textTransform: "uppercase",
+                letterSpacing: "0.03em",
+                margin: `0 0 ${frame.pills.length ? 16 : 24}px`,
+                lineHeight: 1,
+              }}
+            >
+              {frame.title}
+            </h1>
+          )}
+          <SectionPills pills={frame.pills} />
+          <Outlet />
+        </div>
       </main>
 
       {/* ── Panel overlay ───────────────────────────────────────────────────── */}
@@ -349,8 +332,11 @@ export default function AppLayout() {
       />
 
       {/* ── Mobile bottom nav ───────────────────────────────────────────────── */}
+      {/* Visibility comes from classes only: an inline `display` would override md:hidden
+          and show this bar on desktop too. */}
       <nav
-        className="md:hidden"
+        className="flex md:hidden"
+        aria-label="Main"
         style={{
           position: "fixed",
           bottom: 0,
@@ -358,7 +344,6 @@ export default function AppLayout() {
           right: 0,
           background: "var(--bg)",
           borderTop: "1px solid var(--border)",
-          display: "flex",
           justifyContent: "space-around",
           padding: "10px 0 max(10px, env(safe-area-inset-bottom))",
           zIndex: 50,
@@ -366,60 +351,29 @@ export default function AppLayout() {
           isolation: "isolate",
         }}
       >
-        {bottomNavItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            style={({ isActive }) => ({
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              textDecoration: "none",
-              fontSize: 11,
-              color: isActive ? "#F5A623" : "var(--text-muted)",
-            })}
-          >
-            <span style={{ fontSize: 18 }}>{item.icon}</span>
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-        {fourthNav.external ? (
-          <a
-            href={fourthNav.to}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              textDecoration: "none",
-              fontSize: 11,
-              color: "var(--text-muted)",
-            }}
-          >
-            <span style={{ fontSize: 18 }}>{fourthNav.icon}</span>
-            <span>{fourthNav.label}</span>
-          </a>
-        ) : (
-          <NavLink
-            to={fourthNav.to}
-            style={({ isActive }) => ({
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 3,
-              textDecoration: "none",
-              fontSize: 11,
-              color: isActive ? "#F5A623" : "var(--text-muted)",
-            })}
-          >
-            <span style={{ fontSize: 18 }}>{fourthNav.icon}</span>
-            <span>{fourthNav.label}</span>
-          </NavLink>
-        )}
+        {MAIN_TABS.map((tab) => {
+          const active = frame.tab === tab.key;
+          const style: React.CSSProperties = {
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 3,
+            textDecoration: "none",
+            fontSize: 11,
+            color: active ? "#F5A623" : "var(--text-muted)",
+          };
+          const inner = (
+            <>
+              <span style={{ fontSize: 18 }}>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </>
+          );
+          return tab.to ? (
+            <Link key={tab.key} to={tab.to} aria-current={active ? "page" : undefined} style={style}>{inner}</Link>
+          ) : (
+            <a key={tab.key} href={previewUrl} target="_blank" rel="noopener noreferrer" style={style}>{inner}</a>
+          );
+        })}
       </nav>
 
       <style>{`

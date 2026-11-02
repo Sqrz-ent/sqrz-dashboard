@@ -421,20 +421,7 @@ export default function AccountPage() {
   const slug = (profile.slug as string) ?? "";
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={{
-        fontFamily: FONT_DISPLAY,
-        fontSize: 30,
-        fontWeight: 800,
-        color: ACCENT,
-        textTransform: "uppercase",
-        letterSpacing: "0.03em",
-        margin: "0 0 28px",
-        lineHeight: 1.1,
-      }}>
-        Account
-      </h1>
-
+    <div style={{ maxWidth: 680, fontFamily: FONT_BODY, color: "var(--text)" }}>
       {/* Card 1: Username */}
       <div style={card}>
         <span style={labelStyle}>Your handle</span>

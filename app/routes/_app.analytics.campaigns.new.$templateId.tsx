@@ -446,7 +446,7 @@ export default function NewCampaign() {
   // ── Done screens ──
   if (created?.kind === "request") {
     return (
-      <div style={{ maxWidth: 560, margin: "0 auto", padding: "40px 20px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <div style={{ maxWidth: 560, fontFamily: FONT_BODY, color: "var(--text)" }}>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: ACCENT, textTransform: "uppercase", margin: "0 0 12px" }}>Request sent</h1>
         <p style={{ fontSize: 14, lineHeight: 1.6 }}>Your campaign request is saved. Book your call with SQRZ to set it up — wire-transfer details are discussed on the call.</p>
         <a href={created.bookingUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", margin: "12px 0", padding: "12px 22px", background: ACCENT, color: "#111", fontWeight: 700, borderRadius: 10, textDecoration: "none" }}>
@@ -458,7 +458,7 @@ export default function NewCampaign() {
   }
   if (created?.kind === "self_serve") {
     return (
-      <div style={{ maxWidth: 560, margin: "0 auto", padding: "40px 20px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <div style={{ maxWidth: 560, fontFamily: FONT_BODY, color: "var(--text)" }}>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 30, color: ACCENT, textTransform: "uppercase", margin: "0 0 12px" }}>Campaign saved</h1>
         <p style={{ fontSize: 14, lineHeight: 1.6 }}>
           <strong>Complete payment in the SQRZ app</strong> to start this campaign. It's waiting for you under "Needs action".
@@ -475,7 +475,7 @@ export default function NewCampaign() {
   const showCreative = !isRequest;
 
   return (
-    <div style={{ maxWidth: 560, margin: "0 auto", padding: "24px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ maxWidth: 560, fontFamily: FONT_BODY, color: "var(--text)" }}>
       <Link to="/analytics" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Grow</Link>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800, color: ACCENT, textTransform: "uppercase", margin: "12px 0 4px", lineHeight: 1.05 }}>{t.name}</h1>
       {t.subtitle && <p style={{ margin: "0 0 4px", fontSize: 14, color: "var(--text-muted)" }}>{t.subtitle}</p>}
