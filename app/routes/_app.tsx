@@ -51,23 +51,6 @@ export async function loader({ request }: Route.LoaderArgs) {
 
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
-// No Boost/Grow item here — Boost and Grow live exclusively in the Grow nav
-// section (the /analytics route, reached via the main dashboard nav). This
-// profile-builder menu is profile setup only.
-// "Links" was removed 2026-08-01 — it now lives as a nav pill inside the Grow
-// tab bar (/analytics) instead of this submenu. "Domain" was removed
-// 2026-08-01 too — the custom-domain card moved into Account (see
-// _app.account.tsx), folding the whole page in rather than leaving a
-// half-empty destination. Final structure is exactly four: Dashboard,
-// Profile, Business, Account — "Dashboard" itself stays as-is, an
-// explicitly deferred rename from an earlier pass.
-const topNavItems = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/profile", label: "Profile" },
-  { to: "/service", label: "Business" },
-  { to: "/account", label: "Account" },
-];
-
 // "Analytics" → "Grow": the /analytics route is now a static promo page
 // (2026-08-06 collapse — see _app.analytics.tsx). Route path kept as /analytics.
 //
@@ -132,15 +115,6 @@ export default function AppLayout() {
 
   const location = useLocation();
   const pathname = location.pathname;
-
-  // Grow (/analytics) and Office (/office) are both standalone destinations
-  // outside the Dashboard/Profile/Business/Account tab flow — the submenu
-  // doesn't belong above either. Logo stays for branding/wayfinding home;
-  // only the submenu links are hidden. Office used to get its own minimal
-  // "← Back" work-mode header instead of this nav entirely; removed
-  // 2026-08-07 in favor of this same logo-only nav treatment.
-  const hideTopSubmenuRoutes = ["/analytics", "/office"];
-  const hideTopSubmenu = hideTopSubmenuRoutes.some(r => pathname === r || pathname.startsWith(r + "/"));
 
   const activePanel = (searchParams.get("panel") as PanelKey | null) ?? null;
 
@@ -240,32 +214,6 @@ export default function AppLayout() {
             style={{ height: "36px", width: "auto", display: "block", marginRight: 8 }}
             onError={(e) => { e.currentTarget.style.display = "none"; }}
           />
-
-          {/* Top nav tabs */}
-          {!hideTopSubmenu && (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "nowrap", minWidth: "max-content" }}>
-              {topNavItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  style={({ isActive }) => ({
-                    textDecoration: "none",
-                    fontSize: 13,
-                    fontWeight: 500,
-                    color: isActive ? "#F5A623" : "var(--text-muted)",
-                    padding: "6px 12px",
-                    borderRadius: 8,
-                    borderBottom: isActive ? "2px solid #F5A623" : "2px solid transparent",
-                    letterSpacing: "0.01em",
-                    transition: "color 0.15s",
-                  })}
-                >
-                  {item.label}
-                </NavLink>
-              ))}
-            </div>
-          )}
 
           {/* Profile switcher + account balance + top up */}
           {profile && profiles.length > 0 && (

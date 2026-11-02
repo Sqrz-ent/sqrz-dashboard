@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app._index";
 import { createSupabaseAdminClient, createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
+import DashboardPills from "~/components/DashboardPills";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
 import { useTheme, writeThemeCookie } from "~/lib/theme";
 
@@ -192,6 +193,9 @@ export default function DashboardIndex() {
           {slug}.sqrz.com →
         </a>
       )}
+
+      {/* Sub-navigation — same pill row as Grow */}
+      <DashboardPills style={{ margin: "16px 0 24px" }} />
 
       {/* Profile completion */}
       <div style={{ ...card, marginTop: 28, marginBottom: 16 }}>

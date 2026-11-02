@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app.account";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
+import DashboardPills from "~/components/DashboardPills";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
 
 const ACCENT = "#F5A623";
@@ -429,11 +430,12 @@ export default function AccountPage() {
         color: ACCENT,
         textTransform: "uppercase",
         letterSpacing: "0.03em",
-        margin: "0 0 28px",
+        margin: "0 0 16px",
         lineHeight: 1.1,
       }}>
         Account
       </h1>
+      <DashboardPills />
 
       {/* Card 1: Username */}
       <div style={card}>

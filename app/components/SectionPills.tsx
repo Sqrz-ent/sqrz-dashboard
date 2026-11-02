@@ -1,0 +1,36 @@
+import { Link } from "react-router";
+
+const ACCENT = "#F5A623";
+
+export type Pill = { label: string; to: string; active: boolean };
+
+// The sub-section pill row shown under a page title — the style the Grow tab uses
+// (Grow · Campaigns · Links · Analytics), now shared so the Dashboard's
+// Dashboard · Profile · Business · Account row is exactly the same component.
+export default function SectionPills({ pills, style }: { pills: Pill[]; style?: React.CSSProperties }) {
+  return (
+    <div style={{ display: "flex", gap: 8, overflowX: "auto", margin: "0 0 24px", paddingBottom: 2, ...style }}>
+      {pills.map((pill) => (
+        <Link
+          key={pill.label}
+          to={pill.to}
+          prefetch="intent"
+          aria-current={pill.active ? "page" : undefined}
+          style={{
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 600,
+            padding: "8px 16px",
+            borderRadius: 999,
+            border: `1px solid ${pill.active ? ACCENT : "var(--border)"}`,
+            background: pill.active ? ACCENT : "transparent",
+            color: pill.active ? "#111" : "var(--text-muted)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {pill.label}
+        </Link>
+      ))}
+    </div>
+  );
+}

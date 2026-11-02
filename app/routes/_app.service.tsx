@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app.service";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
+import DashboardPills from "~/components/DashboardPills";
 import Modal from "~/components/Modal";
 import {
   DndContext,
@@ -995,7 +996,8 @@ export default function ServicePage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={sectionTitle}>Business</h1>
+      <h1 style={{ ...sectionTitle, marginBottom: 16 }}>Business</h1>
+      <DashboardPills />
 
       {toggleError && (
         <div style={{

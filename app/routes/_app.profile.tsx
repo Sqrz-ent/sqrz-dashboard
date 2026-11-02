@@ -8,6 +8,7 @@ import type { Route } from "./+types/_app.profile";
 import { createSupabaseServerClient, createSupabaseAdminClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
+import DashboardPills from "~/components/DashboardPills";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 import Modal from "~/components/Modal";
 import AvatarFocalPicker from "~/components/AvatarFocalPicker";
@@ -453,7 +454,8 @@ export default function ProfilePage() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <h1 style={sectionTitle}>Your Profile</h1>
+      <h1 style={{ ...sectionTitle, marginBottom: 16 }}>Your Profile</h1>
+      <DashboardPills />
 
       {/* Section 0: Profile Picture */}
       <div style={card}>
