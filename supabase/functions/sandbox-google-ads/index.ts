@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { requireSandboxKey } from "../_shared/outlets/sandbox-guard.ts";
 import { finishRun, profileExists, recordObjects, startRun } from "../_shared/outlets/sandbox-db.ts";
 import { parseClientLinks } from "../_shared/outlets/sandbox-common.ts";
+import { primeOutletSecrets } from "../_shared/outlets/outlet-secrets.ts";
 import { GoogleAdsAdapter, googleConfigFromEnv } from "../_shared/outlets/google.ts";
 import { type ClientLinks, ConfigError, OutletError, type OutletObject, ParamError } from "../_shared/outlets/types.ts";
 
@@ -115,6 +116,7 @@ Deno.serve(async (req) => {
 
   let created: OutletObject[] = [];
   try {
+    await primeOutletSecrets("google"); // Vault values first, then function secrets
     const adapter = new GoogleAdsAdapter(googleConfigFromEnv());
     let result: unknown;
 

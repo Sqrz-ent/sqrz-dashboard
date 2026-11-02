@@ -1,6 +1,7 @@
 import { requireSandboxKey } from "./sandbox-guard.ts";
 import { finishRun, profileExists, recordObjects, startRun } from "./sandbox-db.ts";
 import { parseClientLinks } from "./sandbox-common.ts";
+import { primeOutletSecrets } from "./outlet-secrets.ts";
 import {
   type ClientLinks,
   ConfigError,
@@ -123,6 +124,7 @@ export async function handleSandboxRequest(
 
   let created: OutletObject[] = [];
   try {
+    await primeOutletSecrets(cfg.outlet); // Vault values for this outlet, falling back to function secrets
     const adapter = cfg.makeAdapter();
     let result: unknown;
 

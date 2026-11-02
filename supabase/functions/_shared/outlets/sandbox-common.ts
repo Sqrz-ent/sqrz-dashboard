@@ -4,20 +4,21 @@
 import {
   type ClientLinks, ConfigError, type CreateCampaignInput, type CreatedCampaign, type InsightsQuery, OutletError, type OutletObject, ParamError,
 } from "./types.ts";
+import { getOutletSecret } from "./outlet-secrets.ts";
 
 /** Placeholder id returned by validate_only dry runs. */
 export const DRY_RUN_ID = "(validate_only)";
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Reads required secrets; throws one ConfigError naming every missing one. */
+/** Reads required secrets (Vault first, then function secrets — see outlet-secrets.ts); throws one ConfigError naming every missing one. */
 export function requireEnv<T extends string>(names: readonly T[]): Record<T, string> {
-  const missing = names.filter((k) => !Deno.env.get(k)?.trim());
+  const missing = names.filter((k) => !getOutletSecret(k));
   if (missing.length) throw new ConfigError(`missing secrets: ${missing.join(", ")}`);
-  return Object.fromEntries(names.map((k) => [k, Deno.env.get(k)!.trim()])) as Record<T, string>;
+  return Object.fromEntries(names.map((k) => [k, getOutletSecret(k)!])) as Record<T, string>;
 }
 
-export const optionalEnv = (name: string, fallback = ""): string => Deno.env.get(name)?.trim() || fallback;
+export const optionalEnv = (name: string, fallback = ""): string => getOutletSecret(name) || fallback;
 
 /** Defense in depth behind the slug validation in the handler: only SQRZ profiles can be advertised. */
 const SQRZ_URL = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.sqrz\.com\/?$/;

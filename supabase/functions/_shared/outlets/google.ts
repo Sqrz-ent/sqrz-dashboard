@@ -14,6 +14,7 @@ import {
   type UploadAssetInput,
   type UploadedAsset,
 } from "./types.ts";
+import { getOutletSecret } from "./outlet-secrets.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Google outlet adapter (Google Ads REST API + YouTube Data API v3).
@@ -63,11 +64,11 @@ const REQUIRED_SECRETS = [
 ] as const;
 
 export function googleConfigFromEnv(): GoogleAdsConfig {
-  const missing = REQUIRED_SECRETS.filter((k) => !Deno.env.get(k));
+  const missing = REQUIRED_SECRETS.filter((k) => !getOutletSecret(k));
   if (missing.length) {
     throw new ConfigError(`missing secrets: ${missing.join(", ")}`);
   }
-  const env = (k: string) => Deno.env.get(k)!.trim();
+  const env = (k: string) => getOutletSecret(k)!;
   const apiVersion = env("GOOGLE_ADS_API_VERSION");
   if (!/^v\d+$/.test(apiVersion)) {
     throw new ConfigError(`GOOGLE_ADS_API_VERSION must look like "v25", got "${apiVersion}"`);
