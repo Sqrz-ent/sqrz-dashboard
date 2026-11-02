@@ -4,6 +4,7 @@ import type { Route } from "./+types/_app.analytics.campaigns.new.$templateId";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
+import { isWebCampaignCreateEnabled } from "~/lib/flags.server";
 import { supabase as browserSupabase } from "~/lib/supabase.client";
 import LocationPicker, { type CampaignLocation } from "~/components/LocationPicker";
 import {
@@ -44,6 +45,10 @@ async function loadTemplateAndProfile(request: Request, templateId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw redirect("/login", { headers });
   await requirePro(supabase, user.id, headers);
+  // Web campaign creation is switched by app_config.web_campaign_create_enabled
+  // (default off). Checked here so BOTH the loader and the action are unreachable
+  // by URL when it is false.
+  if (!(await isWebCampaignCreateEnabled(supabase))) throw redirect("/analytics", { headers });
   const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) throw redirect("/login", { headers });
 

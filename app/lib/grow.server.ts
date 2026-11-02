@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CampaignLite, CampaignTemplate } from "~/lib/templates";
 import { visibleTemplates } from "~/lib/templates";
 import type { AnalyticsPage, LinkRow } from "~/lib/grow";
+import { isWebCampaignCreateEnabled } from "~/lib/flags.server";
 
 // Data for the web Grow section's tabs (Grow · Campaigns · Links · Analytics) —
 // the same tables/RPCs the iOS Grow tab reads (campaign_templates,
@@ -10,13 +11,16 @@ import type { AnalyticsPage, LinkRow } from "~/lib/grow";
 
 // ── Grow tab: template cards ──────────────────────────────────────────────────
 export async function loadGrowTemplates(supabase: SupabaseClient, profileId: string) {
-  const [{ data: rows }, { data: camps }] = await Promise.all([
+  const [{ data: rows }, { data: camps }, createEnabled] = await Promise.all([
     supabase.from("campaign_templates").select("*").order("sort_order", { ascending: true }),
     supabase.from("boost_campaigns").select("campaign_template, status").eq("profile_id", profileId),
+    isWebCampaignCreateEnabled(supabase),
   ]);
   return {
     templates: visibleTemplates((rows ?? []) as CampaignTemplate[]),
     campaigns: (camps ?? []) as CampaignLite[],
+    // app_config.web_campaign_create_enabled — when false the cards are display-only.
+    createEnabled,
     supabaseUrl: process.env.SUPABASE_URL ?? null,
   };
 }

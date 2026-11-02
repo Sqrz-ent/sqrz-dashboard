@@ -51,7 +51,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 }
 
 type GrowData =
-  | { tab: "grow"; templates: CampaignTemplate[]; campaigns: CampaignLite[]; supabaseUrl: string | null }
+  | { tab: "grow"; templates: CampaignTemplate[]; campaigns: CampaignLite[]; supabaseUrl: string | null; createEnabled: boolean }
   | { tab: "campaigns"; pipeline: CampaignPipelineData }
   | { tab: "links"; slug: string; links: LinkRow[]; stats: Record<string, { views: number; unique_visitors: number; clicks: number }> }
   | { tab: "analytics"; days: number; analytics: AnalyticsPage | null };
@@ -72,7 +72,7 @@ export default function GrowPage() {
       </h1>
       <GrowTabs active={tab} />
 
-      {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} />}
+      {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />}
       {data.tab === "campaigns" && (
         <CampaignPipeline
           campaigns={data.pipeline.campaigns}

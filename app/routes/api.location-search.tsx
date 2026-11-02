@@ -1,6 +1,7 @@
 import type { Route } from "./+types/api.location-search";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { proDeniedResponse } from "~/lib/pro.server";
+import { isWebCampaignCreateEnabled } from "~/lib/flags.server";
 
 // City search for campaign geo-targeting on the web (iOS uses MapKit's on-device
 // completer, which has no web equivalent). Server-side proxy to OpenStreetMap
@@ -13,6 +14,8 @@ export async function loader({ request }: Route.LoaderArgs) {
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401, headers });
   const denied = await proDeniedResponse(supabase, user.id, headers);
   if (denied) return denied;
+  // Only used by the web create-campaign form — off with it (app_config.web_campaign_create_enabled).
+  if (!(await isWebCampaignCreateEnabled(supabase))) return Response.json({ results: [] }, { status: 403, headers });
 
   const q = (new URL(request.url).searchParams.get("q") ?? "").trim();
   if (q.length < 2) return Response.json({ results: [] }, { headers });

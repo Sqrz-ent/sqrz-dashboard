@@ -1,5 +1,14 @@
 # Web Grow — mirrors the iOS Grow tab
 
+> **Web campaign creation is behind a switch (2026-11-02).** `app_config.web_campaign_create_enabled`
+> (jsonb boolean, **default `false`**; migration `20261108120000_web_campaign_create_flag.sql`, not
+> applied). While false: the template cards are display-only (no create link), and
+> `/analytics/campaigns/new/:templateId` — both its loader and its action — and
+> `/api/location-search` redirect to Grow / return 403, so creation can't be reached by URL
+> either. Set it to `true` (Table Editor) to turn it on; read server-side
+> (`app/lib/flags.server.ts`) and cached ~60 s, so a change takes up to a minute to show. A missing
+> row or failed read keeps it off. All create-campaign code is intact.
+
 Status: built 2026-11-02 (code only — no migration, nothing applied or deployed
 by me). Sources read: `sqrz-ios` `Features/Grow/GrowTabView.swift`,
 `Features/Boost/BoostView.swift` (template cards, `NewBoostCampaignSheet`,

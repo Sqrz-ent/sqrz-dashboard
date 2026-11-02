@@ -79,10 +79,13 @@ export default function TemplateCards({
   templates,
   campaigns,
   supabaseUrl,
+  createEnabled,
 }: {
   templates: CampaignTemplate[];
   campaigns: CampaignLite[];
   supabaseUrl: string | null;
+  // app_config.web_campaign_create_enabled. false → cards are display-only (no create link).
+  createEnabled: boolean;
 }) {
   if (templates.length === 0) {
     return <p style={{ fontSize: 14, color: "var(--text-muted)" }}>No campaign templates are available yet.</p>;
@@ -129,7 +132,7 @@ export default function TemplateCards({
         const long = t.long_description?.trim();
         return (
           <div key={t.id} style={shell}>
-            {a.kind === "open" ? (
+            {a.kind === "open" && createEnabled ? (
               <Link to={`/analytics/campaigns/new/${t.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
                 <CardBody t={t} supabaseUrl={supabaseUrl} />
                 <div style={{ padding: "0 14px 14px", color: ACCENT, fontSize: 13, fontWeight: 700 }}>
@@ -139,7 +142,9 @@ export default function TemplateCards({
             ) : (
               <>
                 <CardBody t={t} supabaseUrl={supabaseUrl} />
-                <p style={{ margin: 0, padding: "0 14px 14px", fontSize: 12, color: "var(--text-muted)" }}>Set up in the SQRZ app</p>
+                {a.kind === "app_only" && (
+                  <p style={{ margin: 0, padding: "0 14px 14px", fontSize: 12, color: "var(--text-muted)" }}>Set up in the SQRZ app</p>
+                )}
               </>
             )}
             {long && (
