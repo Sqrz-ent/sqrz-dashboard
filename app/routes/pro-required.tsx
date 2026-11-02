@@ -10,7 +10,7 @@ import { getProStatus } from "~/lib/pro.server";
 // NO web checkout / purchase link — Pro is bought in the SQRZ app.
 // Public (outside the _app layout) so it can never redirect-loop with the gate.
 
-const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "will@sqrz.com";
+const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "info@sqrz.com";
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);

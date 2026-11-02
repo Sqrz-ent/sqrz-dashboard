@@ -44,7 +44,7 @@ with `REVENUECAT_SECRET_API_KEY` (the same secret the edge functions use).
 ## `/pro-required` page
 The active profile's public link (`https://<slug>.sqrz.com`), the note "The SQRZ web
 dashboard is part of SQRZ Pro — available in the SQRZ app", "Check again", a contact
-link (`mailto:` `SUPPORT_EMAIL`, default `will@sqrz.com`) and Log out. No purchase
+link (`mailto:` `SUPPORT_EMAIL`, default `info@sqrz.com`) and Log out. No purchase
 or checkout link.
 
 ## Before this deploys (Will)
@@ -52,7 +52,7 @@ or checkout link.
    as the Supabase edge function secret; RevenueCat → API keys → secret `sk_…`).
    Until it is set **every user, including you, lands on the gate page** (error state).
    Set it *before* the push to `main` deploys, or redeploy after setting it.
-2. Optional: `SUPPORT_EMAIL` to change the contact address (default `will@sqrz.com` — confirm it's right).
+2. Optional: `SUPPORT_EMAIL` to change the contact address (default `info@sqrz.com`).
 3. Test: a Pro account gets the dashboard; a non-Pro account lands on `/pro-required`;
    grant a promo in RevenueCat and use "Check again".
 4. Rollback without a deploy: set `app_config.purchase_gate_enabled = false`
