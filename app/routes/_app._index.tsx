@@ -73,7 +73,7 @@ async function getDashboardAnalytics(profileId: string) {
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect("/join");
+  if (!user) return redirect("/login");
 
   const homeDataPromise = supabase.rpc("get_dashboard_home");
   const profileIdPromise = supabase
@@ -91,7 +91,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     analyticsPromise,
   ]);
   if (homeError) throw homeError;
-  if (!homeData?.profile) return redirect("/join");
+  if (!homeData?.profile) return redirect("/login?error=" + encodeURIComponent("We couldn't find a profile for this account. Contact support if this keeps happening."), { headers });
 
   const profile = homeData.profile as Record<string, unknown>;
 
@@ -113,10 +113,10 @@ export async function loader({ request }: Route.LoaderArgs) {
 export async function action({ request }: Route.ActionArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return redirect("/join", { headers });
+  if (!user) return redirect("/login", { headers });
 
   const profile = await getCurrentProfile(supabase, user.id);
-  if (!profile) return redirect("/join", { headers });
+  if (!profile) return redirect("/login", { headers });
 
   const formData = await request.formData();
   const intent = formData.get("intent") as string;

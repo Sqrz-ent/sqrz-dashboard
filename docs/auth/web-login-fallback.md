@@ -1,6 +1,9 @@
-# Web login fallback (emailed one-time code) — investigation
+# Web login fallback (emailed one-time code)
 
-Status: **investigation only, no code changed.** Written 2026-11-02.
+Status: **built 2026-11-02, not yet live.** The code and migration are in the
+repo; the migration is **not applied** and the auth hook is **not enabled** —
+see "Implementation" and Will's checklist below. Sections 1–5 are the original
+investigation and describe the state *before* this change.
 Goal: an existing SQRZ user who signed up with Apple can get into
 `dashboard.sqrz.com` with an emailed 6-digit code (OTP) if they lose their
 iPhone. Existing users only — it must never create an account. Email channel:
@@ -34,6 +37,94 @@ Supabase Auth settings was not available.
    `_app.analytics.tsx`. Details in section 3.
 5. **Dead Resend uses to remove: none found in code.** Cleanup is on the
    Resend / Vercel / Supabase-secrets side (section 4).
+
+## Implementation (2026-11-02)
+
+### What changed
+| File | Change |
+|---|---|
+| `app/routes/login.tsx` | Code-first login. Primary button "Email me a login code" (email → 6-digit code); "Use password instead" is the secondary link (password mode keeps "Forgot password?"). `signInWithOtp({ shouldCreateUser: false })` kept. After requesting a code the screen always says "If <email> has an SQRZ account, we've sent a code." — an unknown-email rejection from Supabase (`otp_disabled`/"signups not allowed") is treated as success, so accounts can't be enumerated. Real failures are shown: rate limit, send/SMTP failure, network error, wrong code, expired code. 60 s resend cooldown (also started after a rate-limit error). The "No account found… Sign up →" state and its `/join` link are gone; a footer note says accounts are created in the iOS app. Loader: a signed-in user is still sent to `/`, **except** when `?error=` is present (prevents a `/` ↔ `/login` loop for an account with no profile). |
+| `app/routes/join.tsx` | Replaced the whole signup flow (slug picker, `signInWithOtp` without `shouldCreateUser:false`, `pending_signups` slug reservation) with a loader that redirects to `/login`. The route stays registered so old links don't 404. |
+| `app/routes.ts` | Comment only; `join` route kept as the redirect. |
+| `app/routes/_app._index.tsx` | The four `redirect("/join")` calls now go to `/login`. A signed-in user whose account has no profile is sent to `/login?error=…` with a message instead of the old signup page. |
+| `supabase/migrations/20261106120000_before_user_created_hook.sql` | **New, not applied.** `public.hook_before_user_created(event jsonb)`: allows provider `apple`, rejects everything else (email, phone, anonymous, other OAuth) with HTTP 403 "New accounts are created in the SQRZ iOS app." Grants `execute` to `supabase_auth_admin`, revokes from `authenticated`, `anon`, `public`. Includes manual test queries (commented). |
+| `docs/auth/web-login-fallback.md` | This section. |
+
+Not changed: `auth.callback.tsx`, `reset-password.tsx`, the `handle_new_user`
+trigger, the `pending_signups` table (now unused by app code; the trigger still
+reads and cleans it — drop it in a later cleanup), `sqrz-ios`.
+
+### Links to `/join` still outside this repo (not touched)
+These all hit the redirect, so they are harmless but now lead to a login page
+for visitors who wanted to sign up. Repoint them at the App Store / TestFlight
+page in the `cast` repo (`Sqrz-ent/cast`): `Nav.svelte` (`joinUrl`),
+`CompareLayout.svelte`, `routes/cast/+page.svelte` (2), `routes/blog/[slug]/+page.svelte`,
+`routes/compare/*/+page.svelte` (9 pages), and `UsernameChecker.svelte`
+(comment/popup flow). `sqrz-ios` has no `/join` links.
+
+### Will's checklist (dashboard steps — I can't do these)
+Order matters: do 1–4 and test before 5–6.
+
+- [ ] **1. Resend:** add and verify the sending domain (SPF, DKIM, DMARC DNS
+      records); create a sending-only API key for Supabase; revoke unused keys.
+- [ ] **2. Supabase → Authentication → Emails → SMTP Settings:** enable custom
+      SMTP — host `smtp.resend.com`, port 465 (or 587), user `resend`, password =
+      that API key, sender e.g. `login@sqrz.com`.
+- [ ] **3. Supabase → Authentication → Emails → Templates → Magic Link:** the
+      body must contain `{{ .Token }}` (the 6-digit code). Existing users get this
+      template. Without it users receive a link, not a code and the code screen
+      is useless. Keep it free of `{{ .ConfirmationURL }}`-only wording.
+- [ ] **4. Supabase → Authentication → Sign In / Providers → Email:** enabled;
+      set OTP expiry (default 3600 s; 600 s recommended); check the email rate
+      limits (custom SMTP lifts the tight built-in cap). OTP length must stay 6
+      — the login page accepts exactly 6 digits.
+- [ ] **5. Apply the migration** `20261106120000_before_user_created_hook.sql`
+      (SQL editor or your normal migration process). Optionally run its manual
+      test queries.
+- [ ] **6. Supabase → Authentication → Hooks → Before User Created:** enable,
+      choose "Postgres function", select `public.hook_before_user_created`.
+      **This is what actually blocks account creation — the migration alone
+      does nothing.**
+- [ ] **7. Verify after enabling:**
+  - Apple sign-up on a fresh Apple ID in TestFlight still works (this is the
+    one that must not break).
+  - Existing email user: login page → code arrives → signs in.
+  - Existing Apple user: same, using the email on their account → lands in the
+    same profile.
+  - Unknown email: login page shows the same "we've sent a code" message and
+    **no** row appears in `auth.users`.
+  - Direct API check that creation is blocked: `POST /auth/v1/otp` with
+    `{"email":"new@example.com","create_user":true}` and the publishable key
+    returns 403 "New accounts are created in the SQRZ iOS app."
+  - If you use Supabase invites (dashboard "Invite user", `inviteUserByEmail`,
+    admin-generated links): test one. The hook may reject them too (see the
+    caveat in the migration); if you need them, say so and I'll add a bypass.
+- [ ] **8. Apple Developer → Sign in with Apple → Email Communication:**
+      register the Resend sending domain and the exact sender address, so
+      private-relay (`@privaterelay.appleid.com`) users receive the code.
+- [ ] **9. Vercel / Resend cleanup:** confirm `/login` and `/auth/callback` are
+      reachable while dashboard.sqrz.com is in maintenance mode; remove unused
+      `RESEND_*` env vars and unused Resend keys.
+- [ ] **10. `cast` repo:** repoint the `/join` CTAs (list above) at the iOS app.
+
+### Rollback
+Disable the hook under Auth → Hooks (immediate). The login page changes are
+plain code; reverting the commit restores the old login page, and `/join` signup
+is restored by reverting `app/routes/join.tsx`.
+
+### Decisions I made (change if you disagree)
+- **Allowlist, not blocklist:** the hook rejects *every* provider except Apple,
+  not just email/phone. Add providers in a new migration if you ever need them.
+- **Neutral responses everywhere on the request step**, including the unknown
+  email case; the only way to learn whether an account exists is to receive the
+  email.
+- **No-profile account** goes to `/login?error=…` rather than being auto-created
+  or signed out; it can still request a code for a different email.
+- Resend cooldown is client-side only (60 s, matches Supabase's default per-email
+  limit, which is the real enforcement). No captcha / IP throttling was added —
+  still an open decision (see Open decisions 4).
+
+## Original investigation (state before this change)
 
 ## 1. What exists in sqrz-dashboard
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { redirect, Link, useLoaderData } from "react-router";
 import type { Route } from "./+types/login";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
@@ -59,12 +59,70 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { supabase: supabaseServer, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabaseServer.auth.getUser();
 
-  if (user) return redirect("/", { headers });
-
   const url = new URL(request.url);
   const error = url.searchParams.get("error") ?? null;
 
+  // A signed-in user is bounced to "/". Exception: when we were sent here WITH
+  // an error (e.g. a session whose account has no profile — "/" redirects
+  // here), render the page instead, otherwise "/" ↔ "/login" would loop.
+  if (user && !error) return redirect("/", { headers });
+
   return Response.json({ error }, { headers });
+}
+
+// ─── Error classification ─────────────────────────────────────────────────────
+
+const RESEND_COOLDOWN_SECONDS = 60;
+
+type AuthLikeError = { message?: string; status?: number; code?: string; name?: string };
+
+function asAuthError(err: unknown): AuthLikeError {
+  return (err && typeof err === "object" ? err : {}) as AuthLikeError;
+}
+
+function isRateLimit(e: AuthLikeError): boolean {
+  return (
+    e.status === 429 ||
+    e.code === "over_email_send_rate_limit" ||
+    e.code === "over_request_rate_limit" ||
+    /rate limit|too many/i.test(e.message ?? "")
+  );
+}
+
+function isNetworkError(e: AuthLikeError): boolean {
+  return e.name === "AuthRetryableFetchError" || e.status === 0 || e.name === "TypeError";
+}
+
+// signInWithOtp with shouldCreateUser:false rejects an unknown email with a
+// "signups not allowed" error. That must look identical to success (no account
+// enumeration), so it is classified separately and never shown to the user.
+function isUnknownUserError(e: AuthLikeError): boolean {
+  return (
+    e.code === "otp_disabled" ||
+    e.code === "signup_disabled" ||
+    e.code === "user_not_found" ||
+    /signups? not allowed|user not found/i.test(e.message ?? "")
+  );
+}
+
+function sendErrorMessage(e: AuthLikeError): string {
+  if (isRateLimit(e)) {
+    return "Too many code requests. Please wait a minute and try again.";
+  }
+  if (isNetworkError(e)) {
+    return "Couldn't reach the server. Check your connection and try again.";
+  }
+  return "We couldn't send the email right now. Please try again in a moment.";
+}
+
+function verifyErrorMessage(e: AuthLikeError): string {
+  if (isRateLimit(e)) return "Too many attempts. Please wait a minute and try again.";
+  if (isNetworkError(e)) return "Couldn't reach the server. Check your connection and try again.";
+  if (e.code === "otp_expired" || /expired/i.test(e.message ?? "")) {
+    return "That code has expired. Request a new one.";
+  }
+  if ((e.status ?? 0) >= 500) return "Something went wrong on our side. Please try again.";
+  return "That code isn't right. Check it and try again.";
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -72,88 +130,98 @@ export async function loader({ request }: Route.LoaderArgs) {
 export default function Login() {
   const { error: urlError } = useLoaderData<typeof loader>();
 
-  const [email, setEmail]             = useState("");
-  const [password, setPassword]       = useState("");
-  const [code, setCode]               = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading]         = useState(false);
-  const [verifying, setVerifying]     = useState(false);
-  const [error, setError]             = useState("");
-  const [noAccount, setNoAccount]     = useState(false);
-  const [codeSent, setCodeSent]       = useState(false);
-  const [authPhase, setAuthPhase]     = useState<"idle" | "password" | "code">("idle");
+  const [email, setEmail]               = useState("");
+  const [password, setPassword]         = useState("");
+  const [code, setCode]                 = useState("");
+  const [usePassword, setUsePassword]   = useState(false);
+  const [loading, setLoading]           = useState(false);
+  const [verifying, setVerifying]       = useState(false);
+  const [error, setError]               = useState("");
+  const [codeSent, setCodeSent]         = useState(false);
+  const [cooldown, setCooldown]         = useState(0);
+  const [authPhase, setAuthPhase]       = useState<"idle" | "password" | "code">("idle");
 
-  function toggleMode() {
-    setShowPassword((v) => !v);
-    setError("");
-  }
+  // Resend cooldown: counts down once per second.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setTimeout(() => setCooldown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [cooldown]);
 
-  function handleEmailChange(value: string) {
-    setEmail(value);
-    if (noAccount) setNoAccount(false);
-  }
+  const normalizedEmail = email.trim().toLowerCase();
 
-  // ── Send a 6-digit OTP code (no magic link, no account creation) ──────────
+  // ── Send a 6-digit OTP code (no magic link, never creates an account) ─────
   async function sendCode() {
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
+    if (loading || cooldown > 0) return;
+    if (!normalizedEmail.includes("@")) { setError("Enter a valid email address"); return; }
     setLoading(true);
     setAuthPhase("code");
     setError("");
-    setNoAccount(false);
     try {
       const { error: err } = await supabase.auth.signInWithOtp({
-        email: trimmed,
+        email: normalizedEmail,
         options: { shouldCreateUser: false },
       });
       if (err) throw err;
       setCode("");
       setCodeSent(true);
-    } catch {
-      // shouldCreateUser:false → unknown emails error out instead of signing up
-      setNoAccount(true);
+      setCooldown(RESEND_COOLDOWN_SECONDS);
+    } catch (raw) {
+      const e = asAuthError(raw);
+      if (isUnknownUserError(e)) {
+        // Neutral: behave exactly like a successful send.
+        setCode("");
+        setCodeSent(true);
+        setCooldown(RESEND_COOLDOWN_SECONDS);
+      } else {
+        // Real failure (rate limit, SMTP/send failure, network): say so.
+        setError(sendErrorMessage(e));
+        if (isRateLimit(e)) setCooldown(RESEND_COOLDOWN_SECONDS);
+      }
     } finally {
       setLoading(false);
       setAuthPhase("idle");
     }
   }
 
-  // ── Verify the entered code, then route like auth.callback.tsx ────────────
+  // ── Verify the entered code; the cookie session is set by the browser client
   async function verifyCode() {
     if (code.length !== 6 || verifying) return;
-    const trimmed = email.trim().toLowerCase();
     setVerifying(true);
     setError("");
     try {
       const { error: err } = await supabase.auth.verifyOtp({
-        email: trimmed,
+        email: normalizedEmail,
         token: code,
         type: "email",
       });
       if (err) throw err;
 
       window.location.href = "/";
-    } catch {
-      setError("Invalid or expired code");
+    } catch (raw) {
+      setError(verifyErrorMessage(asAuthError(raw)));
       setVerifying(false);
     }
   }
 
   async function loginWithPassword() {
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
-    if (!password)               { setError("Enter your password"); return; }
+    if (loading) return;
+    if (!normalizedEmail.includes("@")) { setError("Enter a valid email address"); return; }
+    if (!password)                      { setError("Enter your password"); return; }
     setLoading(true);
     setAuthPhase("password");
     setError("");
     let didRedirect = false;
     try {
-      const { error: err } = await supabase.auth.signInWithPassword({ email: trimmed, password });
+      const { error: err } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
       if (err) throw err;
       didRedirect = true;
       window.location.href = "/";
-    } catch {
-      setError("Invalid email or password");
+    } catch (raw) {
+      const e = asAuthError(raw);
+      if (isRateLimit(e)) setError("Too many attempts. Please wait a minute and try again.");
+      else if (isNetworkError(e)) setError("Couldn't reach the server. Check your connection and try again.");
+      else setError("Invalid email or password");
       setAuthPhase("idle");
     } finally {
       if (!didRedirect) {
@@ -162,15 +230,9 @@ export default function Login() {
     }
   }
 
-  function handleSubmit() {
-    if (showPassword) {
-      loginWithPassword();
-      return;
-    }
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed.includes("@")) { setError("Enter a valid email address"); return; }
+  function switchMode(toPassword: boolean) {
+    setUsePassword(toPassword);
     setError("");
-    setShowPassword(true);
   }
 
   return (
@@ -221,7 +283,6 @@ export default function Login() {
         </div>
       )}
       <div style={{ width: "100%", maxWidth: 420 }}>
-
 
         {/* Logo */}
         <div style={{ textAlign: "center", marginBottom: 40 }}>
@@ -275,9 +336,9 @@ export default function Login() {
                 <p style={{ color: "#ffffff", fontWeight: 600, marginBottom: 4, fontSize: 15 }}>
                   Enter the 6-digit code
                 </p>
-                <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13 }}>
-                  We sent a code to{" "}
-                  <span style={{ color: "#F5A623" }}>{email.trim().toLowerCase()}</span>
+                <p style={{ color: "rgba(255,255,255,0.45)", fontSize: 13, lineHeight: 1.5 }}>
+                  If <span style={{ color: "#F5A623" }}>{normalizedEmail}</span> has an SQRZ
+                  account, we've sent a code.
                 </p>
               </div>
 
@@ -300,7 +361,7 @@ export default function Login() {
               />
 
               {error && (
-                <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, marginTop: -4 }}>
+                <p role="alert" style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, marginTop: -4 }}>
                   {error}
                 </p>
               )}
@@ -319,8 +380,16 @@ export default function Login() {
               </button>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
-                <button onClick={sendCode} disabled={loading} style={{ ...linkButtonStyle, color: "#F5A623" }}>
-                  Resend code
+                <button
+                  onClick={sendCode}
+                  disabled={loading || cooldown > 0}
+                  style={{
+                    ...linkButtonStyle,
+                    color: cooldown > 0 ? "rgba(255,255,255,0.35)" : "#F5A623",
+                    cursor: loading || cooldown > 0 ? "default" : "pointer",
+                  }}
+                >
+                  {cooldown > 0 ? `Resend code in ${cooldown}s` : "Resend code"}
                 </button>
                 <button
                   onClick={() => { setCodeSent(false); setCode(""); setError(""); }}
@@ -336,81 +405,85 @@ export default function Login() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => handleEmailChange(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  if (usePassword) loginWithPassword(); else sendCode();
+                }}
                 placeholder="you@example.com"
                 style={inputStyle}
                 autoComplete="email"
                 autoFocus
               />
 
-              {/* ── Password field — slides in when showPassword ─────────── */}
-              <div
-                style={{
-                  maxHeight: showPassword ? 120 : 0,
-                  overflow: "hidden",
-                  opacity: showPassword ? 1 : 0,
-                  transition: "max-height 0.25s ease, opacity 0.2s ease",
-                }}
-              >
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && loginWithPassword()}
-                  placeholder="Password"
-                  style={inputStyle}
-                  autoComplete="current-password"
-                  tabIndex={showPassword ? 0 : -1}
-                />
-                <div style={{ textAlign: "right", marginTop: -6, marginBottom: 12 }}>
-                  <Link
-                    to="/reset-password"
-                    style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}
-                  >
-                    Forgot password?
-                  </Link>
+              {/* ── Password field — only in the secondary password mode ─── */}
+              {usePassword && (
+                <div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && loginWithPassword()}
+                    placeholder="Password"
+                    style={inputStyle}
+                    autoComplete="current-password"
+                  />
+                  <div style={{ textAlign: "right", marginTop: -6, marginBottom: 12 }}>
+                    <Link
+                      to="/reset-password"
+                      style={{ color: "rgba(255,255,255,0.35)", fontSize: 13, textDecoration: "none" }}
+                    >
+                      Forgot password?
+                    </Link>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* ── Error ───────────────────────────────────────────────── */}
-              {noAccount ? (
-                <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, marginTop: -4 }}>
-                  No account found with that email.{" "}
-                  <Link to="/join" style={{ color: "#F5A623", textDecoration: "none", fontWeight: 600 }}>
-                    Sign up →
-                  </Link>
-                </p>
-              ) : error ? (
-                <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, marginTop: -4 }}>
+              {error && (
+                <p role="alert" style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, marginTop: -4 }}>
                   {error}
                 </p>
-              ) : null}
+              )}
 
               {/* ── Primary CTA ─────────────────────────────────────────── */}
               <button
-                onClick={handleSubmit}
-                disabled={loading}
-                style={{ ...primaryButtonStyle, marginBottom: 16, opacity: loading ? 0.6 : 1 }}
+                onClick={usePassword ? loginWithPassword : sendCode}
+                disabled={loading || (!usePassword && cooldown > 0)}
+                style={{
+                  ...primaryButtonStyle,
+                  marginBottom: 16,
+                  opacity: loading || (!usePassword && cooldown > 0) ? 0.6 : 1,
+                }}
               >
-                {loading
-                  ? showPassword ? "Logging in…" : "Opening…"
-                  : showPassword ? "Login" : "Login with password"}
+                {usePassword
+                  ? loading ? "Logging in…" : "Log in"
+                  : loading
+                    ? "Sending…"
+                    : cooldown > 0
+                      ? `Try again in ${cooldown}s`
+                      : "Email me a login code"}
               </button>
 
-              {/* ── Toggle link ─────────────────────────────────────────── */}
+              {/* ── Secondary link ──────────────────────────────────────── */}
               <div style={{ textAlign: "center" }}>
                 <button
-                  onClick={showPassword ? toggleMode : sendCode}
+                  onClick={() => switchMode(!usePassword)}
                   disabled={loading}
                   style={{ ...linkButtonStyle, opacity: loading ? 0.6 : 1 }}
                 >
-                  {showPassword ? "Use code instead" : "Send code"}
+                  {usePassword ? "Email me a code instead" : "Use password instead"}
                 </button>
               </div>
             </>
           )}
         </div>
+
+        <p style={{ color: "rgba(255,255,255,0.3)", fontSize: 12, textAlign: "center", lineHeight: 1.5 }}>
+          SQRZ accounts are created in the SQRZ iOS app.
+          <br />
+          Lost your iPhone? Use an emailed code to get back in.
+        </p>
 
       </div>
       <style>{`

@@ -2,6 +2,8 @@ import { type RouteConfig, index, layout, route } from "@react-router/dev/routes
 
 export default [
   // Auth (public)
+  // /join is a redirect to /login — web signup was retired (accounts are
+  // created in the iOS app); kept so old links don't 404.
   route("join", "routes/join.tsx"),
   route("login", "routes/login.tsx"),
   route("reset-password", "routes/reset-password.tsx"),
