@@ -61,7 +61,7 @@ export default function GrowPage() {
   const tab: GrowTab = data.tab;
 
   return (
-    <div style={{ padding: "28px 20px 60px", maxWidth: tab === "campaigns" ? 1140 : 640, margin: "0 auto", fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ padding: "28px 20px 60px", maxWidth: 1140, margin: "0 auto", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <h1
         style={{
           fontFamily: FONT_DISPLAY, fontSize: 38, fontWeight: 800, color: ACCENT, textTransform: "uppercase",
@@ -72,17 +72,22 @@ export default function GrowPage() {
       </h1>
       <GrowTabs active={tab} />
 
-      {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />}
-      {data.tab === "campaigns" && (
+      {/* The kanban uses the full container; the other tabs stay narrow, centered INSIDE it,
+          so the title and tab bar above never move when switching tabs. */}
+      {data.tab === "campaigns" ? (
         <CampaignPipeline
           campaigns={data.pipeline.campaigns}
           budgets={data.pipeline.budgets}
           templateNames={data.pipeline.templateNames}
           metrics={data.pipeline.metrics}
         />
+      ) : (
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
+          {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />}
+          {data.tab === "links" && <GrowLinks links={data.links} stats={data.stats} slug={data.slug} />}
+          {data.tab === "analytics" && <GrowAnalytics data={data.analytics} days={data.days} />}
+        </div>
       )}
-      {data.tab === "links" && <GrowLinks links={data.links} stats={data.stats} slug={data.slug} />}
-      {data.tab === "analytics" && <GrowAnalytics data={data.analytics} days={data.days} />}
     </div>
   );
 }

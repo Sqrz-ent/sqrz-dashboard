@@ -83,6 +83,20 @@ function CampaignCard({
   );
 }
 
+// Board layout. Narrow: columns scroll horizontally with snapping (86% wide, the next
+// one peeking — like iOS). Wide (the board itself ≥ 880px): the three columns share the
+// width equally, all visible, no scrolling. A container query on the board's own width
+// (not the viewport) decides, so it's correct whatever the page padding is.
+const KANBAN_CSS = `
+.kb-wrap { container-type: inline-size; container-name: kb; }
+.kb-board { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; }
+.kb-col { flex: 0 0 min(86%, 360px); scroll-snap-align: start; background: var(--surface); border-radius: 12px; overflow: hidden; min-width: 0; overflow-wrap: anywhere; }
+@container kb (min-width: 880px) {
+  .kb-board { overflow-x: visible; scroll-snap-type: none; }
+  .kb-col { flex: 1 1 0; }
+}
+`;
+
 // The read-only campaign pipeline (Needs Action / In Progress / Completed kanban) shown
 // inside Grow — data from loadCampaignPipeline (lib/campaigns.server.ts).
 export default function CampaignPipeline({
@@ -108,16 +122,9 @@ export default function CampaignPipeline({
       ) : (
         // The iOS kanban board: lanes side by side as columns that scroll
         // horizontally (snapping, a peek of the next column) — never stacked.
-        <div
-          style={{
-            display: "flex",
-            alignItems: "flex-start",
-            gap: 12,
-            overflowX: "auto",
-            scrollSnapType: "x mandatory",
-            paddingBottom: 8,
-          }}
-        >
+        <div className="kb-wrap">
+        <style>{KANBAN_CSS}</style>
+        <div className="kb-board">
           {lanes.map((lane) => {
             let items = campaigns.filter((c) => laneFor(c) === lane);
             // In Progress sorts by proximity to running (live, approved, in review, rest);
@@ -126,13 +133,7 @@ export default function CampaignPipeline({
             return (
               <section
                 key={lane}
-                style={{
-                  flex: "0 0 min(86%, 360px)",
-                  scrollSnapAlign: "start",
-                  background: "var(--surface)",
-                  borderRadius: 12,
-                  overflow: "hidden",
-                }}
+                className="kb-col"
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "14px 16px 10px", borderBottom: "1px solid var(--border)" }}>
                   <h2 style={{ margin: 0, fontSize: 12, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: ACCENT }}>
@@ -164,6 +165,7 @@ export default function CampaignPipeline({
               </section>
             );
           })}
+        </div>
         </div>
       )}
     </>
