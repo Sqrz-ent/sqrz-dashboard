@@ -45,7 +45,7 @@ export default function LinkDetail() {
   };
   const created = formatDate(link.created_at);
   return (
-    <div style={{ maxWidth: 640, fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
       <Link to="/analytics?tab=links" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Links</Link>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800, color: ACCENT, textTransform: "uppercase", margin: "12px 0 4px", lineHeight: 1.05 }}>
         {link.title || link.link_slug}

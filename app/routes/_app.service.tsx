@@ -994,7 +994,9 @@ export default function ServicePage() {
   );
 
   return (
-    <div style={{ maxWidth: 680, fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <h1 style={sectionTitle}>Business</h1>
+
       {toggleError && (
         <div style={{
           background: "rgba(239,68,68,0.1)",

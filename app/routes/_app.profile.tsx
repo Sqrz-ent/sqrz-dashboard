@@ -452,7 +452,9 @@ export default function ProfilePage() {
   ];
 
   return (
-    <div style={{ maxWidth: 680, fontFamily: FONT_BODY, color: "var(--text)" }}>
+    <div style={{ maxWidth: 680, margin: "0 auto", padding: "32px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <h1 style={sectionTitle}>Your Profile</h1>
+
       {/* Section 0: Profile Picture */}
       <div style={card}>
         <h2 style={{ ...sectionTitle, fontSize: 22, marginBottom: 14 }}>Profile Picture</h2>

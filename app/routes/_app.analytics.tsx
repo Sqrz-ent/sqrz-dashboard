@@ -4,14 +4,17 @@ import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import CampaignPipeline from "~/components/CampaignPipeline";
+import GrowTabs from "~/components/GrowTabs";
 import TemplateCards from "~/components/TemplateCards";
 import GrowLinks from "~/components/GrowLinks";
 import GrowAnalytics from "~/components/GrowAnalytics";
 import { loadCampaignPipeline, type CampaignPipelineData } from "~/lib/campaigns.server";
 import { loadAnalyticsPage, loadGrowTemplates, loadLinks } from "~/lib/grow.server";
-import { ANALYTICS_RANGES, parseGrowTab, type AnalyticsPage, type LinkRow } from "~/lib/grow";
+import { ANALYTICS_RANGES, parseGrowTab, type AnalyticsPage, type GrowTab, type LinkRow } from "~/lib/grow";
 import type { CampaignLite, CampaignTemplate } from "~/lib/templates";
 
+const ACCENT = "#F5A623";
+const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
 const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 
 // The Grow section — mirrors the iOS Grow tab: pills Grow · Campaigns · Links ·
@@ -55,11 +58,22 @@ type GrowData =
 
 export default function GrowPage() {
   const data = useLoaderData<typeof loader>() as unknown as GrowData;
+  const tab: GrowTab = data.tab;
+
   return (
-    <div style={{ fontFamily: FONT_BODY, color: "var(--text)" }}>
-      {/* The page title and the Grow · Campaigns · Links · Analytics pills come from the
-          shared layout frame. The kanban uses the full container; the other tabs stay
-          narrow and left-aligned to the same edge as the title and pills. */}
+    <div style={{ padding: "28px 20px 60px", maxWidth: 1140, margin: "0 auto", fontFamily: FONT_BODY, color: "var(--text)" }}>
+      <h1
+        style={{
+          fontFamily: FONT_DISPLAY, fontSize: 38, fontWeight: 800, color: ACCENT, textTransform: "uppercase",
+          letterSpacing: "0.03em", margin: "0 0 16px", lineHeight: 1,
+        }}
+      >
+        Grow
+      </h1>
+      <GrowTabs active={tab} />
+
+      {/* The kanban uses the full container; the other tabs stay narrow, centered INSIDE it,
+          so the title and tab bar above never move when switching tabs. */}
       {data.tab === "campaigns" ? (
         <CampaignPipeline
           campaigns={data.pipeline.campaigns}
@@ -68,7 +82,7 @@ export default function GrowPage() {
           metrics={data.pipeline.metrics}
         />
       ) : (
-        <div style={{ maxWidth: 640 }}>
+        <div style={{ maxWidth: 640, margin: "0 auto" }}>
           {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />}
           {data.tab === "links" && <GrowLinks links={data.links} stats={data.stats} slug={data.slug} />}
           {data.tab === "analytics" && <GrowAnalytics data={data.analytics} days={data.days} />}
