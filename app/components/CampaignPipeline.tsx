@@ -1,3 +1,4 @@
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Link } from "react-router";
 import {
   type CampaignBudgetRow,
@@ -83,12 +84,38 @@ function CampaignCard({
   );
 }
 
+// The board is the one exception to the standard page container: it breaks out of the
+// 680px column and spans the page width, with the same 16px side padding as the header,
+// so it never touches the screen edges. The title and pills above it stay in the container.
+// Width/offset are measured from the real page width (excluding the scrollbar — a plain
+// 100vw would overshoot by the scrollbar's width on desktop); the CSS values below are the
+// no-JS / first-paint fallback.
+const BOARD_SIDE_PADDING = 16;
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+function useFullWidthBreakout(ref: React.RefObject<HTMLDivElement | null>) {
+  useIsoLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const apply = () => {
+      el.style.marginLeft = "0px";
+      el.style.width = "auto";
+      const left = el.getBoundingClientRect().left; // where the container would put it
+      el.style.marginLeft = `${BOARD_SIDE_PADDING - left}px`;
+      el.style.width = `${document.documentElement.clientWidth - BOARD_SIDE_PADDING * 2}px`;
+    };
+    apply();
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }, [ref]);
+}
+
 // Board layout. Narrow: columns scroll horizontally with snapping (86% wide, the next
 // one peeking — like iOS). Wide (the board itself ≥ 600px): the three columns share the
 // width equally, all visible, no scrolling. A container query on the board's own width
 // (not the viewport) decides, so it's correct whatever the page padding is.
 const KANBAN_CSS = `
-.kb-wrap { container-type: inline-size; container-name: kb; }
+.kb-wrap { container-type: inline-size; container-name: kb; margin-left: calc(50% - 50vw + 16px); width: calc(100vw - 32px); }
 .kb-board { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; }
 .kb-col { flex: 0 0 min(86%, 360px); scroll-snap-align: start; background: var(--surface); border-radius: 12px; overflow: hidden; min-width: 0; overflow-wrap: anywhere; }
 @container kb (min-width: 600px) {
@@ -111,6 +138,8 @@ export default function CampaignPipeline({
   metrics: Record<string, CampaignMetrics>;
 }) {
   const lanes: PipelineLane[] = ["needsAction", "inProgress", "completed"];
+  const boardRef = useRef<HTMLDivElement>(null);
+  useFullWidthBreakout(boardRef);
 
   return (
     <>
@@ -122,7 +151,7 @@ export default function CampaignPipeline({
       ) : (
         // The iOS kanban board: lanes side by side as columns that scroll
         // horizontally (snapping, a peek of the next column) — never stacked.
-        <div className="kb-wrap">
+        <div className="kb-wrap" ref={boardRef}>
         <style>{KANBAN_CSS}</style>
         <div className="kb-board">
           {lanes.map((lane) => {
