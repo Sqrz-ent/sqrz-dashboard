@@ -103,8 +103,6 @@ export async function loader({ request }: Route.LoaderArgs) {
       analytics: analytics ?? null,
       hasServices: !!homeData.hasServices,
       hasVideos: !!homeData.hasVideos,
-      planName: homeData.planName ?? null,
-      refCode: homeData.refCode ?? null,
     },
     { headers }
   );
@@ -113,7 +111,7 @@ export async function loader({ request }: Route.LoaderArgs) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardIndex() {
-  const { profile, analytics, hasServices, hasVideos, planName, refCode } =
+  const { profile, analytics, hasServices, hasVideos } =
     useLoaderData<typeof loader>();
 
   const p = profile as Record<string, unknown>;

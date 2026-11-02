@@ -1,5 +1,5 @@
 // apple-consumable-webhook — handles App Store Server Notifications for
-// campaign-activation consumable products (campaign_activation_products),
+// campaign-activation consumable products (campaign_templates.iap_product_id),
 // as a SIBLING to apple-subscription-webhook rather than a second
 // Apple-facing endpoint (Apple only supports one App Store Server
 // Notifications V2 URL per app — a true second webhook URL isn't possible).
@@ -37,7 +37,7 @@
 //                          the purchased product_id → its matching
 //                          campaign_templates row (via iap_product_id —
 //                          2026-10-25, a pure-config table Will edits
-//                          directly; campaign_activation_products is
+//                          directly; the old campaign_activation_products table was
 //                          deprecated and superseded), then EXACTLY ONE
 //                          campaign for that profile in a draft-like status
 //                          ('booked'/'needs_changes') matching that template
@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
       // 2026-10-24: keyed on template id, not goal — goal is deprecated.
       // 2026-10-25: resolved via campaign_templates.iap_product_id (a
       // pure-config row Will edits directly) instead of
-      // campaign_activation_products, which is deprecated and superseded.
+      // the old campaign_activation_products table (dropped 2026-11).
       const { data: template } = await supabase
         .from("campaign_templates")
         .select("id")

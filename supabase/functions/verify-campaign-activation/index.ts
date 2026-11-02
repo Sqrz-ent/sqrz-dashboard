@@ -34,7 +34,7 @@
 // row with campaign_template NULL. As of 2026-10-25, the expected product
 // id is read straight off campaign_templates.iap_product_id (a real FK
 // target now, a pure-config table Will edits directly) — NOT
-// campaign_activation_products, which is deprecated and superseded.
+// the old campaign_activation_products table (dropped 2026-11).
 //
 // Auth: the caller's own Supabase JWT (same manual-validation pattern as
 // meta-insights-sync's user-triggered path / the meta-page-* functions) +

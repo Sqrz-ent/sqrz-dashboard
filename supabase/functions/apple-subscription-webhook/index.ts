@@ -22,7 +22,7 @@
 // code rather than each carrying their own copy.
 //
 // Consumable-activation forwarding (2026-10-21): campaign_activations'
-// products (the per-template consumable IAP, see campaign_activation_products)
+// products (the per-template consumable IAP, see campaign_templates.iap_product_id)
 // are NOT subscriptions — a REFUND/ONE_TIME_CHARGE/etc. notification for one
 // of them must never fall into the ios_subscriptions upsert logic below (it
 // would silently create a bogus subscription row for a one-time product).
@@ -168,15 +168,16 @@ Deno.serve(async (req) => {
   }
 
   // ── Forward consumable-activation notifications to the sibling function —
-  // see the file header. Checked by product id (campaign_activation_products),
+  // see the file header. Checked by product id (campaign_templates.iap_product_id),
   // not just notification type, so a REFUND for an actual subscription still
   // falls through to the normal path below untouched. ──
   const productId = txn.productId != null ? String(txn.productId) : null;
   if (productId && CONSUMABLE_FORWARD_TYPES.has(notificationType)) {
     const { data: mapped } = await supabase
-      .from("campaign_activation_products")
-      .select("product_id")
-      .eq("product_id", productId)
+      .from("campaign_templates")
+      .select("id")
+      .eq("iap_product_id", productId)
+      .limit(1)
       .maybeSingle();
     if (mapped) {
       try {

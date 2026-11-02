@@ -506,7 +506,6 @@ Deno.serve(async (req: Request) => {
   // nothing cascades under this model.
   await admin.from("profile_services").delete().eq("profile_id", profileId);
   await admin.from("profile_videos").delete().eq("profile_id", profileId);
-  await admin.from("profile_references").delete().eq("profile_id", profileId);
   await admin.from("private_booking_links").delete().eq("profile_id", profileId);
   await admin.from("leads").delete().eq("profile_id", profileId);
   await admin.from("profile_inquiry_threads").delete().eq("profile_id", profileId);
