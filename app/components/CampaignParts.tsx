@@ -1,5 +1,5 @@
 import type { CampaignRow } from "~/lib/campaigns";
-import { MANAGE_IN_APP_NOTE, statusLabel, statusTone } from "~/lib/campaigns";
+import { COMPLETE_PAYMENT_NOTE, MANAGE_IN_APP_NOTE, statusLabel, statusTone } from "~/lib/campaigns";
 
 const TONES: Record<string, string> = {
   green: "#22c55e",
@@ -60,5 +60,15 @@ export function KeyMetricsGrid({ items }: { items: Array<{ label: string; value:
         </div>
       ))}
     </div>
+  );
+}
+
+// Payment (the activation IAP) is the one thing that only happens in the app.
+export function PaymentNote() {
+  return (
+    <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--text)", display: "flex", alignItems: "center", gap: 6 }}>
+      <span aria-hidden>📱</span>
+      {COMPLETE_PAYMENT_NOTE}
+    </p>
   );
 }

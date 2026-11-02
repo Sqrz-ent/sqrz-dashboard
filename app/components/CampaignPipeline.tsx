@@ -10,11 +10,12 @@ import {
   formatCents,
   formatDate,
   inProgressRank,
+  awaitsPayment,
   isManagedPending,
   keyMetrics,
   laneFor,
 } from "~/lib/campaigns";
-import { KeyMetricsGrid, ManageInAppNote, StatusBadge } from "~/components/CampaignParts";
+import { KeyMetricsGrid, ManageInAppNote, PaymentNote, StatusBadge } from "~/components/CampaignParts";
 
 const ACCENT = "#F5A623";
 
@@ -73,7 +74,7 @@ function CampaignCard({
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         {/* Every lane has an iOS action (add content / budget / pause / reactivate). */}
-        <ManageInAppNote />
+        {awaitsPayment(c) ? <PaymentNote /> : <ManageInAppNote />}
         <Link to={campaignPath(c.id)} style={{ color: ACCENT, fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
           {lane === "needsAction" ? "Details →" : "More info →"}
         </Link>

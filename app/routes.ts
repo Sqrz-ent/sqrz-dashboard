@@ -24,13 +24,17 @@ export default [
     route("analytics", "routes/_app.analytics.tsx"),
     // Read-only campaign detail — a sub-route of Grow (the pipeline itself is on
     // the Grow page, /analytics; managing campaigns stays in the iOS app)
+    route("analytics/campaigns/new/:templateId", "routes/_app.analytics.campaigns.new.$templateId.tsx"),
     route("analytics/campaigns/:id", "routes/_app.analytics.campaigns.$id.tsx"),
+    route("analytics/links/:id", "routes/_app.analytics.links.$id.tsx"),
     route("notifications", "routes/_app.notifications.tsx"),
   ]),
 
   // API routes (server-only, action handlers)
   // Switch the active profile (web header switcher) — sets the preference cookie.
   route("api/active-profile", "routes/api.active-profile.tsx"),
+  // City search for campaign location targeting (Nominatim proxy; Pro + cookie auth)
+  route("api/location-search", "routes/api.location-search.tsx"),
   // Inquiry chat: token/thread list, Keep Active (bump lead active). Archive
   // (the old stream-inquiry-status route) and the thread→booking convert
   // route were both removed — Archive now happens via the set_lead_status

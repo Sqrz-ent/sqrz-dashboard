@@ -264,8 +264,39 @@ export function keyMetrics(
 // Campaigns live INSIDE Grow (the iOS Grow tab's Campaigns pill): Grow is the
 // /analytics route (nav label "Grow"), the detail page is a sub-route of it.
 export const GROW_PATH = "/analytics";
+export const GROW_CAMPAIGNS_PATH = "/analytics?tab=campaigns";
 export function campaignPath(id: string): string {
   return `${GROW_PATH}/campaigns/${id}`;
 }
 
 export const MANAGE_IN_APP_NOTE = "Manage this campaign in the SQRZ app";
+export const COMPLETE_PAYMENT_NOTE = "Complete payment in the SQRZ app";
+
+// A self-serve campaign saved on the web (or in the app) before its activation
+// purchase: status 'booked', not a managed request. Payment is app-only (IAP).
+export function awaitsPayment(c: Pick<CampaignRow, "status" | "is_managed">): boolean {
+  return c.status?.toLowerCase() === "booked" && !c.is_managed;
+}
+
+// get_link_metrics → same section shape as the campaign metrics (zero rows dropped).
+export function buildLinkMetricsSections(m: {
+  sources: Array<{ source: string; visits: number }>;
+  funnel: FunnelStage[];
+} | null): MetricsSectionView[] {
+  if (!m) return [];
+  const sections: MetricsSectionView[] = [];
+  const sources = (m.sources ?? []).filter((s) => s.visits > 0);
+  if (sources.length) {
+    sections.push({
+      title: "Where they came from",
+      rows: sources.map((s) => ({ label: s.source, value: s.visits.toLocaleString("en-US"), explanation: "" })),
+    });
+  }
+  for (const stage of m.funnel ?? []) {
+    const rows = stage.rows
+      .filter((r) => !isZeroValue(r.value))
+      .map((r) => ({ label: r.label, value: r.value, explanation: FUNNEL_EXPLANATIONS[r.key] ?? "" }));
+    if (rows.length) sections.push({ title: stage.stage, rows });
+  }
+  return sections;
+}

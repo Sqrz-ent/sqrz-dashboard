@@ -7,15 +7,16 @@ import {
   type CampaignBudgetRow,
   type CampaignMetrics,
   type CampaignRow,
+  awaitsPayment,
   buildMetricsSections,
   campaignDisplayName,
   formatCents,
   formatDate,
-  GROW_PATH,
+  GROW_CAMPAIGNS_PATH,
   laneFor,
   rendersStats,
 } from "~/lib/campaigns";
-import { ManageInAppNote, StatusBadge } from "~/components/CampaignParts";
+import { ManageInAppNote, PaymentNote, StatusBadge } from "~/components/CampaignParts";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -125,7 +126,7 @@ export default function CampaignDetail() {
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "24px 20px 80px", fontFamily: FONT_BODY, color: "var(--text)" }}>
-      <Link to={GROW_PATH} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Grow</Link>
+      <Link to={GROW_CAMPAIGNS_PATH} style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Campaigns</Link>
 
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, margin: "12px 0 6px" }}>
         <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800, color: ACCENT, textTransform: "uppercase", letterSpacing: "0.03em", margin: 0, lineHeight: 1.05 }}>
@@ -206,7 +207,7 @@ export default function CampaignDetail() {
       )}
 
       <div style={{ ...card, marginBottom: 0 }}>
-        <ManageInAppNote />
+        {awaitsPayment(c) ? <PaymentNote /> : <ManageInAppNote />}
       </div>
     </div>
   );
