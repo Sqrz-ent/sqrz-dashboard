@@ -4,7 +4,7 @@ const ACCENT = "#F5A623";
 
 export type NotificationRow = {
   id: string;
-  type: "campaign_status" | "campaign_ended" | "booking" | "advisor_warning" | "chat_request" | "wallet_bonus";
+  type: "campaign_status" | "campaign_ended" | "booking" | "advisor_warning" | "chat_request" | "wallet_bonus" | "wire_topup_received";
   subtype: string | null;
   related_id: string | null;
   deep_link: string | null;
@@ -44,6 +44,13 @@ const TYPE_META: Record<NotificationRow["type"], { icon: string; label: (subtype
   wallet_bonus: {
     icon: "🎁",
     label: (s) => `You received a $${s ?? ""} bonus!`,
+  },
+  // Bank-transfer wallet top-up credited by Will (credit_wire_topup, 2026-11).
+  // subtype = credited dollars as plain text, like wallet_bonus. Mirrored by hand in
+  // supabase/functions/apns-push/index.ts and sqrz-ios AppNotification.swift.
+  wire_topup_received: {
+    icon: "🏦",
+    label: (s) => `Bank transfer received — $${s ?? ""} added to your wallet`,
   },
 };
 

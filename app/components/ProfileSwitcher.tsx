@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useRevalidator, useSearchParams } from "react-router";
+import WireTopupPanel, { type WireBank, type WireOptions, type WireTransferRow } from "~/components/WireTopupPanel";
 
 // Header profile switcher + account balance + wallet top-up (web counterpart of
 // sqrz-ios's ProfileSwitcherSheet / WalletTopupCard, 2026-11).
@@ -14,6 +15,9 @@ import { useLocation, useRevalidator, useSearchParams } from "react-router";
 //   a flat 7% SQRZ fee added on top (shown as a breakdown), checkout on Stripe.
 //   No payment logic lives here: it POSTs the amount to the existing route and
 //   redirects to the Stripe Checkout URL it returns.
+// - Bank transfer (2026-11): when app_config.wire_topup_enabled is on (and a bank account is set up),
+//   the popover offers a second option, "Bank transfer — no card fees", with a "Save $X" badge — see
+//   WireTopupPanel + docs/wallet/wire-topup.md. The amount field is shared by both options.
 
 export type SwitcherProfile = {
   id: string;
@@ -44,6 +48,13 @@ function parseTopupCents(input: string): number | null {
   if (!input.trim() || !Number.isFinite(dollars)) return null;
   const cents = Math.round(dollars * 100);
   return cents >= MIN_TOPUP_CENTS && cents <= MAX_TOPUP_CENTS ? cents : null;
+}
+
+// Amount in cents with no bounds applied (bank transfers have their own, server-configured bounds).
+function parseCents(input: string): number | null {
+  const dollars = Number(input.replace(/,/g, ".").trim());
+  if (!input.trim() || !Number.isFinite(dollars) || dollars <= 0) return null;
+  return Math.round(dollars * 100);
 }
 
 function topupValidationMessage(input: string): string | null {
@@ -119,6 +130,8 @@ export default function ProfileSwitcher({
   const [amount, setAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [method, setMethod] = useState<"card" | "bank">("card");
+  const [wire, setWire] = useState<{ options: WireOptions; transfers: WireTransferRow[]; banks: WireBank[] } | null>(null);
 
   const active = profiles.find((p) => p.id === activeProfileId) ?? profiles[0];
 
@@ -138,6 +151,26 @@ export default function ProfileSwitcher({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // Bank-transfer availability + the account's recent transfers; loaded once when the popover opens
+  // (and refreshed after a transfer is created). A failure just leaves the bank option hidden.
+  function loadWire() {
+    fetch("/api/wire-topup", { headers: { Accept: "application/json" } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setWire(d))
+      .catch(() => {});
+  }
+  useEffect(() => {
+    if (open === "topup" && wire === null) loadWire();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const wireEnabled = !!wire?.options?.enabled && (wire?.options.currencies.length ?? 0) > 0;
+  const bankCents = parseCents(amount);
+  const wireSaving =
+    wireEnabled && bankCents != null && bankCents >= wire!.options.min_cents && bankCents <= wire!.options.max_cents
+      ? Math.max(0, Math.round(bankCents * (wire!.options.card_fee_pct / 100)) - Math.round(bankCents * (wire!.options.fee_pct / 100)))
+      : 0;
 
   const cents = parseTopupCents(amount);
   const fee = cents != null ? Math.round(cents * TOPUP_FEE_PCT) : 0;
@@ -271,7 +304,7 @@ export default function ProfileSwitcher({
       )}
 
       {open === "topup" && (
-        <div style={{ ...popoverStyle, padding: 16 }}>
+        <div style={{ ...popoverStyle, padding: 16, maxHeight: "calc(100vh - 80px)", overflowY: "auto" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
             <span style={{ fontSize: 24, fontWeight: 800, color: "var(--text)" }}>{formatCents(balanceCents)}</span>
           </div>
@@ -280,6 +313,37 @@ export default function ProfileSwitcher({
           <p style={{ margin: "0 0 8px", fontSize: 11, fontWeight: 700, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--text-muted)" }}>
             Top up
           </p>
+          {wireEnabled && (
+            <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+              {([
+                ["card", "Card"],
+                ["bank", "Bank transfer — no card fees"],
+              ] as const).map(([key, text]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setMethod(key)}
+                  style={{
+                    flex: key === "bank" ? 2 : 1,
+                    padding: "7px 8px",
+                    borderRadius: 8,
+                    border: `1px solid ${method === key ? ACCENT : "var(--border)"}`,
+                    background: method === key ? "rgba(245,166,35,0.12)" : "transparent",
+                    color: "var(--text)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    lineHeight: 1.25,
+                  }}
+                >
+                  {text}
+                  {key === "bank" && wireSaving > 0 && (
+                    <span style={{ display: "block", color: "#22c55e", fontSize: 11 }}>Save {formatCents(wireSaving)}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -304,6 +368,17 @@ export default function ProfileSwitcher({
             />
           </div>
 
+          {method === "bank" && wireEnabled && wire ? (
+            <WireTopupPanel
+              options={wire.options}
+              banks={wire.banks}
+              transfers={wire.transfers}
+              amountCents={bankCents}
+              profileId={activeProfileId}
+              onCreated={loadWire}
+            />
+          ) : (
+            <>
           {cents != null && (
             <div style={{ marginBottom: 12, fontSize: 12, color: "var(--text-muted)" }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
@@ -350,6 +425,8 @@ export default function ProfileSwitcher({
           >
             {submitting ? "Opening Stripe…" : "Top up via Stripe →"}
           </button>
+            </>
+          )}
         </div>
       )}
     </div>

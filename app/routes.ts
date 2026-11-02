@@ -47,6 +47,8 @@ export default [
 
   // Grow ad-spend wallet top-up (web + iOS, same Stripe flow)
   route("api/wallet/topup", "routes/api.wallet.topup.tsx"),
+  // Bank-transfer wallet top-up (web user side; proxies the wire-topup-create edge function)
+  route("api/wire-topup", "routes/api.wire-topup.tsx"),
 
   // Free-tier campaign-activation budget payment ("Card" option, 2026-10-21
   // follow-up) — pays exactly one awaiting_budget campaign's ad budget via
