@@ -145,6 +145,11 @@ export default function TemplateCards({
                 {a.kind === "app_only" && (
                   <p style={{ margin: 0, padding: "0 14px 14px", fontSize: 12, color: "var(--text-muted)" }}>Set up in the SQRZ app</p>
                 )}
+                {a.kind === "open" && !createEnabled && (
+                  <p style={{ margin: 0, padding: "0 14px 14px", fontSize: 12, color: "var(--text-muted)" }}>
+                    Available to purchase in the SQRZ iOS app, via a secure connection with the Apple App Store.
+                  </p>
+                )}
               </>
             )}
             {long && (
