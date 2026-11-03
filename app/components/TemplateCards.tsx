@@ -54,11 +54,6 @@ function CardBody({ t, supabaseUrl }: { t: CampaignTemplate; supabaseUrl: string
             ))}
           </div>
         )}
-        {t.visibility === "beta" && (
-          <span style={{ position: "absolute", top: 10, right: 10, background: ACCENT, color: "#111", fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 999 }}>
-            BETA
-          </span>
-        )}
       </div>
       <div style={{ padding: 14, display: "flex", flexDirection: "column", gap: 8 }}>
         {t.description && <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>{t.description}</div>}

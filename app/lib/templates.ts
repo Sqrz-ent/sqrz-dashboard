@@ -1,7 +1,7 @@
 // Campaign template helpers for the web Grow section (2026-11) — a port of
 // sqrz-ios Models/CampaignTemplateConfig.swift and the card/lock rules in
 // Features/Boost/BoostView.swift (isLocked / unlock rule / "Includes X of Pro").
-// Same table (campaign_templates, RLS-filtered), same visibility rules.
+// Same table (campaign_templates, RLS-filtered), same status rules.
 
 export type CampaignTemplate = {
   id: string;
@@ -25,7 +25,6 @@ export type CampaignTemplate = {
   requires_eligibility_check: boolean;
   delivery: string; // 'self_serve' | 'contact'
   status: string; // 'active' | 'coming_soon' | 'hidden'
-  visibility: string | null; // 'public' | 'beta'
   sort_order: number;
   outlet: string | null;
   outlets: unknown;
