@@ -33,7 +33,7 @@ export default function GrowLinks({
             return (
               <div key={l.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 14, padding: "14px 16px", opacity: l.is_active ? 1 : 0.6 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                  <Link to={`/analytics/links/${l.id}`} style={{ color: "var(--text)", fontWeight: 700, fontSize: 15, textDecoration: "none" }}>
+                  <Link to={`/grow/links/${l.id}`} style={{ color: "var(--text)", fontWeight: 700, fontSize: 15, textDecoration: "none" }}>
                     {l.title || l.link_slug}
                   </Link>
                   <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{kind}{l.is_active ? "" : " · inactive"}</span>
@@ -49,7 +49,7 @@ export default function GrowLinks({
                     </div>
                   ))}
                 </div>
-                <Link to={`/analytics/links/${l.id}`} style={{ color: ACCENT, fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
+                <Link to={`/grow/links/${l.id}`} style={{ color: ACCENT, fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
                   More info →
                 </Link>
               </div>

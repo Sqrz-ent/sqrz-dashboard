@@ -52,7 +52,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 // ─── Nav config ───────────────────────────────────────────────────────────────
 
 // "Analytics" → "Grow": the /analytics route is now a static promo page
-// (2026-08-06 collapse — see _app.analytics.tsx). Route path kept as /analytics.
+// (2026-08-06 collapse — see _app.grow.tsx). Route path moved from /analytics
+// to /grow (old /analytics URLs redirect there, see legacy-analytics*.tsx).
 //
 // Bottom-nav "Profile" (2026-08-01) is the internal dashboard/profile-editing
 // home (`/`) — distinct from `fourthNav`'s "Preview" below, which is the
@@ -65,7 +66,7 @@ const bottomNavItems = [
   // identical rename. Route path (/office), file/route name (_app.office.tsx,
   // OfficePage), and internal comments/symbols are deliberately untouched.
   { to: "/office", label: "Leads", icon: "📋" },
-  { to: "/analytics", label: "Grow", icon: "📊" },
+  { to: "/grow", label: "Grow", icon: "📊" },
 ];
 
 // ─── Layout ───────────────────────────────────────────────────────────────────

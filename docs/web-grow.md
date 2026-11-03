@@ -3,7 +3,7 @@
 > **Web campaign creation is behind a switch (2026-11-02).** `app_config.web_campaign_create_enabled`
 > (jsonb boolean, **default `false`**; migration `20261108120000_web_campaign_create_flag.sql`, not
 > applied). While false: the template cards are display-only (no create link), and
-> `/analytics/campaigns/new/:templateId` — both its loader and its action — and
+> `/grow/campaigns/new/:templateId` — both its loader and its action — and
 > `/api/location-search` redirect to Grow / return 403, so creation can't be reached by URL
 > either. Set it to `true` (Table Editor) to turn it on; read server-side
 > (`app/lib/flags.server.ts`) and cached ~60 s, so a change takes up to a minute to show. A missing
@@ -27,8 +27,9 @@ Everything else in Grow is on the web, except the items listed under "Not mirror
 ### Grow tab structure
 `GrowTabView` is a pill bar, one tab mounted at a time:
 **Grow** (template cards = start a campaign) · **Campaigns** (pipeline) ·
-**Links** · **Analytics**. Open to every user. Web mirrors this at `/analytics`
-with `?tab=grow|campaigns|links|analytics`.
+**Links** · **Analytics**. Open to every user. Web mirrors this at `/grow`
+with `?tab=grow|campaigns|links|analytics` (moved from `/analytics`, which
+now redirects here).
 
 ### Template cards (Grow tab)
 Rows of `campaign_templates` (RLS hides `hidden` and, for non-beta accounts, beta
@@ -125,12 +126,12 @@ POST to the existing `verify-campaign-activation`, reload. The campaign then bec
 
 | Area | Web | File |
 |---|---|---|
-| Grow pills (same order) | `?tab=` | `routes/_app.analytics.tsx`, `components/GrowTabs.tsx` |
+| Grow pills (same order) | `?tab=` | `routes/_app.grow.tsx`, `components/GrowTabs.tsx` |
 | Template cards | same table, window, unlock, coming-soon, "More info", "Includes X of Pro" | `components/TemplateCards.tsx`, `lib/templates.ts` |
-| Create campaign | `/analytics/campaigns/new/:templateId` — all fields above + creative | `routes/_app.analytics.campaigns.new.$templateId.tsx` |
+| Create campaign | `/grow/campaigns/new/:templateId` — all fields above + creative | `routes/_app.grow.campaigns.new.$templateId.tsx` |
 | Contact templates | request → `pending`/`is_managed` → "Book your call" (HubSpot, prefilled) | same file |
 | Pipeline | existing read-only pipeline (+ "Complete payment in the SQRZ app" on `booked`) | `components/CampaignPipeline.tsx` |
-| Links | read-only list + 30-day stats + detail (`get_link_metrics`) | `components/GrowLinks.tsx`, `routes/_app.analytics.links.$id.tsx` |
+| Links | read-only list + 30-day stats + detail (`get_link_metrics`) | `components/GrowLinks.tsx`, `routes/_app.grow.links.$id.tsx` |
 | Analytics | `get_analytics_page` (1/7/30/90 days) | `components/GrowAnalytics.tsx` |
 
 Self-serve campaigns are saved **exactly like iOS before payment**: `status='booked'`,

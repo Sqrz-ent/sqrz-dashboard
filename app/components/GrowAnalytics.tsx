@@ -66,7 +66,7 @@ export default function GrowAnalytics({ data, days }: { data: AnalyticsPage | nu
         {ANALYTICS_RANGES.map((d) => (
           <Link
             key={d}
-            to={`/analytics?tab=analytics&days=${d}`}
+            to={`/grow?tab=analytics&days=${d}`}
             style={{
               textDecoration: "none", fontSize: 13, fontWeight: 600, padding: "6px 14px", borderRadius: 999,
               border: `1px solid ${d === days ? ACCENT : "var(--border)"}`,

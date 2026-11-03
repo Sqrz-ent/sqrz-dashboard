@@ -262,9 +262,9 @@ export function keyMetrics(
 }
 
 // Campaigns live INSIDE Grow (the iOS Grow tab's Campaigns pill): Grow is the
-// /analytics route (nav label "Grow"), the detail page is a sub-route of it.
-export const GROW_PATH = "/analytics";
-export const GROW_CAMPAIGNS_PATH = "/analytics?tab=campaigns";
+// /grow route (nav label "Grow"), the detail page is a sub-route of it.
+export const GROW_PATH = "/grow";
+export const GROW_CAMPAIGNS_PATH = "/grow?tab=campaigns";
 export function campaignPath(id: string): string {
   return `${GROW_PATH}/campaigns/${id}`;
 }

@@ -1,5 +1,5 @@
 import { redirect, useLoaderData } from "react-router";
-import type { Route } from "./+types/_app.analytics";
+import type { Route } from "./+types/_app.grow";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
@@ -22,8 +22,8 @@ const FONT_BODY = "'DM Sans', ui-sans-serif, sans-serif";
 // Analytics (?tab=). Grow = campaign template cards (start a campaign), Campaigns
 // = the read-only pipeline, Links = read-only links + stats, Analytics = profile
 // analytics. The ONLY iOS-exclusive action is paying for / activating a campaign.
-// Route path stays /analytics (old /boost, /links bookmarks redirect here). Only
-// the active tab's data is loaded.
+// Route path is /grow (moved from /analytics; old /analytics, /boost and
+// /links bookmarks all redirect here). Only the active tab's data is loaded.
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase, headers } = createSupabaseServerClient(request);
   const { data: { user } } = await supabase.auth.getUser();

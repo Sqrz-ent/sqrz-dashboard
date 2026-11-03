@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { redirect, useLoaderData, useFetcher, Link } from "react-router";
-import type { Route } from "./+types/_app.analytics.campaigns.new.$templateId";
+import type { Route } from "./+types/_app.grow.campaigns.new.$templateId";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
@@ -49,7 +49,7 @@ async function loadTemplateAndProfile(request: Request, templateId: string) {
   // Web campaign creation is switched by app_config.web_campaign_create_enabled
   // (default off). Checked here so BOTH the loader and the action are unreachable
   // by URL when it is false.
-  if (!(await isWebCampaignCreateEnabled(supabase))) throw redirect("/analytics", { headers });
+  if (!(await isWebCampaignCreateEnabled(supabase))) throw redirect("/grow", { headers });
   const profile = await getActiveProfile(request, supabase, user.id);
   if (!profile) throw redirect("/login", { headers });
 
@@ -59,7 +59,7 @@ async function loadTemplateAndProfile(request: Request, templateId: string) {
   ]);
   const t = template as CampaignTemplate | null;
   if (!t || templateAvailability(t, (camps ?? []) as CampaignLite[]).kind !== "open") {
-    throw redirect("/analytics", { headers });
+    throw redirect("/grow", { headers });
   }
   return { supabase, headers, user, profile, t };
 }
@@ -453,7 +453,7 @@ export default function NewCampaign() {
         <a href={created.bookingUrl} target="_blank" rel="noopener noreferrer" style={{ display: "inline-block", margin: "12px 0", padding: "12px 22px", background: ACCENT, color: "#111", fontWeight: 700, borderRadius: 10, textDecoration: "none" }}>
           Book your call →
         </a>
-        <div><Link to="/analytics?tab=campaigns" style={{ color: ACCENT, fontSize: 14 }}>View my campaigns</Link></div>
+        <div><Link to="/grow?tab=campaigns" style={{ color: ACCENT, fontSize: 14 }}>View my campaigns</Link></div>
       </div>
     );
   }
@@ -465,8 +465,8 @@ export default function NewCampaign() {
           <strong>Complete payment in the SQRZ app</strong> to start this campaign. It's waiting for you under "Needs action".
         </p>
         <div style={{ display: "flex", gap: 16, marginTop: 16 }}>
-          <Link to={`/analytics/campaigns/${created.campaignId}`} style={{ color: ACCENT, fontSize: 14, fontWeight: 700 }}>View campaign</Link>
-          <Link to="/analytics?tab=campaigns" style={{ color: "var(--text-muted)", fontSize: 14 }}>All campaigns</Link>
+          <Link to={`/grow/campaigns/${created.campaignId}`} style={{ color: ACCENT, fontSize: 14, fontWeight: 700 }}>View campaign</Link>
+          <Link to="/grow?tab=campaigns" style={{ color: "var(--text-muted)", fontSize: 14 }}>All campaigns</Link>
         </div>
       </div>
     );
@@ -477,7 +477,7 @@ export default function NewCampaign() {
 
   return (
     <div style={pageContainerStyle}>
-      <Link to="/analytics" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Grow</Link>
+      <Link to="/grow" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Grow</Link>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800, color: ACCENT, textTransform: "uppercase", margin: "12px 0 4px", lineHeight: 1.05 }}>{t.name}</h1>
       {t.subtitle && <p style={{ margin: "0 0 4px", fontSize: 14, color: "var(--text-muted)" }}>{t.subtitle}</p>}
       {pro && <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 700, color: ACCENT }}>{pro}</p>}

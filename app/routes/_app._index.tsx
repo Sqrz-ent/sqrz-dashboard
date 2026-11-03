@@ -320,7 +320,7 @@ export default function DashboardIndex() {
         )}
 
         <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 12 }}>
-          <Link to="/analytics" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+          <Link to="/grow" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
             View full analytics →
           </Link>
         </div>

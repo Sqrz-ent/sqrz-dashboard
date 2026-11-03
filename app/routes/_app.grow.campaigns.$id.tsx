@@ -1,5 +1,5 @@
 import { redirect, useLoaderData, Link } from "react-router";
-import type { Route } from "./+types/_app.analytics.campaigns.$id";
+import type { Route } from "./+types/_app.grow.campaigns.$id";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";

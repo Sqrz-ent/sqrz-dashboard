@@ -133,7 +133,7 @@ export default function TemplateCards({
         return (
           <div key={t.id} style={shell}>
             {a.kind === "open" && createEnabled ? (
-              <Link to={`/analytics/campaigns/new/${t.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
+              <Link to={`/grow/campaigns/new/${t.id}`} style={{ textDecoration: "none", color: "inherit", display: "block" }}>
                 <CardBody t={t} supabaseUrl={supabaseUrl} />
                 <div style={{ padding: "0 14px 14px", color: ACCENT, fontSize: 13, fontWeight: 700 }}>
                   {t.delivery === "contact" ? "Request this campaign →" : "Create campaign →"}

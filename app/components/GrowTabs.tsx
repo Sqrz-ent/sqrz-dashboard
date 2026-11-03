@@ -7,7 +7,7 @@ export default function GrowTabs({ active }: { active: GrowTab }) {
     <SectionPills
       pills={GROW_TABS.map((tab) => ({
         label: GROW_TAB_LABELS[tab],
-        to: tab === "grow" ? "/analytics" : `/analytics?tab=${tab}`,
+        to: tab === "grow" ? "/grow" : `/grow?tab=${tab}`,
         active: tab === active,
       }))}
     />

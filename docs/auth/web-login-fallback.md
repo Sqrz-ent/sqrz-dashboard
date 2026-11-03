@@ -250,10 +250,10 @@ any auth hooks.
   (the only action on that route: `update_template`), share link, theme toggle.
   If the user has no profile row, loaders `redirect("/join")`.
 - Nav: Dashboard `/`, Profile `/profile`, Business `/service`, Account
-  `/account`; bottom nav Profile / Leads `/office` / Grow `/analytics` / Preview.
+  `/account`; bottom nav Profile / Leads `/office` / Grow `/grow` / Preview.
 - Capabilities after an OTP login: full profile editing, services/business
   settings, leads inbox with archive / keep-active, account (domain, set a
-  password, sign out). `/analytics` ("Grow") is a promo page linking to the
+  password, sign out). `/grow` ("Grow", moved from `/analytics`) is a promo page linking to the
   TestFlight invite. Wallet top-up (`api/wallet/topup`), campaign budget
   checkout, advisor endpoints and Stripe webhook exist as API routes.
   Account deletion is iOS-only (Apple token revocation), so it can't be done

@@ -1,5 +1,5 @@
 import { redirect, useLoaderData, Link } from "react-router";
-import type { Route } from "./+types/_app.analytics.links.$id";
+import type { Route } from "./+types/_app.grow.links.$id";
 import { createSupabaseServerClient } from "~/lib/supabase.server";
 import { pageContainerStyle } from "~/components/PageContainer";
 import { requirePro } from "~/lib/pro.server";
@@ -47,7 +47,7 @@ export default function LinkDetail() {
   const created = formatDate(link.created_at);
   return (
     <div style={pageContainerStyle}>
-      <Link to="/analytics?tab=links" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Links</Link>
+      <Link to="/grow?tab=links" style={{ color: "var(--text-muted)", fontSize: 13, textDecoration: "none" }}>← Links</Link>
       <h1 style={{ fontFamily: FONT_DISPLAY, fontSize: 32, fontWeight: 800, color: ACCENT, textTransform: "uppercase", margin: "12px 0 4px", lineHeight: 1.05 }}>
         {link.title || link.link_slug}
       </h1>

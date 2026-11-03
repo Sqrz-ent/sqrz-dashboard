@@ -13,6 +13,12 @@ export default [
   // Old standalone Campaigns URLs → their new place inside Grow.
   route("campaigns", "routes/legacy-campaigns.tsx"),
   route("campaigns/:id", "routes/legacy-campaign.tsx"),
+  // Grow itself used to live at /analytics (moved to /grow) — permanent
+  // redirects for every old /analytics URL, query string preserved.
+  route("analytics", "routes/legacy-analytics.tsx"),
+  route("analytics/campaigns/new/:templateId", "routes/legacy-analytics-campaign-new.tsx"),
+  route("analytics/campaigns/:id", "routes/legacy-analytics-campaign.tsx"),
+  route("analytics/links/:id", "routes/legacy-analytics-link.tsx"),
 
   // Protected app (session required)
   layout("routes/_app.tsx", [
@@ -21,12 +27,12 @@ export default [
     route("profile", "routes/_app.profile.tsx"),
     route("service", "routes/_app.service.tsx"),
     route("account", "routes/_app.account.tsx"),
-    route("analytics", "routes/_app.analytics.tsx"),
+    route("grow", "routes/_app.grow.tsx"),
     // Read-only campaign detail — a sub-route of Grow (the pipeline itself is on
-    // the Grow page, /analytics; managing campaigns stays in the iOS app)
-    route("analytics/campaigns/new/:templateId", "routes/_app.analytics.campaigns.new.$templateId.tsx"),
-    route("analytics/campaigns/:id", "routes/_app.analytics.campaigns.$id.tsx"),
-    route("analytics/links/:id", "routes/_app.analytics.links.$id.tsx"),
+    // the Grow page, /grow; managing campaigns stays in the iOS app)
+    route("grow/campaigns/new/:templateId", "routes/_app.grow.campaigns.new.$templateId.tsx"),
+    route("grow/campaigns/:id", "routes/_app.grow.campaigns.$id.tsx"),
+    route("grow/links/:id", "routes/_app.grow.links.$id.tsx"),
     route("notifications", "routes/_app.notifications.tsx"),
   ]),
 

@@ -664,7 +664,7 @@ Deno.serve(async (req: Request) => {
         type: "advisor_warning",
         subtype: "needs_attention",
         related_id: campaignId,
-        deep_link: `/analytics?campaign=${campaignId}`,
+        deep_link: `/grow?campaign=${campaignId}`,
         push_worthy: true,
       });
       if (notifyErr) {
