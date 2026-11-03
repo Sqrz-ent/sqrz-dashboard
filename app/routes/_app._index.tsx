@@ -7,10 +7,8 @@ import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import DashboardPills from "~/components/DashboardPills";
 import { getProfileCompletion, type RichProfile } from "~/lib/completion";
-import { useTheme, writeThemeCookie } from "~/lib/theme";
 
 const ACCENT = "#F5A623";
-const FONT = "'DM Sans', ui-sans-serif, system-ui, sans-serif";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -138,16 +136,6 @@ export default function DashboardIndex() {
   };
   const completion = getProfileCompletion(richProfile);
   const { score: doneCount, total: totalSections, percentage: pct, items: completionItems } = completion;
-
-  // Dark/light mode — theme lives in the root Layout (server-rendered from a
-  // cookie so <html> has the right class at first paint). Toggling updates that
-  // shared state (instant, no reload) and persists the choice to the cookie.
-  const { theme, setTheme } = useTheme();
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    writeThemeCookie(next);
-  }
 
   // Share button
   const [copied, setCopied] = useState(false);
@@ -313,40 +301,6 @@ export default function DashboardIndex() {
           <Link to="/grow" style={{ color: ACCENT, fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
             View full analytics →
           </Link>
-        </div>
-      </div>
-
-      {/* Appearance — dark/light mode */}
-      <div style={{ ...card, marginBottom: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <p style={{ ...metaLabel, margin: "0 0 4px" }}>Appearance</p>
-            <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
-              Switch between dark and light themes
-            </p>
-          </div>
-          <button
-            onClick={toggleTheme}
-            aria-label="Toggle theme"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border)",
-              borderRadius: 20,
-              color: "var(--text)",
-              fontSize: 13,
-              fontWeight: 600,
-              padding: "8px 16px",
-              cursor: "pointer",
-              fontFamily: FONT,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              flexShrink: 0,
-            }}
-          >
-            <span style={{ fontSize: 16, lineHeight: 1 }}>{theme === "dark" ? "☀️" : "🌙"}</span>
-            {theme === "dark" ? "Switch to light" : "Switch to dark"}
-          </button>
         </div>
       </div>
     </div>

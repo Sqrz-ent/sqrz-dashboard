@@ -7,6 +7,7 @@ import { requirePro } from "~/lib/pro.server";
 import { getActiveProfile } from "~/lib/profile.server";
 import DashboardPills from "~/components/DashboardPills";
 import { addDomainToVercel, getDomainStatus } from "~/lib/vercel.server";
+import { useTheme, writeThemeCookie } from "~/lib/theme";
 
 const ACCENT = "#F5A623";
 const FONT_DISPLAY = "'Barlow Condensed', sans-serif";
@@ -422,6 +423,17 @@ export default function AccountPage() {
 
   const slug = (profile.slug as string) ?? "";
 
+  // Dark/light mode — theme lives in the root Layout (server-rendered from a
+  // cookie so <html> has the right class at first paint). Toggling updates that
+  // shared state (instant, no reload) and persists the choice to the cookie.
+  // Moved here from the dashboard home page.
+  const { theme, setTheme } = useTheme();
+  function toggleTheme() {
+    const next = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    writeThemeCookie(next);
+  }
+
   return (
     <div style={pageContainerStyle}>
       <h1 style={{
@@ -477,6 +489,39 @@ export default function AccountPage() {
         <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>
           You'll be signed out of this device.
         </p>
+      </div>
+
+      {/* Card 3: Appearance (moved here from the dashboard home page) */}
+      <div style={card}>
+        <span style={labelStyle}>Appearance</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0, fontFamily: FONT_BODY }}>
+            Switch between dark and light themes
+          </p>
+          <button
+            onClick={toggleTheme}
+            aria-label="Toggle theme"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border)",
+              borderRadius: 20,
+              color: "var(--text)",
+              fontSize: 13,
+              fontWeight: 600,
+              padding: "8px 16px",
+              cursor: "pointer",
+              fontFamily: FONT_BODY,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <span style={{ fontSize: 16, lineHeight: 1 }}>{theme === "dark" ? "☀️" : "🌙"}</span>
+            {theme === "dark" ? "Switch to light" : "Switch to dark"}
+          </button>
+        </div>
       </div>
 
       {/* ── Tracking + Custom Domain (moved from /domain, 2026-08-01) ────────── */}
