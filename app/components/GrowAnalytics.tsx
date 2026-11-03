@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { ANALYTICS_RANGES, type AnalyticsPage } from "~/lib/grow";
 
@@ -42,6 +43,101 @@ function BarList({ title, rows }: { title: string; rows: Array<{ label: string; 
   );
 }
 
+// Top countries, but each row is clickable (tap/click again to clear) —
+// mirrors the iOS Analytics tab's "tap a country to filter Top Cities".
+function CountryList({
+  rows,
+  selected,
+  onSelect,
+}: {
+  rows: Array<{ code: string; count: number }>;
+  selected: string | null;
+  onSelect: (code: string) => void;
+}) {
+  const visible = rows.filter((r) => r.count > 0);
+  if (visible.length === 0) return null;
+  const max = Math.max(...visible.map((r) => r.count));
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <h2 style={sectionTitle}>Top countries</h2>
+      <div style={{ ...card, display: "flex", flexDirection: "column", gap: 8 }}>
+        {visible.map((r) => {
+          const isSelected = selected === r.code;
+          const dimmed = selected != null && !isSelected;
+          return (
+            <button
+              key={r.code}
+              type="button"
+              onClick={() => onSelect(r.code)}
+              style={{
+                background: "none", border: "none", padding: 0, margin: 0,
+                textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit",
+                opacity: dimmed ? 0.4 : 1,
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                <span>{r.code}{isSelected ? " ✕" : ""}</span>
+                <span style={{ fontWeight: 700 }}>{n(r.count)}</span>
+              </div>
+              <div style={{ height: 4, background: "var(--surface-muted)", borderRadius: 2, marginTop: 4 }}>
+                <div style={{ width: `${Math.max(4, (r.count / max) * 100)}%`, height: 4, background: ACCENT, borderRadius: 2 }} />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// Top cities, optionally filtered to one country — shows a clearable chip in
+// the header when a filter is active.
+function CityList({
+  rows,
+  filterCode,
+  onClear,
+}: {
+  rows: Array<{ label: string; count: number }>;
+  filterCode: string | null;
+  onClear: () => void;
+}) {
+  const visible = rows.filter((r) => r.count > 0);
+  if (visible.length === 0) return null;
+  const max = Math.max(...visible.map((r) => r.count));
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <h2 style={{ ...sectionTitle, margin: 0 }}>Top cities</h2>
+        {filterCode && (
+          <button
+            type="button"
+            onClick={onClear}
+            style={{
+              background: "transparent", border: `1px solid ${ACCENT}`, borderRadius: 999,
+              color: ACCENT, fontSize: 11, fontWeight: 700, padding: "2px 10px", cursor: "pointer",
+            }}
+          >
+            {filterCode} ✕
+          </button>
+        )}
+      </div>
+      <div style={{ ...card, display: "flex", flexDirection: "column", gap: 8 }}>
+        {visible.map((r) => (
+          <div key={r.label}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+              <span>{r.label}</span>
+              <span style={{ fontWeight: 700 }}>{n(r.count)}</span>
+            </div>
+            <div style={{ height: 4, background: "var(--surface-muted)", borderRadius: 2, marginTop: 4 }}>
+              <div style={{ width: `${Math.max(4, (r.count / max) * 100)}%`, height: 4, background: ACCENT, borderRadius: 2 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // Profile-level analytics (get_analytics_page) — the iOS Analytics pill: views,
 // audience/locations, engagement, content & clicks. Read-only; only non-empty
 // sections render, like iOS.
@@ -59,6 +155,18 @@ export default function GrowAnalytics({ data, days }: { data: AnalyticsPage | nu
     ["Requests sent", data.requests_sent],
   ];
   const att = data.attention;
+
+  // Tap a country to filter Top Cities to just that country's cities (mirrors
+  // the iOS Analytics tab). Re-tapping the same country, or the clear chip in
+  // Top Cities' header, clears it. top_cities_by_country (up to 12 per
+  // country) is what's filtered, falling back to the global top_cities list
+  // if that field is absent.
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  function selectCountry(code: string) {
+    setSelectedCountry((prev) => (prev === code ? null : code));
+  }
+  const cityPool = data.top_cities_by_country ?? data.top_cities;
+  const visibleCities = selectedCountry ? cityPool.filter((c) => c.country_code === selectedCountry) : data.top_cities;
 
   return (
     <div>
@@ -94,8 +202,6 @@ export default function GrowAnalytics({ data, days }: { data: AnalyticsPage | nu
         </div>
       )}
 
-      <BarList title="Top countries" rows={data.top_countries.map((c) => ({ label: c.country_code, count: c.count }))} />
-      <BarList title="Top cities" rows={data.top_cities.map((c) => ({ label: c.country_code ? `${c.city}, ${c.country_code}` : c.city, count: c.count }))} />
       <BarList title="Top sources" rows={data.top_sources.map((s) => ({ label: s.provider ? `${s.source} · ${s.provider}` : s.source, count: s.count }))} />
 
       {engagement.some(([, v]) => v > 0) && (
@@ -113,11 +219,23 @@ export default function GrowAnalytics({ data, days }: { data: AnalyticsPage | nu
       <BarList title="Shop clicks" rows={(data.shop_stats ?? []).map((s) => ({ label: s.provider, count: s.clicks ?? 0 }))} />
 
       {att && (att.median_seconds || att.avg_scroll_pct) ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 20 }}>
           {att.median_seconds ? <Stat label="Median time on page" value={`${Math.round(att.median_seconds)}s`} /> : null}
           {att.avg_scroll_pct ? <Stat label="Avg. scroll depth" value={`${Math.round(att.avg_scroll_pct)}%`} /> : null}
         </div>
       ) : null}
+
+      {/* Locations — last on the page; countries are clickable to filter the cities below them. */}
+      <CountryList
+        rows={data.top_countries.map((c) => ({ code: c.country_code, count: c.count }))}
+        selected={selectedCountry}
+        onSelect={selectCountry}
+      />
+      <CityList
+        rows={visibleCities.map((c) => ({ label: c.country_code ? `${c.city}, ${c.country_code}` : c.city, count: c.count }))}
+        filterCode={selectedCountry}
+        onClear={() => setSelectedCountry(null)}
+      />
     </div>
   );
 }

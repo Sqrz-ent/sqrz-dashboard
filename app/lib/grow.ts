@@ -28,6 +28,11 @@ export type AnalyticsPage = {
   views_by_day: Array<{ date: string; count: number }>;
   top_countries: Array<{ country_code: string; count: number }>;
   top_cities: Array<{ city: string; country_code: string | null; count: number }>;
+  // Up to 12 cities per country (vs. top_cities' global top 10) so tapping a
+  // country can filter to ITS cities without hiding ones that missed the
+  // global cut. Optional/absent on older callers — falls back to filtering
+  // top_cities client-side.
+  top_cities_by_country?: Array<{ country_code: string; city: string; count: number }> | null;
   top_sources: Array<{ source: string; provider: string | null; count: number }>;
   widget_stats?: Array<{ widget_type: string; plays?: number; seen?: number; plays_tracked?: boolean }> | null;
   top_ctas?: Array<{ label: string; count: number }> | null;
