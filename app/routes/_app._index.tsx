@@ -182,16 +182,6 @@ export default function DashboardIndex() {
       <h1 style={{ color: "var(--text)", fontSize: 26, fontWeight: 700, margin: "0 0 4px" }}>
         Welcome back, {firstName}
       </h1>
-      {slug && (
-        <a
-          href={`https://${slug}.sqrz.com`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: ACCENT, fontSize: 13, textDecoration: "none" }}
-        >
-          {slug}.sqrz.com →
-        </a>
-      )}
 
       {/* Sub-navigation — same pill row as Grow */}
       <DashboardPills style={{ margin: "16px 0 24px" }} />
