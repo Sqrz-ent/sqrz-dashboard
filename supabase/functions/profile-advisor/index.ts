@@ -28,14 +28,8 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 // Access: Lab-only — public.caller_account_is_lab(), called with the
 // caller's own JWT (same pattern as sandbox-admin). Not lab → 403.
 //
-// Rate limit: SAME rule for everyone — no RevenueCat/grow_access check at
-// all, paid and invite-code users are treated identically. A profile with no
-// ACTIVATED campaign (status 'live' or 'completed' — i.e. launched at least
-// once; a minimal direct boost_campaigns count, NOT the full per-campaign
-// gatherCampaignInsights this function no longer calls) gets ONE run per
-// calendar week, reset every Monday 00:00 UTC. Once a profile has had at
-// least one activated campaign, runs are unlimited. Checked against
-// profile_advisor_runs itself — no separate "last run" column anywhere.
+// No rate limit — every Lab call runs the advisor; there is no per-week or
+// per-profile cap of any kind.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -244,31 +238,6 @@ async function getAdvisorRecommendation(payload: ProfileAdvisorPayload): Promise
   return impl(payload);
 }
 
-// Statuses that mean a boost_campaigns row has been LAUNCHED at least once.
-// Confirmed against the live boost_campaigns_status_check CHECK constraint
-// (full enum for campaign_type='boost': pending, booked, in_review,
-// needs_changes, approved, live, completed, rejected) — 'live' and
-// 'completed' are the only two that mean the campaign actually ran;
-// everything else (including 'rejected') never launched. 'grow'-type
-// campaigns aren't constrained by that CHECK, but 'live'/'completed' are the
-// same pipeline-stage names used throughout this codebase for "launched", so
-// the same two values are used here regardless of campaign_type.
-const ACTIVATED_CAMPAIGN_STATUSES = ["live", "completed"];
-
-// Most recent Monday 00:00:00.000 UTC on or before `now` — the free-tier
-// weekly reset boundary. UTC, not the caller's local time zone: every
-// timestamp in this project is stored as timestamptz / compared in UTC
-// already (see campaign-advisor's own hourly rate limit), and a UTC boundary
-// avoids DST entirely. Flagged for Will to confirm.
-function startOfCurrentWeekUTC(now: Date): Date {
-  const day = now.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  const daysSinceMonday = day === 0 ? 6 : day - 1;
-  const monday = new Date(now);
-  monday.setUTCDate(now.getUTCDate() - daysSinceMonday);
-  monday.setUTCHours(0, 0, 0, 0);
-  return monday;
-}
-
 // ─── Handler ──────────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
@@ -350,37 +319,6 @@ Deno.serve(async (req: Request) => {
     .maybeSingle();
   if (!callerProfile?.id) {
     return json({ error: "Profile not found" }, 404);
-  }
-
-  // ── Weekly rate limit — ONLY for profiles with no activated campaign yet.
-  // Once a profile has launched at least one campaign (status live or
-  // completed), runs are unlimited, regardless of entitlement. A minimal
-  // direct count against boost_campaigns — NOT gatherCampaignInsights (this
-  // function no longer gathers per-campaign data at all; that helper's
-  // Meta-stats/funnel enrichment is unused here and intentionally not
-  // called), just enough to answer "has this profile ever launched one."
-  const { count: activatedCampaignCount } = await admin
-    .from("boost_campaigns")
-    .select("id", { count: "exact", head: true })
-    .eq("profile_id", profileId)
-    .in("status", ACTIVATED_CAMPAIGN_STATUSES);
-  const hasActivatedCampaign = (activatedCampaignCount ?? 0) > 0;
-
-  if (!hasActivatedCampaign) {
-    const weekStart = startOfCurrentWeekUTC(new Date());
-    const { count: runsThisWeek } = await admin
-      .from("profile_advisor_runs")
-      .select("id", { count: "exact", head: true })
-      .eq("profile_id", profileId)
-      .gte("created_at", weekStart.toISOString());
-    if ((runsThisWeek ?? 0) >= 1) {
-      return json({
-        limited: true,
-        user_goal: userGoal,
-        summary: "You've used this week's free recommendation. It resets Monday — or run a campaign to unlock unlimited recommendations.",
-        recommendations: [],
-      });
-    }
   }
 
   // ── Gather remaining data ───────────────────────────────────────────────
