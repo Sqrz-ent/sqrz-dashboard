@@ -72,12 +72,16 @@ export async function action({ request }: Route.ActionArgs) {
   // Authorization header carries the SERVICE ROLE key, not this caller's own
   // token — so the function cannot verify a Bearer token itself (same
   // constraint as campaign-advisor's deployed, non-hardened variant). This
-  // forwarder is the security boundary: profile ownership was already
-  // resolved above via getCurrentProfile(supabase, user.id), so it's safe to
-  // pass profile_id through directly.
+  // forwarder is the security boundary for profile_id: profile ownership was
+  // already resolved above via getCurrentProfile(supabase, user.id), so it's
+  // safe to pass profile_id through directly. bearerToken (this caller's own
+  // real session token — guaranteed non-null here, the !isNative branch
+  // above already returned) is passed through separately as access_token so
+  // the function's own Lab-only check (public.caller_account_is_lab()) can
+  // run as this specific user.
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.functions.invoke("profile-advisor", {
-    body: { profile_id: profile.id },
+    body: { profile_id: profile.id, access_token: bearerToken },
   });
 
   if (error || !data) {

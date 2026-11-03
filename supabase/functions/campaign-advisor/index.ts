@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { effectiveTemplate, gatherCampaignInsights } from "../_shared/campaign-insights.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // campaign-advisor
@@ -126,22 +127,6 @@ type AdvisorResult = {
 };
 
 type AdvisorImpl = (payload: AdvisorPayload) => Promise<AdvisorResult>;
-
-// goal is deprecated (2026-10-24) — campaigns are defined by
-// campaign_template now, never by goal. This is ONLY the legacy-compat path
-// for a row created before campaign_template existed (NULL); it's never
-// consulted for a row that already has a real campaign_template. 'audience'
-// has no template equivalent (no creation path has ever produced it) and
-// correctly falls through to null — the prompt's template-aware weighting
-// has no case for it either.
-function effectiveTemplate(campaignTemplate: string | null, goal: string | null): string | null {
-  if (campaignTemplate) return campaignTemplate;
-  switch (goal) {
-    case "visibility": return "template_01";
-    case "bookings":   return "template_02";
-    default:           return null;
-  }
-}
 
 // ─── Derived metrics (Part 4) ─────────────────────────────────────────────────
 // Every division is guarded. A null/zero denominator yields `null` for that
@@ -428,20 +413,20 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // 1. Campaign row.
-  const { data: campaign, error: campaignErr } = await admin
+  // 1. Resolve the campaign's profile — just enough to run the ownership
+  //    check below; the rest of the campaign's data (template/status/budget/
+  //    meta_stats/funnel) comes from gatherCampaignInsights further down.
+  const { data: campaignMeta, error: campaignErr } = await admin
     .from("boost_campaigns")
-    .select(
-      "id, profile_id, campaign_template, goal, status, budget_amount, budget_currency, stat_spend, stat_impressions, stat_reach, stat_link_clicks, stat_profile_visits, stat_cpm, starts_at, ends_at",
-    )
+    .select("profile_id")
     .eq("id", campaignId)
     .single();
 
-  if (campaignErr || !campaign) {
+  if (campaignErr || !campaignMeta) {
     return json({ error: "Campaign not found" }, 404);
   }
 
-  const profileId = campaign.profile_id as string;
+  const profileId = campaignMeta.profile_id as string;
 
   // ── Authorization ───────────────────────────────────────────────────────
   // Multi-profile ownership (2026-10-18) — a login can now own more than one
@@ -541,29 +526,14 @@ Deno.serve(async (req: Request) => {
     .eq("is_active", true);
   const servicesActive = (activeServiceCount ?? 0) > 0;
 
-  // 2. SQRZ site-side numbers — reuse the exact source that powers the campaign
-  //    Analytics "SQRZ · site-side" panel (get_analytics_page → boost_campaigns).
-  //    The boost_campaign_stats view's live_* columns are hardcoded NULL and are
-  //    NOT the real source, so they are deliberately not used here.
-  const { data: page } = await admin.rpc("get_analytics_page", {
-    p_profile_id: profileId,
-    p_days: 3650,
-  });
-  const campaignsFromPage = (page?.boost_campaigns ?? []) as Array<
-    Record<string, unknown>
-  >;
-  const sqrzRow = campaignsFromPage.find((c) => c.id === campaignId);
-  const num = (v: unknown): number => Number(v ?? 0) || 0;
-
-  const sqrz = {
-    views_driven: num(sqrzRow?.driven_views),
-    // driven_unique is null for campaigns (cookieless) — pass null through, do
-    // NOT coerce to 0, so the advisor treats it as unknown rather than "zero".
-    unique_visitors: sqrzRow?.driven_unique == null ? null : num(sqrzRow?.driven_unique),
-    booking_flow_opens: num(sqrzRow?.modal_opens),
-    cta_clicks: num(sqrzRow?.cta_clicks),
-    widget_opens: num(sqrzRow?.widget_opens),
-  };
+  // 2. Campaign insights — template/status/budget/dates, the Meta-reported
+  //    stat_* numbers ("Meta insights"), and the SQRZ site-side engagement
+  //    numbers ("funnel"). Shared with profile-advisor — see
+  //    _shared/campaign-insights.ts for the actual gathering.
+  const [insights] = await gatherCampaignInsights(admin, profileId, [campaignId]);
+  if (!insights) {
+    return json({ error: "Campaign not found" }, 404);
+  }
 
   // 3. Retargetable audience — distinct fbclid values attributed to this
   //    campaign. Dedup on the fbclid itself, NOT session_id: session_id is
@@ -581,16 +551,9 @@ Deno.serve(async (req: Request) => {
   ).size;
 
   // 4. Derived metrics (server-side, guarded).
-  const spend =
-    campaign.stat_spend == null ? null : Number(campaign.stat_spend);
-  const landingPageViews =
-    campaign.stat_profile_visits == null
-      ? null
-      : Number(campaign.stat_profile_visits);
-  const linkClicks =
-    campaign.stat_link_clicks == null ? null : Number(campaign.stat_link_clicks);
+  const { spend, link_clicks: linkClicks, landing_page_views: landingPageViews } = insights.meta_stats;
   const interactionsTotal =
-    sqrz.cta_clicks + sqrz.widget_opens + sqrz.booking_flow_opens;
+    insights.funnel.cta_clicks + insights.funnel.widget_opens + insights.funnel.booking_flow_opens;
 
   const derived = computeDerived(
     spend,
@@ -605,8 +568,8 @@ Deno.serve(async (req: Request) => {
   //    independent measurement sources — kept as separate fields, never summed.
   //    cost_per_landing_page_view divides ONLY by the Meta stat_profile_visits.
   const payload: AdvisorPayload = {
-    currency: (campaign.budget_currency as string | null)?.toUpperCase() ?? null,
-    template: effectiveTemplate(campaign.campaign_template as string | null, campaign.goal as string | null),
+    currency: insights.budget_currency,
+    template: insights.template,
     artist: {
       name: artistName,
       city: (profile?.city as string | null) ?? null,
@@ -615,25 +578,14 @@ Deno.serve(async (req: Request) => {
       country: null,
     },
     campaign: {
-      status: (campaign.status as string | null) ?? null,
-      starts_at: (campaign.starts_at as string | null) ?? null,
-      ends_at: (campaign.ends_at as string | null) ?? null,
-      budget_amount:
-        campaign.budget_amount == null ? null : Number(campaign.budget_amount),
+      status: insights.status,
+      starts_at: insights.starts_at,
+      ends_at: insights.ends_at,
+      budget_amount: insights.budget_amount,
     },
-    meta_stats: {
-      spend,
-      impressions:
-        campaign.stat_impressions == null
-          ? null
-          : Number(campaign.stat_impressions),
-      reach: campaign.stat_reach == null ? null : Number(campaign.stat_reach),
-      link_clicks: linkClicks,
-      landing_page_views: landingPageViews,
-      cpm: campaign.stat_cpm == null ? null : Number(campaign.stat_cpm),
-    },
+    meta_stats: insights.meta_stats,
     derived,
-    sqrz_analytics: sqrz,
+    sqrz_analytics: insights.funnel,
     retargetable_audience: retargetableAudience,
     services_active: servicesActive,
     previous_campaigns: previousCampaigns,

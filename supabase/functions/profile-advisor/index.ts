@@ -1,26 +1,39 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { gatherCampaignInsights, type CampaignInsights } from "../_shared/campaign-insights.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// profile-advisor
+// profile-advisor — the single advisor (2026-11). Absorbed campaign-advisor's
+// per-campaign data gathering (see _shared/campaign-insights.ts): every
+// campaign in payload.campaigns now carries the same template/status/budget/
+// Meta-insights/funnel data campaign-advisor used to compute on its own,
+// instead of only reusing a previously-stored campaign_advisor_runs verdict.
+// campaign-advisor and campaign_advisor_runs are untouched (unused; removal
+// decided later) — this function now imports the same shared gatherer rather
+// than copying campaign-advisor's query/shape.
 //
-// Input:  { profile_id: uuid } — resolved and owns-checked by the forwarder
-//         BEFORE invoking this function (see the Identity note in the
-//         handler below for why this function cannot verify a Bearer token
-//         itself).
+// Input:  { profile_id: uuid, access_token: string } — profile_id is
+//         resolved and owns-checked by the forwarder BEFORE invoking this
+//         function (see the Identity note in the handler below for why this
+//         function cannot verify a Bearer token for the SERVICE-ROLE invoke
+//         call itself); access_token is the caller's own real session token,
+//         passed through separately so the Lab-only check below can run as
+//         that specific user.
 // Output: { health, summary, insights[] (tagged working/watch/action), actions[] }
 //         — SAME shape as campaign-advisor's AdvisorResult, deliberately, so
 //         the Dashboard welcome card can reuse its existing rendering.
 //
-// Sibling to campaign-advisor, NOT a replacement or extension of it — that
-// function and its table (campaign_advisor_runs) are untouched. This one
-// reasons over the WHOLE profile: the artist's stated goal (profiles.goal),
+// Reasons over the WHOLE profile: the artist's stated goal (profiles.goal),
 // their organic vs. campaign traffic (the profile_analytics view), and every
-// campaign they've run — reusing each campaign's own already-stored
-// campaign_advisor_runs verdict where one exists, rather than re-deriving
-// per-campaign judgment here. Works identically for a profile with zero
-// campaigns or near-zero traffic — that is the normal case, not an edge case.
+// campaign they've run with its own template/status/budget/Meta-insights/
+// funnel data, plus — where one exists — that campaign's own already-stored
+// campaign_advisor_runs verdict (reused as-is, never re-derived here). Works
+// identically for a profile with zero campaigns or near-zero traffic — that
+// is the normal case, not an edge case.
+//
+// Access: Lab-only (2026-11) — public.caller_account_is_lab(), called with
+// the caller's own JWT (same pattern as sandbox-admin). Not lab → 403.
 //
 // Rate limit: SAME rule for everyone — no RevenueCat/grow_access check at
 // all, paid and invite-code users are treated identically. A profile with no
@@ -33,6 +46,7 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -75,22 +89,11 @@ type CampaignAdvisorSnapshot = {
   top_action: string | null;
 };
 
-type ProfileAdvisorCampaign = {
-  id: string;
-  // Resolved via effectiveTemplate (2026-10-24) — the self-serve campaign's
-  // OWN template (template_01/template_02/null), distinct from
-  // profiles.goal below. boost_campaigns.goal is deprecated, never sent to
-  // the model directly — see effectiveTemplate's own comment.
-  template: string | null;
-  status: string | null;
-  starts_at: string | null;
-  ends_at: string | null;
-  budget_amount: number | null;
-  budget_currency: string | null;
-  stat_spend: number | null;
-  stat_impressions: number | null;
-  stat_link_clicks: number | null;
-  stat_profile_visits: number | null;
+// CampaignInsights (id/template/status/dates/budget/meta_stats/funnel) is the
+// same per-campaign shape campaign-advisor gathers — see
+// _shared/campaign-insights.ts. template is resolved via effectiveTemplate
+// there, distinct from profiles.goal below.
+type ProfileAdvisorCampaign = CampaignInsights & {
   // Present only when this campaign has already been analyzed individually
   // (campaign_advisor_runs has a row for it). null, not fabricated, otherwise.
   latest_advisor_result: CampaignAdvisorSnapshot | null;
@@ -129,23 +132,6 @@ type ProfileAdvisorPayload = {
   campaigns: ProfileAdvisorCampaign[];
 };
 
-// boost_campaigns.goal is deprecated (2026-10-24) — campaigns are defined by
-// campaign_template now, never by goal. This is ONLY the legacy-compat path
-// for a row created before campaign_template existed (NULL); never
-// consulted for a row that already has a real campaign_template. 'audience'
-// has no template equivalent (no creation path has ever produced it) and
-// correctly falls through to null. NOT to be confused with profiles.goal
-// (ProfileAdvisorPayload.goal above) — a completely different column/
-// feature, untouched by this.
-function effectiveTemplate(campaignTemplate: string | null, goal: string | null): string | null {
-  if (campaignTemplate) return campaignTemplate;
-  switch (goal) {
-    case "visibility": return "template_01";
-    case "bookings":   return "template_02";
-    default:           return null;
-  }
-}
-
 // ─── LLM boundary ─────────────────────────────────────────────────────────────
 // getAdvisorRecommendation is the ONLY place any provider's API is called —
 // same provider-swap pattern as campaign-advisor (ADVISOR_PROVIDERS keyed by
@@ -177,7 +163,7 @@ You MAY use natural, motivating language to describe the STRATEGY behind a sugge
   2. Booking the discovery call — required whenever the real right move needs something self-serve cannot do (genuine retargeting/lookalike targeting, another channel, a bigger or managed campaign — this is also the Custom template's own route, never a self-serve row).
 Never say or imply something is "one tap away", "available now", or that a specific targeting mechanic (e.g. "set up retargeting") exists self-serve when it doesn't. If you are unsure which of the two routes fits, prefer recommending the discovery call — it is always a real, available option for anything self-serve can't do.
 
-Campaigns: for each entry in payload.campaigns, status/template/dates/stats are always present (template is template_01/template_02/null — null means an older campaign whose template isn't known; treat it like "other" above, don't assume a skew). latest_advisor_result is present ONLY when that specific campaign has already been analyzed individually (campaign_advisor_runs has a stored row for it) — when present, trust and reuse its health/summary/top_action rather than re-deriving your own judgment of that one campaign from its raw stats. When a campaign has no latest_advisor_result, you may still cite its raw numbers (spend, impressions, clicks) in service of the PROFILE-level picture, but do not invent an individual health verdict for it.
+Campaigns: for each entry in payload.campaigns, status/template/dates/budget are always present (template is template_01/template_02/null — null means an older campaign whose template isn't known; treat it like "other" above, don't assume a skew), along with meta_stats (Meta-reported spend/impressions/reach/link_clicks/landing_page_views/cpm) and funnel (SQRZ site-side views_driven/unique_visitors/booking_flow_opens/cta_clicks/widget_opens — unique_visitors is null, not zero, when it isn't measurable; treat null as unknown). latest_advisor_result is present ONLY when that specific campaign has already been analyzed individually (campaign_advisor_runs has a stored row for it) — when present, trust and reuse its health/summary/top_action rather than re-deriving your own judgment of that one campaign from its raw stats. When a campaign has no latest_advisor_result, you may still cite its raw numbers (meta_stats/funnel) in service of the PROFILE-level picture, but do not invent an individual health verdict for it.
 
 Services / bookings gating: if services_active is false, do NOT treat booking-related metrics as a problem — state plainly that booking performance can't be judged yet because there's nothing to book.
 
@@ -363,18 +349,44 @@ Deno.serve(async (req: Request) => {
   // exactly the reason root CLAUDE.md's Known Open Issues gives for why
   // campaign-advisor's own hardened/ownership-checking variant is deliberately
   // NOT deployed: "would break the service-role web forwarder"). The forwarder
-  // is therefore the security boundary — it already resolved and owns-checked
-  // profile_id against the caller's real session before invoking this
-  // function, and passes it through in the body.
+  // is therefore the security boundary for profile_id — it already resolved
+  // and owns-checked profile_id against the caller's real session before
+  // invoking this function, and passes it through in the body. access_token
+  // is that same caller's real session token, passed through separately
+  // (NOT the Authorization header, which carries the service-role key for
+  // this invoke) specifically so the Lab-only check below can run as them.
   let profileId: string;
+  let accessToken: string;
   try {
     const body = await req.json();
     profileId = String(body?.profile_id ?? "");
+    accessToken = String(body?.access_token ?? "");
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
   if (!profileId) {
     return json({ error: "profile_id required" }, 400);
+  }
+  if (!accessToken) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
+  // ── Lab-only access (2026-11) ────────────────────────────────────────────
+  // Same pattern as sandbox-admin: an anon-key client carrying the caller's
+  // OWN JWT, so caller_account_is_lab() resolves auth.uid() to that specific
+  // user (a service-role client has no caller identity for the RPC to key
+  // off of — that's exactly why access_token is threaded through above).
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { data: isLab, error: labErr } = await authClient.rpc("caller_account_is_lab");
+  if (labErr) {
+    console.error("[profile-advisor] is_lab check failed:", labErr.message);
+    return json({ error: "Authorization check failed" }, 500);
+  }
+  if (isLab !== true) {
+    return json({ error: "Forbidden" }, 403);
   }
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -393,16 +405,11 @@ Deno.serve(async (req: Request) => {
 
   // ── Gather campaigns first — needed both for the activation-based rate
   // limit below AND the payload itself, so fetch once. Empty array is a
-  // normal result, not an error, for a profile with none yet.
-  const { data: campaignRows } = await admin
-    .from("boost_campaigns")
-    .select(
-      "id, campaign_template, goal, status, starts_at, ends_at, budget_amount, budget_currency, stat_spend, stat_impressions, stat_link_clicks, stat_profile_visits",
-    )
-    .eq("profile_id", profileId)
-    .order("starts_at", { ascending: false, nullsFirst: false });
+  // normal result, not an error, for a profile with none yet. Shared with
+  // campaign-advisor — see _shared/campaign-insights.ts.
+  const campaignInsights = await gatherCampaignInsights(admin, profileId);
 
-  const hasActivatedCampaign = (campaignRows ?? []).some((c) =>
+  const hasActivatedCampaign = campaignInsights.some((c) =>
     ACTIVATED_CAMPAIGN_STATUSES.includes(String(c.status ?? "")),
   );
 
@@ -469,7 +476,7 @@ Deno.serve(async (req: Request) => {
     .eq("is_active", true);
   const servicesActive = (activeServiceCount ?? 0) > 0;
 
-  const campaignIds = (campaignRows ?? []).map((c) => c.id as string);
+  const campaignIds = campaignInsights.map((c) => c.id);
 
   // 3. Each campaign's own LATEST stored advisor result, if any — reused
   //    as-is, never recomputed. One query, then keep only the first (most
@@ -493,19 +500,9 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  const campaigns: ProfileAdvisorCampaign[] = (campaignRows ?? []).map((c) => ({
-    id: c.id as string,
-    template: effectiveTemplate(c.campaign_template as string | null, c.goal as string | null),
-    status: (c.status as string | null) ?? null,
-    starts_at: (c.starts_at as string | null) ?? null,
-    ends_at: (c.ends_at as string | null) ?? null,
-    budget_amount: c.budget_amount == null ? null : Number(c.budget_amount),
-    budget_currency: (c.budget_currency as string | null)?.toUpperCase() ?? null,
-    stat_spend: c.stat_spend == null ? null : Number(c.stat_spend),
-    stat_impressions: c.stat_impressions == null ? null : Number(c.stat_impressions),
-    stat_link_clicks: c.stat_link_clicks == null ? null : Number(c.stat_link_clicks),
-    stat_profile_visits: c.stat_profile_visits == null ? null : Number(c.stat_profile_visits),
-    latest_advisor_result: latestByCampaign.get(c.id as string) ?? null,
+  const campaigns: ProfileAdvisorCampaign[] = campaignInsights.map((c) => ({
+    ...c,
+    latest_advisor_result: latestByCampaign.get(c.id) ?? null,
   }));
 
   const payload: ProfileAdvisorPayload = {
