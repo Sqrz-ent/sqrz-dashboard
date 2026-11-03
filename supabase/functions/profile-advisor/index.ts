@@ -1,16 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import Anthropic from "npm:@anthropic-ai/sdk";
-import { gatherCampaignInsights, type CampaignInsights } from "../_shared/campaign-insights.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// profile-advisor — goal-to-template advisor (2026-11 rework). Takes the
-// artist's own free-text goal (user_goal) and recommends 1-3 campaign
-// templates from the live catalog that fit it, rather than producing a
-// general profile-health report. Still absorbs campaign-advisor's
-// per-campaign data gathering (see _shared/campaign-insights.ts) as
-// supporting context — campaign-advisor and campaign_advisor_runs remain
-// untouched (unused; removal decided later).
+// profile-advisor — pure goal-to-template advisor (2026-11 rework, narrowed
+// further same month). Takes the artist's own free-text goal (user_goal) and
+// recommends 1-3 campaign templates from the live catalog that fit it. This
+// function does NOT analyze the profile — no traffic/analytics, no services
+// check, no campaign history, no per-campaign Meta/funnel data, no reuse of
+// any campaign's own campaign_advisor_runs verdict. The only context besides
+// user_goal is the live template catalog, plus the artist's own name (purely
+// to address them, not to inform the recommendation). campaign-advisor and
+// _shared/campaign-insights.ts are unrelated to this function and untouched.
 //
 // Input:  { profile_id: uuid, access_token: string, user_goal: string } —
 //         profile_id is resolved and owns-checked by the forwarder BEFORE
@@ -22,29 +23,19 @@ import { gatherCampaignInsights, type CampaignInsights } from "../_shared/campai
 //         free text (max 500 chars) — what the artist wants to achieve, in
 //         their own words.
 // Output: { user_goal, summary, recommendations: [{ template_id, reason }] }
-//         (1-3 items) — replaces the old { health, summary, insights, actions }
-//         shape entirely.
+//         (1-3 items).
 //
-// Context for the recommendation: the artist's profile (name/city/bio,
-// stated Dashboard goal), their organic vs. campaign traffic (the
-// profile_analytics view), every campaign they've already run (template/
-// status/budget/Meta-insights/funnel, plus — where one exists — that
-// campaign's own already-stored campaign_advisor_runs verdict, reused as-is),
-// and the full live template catalog (every non-hidden campaign_templates
-// row, read with the service role so the model sees every outlet regardless
-// of the caller's own RLS visibility). All of this is supporting context
-// ONLY — user_goal is what actually drives which templates get recommended.
-//
-// Access: Lab-only (2026-11) — public.caller_account_is_lab(), called with
-// the caller's own JWT (same pattern as sandbox-admin). Not lab → 403.
+// Access: Lab-only — public.caller_account_is_lab(), called with the
+// caller's own JWT (same pattern as sandbox-admin). Not lab → 403.
 //
 // Rate limit: SAME rule for everyone — no RevenueCat/grow_access check at
 // all, paid and invite-code users are treated identically. A profile with no
 // ACTIVATED campaign (status 'live' or 'completed' — i.e. launched at least
-// once; see the handler below for the exact query) gets ONE run per calendar
-// week, reset every Monday 00:00 UTC. Once a profile has had at least one
-// activated campaign, runs are unlimited. Checked against profile_advisor_runs
-// itself — no separate "last run" column anywhere.
+// once; a minimal direct boost_campaigns count, NOT the full per-campaign
+// gatherCampaignInsights this function no longer calls) gets ONE run per
+// calendar week, reset every Monday 00:00 UTC. Once a profile has had at
+// least one activated campaign, runs are unlimited. Checked against
+// profile_advisor_runs itself — no separate "last run" column anywhere.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -67,13 +58,7 @@ function json(body: unknown, status = 200): Response {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-// Still needed to decode a campaign's OWN already-stored verdict below —
-// campaign-advisor itself (and campaign_advisor_runs' row shape) is
-// untouched by this rework.
-type AdvisorHealth = "excellent" | "good" | "mixed" | "needs_attention";
-
-// A template recommendation — the new output shape (replaces the old
-// health/summary/insights/actions profile-health report entirely).
+// A template recommendation — the output shape.
 type TemplateRecommendation = {
   template_id: string;
   reason: string;
@@ -85,29 +70,10 @@ type AdvisorResult = {
   recommendations: TemplateRecommendation[];
 };
 
-// A campaign's own already-computed verdict, reused as-is when present.
-// Deliberately NOT the full AdvisorResult shape — only what's useful as
-// context for the template-recommendation model, to keep the payload small.
-type CampaignAdvisorSnapshot = {
-  health: AdvisorHealth;
-  summary: string;
-  top_action: string | null;
-};
-
-// CampaignInsights (id/template/status/dates/budget/meta_stats/funnel) is the
-// same per-campaign shape campaign-advisor gathers — see
-// _shared/campaign-insights.ts. template is resolved via effectiveTemplate
-// there, distinct from profiles.goal below.
-type ProfileAdvisorCampaign = CampaignInsights & {
-  // Present only when this campaign has already been analyzed individually
-  // (campaign_advisor_runs has a row for it). null, not fabricated, otherwise.
-  latest_advisor_result: CampaignAdvisorSnapshot | null;
-};
-
-// One campaign_templates row, as sent to the model (2026-11) — the live
-// catalog the recommendation is drawn from. Read with the service role so
-// every outlet is visible regardless of the caller's own RLS visibility
-// (e.g. beta-only rows). status = 'hidden' rows are excluded entirely.
+// One campaign_templates row, as sent to the model — the live catalog the
+// recommendation is drawn from. Read with the service role so every outlet
+// is visible regardless of the caller's own RLS visibility (e.g. beta-only
+// rows). status = 'hidden' rows are excluded entirely.
 type TemplateCatalogEntry = {
   id: string;
   name: string;
@@ -130,40 +96,14 @@ type TemplateCatalogEntry = {
 };
 
 type ProfileAdvisorPayload = {
-  // What the artist typed, in their own words — the PRIMARY driver of which
-  // templates get recommended. Everything else below is supporting context.
+  // What the artist typed, in their own words — the ONLY thing that drives
+  // which templates get recommended.
   user_goal: string;
-  // profiles.goal — grow_views | get_booked | other | null (not chosen yet).
-  // Secondary context only — distinct from user_goal above.
-  goal: string | null;
+  // Purely to address the artist by name in the response — never used to
+  // inform which templates are recommended.
   artist: {
     name: string | null;
-    city: string | null;
-    bio: string | null;
   };
-  // From the profile_analytics view — the real organic/campaign split, NOT
-  // the Dashboard's get_profile_analytics RPC (which lumps all traffic
-  // together regardless of source).
-  analytics: {
-    organic_views: number;
-    campaign_views: number;
-    views_7d: number;
-    views_prev_7d: number;
-    unique_visitors_7d: number;
-    total_views: number;
-    total_unique_visitors: number;
-    booking_modal_opens_7d: number;
-    total_booking_modal_opens: number;
-    chat_opens_7d: number;
-    total_chat_opens: number;
-  };
-  // Whether the profile has any active bookable service right now. When
-  // false, booking-related metrics must not be judged as a problem.
-  services_active: boolean;
-  // Every campaign the profile has ever run, oldest-agnostic (not just
-  // recent/completed) — empty array for a profile with none, which is a
-  // normal input, not an error state.
-  campaigns: ProfileAdvisorCampaign[];
   // Every non-hidden campaign_templates row — what recommendations.template_id
   // must be drawn from.
   template_catalog: TemplateCatalogEntry[];
@@ -174,15 +114,15 @@ type ProfileAdvisorPayload = {
 // same provider-swap pattern as campaign-advisor (ADVISOR_PROVIDERS keyed by
 // the ADVISOR_PROVIDER env var; only "anthropic" exists today in either file).
 
-const PROFILE_ADVISOR_SYSTEM_PROMPT = `You are a growth advisor for SQRZ, a booking platform for independent creative professionals (musicians, DJs, artists). The artist has described what they want to achieve in their own words — payload.user_goal. You receive one JSON payload with that goal, their profile, their traffic, every campaign they've already run, and the full live catalog of campaign templates (payload.template_catalog) — and must recommend 1 to 3 templates through the advisor_report tool that best fit user_goal.
+const PROFILE_ADVISOR_SYSTEM_PROMPT = `You are a growth advisor for SQRZ, a booking platform for independent creative professionals (musicians, DJs, artists). The artist has described what they want to achieve in their own words — payload.user_goal. You receive one JSON payload with that goal and the full live catalog of campaign templates (payload.template_catalog) — and must recommend 1 to 3 templates through the advisor_report tool that best fit user_goal.
 
 Be concise.
 
-user_goal drives the recommendation. Everything else in the payload (profile, analytics, campaigns, profiles.goal) is supporting context only — use it to tailor the reasons, never to override or second-guess what the artist actually asked for.
+Your only task: match user_goal to the 1-3 best-fitting templates in payload.template_catalog and explain the strategy in 2-3 sentences. You are not analyzing the artist's profile, traffic, or campaign history — you don't have any of that, and nothing here needs it.
 
 recommendations: 1 to 3 items, each { template_id, reason }.
 - template_id MUST be an id that actually appears in payload.template_catalog. Never invent, guess, or remember an id from outside the payload.
-- reason is ONE sentence explaining why this template fits user_goal (and, where relevant, the profile/campaign context) — and states the purchase route (see the rule below).
+- reason is ONE sentence explaining why this template fits user_goal — and states the purchase route (see the rule below).
 - Pick the smallest set (1-3) that genuinely covers the goal — do not pad to 3 if 1 or 2 is the honest answer.
 
 Purchase route — every reason must make this plain, since it changes what the artist should expect to happen next:
@@ -194,10 +134,8 @@ Channel fit: prefer a template whose outlet is NOT "meta" (a contact/managed tem
 summary: 2-3 sentences of overall strategy — why these templates together, in plain language.
 
 No invented numbers, results, or guarantees, anywhere in the response:
-- Never state a fact — a status, a date, a figure, a campaign's existence — that is not explicitly present in the payload.
+- Never state a fact — a figure, a status, a result — that is not explicitly present in the payload.
 - Never promise or imply a specific outcome (reach, bookings, revenue) a campaign will produce.
-- You may cite payload.campaigns/analytics numbers as supporting context (e.g. "you already have strong organic traffic" or a specific figure that's actually present), but treat them as context for the reasoning, not as a guarantee for the new recommendation.
-- If services_active is false, don't treat booking-related metrics as a problem — there's nothing to book yet, say so plainly if it's relevant.
 
 Language: write summary and every reason entirely in the same language user_goal is written in.`;
 
@@ -380,7 +318,7 @@ Deno.serve(async (req: Request) => {
     return json({ error: "user_goal must be 500 characters or fewer" }, 400);
   }
 
-  // ── Lab-only access (2026-11) ────────────────────────────────────────────
+  // ── Lab-only access ──────────────────────────────────────────────────────
   // Same pattern as sandbox-admin: an anon-key client carrying the caller's
   // OWN JWT, so caller_account_is_lab() resolves auth.uid() to that specific
   // user (a service-role client has no caller identity for the RPC to key
@@ -402,29 +340,32 @@ Deno.serve(async (req: Request) => {
     auth: { autoRefreshToken: false, persistSession: false },
   });
 
-  // Caller's own profile.
+  // Caller's own profile — name fields only, purely to address the artist by
+  // name in the response. Not city/bio/goal — this function doesn't analyze
+  // the profile, so nothing else about it is fetched.
   const { data: callerProfile } = await admin
     .from("profiles")
-    .select("id, goal, name, brand_name, first_name, last_name, city, bio")
+    .select("id, name, brand_name, first_name, last_name")
     .eq("id", profileId)
     .maybeSingle();
   if (!callerProfile?.id) {
     return json({ error: "Profile not found" }, 404);
   }
 
-  // ── Gather campaigns first — needed both for the activation-based rate
-  // limit below AND the payload itself, so fetch once. Empty array is a
-  // normal result, not an error, for a profile with none yet. Shared with
-  // campaign-advisor — see _shared/campaign-insights.ts.
-  const campaignInsights = await gatherCampaignInsights(admin, profileId);
-
-  const hasActivatedCampaign = campaignInsights.some((c) =>
-    ACTIVATED_CAMPAIGN_STATUSES.includes(String(c.status ?? "")),
-  );
-
   // ── Weekly rate limit — ONLY for profiles with no activated campaign yet.
   // Once a profile has launched at least one campaign (status live or
-  // completed), runs are unlimited, regardless of entitlement.
+  // completed), runs are unlimited, regardless of entitlement. A minimal
+  // direct count against boost_campaigns — NOT gatherCampaignInsights (this
+  // function no longer gathers per-campaign data at all; that helper's
+  // Meta-stats/funnel enrichment is unused here and intentionally not
+  // called), just enough to answer "has this profile ever launched one."
+  const { count: activatedCampaignCount } = await admin
+    .from("boost_campaigns")
+    .select("id", { count: "exact", head: true })
+    .eq("profile_id", profileId)
+    .in("status", ACTIVATED_CAMPAIGN_STATUSES);
+  const hasActivatedCampaign = (activatedCampaignCount ?? 0) > 0;
+
   if (!hasActivatedCampaign) {
     const weekStart = startOfCurrentWeekUTC(new Date());
     const { count: runsThisWeek } = await admin
@@ -449,74 +390,10 @@ Deno.serve(async (req: Request) => {
     [callerProfile.first_name, callerProfile.last_name].filter(Boolean).join(" ").trim() ||
     null;
 
-  // 1. Organic vs. campaign traffic — the profile_analytics VIEW, which has a
-  //    real organic_views/campaign_views split (utm_source present or not).
-  //    Deliberately NOT the Dashboard's get_profile_analytics RPC, whose
-  //    views_total/views_prev_period count ALL traffic regardless of source.
-  const { data: analyticsRow } = await admin
-    .from("profile_analytics")
-    .select(
-      "organic_views, campaign_views, views_7d, views_prev_7d, unique_visitors_7d, total_views, total_unique_visitors, booking_modal_opens_7d, total_booking_modal_opens, chat_opens_7d, total_chat_opens",
-    )
-    .eq("profile_id", profileId)
-    .maybeSingle();
-
-  const n = (v: unknown): number => Number(v ?? 0) || 0;
-  const analytics: ProfileAdvisorPayload["analytics"] = {
-    organic_views: n(analyticsRow?.organic_views),
-    campaign_views: n(analyticsRow?.campaign_views),
-    views_7d: n(analyticsRow?.views_7d),
-    views_prev_7d: n(analyticsRow?.views_prev_7d),
-    unique_visitors_7d: n(analyticsRow?.unique_visitors_7d),
-    total_views: n(analyticsRow?.total_views),
-    total_unique_visitors: n(analyticsRow?.total_unique_visitors),
-    booking_modal_opens_7d: n(analyticsRow?.booking_modal_opens_7d),
-    total_booking_modal_opens: n(analyticsRow?.total_booking_modal_opens),
-    chat_opens_7d: n(analyticsRow?.chat_opens_7d),
-    total_chat_opens: n(analyticsRow?.total_chat_opens),
-  };
-
-  // 2. Active-services gate — same check as campaign-advisor.
-  const { count: activeServiceCount } = await admin
-    .from("profile_services")
-    .select("id", { count: "exact", head: true })
-    .eq("profile_id", profileId)
-    .eq("is_active", true);
-  const servicesActive = (activeServiceCount ?? 0) > 0;
-
-  const campaignIds = campaignInsights.map((c) => c.id);
-
-  // 3. Each campaign's own LATEST stored advisor result, if any — reused
-  //    as-is, never recomputed. One query, then keep only the first (most
-  //    recent, since ordered desc) row per campaign id.
-  const latestByCampaign = new Map<string, CampaignAdvisorSnapshot>();
-  if (campaignIds.length) {
-    const { data: runRows } = await admin
-      .from("campaign_advisor_runs")
-      .select("boost_campaign_id, result, created_at")
-      .in("boost_campaign_id", campaignIds)
-      .order("created_at", { ascending: false });
-    for (const row of runRows ?? []) {
-      const cid = row.boost_campaign_id as string;
-      if (latestByCampaign.has(cid)) continue;
-      const result = row.result as { health?: string; summary?: string; actions?: { action: string }[] };
-      latestByCampaign.set(cid, {
-        health: oneOfHealth(result?.health),
-        summary: String(result?.summary ?? ""),
-        top_action: result?.actions?.[0]?.action ?? null,
-      });
-    }
-  }
-
-  const campaigns: ProfileAdvisorCampaign[] = campaignInsights.map((c) => ({
-    ...c,
-    latest_advisor_result: latestByCampaign.get(c.id) ?? null,
-  }));
-
-  // 4. The live template catalog — every non-hidden row, read with the
-  //    service role (the admin client already in use) so every outlet is
-  //    visible regardless of the caller's own RLS visibility (e.g. beta-only
-  //    rows). What recommendations.template_id must be drawn from.
+  // The live template catalog — every non-hidden row, read with the service
+  // role (the admin client already in use) so every outlet is visible
+  // regardless of the caller's own RLS visibility (e.g. beta-only rows).
+  // What recommendations.template_id must be drawn from.
   const { data: templateRows } = await admin
     .from("campaign_templates")
     .select(
@@ -541,15 +418,9 @@ Deno.serve(async (req: Request) => {
 
   const payload: ProfileAdvisorPayload = {
     user_goal: userGoal,
-    goal: (callerProfile.goal as string | null) ?? null,
     artist: {
       name: artistName,
-      city: (callerProfile.city as string | null) ?? null,
-      bio: (callerProfile.bio as string | null) ?? null,
     },
-    analytics,
-    services_active: servicesActive,
-    campaigns,
     template_catalog: templateCatalog,
   };
 
@@ -570,8 +441,3 @@ Deno.serve(async (req: Request) => {
     return json({ error: "Advisor unavailable" }, 502);
   }
 });
-
-function oneOfHealth(v: unknown): AdvisorHealth {
-  const allowed: AdvisorHealth[] = ["excellent", "good", "mixed", "needs_attention"];
-  return typeof v === "string" && (allowed as string[]).includes(v) ? (v as AdvisorHealth) : "mixed";
-}
