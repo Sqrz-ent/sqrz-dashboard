@@ -84,7 +84,17 @@ export default function GrowPage() {
         />
       ) : (
         <div>
-          {data.tab === "grow" && <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />}
+          {data.tab === "grow" && (
+            <>
+              <p style={{
+                margin: "0 0 16px", padding: "12px 14px", fontSize: 13, lineHeight: 1.5,
+                color: "var(--text-muted)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10,
+              }}>
+                Campaigns are currently only available to purchase through the SQRZ iOS app, via a secure connection with the Apple App Store.
+              </p>
+              <TemplateCards templates={data.templates} campaigns={data.campaigns} supabaseUrl={data.supabaseUrl} createEnabled={data.createEnabled} />
+            </>
+          )}
           {data.tab === "links" && <GrowLinks links={data.links} stats={data.stats} slug={data.slug} />}
           {data.tab === "analytics" && <GrowAnalytics data={data.analytics} days={data.days} />}
         </div>
