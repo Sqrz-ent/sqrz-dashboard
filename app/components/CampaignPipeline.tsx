@@ -32,7 +32,6 @@ function CampaignCard({
   const started = formatDate(c.starts_at) ?? formatDate(c.created_at);
   const ends = formatDate(c.ends_at);
   const key = keyMetrics(c, metrics);
-  const lane = laneFor(c);
 
   return (
     <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -76,9 +75,6 @@ function CampaignCard({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         {/* Every lane has an iOS action (add content / budget / pause / reactivate). */}
         {awaitsPayment(c) ? <PaymentNote /> : <ManageInAppNote />}
-        <Link to={campaignPath(c.id)} style={{ color: ACCENT, fontSize: 12, fontWeight: 700, textDecoration: "none" }}>
-          {lane === "needsAction" ? "Details →" : "More info →"}
-        </Link>
       </div>
     </div>
   );
