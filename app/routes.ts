@@ -64,9 +64,9 @@ export default [
 
   // Campaign AI advisor (forwards to the campaign-advisor edge function)
   route("api/campaign-advisor", "routes/api.campaign-advisor.tsx"),
-  // Profile-level AI advisor — sibling of the above, forwards to the
-  // profile-advisor edge function (whole-profile recommendations, not a
-  // single campaign).
+  // Goal-to-template AI advisor (2026-11 rework) — forwards to the
+  // profile-advisor edge function, which recommends 1-3 campaign templates
+  // for the artist's own free-text goal.
   route("api/profile-advisor", "routes/api.profile-advisor.tsx"),
 
   // In-app account deletion — iOS-only, forwards to the delete-account edge

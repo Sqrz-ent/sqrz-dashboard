@@ -7,12 +7,13 @@ import {
 import { getCurrentProfile } from "~/lib/profile.server";
 import { proDeniedResponse } from "~/lib/pro.server";
 
-// Thin authenticated forwarder to the `profile-advisor` edge function — the
-// profile-level sibling of api.campaign-advisor.tsx (same shape, deliberately
-// mirrored). ANTHROPIC_API_KEY lives only in the edge function; this route's
-// job is auth + the iOS-app gate, nothing else. No campaign_id / ownership
-// check needed here — there's no second party's row to own, just the
-// caller's own profile, resolved below via getCurrentProfile.
+// Thin authenticated forwarder to the `profile-advisor` edge function — a
+// goal-to-template advisor (2026-11 rework; output shape no longer mirrors
+// api.campaign-advisor.tsx's). ANTHROPIC_API_KEY lives only in the edge
+// function; this route's job is auth + the iOS-app gate + relaying
+// user_goal, nothing else. No campaign_id / ownership check needed here —
+// there's no second party's row to own, just the caller's own profile,
+// resolved below via getCurrentProfile.
 //
 // Dual auth: the browser flow authenticates via cookies; native callers
 // (sqrz-ios) send a Bearer access token. The rate-limit decision (one free
@@ -59,13 +60,24 @@ export async function action({ request }: Route.ActionArgs) {
     return Response.json(
       {
         locked: true,
-        health: null,
+        user_goal: null,
         summary: "Recommendations are available in the SQRZ iOS app.",
-        insights: [],
-        actions: [],
+        recommendations: [],
       },
       { headers },
     );
+  }
+
+  // user_goal — the artist's own free-text goal — is required by the edge
+  // function (400 if missing/empty/too long); this forwarder only relays it,
+  // the same way it relays profile_id/access_token below.
+  let userGoal: string | null = null;
+  try {
+    const body = await request.json();
+    userGoal = typeof body?.user_goal === "string" ? body.user_goal : null;
+  } catch {
+    // No/invalid JSON body — userGoal stays null; the edge function itself
+    // enforces "required" rather than this route guessing at a 400.
   }
 
   // The edge function is invoked via a service-role admin client, whose
@@ -81,7 +93,7 @@ export async function action({ request }: Route.ActionArgs) {
   // run as this specific user.
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin.functions.invoke("profile-advisor", {
-    body: { profile_id: profile.id, access_token: bearerToken },
+    body: { profile_id: profile.id, access_token: bearerToken, user_goal: userGoal },
   });
 
   if (error || !data) {

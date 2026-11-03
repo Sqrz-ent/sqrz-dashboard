@@ -4,33 +4,36 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 import { gatherCampaignInsights, type CampaignInsights } from "../_shared/campaign-insights.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// profile-advisor — the single advisor (2026-11). Absorbed campaign-advisor's
-// per-campaign data gathering (see _shared/campaign-insights.ts): every
-// campaign in payload.campaigns now carries the same template/status/budget/
-// Meta-insights/funnel data campaign-advisor used to compute on its own,
-// instead of only reusing a previously-stored campaign_advisor_runs verdict.
-// campaign-advisor and campaign_advisor_runs are untouched (unused; removal
-// decided later) — this function now imports the same shared gatherer rather
-// than copying campaign-advisor's query/shape.
+// profile-advisor — goal-to-template advisor (2026-11 rework). Takes the
+// artist's own free-text goal (user_goal) and recommends 1-3 campaign
+// templates from the live catalog that fit it, rather than producing a
+// general profile-health report. Still absorbs campaign-advisor's
+// per-campaign data gathering (see _shared/campaign-insights.ts) as
+// supporting context — campaign-advisor and campaign_advisor_runs remain
+// untouched (unused; removal decided later).
 //
-// Input:  { profile_id: uuid, access_token: string } — profile_id is
-//         resolved and owns-checked by the forwarder BEFORE invoking this
-//         function (see the Identity note in the handler below for why this
-//         function cannot verify a Bearer token for the SERVICE-ROLE invoke
-//         call itself); access_token is the caller's own real session token,
-//         passed through separately so the Lab-only check below can run as
-//         that specific user.
-// Output: { health, summary, insights[] (tagged working/watch/action), actions[] }
-//         — SAME shape as campaign-advisor's AdvisorResult, deliberately, so
-//         the Dashboard welcome card can reuse its existing rendering.
+// Input:  { profile_id: uuid, access_token: string, user_goal: string } —
+//         profile_id is resolved and owns-checked by the forwarder BEFORE
+//         invoking this function (see the Identity note in the handler below
+//         for why this function cannot verify a Bearer token for the
+//         SERVICE-ROLE invoke call itself); access_token is the caller's own
+//         real session token, passed through separately so the Lab-only
+//         check below can run as that specific user. user_goal is required
+//         free text (max 500 chars) — what the artist wants to achieve, in
+//         their own words.
+// Output: { user_goal, summary, recommendations: [{ template_id, reason }] }
+//         (1-3 items) — replaces the old { health, summary, insights, actions }
+//         shape entirely.
 //
-// Reasons over the WHOLE profile: the artist's stated goal (profiles.goal),
-// their organic vs. campaign traffic (the profile_analytics view), and every
-// campaign they've run with its own template/status/budget/Meta-insights/
-// funnel data, plus — where one exists — that campaign's own already-stored
-// campaign_advisor_runs verdict (reused as-is, never re-derived here). Works
-// identically for a profile with zero campaigns or near-zero traffic — that
-// is the normal case, not an edge case.
+// Context for the recommendation: the artist's profile (name/city/bio,
+// stated Dashboard goal), their organic vs. campaign traffic (the
+// profile_analytics view), every campaign they've already run (template/
+// status/budget/Meta-insights/funnel, plus — where one exists — that
+// campaign's own already-stored campaign_advisor_runs verdict, reused as-is),
+// and the full live template catalog (every non-hidden campaign_templates
+// row, read with the service role so the model sees every outlet regardless
+// of the caller's own RLS visibility). All of this is supporting context
+// ONLY — user_goal is what actually drives which templates get recommended.
 //
 // Access: Lab-only (2026-11) — public.caller_account_is_lab(), called with
 // the caller's own JWT (same pattern as sandbox-admin). Not lab → 403.
@@ -64,25 +67,27 @@ function json(body: unknown, status = 200): Response {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+// Still needed to decode a campaign's OWN already-stored verdict below —
+// campaign-advisor itself (and campaign_advisor_runs' row shape) is
+// untouched by this rework.
 type AdvisorHealth = "excellent" | "good" | "mixed" | "needs_attention";
-type Confidence = "high" | "medium" | "low";
-type InsightType = "working" | "watch" | "action";
 
-type AdvisorInsight = { type: InsightType; text: string };
-type AdvisorActionItem = { action: string; reason: string; confidence: Confidence };
+// A template recommendation — the new output shape (replaces the old
+// health/summary/insights/actions profile-health report entirely).
+type TemplateRecommendation = {
+  template_id: string;
+  reason: string;
+};
 
-// Same result shape as campaign-advisor's AdvisorResult — kept structurally
-// identical on purpose (see file header).
 type AdvisorResult = {
-  health: AdvisorHealth;
+  user_goal: string;
   summary: string;
-  insights: AdvisorInsight[];
-  actions: AdvisorActionItem[];
+  recommendations: TemplateRecommendation[];
 };
 
 // A campaign's own already-computed verdict, reused as-is when present.
 // Deliberately NOT the full AdvisorResult shape — only what's useful as
-// context for the profile-level model, to keep the payload small.
+// context for the template-recommendation model, to keep the payload small.
 type CampaignAdvisorSnapshot = {
   health: AdvisorHealth;
   summary: string;
@@ -99,8 +104,37 @@ type ProfileAdvisorCampaign = CampaignInsights & {
   latest_advisor_result: CampaignAdvisorSnapshot | null;
 };
 
+// One campaign_templates row, as sent to the model (2026-11) — the live
+// catalog the recommendation is drawn from. Read with the service role so
+// every outlet is visible regardless of the caller's own RLS visibility
+// (e.g. beta-only rows). status = 'hidden' rows are excluded entirely.
+type TemplateCatalogEntry = {
+  id: string;
+  name: string;
+  subtitle: string | null;
+  description: string | null;
+  long_description: string | null;
+  display_price: number | null;
+  // Free-text jsonb, shape not enforced at the DB level (e.g. ["Instagram"],
+  // ["Facebook","Instagram"]) — passed through as-is, same looseness as the
+  // web dashboard's own CampaignTemplate type (lib/templates.ts).
+  outlets: unknown;
+  // 'meta' | 'other' — combined with delivery below to decide whether a
+  // template can be bought directly (outlet='meta' AND delivery='self_serve')
+  // or is a beta campaign Will sets up personally.
+  outlet: string | null;
+  delivery: string | null; // 'self_serve' | 'contact'
+  ad_budget_min: number | null;
+  ad_budget_max: number | null;
+  pro_days: number | null;
+};
+
 type ProfileAdvisorPayload = {
-  // profiles.goal — grow_views | get_booked | other | null (not chosen yet)
+  // What the artist typed, in their own words — the PRIMARY driver of which
+  // templates get recommended. Everything else below is supporting context.
+  user_goal: string;
+  // profiles.goal — grow_views | get_booked | other | null (not chosen yet).
+  // Secondary context only — distinct from user_goal above.
   goal: string | null;
   artist: {
     name: string | null;
@@ -130,6 +164,9 @@ type ProfileAdvisorPayload = {
   // recent/completed) — empty array for a profile with none, which is a
   // normal input, not an error state.
   campaigns: ProfileAdvisorCampaign[];
+  // Every non-hidden campaign_templates row — what recommendations.template_id
+  // must be drawn from.
+  template_catalog: TemplateCatalogEntry[];
 };
 
 // ─── LLM boundary ─────────────────────────────────────────────────────────────
@@ -137,97 +174,68 @@ type ProfileAdvisorPayload = {
 // same provider-swap pattern as campaign-advisor (ADVISOR_PROVIDERS keyed by
 // the ADVISOR_PROVIDER env var; only "anthropic" exists today in either file).
 
-const PROFILE_ADVISOR_SYSTEM_PROMPT = `You are a growth advisor for SQRZ, a booking platform for independent creative professionals (musicians, DJs, artists). You receive one JSON payload describing an artist's WHOLE PROFILE — their stated goal, their organic and campaign traffic, and every ad campaign they've run (if any) — and must return advice through the advisor_report tool. This is a holistic, profile-level review, not an analysis of one single campaign.
+const PROFILE_ADVISOR_SYSTEM_PROMPT = `You are a growth advisor for SQRZ, a booking platform for independent creative professionals (musicians, DJs, artists). The artist has described what they want to achieve in their own words — payload.user_goal. You receive one JSON payload with that goal, their profile, their traffic, every campaign they've already run, and the full live catalog of campaign templates (payload.template_catalog) — and must recommend 1 to 3 templates through the advisor_report tool that best fit user_goal.
 
-A profile with zero campaigns and very little traffic (single-digit weekly views, no bookings yet) is a completely NORMAL input, not an error or an insufficient-data case — reason about it the same as any other profile, using whatever numbers are present.
+Be concise.
 
-Be concise. The whole response is short by design.
+user_goal drives the recommendation. Everything else in the payload (profile, analytics, campaigns, profiles.goal) is supporting context only — use it to tailor the reasons, never to override or second-guess what the artist actually asked for.
 
-health: a categorical label — excellent, good, mixed, or needs_attention. NEVER output a numeric score.
+recommendations: 1 to 3 items, each { template_id, reason }.
+- template_id MUST be an id that actually appears in payload.template_catalog. Never invent, guess, or remember an id from outside the payload.
+- reason is ONE sentence explaining why this template fits user_goal (and, where relevant, the profile/campaign context) — and states the purchase route (see the rule below).
+- Pick the smallest set (1-3) that genuinely covers the goal — do not pad to 3 if 1 or 2 is the honest answer.
 
-summary: a short verdict + reason ONLY — NO specific figures (the numbers belong in the bullets below, not here). Hard cap ~25 words.
+Purchase route — every reason must make this plain, since it changes what the artist should expect to happen next:
+- A template with outlet = "meta" AND delivery = "self_serve" can be started directly in the app right now — a real, one-tap self-serve purchase.
+- Every other template (any other outlet, or delivery = "contact") is a beta campaign that Will sets up personally — say so plainly in the reason (e.g. "this one is set up personally by Will — worth booking a call") and encourage booking it. Never imply it's a one-tap or immediately-available in-app purchase.
 
-insights: ONE combined list, maximum 5 items total. Each item is { type, text } where type is "working" (going well), "watch" (keep an eye on), or "action" (needs doing). Cap each text at ~12 words. Flag anomalies here as "watch" or "action" — e.g. high organic traffic with very little booking/chat engagement, or a stated goal the current traffic mix doesn't support yet.
+Channel fit: prefer a template whose outlet is NOT "meta" (a contact/managed template) whenever user_goal genuinely needs a channel Meta can't serve — e.g. the goal explicitly mentions YouTube, Google/search, TikTok, LinkedIn, Spotify, or another platform. Do not force-fit a Meta template onto a goal that calls for a different channel just because Meta is self-serve.
 
-actions: maximum 2-3 items, each { action, reason, confidence }. reason cites the specific number(s) that drove it, capped at ~10 words. confidence is high, medium, or low. If nothing genuinely requires action, return an empty array — do NOT manufacture urgency.
+summary: 2-3 sentences of overall strategy — why these templates together, in plain language.
 
-Goal-aware weighting — payload.goal (the artist's own stated Dashboard goal, NOT a campaign's template) is one of grow_views, get_booked, other, or null (not chosen yet — if null, keep advice general and do not assume a goal on the artist's behalf):
-- grow_views: weight analytics.organic_views, analytics.campaign_views, and the views_7d vs. views_prev_7d trend.
-- get_booked: weight analytics.booking_modal_opens_7d/total and chat_opens_7d/total, and whether any existing campaign's own template was template_02 (Traffic).
-- other: weight overall traffic and engagement broadly — no single metric should dominate.
+No invented numbers, results, or guarantees, anywhere in the response:
+- Never state a fact — a status, a date, a figure, a campaign's existence — that is not explicitly present in the payload.
+- Never promise or imply a specific outcome (reach, bookings, revenue) a campaign will produce.
+- You may cite payload.campaigns/analytics numbers as supporting context (e.g. "you already have strong organic traffic" or a specific figure that's actually present), but treat them as context for the reasoning, not as a guarantee for the new recommendation.
+- If services_active is false, don't treat booking-related metrics as a problem — there's nothing to book yet, say so plainly if it's relevant.
 
-WHAT A RECOMMENDED ACTION CAN ACTUALLY BE — read carefully, this is a hard constraint on every action you write:
-The artist can self-serve create exactly ONE kind of campaign in the app today: a Meta (Facebook + Instagram) ad campaign using one of two templates — Awareness (promotes an existing Instagram post, builds passive reach) or Traffic (uploads new creative, drives visits/bookings). There is no self-serve retargeting, lookalike-audience, or multi-channel campaign creation, and no other ad platform is available self-serve. Anything beyond that — real retargeting or lookalike targeting, another ad channel, or a larger/managed campaign — requires booking a human discovery call inside the app; it is not a one-tap, in-app action.
-You MAY use natural, motivating language to describe the STRATEGY behind a suggestion — e.g. calling an Awareness-template campaign aimed at a near-empty profile "a short warm-up campaign", or calling a Traffic-template campaign aimed at an artist with a lot of organic traffic "a more sales-oriented push". Artists respond better to that framing than to raw mechanics. But every action's underlying route must be exactly one of these two, and you must not blur them:
-  1. Starting a new self-serve campaign (in-app, Meta only, template = Awareness or Traffic) — only ever the right route when what you're recommending IS achievable with one of those two templates, however you choose to describe it.
-  2. Booking the discovery call — required whenever the real right move needs something self-serve cannot do (genuine retargeting/lookalike targeting, another channel, a bigger or managed campaign — this is also the Custom template's own route, never a self-serve row).
-Never say or imply something is "one tap away", "available now", or that a specific targeting mechanic (e.g. "set up retargeting") exists self-serve when it doesn't. If you are unsure which of the two routes fits, prefer recommending the discovery call — it is always a real, available option for anything self-serve can't do.
-
-Campaigns: for each entry in payload.campaigns, status/template/dates/budget are always present (template is template_01/template_02/null — null means an older campaign whose template isn't known; treat it like "other" above, don't assume a skew), along with meta_stats (Meta-reported spend/impressions/reach/link_clicks/landing_page_views/cpm) and funnel (SQRZ site-side views_driven/unique_visitors/booking_flow_opens/cta_clicks/widget_opens — unique_visitors is null, not zero, when it isn't measurable; treat null as unknown). latest_advisor_result is present ONLY when that specific campaign has already been analyzed individually (campaign_advisor_runs has a stored row for it) — when present, trust and reuse its health/summary/top_action rather than re-deriving your own judgment of that one campaign from its raw stats. When a campaign has no latest_advisor_result, you may still cite its raw numbers (meta_stats/funnel) in service of the PROFILE-level picture, but do not invent an individual health verdict for it.
-
-Services / bookings gating: if services_active is false, do NOT treat booking-related metrics as a problem — state plainly that booking performance can't be judged yet because there's nothing to book.
-
-Hard rules:
-- Never state a fact — a status, a date, a figure, or a campaign's existence — that is not explicitly present in the payload. Treat null or missing values as unknown, never as zero or as a problem.
-- Every reason/insight that makes a claim must cite the specific number from the payload that drove it.
-- A specific number may appear in the summary OR in a bullet, never both.
-- Do NOT explain what metrics like impressions, CTR, or CPM mean — assume the reader already has that context.`;
+Language: write summary and every reason entirely in the same language user_goal is written in.`;
 
 const ADVISOR_TOOL = {
   name: "advisor_report",
   description:
-    "Return the advisor's verdict-first summary and a prioritized list of concrete actions for this artist's whole profile.",
+    "Return 1-3 recommended campaign templates, drawn only from payload.template_catalog, that best fit the artist's stated goal.",
   input_schema: {
     type: "object",
     additionalProperties: false,
     properties: {
-      health: {
-        type: "string",
-        enum: ["excellent", "good", "mixed", "needs_attention"],
-        description: "Categorical health label — NOT a numeric score.",
-      },
       summary: {
         type: "string",
-        description: "Short verdict + reason, no specific figures, ~25 words max.",
+        description: "2-3 sentences of overall strategy. No invented numbers, results, or guarantees.",
       },
-      insights: {
+      recommendations: {
         type: "array",
-        description:
-          "One combined list, max 5 items total. Tag each as working / watch / action.",
+        minItems: 1,
+        maxItems: 3,
+        description: "1-3 recommended templates, smallest set that honestly covers the goal.",
         items: {
           type: "object",
           additionalProperties: false,
           properties: {
-            type: { type: "string", enum: ["working", "watch", "action"] },
-            text: { type: "string", description: "~12 words max; cite the number if making a claim." },
-          },
-          required: ["type", "text"],
-        },
-      },
-      actions: {
-        type: "array",
-        description:
-          "Max 2-3 concrete actions. Empty if nothing genuinely requires action.",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            action: {
+            template_id: {
               type: "string",
-              description:
-                "What the artist should DO. Must route to either starting a self-serve campaign (template = Awareness or Traffic) or booking the discovery call — never imply a one-tap action that doesn't exist.",
+              description: "Must be an id present in payload.template_catalog — never invented.",
             },
             reason: {
               type: "string",
-              description: "Cites the specific number(s) that drove it; ~10 words max.",
+              description: "One sentence. Must state whether this is self-serve or set up personally by Will.",
             },
-            confidence: { type: "string", enum: ["high", "medium", "low"] },
           },
-          required: ["action", "reason", "confidence"],
+          required: ["template_id", "reason"],
         },
       },
     },
-    required: ["health", "summary", "insights", "actions"],
+    required: ["summary", "recommendations"],
   },
 } as const;
 
@@ -253,44 +261,37 @@ const anthropicProfileAdvisor: AdvisorImpl = async (payload) => {
   );
   if (!toolUse) throw new Error("profile-advisor: model returned no tool_use block");
 
-  return normalizeResult(toolUse.input as Record<string, unknown>);
+  const validTemplateIds = new Set(payload.template_catalog.map((t) => t.id));
+  return normalizeResult(toolUse.input as Record<string, unknown>, payload.user_goal, validTemplateIds);
 };
 
-// Defensive normalization — mirrors campaign-advisor's normalizeResult exactly
-// (same schema, same reasoning: the forced tool schema constrains the shape,
-// but every field is still coerced/whitelisted so the UI always gets a valid result).
-function normalizeResult(input: Record<string, unknown>): AdvisorResult {
-  const oneOf = <T extends string>(v: unknown, allowed: readonly T[], fallback: T): T =>
-    typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : fallback;
-
-  const insights: AdvisorInsight[] = Array.isArray(input.insights)
-    ? input.insights
+// Defensive normalization — every field is coerced/whitelisted so the UI
+// always gets a valid result even though the forced tool schema already
+// constrains the shape. user_goal is set directly from the ORIGINAL request
+// input (never trusted from the model) so it can never be paraphrased or
+// translated on the way out. template_id is additionally checked against
+// the real catalog — "only use template ids from the catalog" is enforced
+// here, not just asked for in the prompt.
+function normalizeResult(
+  input: Record<string, unknown>,
+  userGoal: string,
+  validTemplateIds: Set<string>,
+): AdvisorResult {
+  const recommendations: TemplateRecommendation[] = Array.isArray(input.recommendations)
+    ? input.recommendations
         .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
         .map((x) => ({
-          type: oneOf<InsightType>(x.type, ["working", "watch", "action"], "watch"),
-          text: String(x.text ?? ""),
+          template_id: String(x.template_id ?? ""),
+          reason: String(x.reason ?? ""),
         }))
-        .filter((x) => x.text)
-        .slice(0, 5)
-    : [];
-
-  const actions: AdvisorActionItem[] = Array.isArray(input.actions)
-    ? input.actions
-        .filter((a): a is Record<string, unknown> => !!a && typeof a === "object")
-        .map((a) => ({
-          action: String(a.action ?? ""),
-          reason: String(a.reason ?? ""),
-          confidence: oneOf<Confidence>(a.confidence, ["high", "medium", "low"], "medium"),
-        }))
-        .filter((a) => a.action)
+        .filter((x) => x.template_id && x.reason && validTemplateIds.has(x.template_id))
         .slice(0, 3)
     : [];
 
   return {
-    health: oneOf<AdvisorHealth>(input.health, ["excellent", "good", "mixed", "needs_attention"], "mixed"),
+    user_goal: userGoal,
     summary: String(input.summary ?? ""),
-    insights,
-    actions,
+    recommendations,
   };
 }
 
@@ -357,10 +358,12 @@ Deno.serve(async (req: Request) => {
   // this invoke) specifically so the Lab-only check below can run as them.
   let profileId: string;
   let accessToken: string;
+  let userGoal: string;
   try {
     const body = await req.json();
     profileId = String(body?.profile_id ?? "");
     accessToken = String(body?.access_token ?? "");
+    userGoal = typeof body?.user_goal === "string" ? body.user_goal.trim() : "";
   } catch {
     return json({ error: "Invalid JSON body" }, 400);
   }
@@ -369,6 +372,12 @@ Deno.serve(async (req: Request) => {
   }
   if (!accessToken) {
     return json({ error: "Unauthorized" }, 401);
+  }
+  if (!userGoal) {
+    return json({ error: "user_goal required" }, 400);
+  }
+  if (userGoal.length > 500) {
+    return json({ error: "user_goal must be 500 characters or fewer" }, 400);
   }
 
   // ── Lab-only access (2026-11) ────────────────────────────────────────────
@@ -426,10 +435,9 @@ Deno.serve(async (req: Request) => {
     if ((runsThisWeek ?? 0) >= 1) {
       return json({
         limited: true,
-        health: null,
+        user_goal: userGoal,
         summary: "You've used this week's free recommendation. It resets Monday — or run a campaign to unlock unlimited recommendations.",
-        insights: [],
-        actions: [],
+        recommendations: [],
       });
     }
   }
@@ -505,7 +513,34 @@ Deno.serve(async (req: Request) => {
     latest_advisor_result: latestByCampaign.get(c.id) ?? null,
   }));
 
+  // 4. The live template catalog — every non-hidden row, read with the
+  //    service role (the admin client already in use) so every outlet is
+  //    visible regardless of the caller's own RLS visibility (e.g. beta-only
+  //    rows). What recommendations.template_id must be drawn from.
+  const { data: templateRows } = await admin
+    .from("campaign_templates")
+    .select(
+      "id, name, subtitle, description, long_description, display_price, outlets, outlet, delivery, ad_budget_min, ad_budget_max, pro_days",
+    )
+    .neq("status", "hidden");
+
+  const templateCatalog: TemplateCatalogEntry[] = (templateRows ?? []).map((t) => ({
+    id: t.id as string,
+    name: t.name as string,
+    subtitle: (t.subtitle as string | null) ?? null,
+    description: (t.description as string | null) ?? null,
+    long_description: (t.long_description as string | null) ?? null,
+    display_price: t.display_price == null ? null : Number(t.display_price),
+    outlets: t.outlets ?? null,
+    outlet: (t.outlet as string | null) ?? null,
+    delivery: (t.delivery as string | null) ?? null,
+    ad_budget_min: t.ad_budget_min == null ? null : Number(t.ad_budget_min),
+    ad_budget_max: t.ad_budget_max == null ? null : Number(t.ad_budget_max),
+    pro_days: t.pro_days == null ? null : Number(t.pro_days),
+  }));
+
   const payload: ProfileAdvisorPayload = {
+    user_goal: userGoal,
     goal: (callerProfile.goal as string | null) ?? null,
     artist: {
       name: artistName,
@@ -515,6 +550,7 @@ Deno.serve(async (req: Request) => {
     analytics,
     services_active: servicesActive,
     campaigns,
+    template_catalog: templateCatalog,
   };
 
   // ── LLM call + persist ──────────────────────────────────────────────────
