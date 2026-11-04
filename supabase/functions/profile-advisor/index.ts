@@ -80,17 +80,18 @@ type TemplateCatalogEntry = {
   subtitle: string | null;
   description: string | null;
   long_description: string | null;
-  // Self-serve templates only (outlet='meta' AND delivery='self_serve') —
-  // omitted entirely (not even null) for beta templates, so the model has no
-  // price/budget figure it could ever cite for one. See isSelfServeTemplate.
+  // Self-serve templates only (delivery='self_serve') — omitted entirely
+  // (not even null) for beta templates, so the model has no price/budget
+  // figure it could ever cite for one. See isSelfServeTemplate.
   display_price?: number | null;
   // Free-text jsonb, shape not enforced at the DB level (e.g. ["Instagram"],
   // ["Facebook","Instagram"]) — passed through as-is, same looseness as the
   // web dashboard's own CampaignTemplate type (lib/templates.ts).
   outlets: unknown;
-  // 'meta' | 'other' — combined with delivery below to decide whether a
-  // template can be bought directly (outlet='meta' AND delivery='self_serve')
-  // or is a beta campaign Will sets up personally.
+  // Free-text platform label ('meta' | other) — purely informational /
+  // used for channel-fit matching in the prompt (see "Channel fit" below).
+  // Availability is decided by delivery alone (isSelfServeTemplate), never
+  // by this field.
   outlet: string | null;
   delivery: string | null; // 'self_serve' | 'contact'
   ad_budget_min?: number | null;
@@ -98,11 +99,11 @@ type TemplateCatalogEntry = {
   pro_days?: number | null;
 };
 
-// outlet='meta' AND delivery='self_serve' — the one condition that decides
-// both availability (normalizeResult) and whether price/budget/pro_days are
-// included in the catalog sent to the model (below).
-function isSelfServeTemplate(entry: { outlet: string | null; delivery: string | null }): boolean {
-  return entry.outlet === "meta" && entry.delivery === "self_serve";
+// delivery='self_serve' — the one condition that decides both availability
+// (normalizeResult) and whether price/budget/pro_days are included in the
+// catalog sent to the model (below). outlet plays no part in this.
+function isSelfServeTemplate(delivery: string | null): boolean {
+  return delivery === "self_serve";
 }
 
 type ProfileAdvisorPayload = {
@@ -136,8 +137,8 @@ recommendations: 1 to 3 items, each { template_id, reason }.
 - Pick the smallest set (1-3) that genuinely covers the goal — do not pad to 3 if 1 or 2 is the honest answer.
 
 Purchase route — every reason must make this plain, since it changes what the artist should expect to happen next:
-- A template with outlet = "meta" AND delivery = "self_serve" can be started directly in the app right now — a real, one-tap self-serve purchase.
-- Every other template (any other outlet, or delivery = "contact") is a beta template: a new channel SQRZ is currently exploring, which is why the artist gets special personal service from the SQRZ team instead of a self-serve purchase — say so plainly in the reason (e.g. "this is a new channel we're exploring, so Will sets it up personally for you") and encourage booking a call. Never imply it's a one-tap or immediately-available in-app purchase. For these templates, never mention a price or a budget figure — the catalog entry for a beta template has no price/budget fields at all, so there is nothing to cite.
+- A template with delivery = "self_serve" can be started directly in the app right now — a real, one-tap self-serve purchase.
+- A template with delivery = "contact" is a beta template: a new channel SQRZ is currently exploring, which is why the artist gets special personal service from the SQRZ team instead of a self-serve purchase — say so plainly in the reason (e.g. "this is a new channel we're exploring, so Will sets it up personally for you") and encourage booking a call. Never imply it's a one-tap or immediately-available in-app purchase. For these templates, never mention a price or a budget figure — the catalog entry for a beta template has no price/budget fields at all, so there is nothing to cite.
 
 Channel fit: prefer a template whose outlet is NOT "meta" (a contact/managed template) whenever user_goal genuinely needs a channel Meta can't serve — e.g. the goal explicitly mentions YouTube, Google/search, TikTok, LinkedIn, Spotify, or another platform. Do not force-fit a Meta template onto a goal that calls for a different channel just because Meta is self-serve.
 
@@ -240,7 +241,7 @@ function normalizeResult(
         .slice(0, 3)
         .map((x) => ({
           ...x,
-          availability: (isSelfServeTemplate(catalogById.get(x.template_id)!)
+          availability: (isSelfServeTemplate(catalogById.get(x.template_id)!.delivery)
             ? "self_serve"
             : "beta") as "self_serve" | "beta",
         }))
@@ -385,7 +386,7 @@ Deno.serve(async (req: Request) => {
     // Beta templates: display_price/ad_budget_min/ad_budget_max/pro_days are
     // omitted entirely (not just nulled) from the catalog sent to the model,
     // so it has no price/budget figure it could ever cite for one.
-    if (!isSelfServeTemplate({ outlet, delivery })) {
+    if (!isSelfServeTemplate(delivery)) {
       return base;
     }
     return {
