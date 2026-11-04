@@ -127,6 +127,22 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
 }
 
 /**
+ * Upserts the customer's own Stream identity (toStreamUserIdForProfile) if it
+ * doesn't exist yet, and returns a 1-hour Stream token for it — same format
+ * as createStreamUserToken. Used by api.messaging.support-thread.ts so the
+ * customer can actually connect to the thread it just created/returned.
+ */
+export async function ensureCustomerStreamIdentity(profileId: string): Promise<{
+  streamUserId: string;
+  token: string;
+}> {
+  const streamUserId = toStreamUserIdForProfile(profileId);
+  const client = getStreamServerClient();
+  await client.upsertUsers([{ id: streamUserId, role: "user" } as any]);
+  return { streamUserId, token: createStreamUserToken(streamUserId) };
+}
+
+/**
  * Upserts the team's own Stream identity for `accountId` — name = that
  * account's oldest ("main") profile's display name — and adds it as a member
  * of every existing support channel, so a team member who gets Lab access

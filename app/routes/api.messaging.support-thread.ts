@@ -3,7 +3,11 @@ import {
   createSupabaseBearerClient,
   createSupabaseAdminClient,
 } from "~/lib/supabase.server";
-import { ensureSupportThread, type ManagedRequestRow } from "~/lib/messaging/support.server";
+import {
+  ensureCustomerStreamIdentity,
+  ensureSupportThread,
+  type ManagedRequestRow,
+} from "~/lib/messaging/support.server";
 
 // Support chat (V1, Sandbox) — see app/lib/messaging/support.server.ts for the
 // full picture. Creates (or returns, if it already exists) the Stream
@@ -76,7 +80,8 @@ export async function action({ request }: { request: Request }) {
     }
 
     const { channelId } = await ensureSupportThread(campaign as ManagedRequestRow);
-    return Response.json({ channelId }, { headers });
+    const { streamUserId, token } = await ensureCustomerStreamIdentity(campaign.profile_id as string);
+    return Response.json({ channelId, streamUserId, token }, { headers });
   } catch (error) {
     console.error(`[support-thread] (${authPath}) action failed:`, error);
     return Response.json(

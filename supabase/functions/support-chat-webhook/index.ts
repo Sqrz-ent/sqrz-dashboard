@@ -84,7 +84,9 @@ function supportThreadDeepLink(campaignId: string): string {
   return `/grow/campaigns/${campaignId}`;
 }
 
-// The customer sent a message -> every Lab account's own profile gets notified.
+// The customer sent a message -> ONE notification per Lab account, addressed
+// to that account's OLDEST ("main") profile — not every profile it owns.
+// Same "main profile" convention as ensureTeamStreamIdentity.
 async function pushToLabAccounts(campaignId: string): Promise<void> {
   const { data: labAccounts, error: labErr } = await supabase
     .from("accounts")
@@ -99,14 +101,23 @@ async function pushToLabAccounts(campaignId: string): Promise<void> {
 
   const { data: labProfiles, error: profilesErr } = await supabase
     .from("profiles")
-    .select("id")
-    .in("account_id", labAccountIds);
+    .select("id, account_id")
+    .in("account_id", labAccountIds)
+    .order("created_at", { ascending: true });
   if (profilesErr) {
     console.error("[support-chat-webhook] lab profiles lookup failed:", profilesErr.message);
     return;
   }
-  const rows = (labProfiles ?? []).map((p) => ({
-    profile_id: p.id as string,
+  const mainProfileIdByAccount = new Map<string, string>();
+  for (const p of labProfiles ?? []) {
+    const accountId = p.account_id as string;
+    if (!mainProfileIdByAccount.has(accountId)) {
+      mainProfileIdByAccount.set(accountId, p.id as string);
+    }
+  }
+
+  const rows = [...mainProfileIdByAccount.values()].map((profileId) => ({
+    profile_id: profileId,
     type: SUPPORT_MESSAGE_TYPE,
     related_id: campaignId,
     deep_link: supportThreadDeepLink(campaignId),
