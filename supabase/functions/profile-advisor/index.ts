@@ -22,8 +22,11 @@ import Anthropic from "npm:@anthropic-ai/sdk";
 //         check below can run as that specific user. user_goal is required
 //         free text (max 500 chars) — what the artist wants to achieve, in
 //         their own words.
-// Output: { user_goal, summary, recommendations: [{ template_id, reason }] }
-//         (1-3 items).
+// Output: { user_goal, summary, recommendations: [{ template_id, reason,
+//         availability }] } (1-3 items). availability ("self_serve" | "beta")
+//         is set server-side in normalizeResult from the template catalog —
+//         never by the model — and the list is sorted self_serve first, then
+//         beta, keeping the model's relative order within each group.
 //
 // Access: Lab-only — public.caller_account_is_lab(), called with the
 // caller's own JWT (same pattern as sandbox-admin). Not lab → 403.
@@ -52,10 +55,13 @@ function json(body: unknown, status = 200): Response {
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
-// A template recommendation — the output shape.
+// A template recommendation — the output shape. availability is never set by
+// the model (see ADVISOR_TOOL's schema, which only asks for template_id +
+// reason) — normalizeResult sets it from the template catalog.
 type TemplateRecommendation = {
   template_id: string;
   reason: string;
+  availability: "self_serve" | "beta";
 };
 
 type AdvisorResult = {
@@ -74,7 +80,10 @@ type TemplateCatalogEntry = {
   subtitle: string | null;
   description: string | null;
   long_description: string | null;
-  display_price: number | null;
+  // Self-serve templates only (outlet='meta' AND delivery='self_serve') —
+  // omitted entirely (not even null) for beta templates, so the model has no
+  // price/budget figure it could ever cite for one. See isSelfServeTemplate.
+  display_price?: number | null;
   // Free-text jsonb, shape not enforced at the DB level (e.g. ["Instagram"],
   // ["Facebook","Instagram"]) — passed through as-is, same looseness as the
   // web dashboard's own CampaignTemplate type (lib/templates.ts).
@@ -84,10 +93,17 @@ type TemplateCatalogEntry = {
   // or is a beta campaign Will sets up personally.
   outlet: string | null;
   delivery: string | null; // 'self_serve' | 'contact'
-  ad_budget_min: number | null;
-  ad_budget_max: number | null;
-  pro_days: number | null;
+  ad_budget_min?: number | null;
+  ad_budget_max?: number | null;
+  pro_days?: number | null;
 };
+
+// outlet='meta' AND delivery='self_serve' — the one condition that decides
+// both availability (normalizeResult) and whether price/budget/pro_days are
+// included in the catalog sent to the model (below).
+function isSelfServeTemplate(entry: { outlet: string | null; delivery: string | null }): boolean {
+  return entry.outlet === "meta" && entry.delivery === "self_serve";
+}
 
 type ProfileAdvisorPayload = {
   // What the artist typed, in their own words — the ONLY thing that drives
@@ -121,7 +137,7 @@ recommendations: 1 to 3 items, each { template_id, reason }.
 
 Purchase route — every reason must make this plain, since it changes what the artist should expect to happen next:
 - A template with outlet = "meta" AND delivery = "self_serve" can be started directly in the app right now — a real, one-tap self-serve purchase.
-- Every other template (any other outlet, or delivery = "contact") is a beta campaign that Will sets up personally — say so plainly in the reason (e.g. "this one is set up personally by Will — worth booking a call") and encourage booking it. Never imply it's a one-tap or immediately-available in-app purchase.
+- Every other template (any other outlet, or delivery = "contact") is a beta template: a new channel SQRZ is currently exploring, which is why the artist gets special personal service from the SQRZ team instead of a self-serve purchase — say so plainly in the reason (e.g. "this is a new channel we're exploring, so Will sets it up personally for you") and encourage booking a call. Never imply it's a one-tap or immediately-available in-app purchase. For these templates, never mention a price or a budget figure — the catalog entry for a beta template has no price/budget fields at all, so there is nothing to cite.
 
 Channel fit: prefer a template whose outlet is NOT "meta" (a contact/managed template) whenever user_goal genuinely needs a channel Meta can't serve — e.g. the goal explicitly mentions YouTube, Google/search, TikTok, LinkedIn, Spotify, or another platform. Do not force-fit a Meta template onto a goal that calls for a different channel just because Meta is self-serve.
 
@@ -193,8 +209,7 @@ const anthropicProfileAdvisor: AdvisorImpl = async (payload) => {
   );
   if (!toolUse) throw new Error("profile-advisor: model returned no tool_use block");
 
-  const validTemplateIds = new Set(payload.template_catalog.map((t) => t.id));
-  return normalizeResult(toolUse.input as Record<string, unknown>, payload.user_goal, validTemplateIds);
+  return normalizeResult(toolUse.input as Record<string, unknown>, payload.user_goal, payload.template_catalog);
 };
 
 // Defensive normalization — every field is coerced/whitelisted so the UI
@@ -203,12 +218,17 @@ const anthropicProfileAdvisor: AdvisorImpl = async (payload) => {
 // input (never trusted from the model) so it can never be paraphrased or
 // translated on the way out. template_id is additionally checked against
 // the real catalog — "only use template ids from the catalog" is enforced
-// here, not just asked for in the prompt.
+// here, not just asked for in the prompt. availability is computed here too,
+// from the catalog's own outlet/delivery — never read from the model's
+// output — and the final list is sorted self_serve first, then beta, with a
+// stable sort so the model's relative order within each group is preserved.
 function normalizeResult(
   input: Record<string, unknown>,
   userGoal: string,
-  validTemplateIds: Set<string>,
+  templateCatalog: TemplateCatalogEntry[],
 ): AdvisorResult {
+  const catalogById = new Map(templateCatalog.map((t) => [t.id, t]));
+
   const recommendations: TemplateRecommendation[] = Array.isArray(input.recommendations)
     ? input.recommendations
         .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
@@ -216,8 +236,18 @@ function normalizeResult(
           template_id: String(x.template_id ?? ""),
           reason: String(x.reason ?? ""),
         }))
-        .filter((x) => x.template_id && x.reason && validTemplateIds.has(x.template_id))
+        .filter((x) => x.template_id && x.reason && catalogById.has(x.template_id))
         .slice(0, 3)
+        .map((x) => ({
+          ...x,
+          availability: (isSelfServeTemplate(catalogById.get(x.template_id)!)
+            ? "self_serve"
+            : "beta") as "self_serve" | "beta",
+        }))
+        .sort((a, b) => {
+          if (a.availability === b.availability) return 0;
+          return a.availability === "self_serve" ? -1 : 1;
+        })
     : [];
 
   return {
@@ -339,20 +369,33 @@ Deno.serve(async (req: Request) => {
     )
     .neq("status", "hidden");
 
-  const templateCatalog: TemplateCatalogEntry[] = (templateRows ?? []).map((t) => ({
-    id: t.id as string,
-    name: t.name as string,
-    subtitle: (t.subtitle as string | null) ?? null,
-    description: (t.description as string | null) ?? null,
-    long_description: (t.long_description as string | null) ?? null,
-    display_price: t.display_price == null ? null : Number(t.display_price),
-    outlets: t.outlets ?? null,
-    outlet: (t.outlet as string | null) ?? null,
-    delivery: (t.delivery as string | null) ?? null,
-    ad_budget_min: t.ad_budget_min == null ? null : Number(t.ad_budget_min),
-    ad_budget_max: t.ad_budget_max == null ? null : Number(t.ad_budget_max),
-    pro_days: t.pro_days == null ? null : Number(t.pro_days),
-  }));
+  const templateCatalog: TemplateCatalogEntry[] = (templateRows ?? []).map((t) => {
+    const outlet = (t.outlet as string | null) ?? null;
+    const delivery = (t.delivery as string | null) ?? null;
+    const base: TemplateCatalogEntry = {
+      id: t.id as string,
+      name: t.name as string,
+      subtitle: (t.subtitle as string | null) ?? null,
+      description: (t.description as string | null) ?? null,
+      long_description: (t.long_description as string | null) ?? null,
+      outlets: t.outlets ?? null,
+      outlet,
+      delivery,
+    };
+    // Beta templates: display_price/ad_budget_min/ad_budget_max/pro_days are
+    // omitted entirely (not just nulled) from the catalog sent to the model,
+    // so it has no price/budget figure it could ever cite for one.
+    if (!isSelfServeTemplate({ outlet, delivery })) {
+      return base;
+    }
+    return {
+      ...base,
+      display_price: t.display_price == null ? null : Number(t.display_price),
+      ad_budget_min: t.ad_budget_min == null ? null : Number(t.ad_budget_min),
+      ad_budget_max: t.ad_budget_max == null ? null : Number(t.ad_budget_max),
+      pro_days: t.pro_days == null ? null : Number(t.pro_days),
+    };
+  });
 
   const payload: ProfileAdvisorPayload = {
     user_goal: userGoal,
