@@ -238,13 +238,17 @@ async function postRequestSummary(
  * Stream user BEFORE calling this, since channel.create() sets
  * created_by_id/members to that id, which Stream rejects if the user
  * doesn't exist yet) — or returns the existing one, REPAIRING anything
- * that's missing along the way: a channel can exist without being fully
- * set up (e.g. created client-side earlier, outside this flow). Checked and
- * filled in independently, never overwriting a value that's already set:
- *   - kind / profile_id (channel custom data)
- *   - name / image (resolveChannelDisplay)
- *   - the customer's own membership
- *   - every Lab account's team user's membership (ensureLabTeamMembership)
+ * that's wrong or missing along the way: a channel can exist without being
+ * fully set up (e.g. created client-side earlier, outside this flow), or
+ * can have drifted (e.g. the profile's name/avatar changed since). Checked
+ * and corrected every time this runs, on every call path (profile mode,
+ * campaign mode, and a plain repair of an already-existing channel):
+ *   - kind / profile_id (channel custom data) — corrected if wrong
+ *   - name / image (resolveChannelDisplay) — just the profile's own display
+ *     name/avatar, never request/template info; set whenever it differs
+ *     from the channel's current value, not only when missing
+ *   - the customer's own membership (added if missing, never removed)
+ *   - every Lab account's team user's membership (ensureLabTeamMembership — same)
  *
  * The one-time welcome message (postWelcomeMessage) is the one thing that's
  * NOT part of repair — it's posted only at the moment a channel is actually
@@ -265,11 +269,9 @@ async function ensureChannelExists(profileId: string): Promise<{ channel: any; i
     const update: Record<string, unknown> = {};
     if (data.kind !== SUPPORT_CHANNEL_KIND) update.kind = SUPPORT_CHANNEL_KIND;
     if (data.profile_id !== profileId) update.profile_id = profileId;
-    if (!data.name || !data.image) {
-      const { name, image } = await resolveChannelDisplay(profileId);
-      if (!data.name) update.name = name;
-      if (!data.image) update.image = image;
-    }
+    const { name, image } = await resolveChannelDisplay(profileId);
+    if (((data.name as string | undefined) ?? "") !== name) update.name = name;
+    if (((data.image as string | null | undefined) ?? null) !== image) update.image = image;
     if (Object.keys(update).length) {
       await channel.update(update as Record<string, unknown>);
     }
