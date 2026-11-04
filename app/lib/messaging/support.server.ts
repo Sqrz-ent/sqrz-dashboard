@@ -172,6 +172,33 @@ async function postIntroMessages(
   } as Record<string, unknown>);
 }
 
+// The channel's display name ("<profile display name> · <template name>")
+// and image (the profile's avatar_url). Display name = brand_name, else
+// name, else first + last name.
+async function resolveChannelDisplay(row: ManagedRequestRow, templateName: string | null): Promise<{
+  name: string;
+  image: string | null;
+}> {
+  const admin = createSupabaseAdminClient();
+  const { data: profile } = await admin
+    .from("profiles")
+    .select("name, brand_name, first_name, last_name, avatar_url")
+    .eq("id", row.profile_id)
+    .maybeSingle();
+
+  const displayName =
+    (profile?.brand_name as string | null) ||
+    (profile?.name as string | null) ||
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim() ||
+    null;
+
+  const name = [displayName, templateName ?? row.campaign_template ?? "Untitled template"]
+    .filter(Boolean)
+    .join(" · ");
+  const image = (profile?.avatar_url as string | null) ?? null;
+  return { name, image };
+}
+
 /**
  * Creates the support channel for `row` if it doesn't exist yet, or returns
  * the existing one. The caller (api.messaging.support-thread.ts) upserts the
@@ -187,6 +214,10 @@ async function postIntroMessages(
  * so that thread isn't left silently empty forever. A channel that already
  * has messages is returned unchanged.
  *
+ * The channel's name/image (see resolveChannelDisplay) are set at creation,
+ * and backfilled onto an existing channel that doesn't have a name yet
+ * (e.g. one created before this existed) — never overwritten otherwise.
+ *
  * Either way — just created, or an existing one returned — every Lab
  * account's team user is added as a member (ensureLabTeamMembership), so
  * the whole team can see and answer the thread immediately.
@@ -197,12 +228,23 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
 
   const existing = await queryStreamChannelById(channelId);
 
+  const admin = createSupabaseAdminClient();
+  const { data: template } = row.campaign_template
+    ? await admin.from("campaign_templates").select("name").eq("id", row.campaign_template).maybeSingle()
+    : { data: null };
+  const templateName = (template as { name: string } | null)?.name ?? null;
+
   let channel = existing;
   let needsIntroMessages: boolean;
 
   if (channel) {
     needsIntroMessages = ((channel.state?.messages ?? []) as unknown[]).length === 0;
+    if (!(channel.data as any)?.name) {
+      const { name, image } = await resolveChannelDisplay(row, templateName);
+      await channel.update({ name, image } as Record<string, unknown>);
+    }
   } else {
+    const { name, image } = await resolveChannelDisplay(row, templateName);
     const client = getStreamServerClient();
     channel = client.channel(STREAM_CHANNEL_TYPE, channelId, {
       created_by_id: customerStreamUserId,
@@ -211,17 +253,15 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
       campaign_id: row.id,
       profile_id: row.profile_id,
       template_id: row.campaign_template,
+      name,
+      image,
     } as Record<string, unknown>);
     await channel.create();
     needsIntroMessages = true;
   }
 
   if (needsIntroMessages) {
-    const admin = createSupabaseAdminClient();
-    const { data: template } = row.campaign_template
-      ? await admin.from("campaign_templates").select("name").eq("id", row.campaign_template).maybeSingle()
-      : { data: null };
-    await postIntroMessages(channel, row, (template as { name: string } | null)?.name ?? null);
+    await postIntroMessages(channel, row, templateName);
   }
 
   await ensureLabTeamMembership(channel);
