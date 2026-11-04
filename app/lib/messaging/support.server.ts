@@ -95,6 +95,58 @@ function summarizeRequest(row: ManagedRequestRow, templateName: string | null): 
   return lines.join("\n");
 }
 
+// Resolves a Lab account's display name (its oldest/main profile) and
+// upserts its team_<accountId> Stream user — the same shape
+// ensureTeamStreamIdentity already upserts for the calling account. Shared
+// so ensureSupportThread can do the same thing for EVERY Lab account, not
+// just whichever one happens to call support-token.
+async function upsertTeamStreamUser(accountId: string): Promise<string> {
+  const admin = createSupabaseAdminClient();
+  const { data: mainProfile } = await admin
+    .from("profiles")
+    .select("name, brand_name, first_name, last_name, slug")
+    .eq("account_id", accountId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const teamName =
+    (mainProfile?.brand_name as string | null) ||
+    (mainProfile?.name as string | null) ||
+    [mainProfile?.first_name, mainProfile?.last_name].filter(Boolean).join(" ").trim() ||
+    (mainProfile?.slug as string | null) ||
+    "SQRZ Team";
+
+  const streamUserId = toStreamUserIdForTeamAccount(accountId);
+  const client = getStreamServerClient();
+  await client.upsertUsers([
+    { id: streamUserId, name: teamName, role: "admin", team: true } as any,
+  ]);
+  return streamUserId;
+}
+
+// Every Lab account's team user is a member of `channel` — the inverse of
+// ensureTeamStreamIdentity's own backfill (which adds the CALLING account to
+// every existing support channel): this adds every Lab account to THIS one
+// channel, whether just created or already existing, so a thread is visible
+// to the whole team immediately rather than only to whoever next calls
+// support-token.
+async function ensureLabTeamMembership(channel: any): Promise<void> {
+  const admin = createSupabaseAdminClient();
+  const { data: labAccounts } = await admin.from("accounts").select("id").eq("is_lab", true);
+  if (!labAccounts?.length) return;
+
+  const streamUserIds = await Promise.all(
+    labAccounts.map((a) => upsertTeamStreamUser(a.id as string)),
+  );
+
+  const members = new Set(Object.keys(channel.state?.members ?? {}));
+  const missing = streamUserIds.filter((id) => !members.has(id));
+  if (missing.length) {
+    await channel.addMembers(missing);
+  }
+}
+
 // Upserts the system sender, then posts the request-summary message and the
 // "thanks, we'll reply" message, both authored by it. `channel` is whatever
 // client.channel(...)/queryChannels returned — both are the same Channel
@@ -134,6 +186,10 @@ async function postIntroMessages(
  * earlier attempt (e.g. the channel got created but a later step threw) —
  * so that thread isn't left silently empty forever. A channel that already
  * has messages is returned unchanged.
+ *
+ * Either way — just created, or an existing one returned — every Lab
+ * account's team user is added as a member (ensureLabTeamMembership), so
+ * the whole team can see and answer the thread immediately.
  */
 export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ channelId: string }> {
   const channelId = toSupportChannelId(row.id);
@@ -167,6 +223,8 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
       : { data: null };
     await postIntroMessages(channel, row, (template as { name: string } | null)?.name ?? null);
   }
+
+  await ensureLabTeamMembership(channel);
 
   return { channelId };
 }
