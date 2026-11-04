@@ -21,6 +21,13 @@ import { createStreamUserToken, toStreamUserIdForProfile } from "~/lib/messaging
 const STREAM_CHANNEL_TYPE = "messaging";
 const SUPPORT_CHANNEL_KIND = "support";
 
+// The sender for the two automated intro messages below — a real Stream
+// user id is required for a server-side sendMessage call (there's no
+// "connected user" context server-side), but this user is never added as a
+// channel member: it's not a participant, just the sender of record for
+// system-authored text.
+const SQRZ_SYSTEM_USER_ID = "sqrz_system";
+
 function getStreamEnv() {
   const apiKey = process.env.STREAM_API_KEY;
   const apiSecret = process.env.STREAM_API_SECRET;
@@ -56,12 +63,15 @@ export type ManagedRequestRow = {
   campaign_template: string | null;
 };
 
+// state: true — ensureSupportThread needs to inspect .state.messages to
+// tell a genuinely-answered thread apart from one left empty by a failed
+// earlier attempt (see its own doc comment).
 async function queryStreamChannelById(channelId: string) {
   const client = getStreamServerClient();
   const channels = await client.queryChannels(
     { type: STREAM_CHANNEL_TYPE, id: channelId },
     [],
-    { watch: false, state: false },
+    { watch: false, state: true },
   );
   return channels[0] ?? null;
 }
@@ -85,43 +95,78 @@ function summarizeRequest(row: ManagedRequestRow, templateName: string | null): 
   return lines.join("\n");
 }
 
-/**
- * Creates the support channel for `row` if it doesn't exist yet — posting the
- * request-summary system message and the "thanks, we'll reply" system
- * message once, on first creation only — or returns the existing channel's
- * id unchanged on every later call.
- */
-export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ channelId: string }> {
-  const channelId = toSupportChannelId(row.id);
-  const existing = await queryStreamChannelById(channelId);
-  if (existing) return { channelId };
-
-  const admin = createSupabaseAdminClient();
-  const { data: template } = row.campaign_template
-    ? await admin.from("campaign_templates").select("name").eq("id", row.campaign_template).maybeSingle()
-    : { data: null };
-
+// Upserts the system sender, then posts the request-summary message and the
+// "thanks, we'll reply" message, both authored by it. `channel` is whatever
+// client.channel(...)/queryChannels returned — both are the same Channel
+// class under the hood, so either is a valid sendMessage target; left as
+// `any` like the rest of this file's Stream SDK interop.
+async function postIntroMessages(
+  channel: any,
+  row: ManagedRequestRow,
+  templateName: string | null,
+): Promise<void> {
   const client = getStreamServerClient();
-  const customerStreamUserId = toStreamUserIdForProfile(row.profile_id);
-
-  const channel = client.channel(STREAM_CHANNEL_TYPE, channelId, {
-    created_by_id: customerStreamUserId,
-    members: [customerStreamUserId],
-    kind: SUPPORT_CHANNEL_KIND,
-    campaign_id: row.id,
-    profile_id: row.profile_id,
-    template_id: row.campaign_template,
-  } as Record<string, unknown>);
-  await channel.create();
+  await client.upsertUsers([{ id: SQRZ_SYSTEM_USER_ID, name: "SQRZ", role: "admin" } as any]);
 
   await channel.sendMessage({
-    text: summarizeRequest(row, (template as { name: string } | null)?.name ?? null),
+    text: summarizeRequest(row, templateName),
     type: "system",
+    user_id: SQRZ_SYSTEM_USER_ID,
   } as Record<string, unknown>);
   await channel.sendMessage({
     text: "Thanks! A real person from the SQRZ team replies within 24 hours, usually under 12.",
     type: "system",
+    user_id: SQRZ_SYSTEM_USER_ID,
   } as Record<string, unknown>);
+}
+
+/**
+ * Creates the support channel for `row` if it doesn't exist yet, or returns
+ * the existing one. The caller (api.messaging.support-thread.ts) upserts the
+ * customer's own Stream user BEFORE calling this — channel.create() below
+ * sets created_by_id/members to that id, which Stream rejects if the user
+ * doesn't exist yet.
+ *
+ * The two intro messages (request summary + "thanks, we'll reply") are
+ * posted on first creation, authored by the sqrz_system Stream user (see
+ * postIntroMessages) — never the customer. They're ALSO posted for an
+ * existing channel that has zero messages — a leftover from a failed
+ * earlier attempt (e.g. the channel got created but a later step threw) —
+ * so that thread isn't left silently empty forever. A channel that already
+ * has messages is returned unchanged.
+ */
+export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ channelId: string }> {
+  const channelId = toSupportChannelId(row.id);
+  const customerStreamUserId = toStreamUserIdForProfile(row.profile_id);
+
+  const existing = await queryStreamChannelById(channelId);
+
+  let channel = existing;
+  let needsIntroMessages: boolean;
+
+  if (channel) {
+    needsIntroMessages = ((channel.state?.messages ?? []) as unknown[]).length === 0;
+  } else {
+    const client = getStreamServerClient();
+    channel = client.channel(STREAM_CHANNEL_TYPE, channelId, {
+      created_by_id: customerStreamUserId,
+      members: [customerStreamUserId],
+      kind: SUPPORT_CHANNEL_KIND,
+      campaign_id: row.id,
+      profile_id: row.profile_id,
+      template_id: row.campaign_template,
+    } as Record<string, unknown>);
+    await channel.create();
+    needsIntroMessages = true;
+  }
+
+  if (needsIntroMessages) {
+    const admin = createSupabaseAdminClient();
+    const { data: template } = row.campaign_template
+      ? await admin.from("campaign_templates").select("name").eq("id", row.campaign_template).maybeSingle()
+      : { data: null };
+    await postIntroMessages(channel, row, (template as { name: string } | null)?.name ?? null);
+  }
 
   return { channelId };
 }

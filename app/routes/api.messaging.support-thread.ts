@@ -79,8 +79,12 @@ export async function action({ request }: { request: Request }) {
       return Response.json({ error: "Request not found" }, { status: 404, headers });
     }
 
-    const { channelId } = await ensureSupportThread(campaign as ManagedRequestRow);
+    // Upsert the customer's Stream user BEFORE ensureSupportThread creates
+    // the channel — channel.create() sets created_by_id/members to this id,
+    // and Stream rejects a channel whose creator/members reference a user
+    // that doesn't exist yet.
     const { streamUserId, token } = await ensureCustomerStreamIdentity(campaign.profile_id as string);
+    const { channelId } = await ensureSupportThread(campaign as ManagedRequestRow);
     return Response.json({ channelId, streamUserId, token }, { headers });
   } catch (error) {
     console.error(`[support-thread] (${authPath}) action failed:`, error);
