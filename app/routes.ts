@@ -47,6 +47,11 @@ export default [
   // RPC directly from the Leads tab.
   route("api/messaging/stream-inquiry", "routes/api.messaging.stream-inquiry.ts"),
   route("api/messaging/stream-inquiry-keep-active", "routes/api.messaging.stream-inquiry-keep-active.ts"),
+  // Support chat (V1, Sandbox) — customer <-> SQRZ team thread for a
+  // contact-template request; server side only, see
+  // app/lib/messaging/support.server.ts.
+  route("api/messaging/support-thread", "routes/api.messaging.support-thread.ts"),
+  route("api/messaging/support-token", "routes/api.messaging.support-token.ts"),
 
   // On-demand single-campaign Meta + SQRZ-native stats refresh
   route("api/campaigns/refresh-stats", "routes/api.campaigns.refresh-stats.tsx"),

@@ -97,6 +97,9 @@ const TYPE_META: Record<string, (subtype: string | null) => string> = {
   wallet_bonus: (s) => `You received a $${s ?? ""} bonus!`,
   // Bank-transfer top-up credited (credit_wire_topup) — same copy as NotificationList.tsx.
   wire_topup_received: (s) => `Bank transfer received — $${s ?? ""} added to your wallet`,
+  // Support chat (V1, Sandbox) — a new message in a support_<campaign_id>
+  // Stream channel. See supabase/functions/support-chat-webhook.
+  support_message: () => "New message",
 };
 
 function alertText(type: string, subtype: string | null): string {
