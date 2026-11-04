@@ -143,6 +143,17 @@ async function upsertTeamStreamUser(accountId: string): Promise<string> {
   return streamUserId;
 }
 
+// Repair helper — adds `streamUserId` as a member of `channel` if it isn't
+// already one. Used both for the customer (a channel "created client-side
+// earlier" might be missing them) and, via ensureLabTeamMembership below,
+// every Lab account's team user.
+async function ensureMember(channel: any, streamUserId: string): Promise<void> {
+  const members = new Set(Object.keys(channel.state?.members ?? {}));
+  if (!members.has(streamUserId)) {
+    await channel.addMembers([streamUserId]);
+  }
+}
+
 // Every Lab account's team user is a member of `channel` — the inverse of
 // ensureTeamStreamIdentity's own backfill (which adds the CALLING account to
 // every existing support channel): this adds every Lab account to THIS one
@@ -222,33 +233,27 @@ async function postRequestSummary(
 }
 
 /**
- * Ensures the PROFILE's support channel exists (creating it on first use —
- * the caller, api.messaging.support-thread.ts, upserts the customer's own
+ * Ensures the PROFILE's support channel exists — creating it on first use
+ * (the caller, api.messaging.support-thread.ts, upserts the customer's own
  * Stream user BEFORE calling this, since channel.create() sets
  * created_by_id/members to that id, which Stream rejects if the user
- * doesn't exist yet) — or returns the existing one.
+ * doesn't exist yet) — or returns the existing one, REPAIRING anything
+ * that's missing along the way: a channel can exist without being fully
+ * set up (e.g. created client-side earlier, outside this flow). Checked and
+ * filled in independently, never overwriting a value that's already set:
+ *   - kind / profile_id (channel custom data)
+ *   - name / image (resolveChannelDisplay)
+ *   - the customer's own membership
+ *   - every Lab account's team user's membership (ensureLabTeamMembership)
  *
- * On creation only, posts the one-time welcome message (postWelcomeMessage)
- * — never again after that, no matter how many requests follow in this same
- * channel. The channel's name/image (resolveChannelDisplay) are set at
- * creation, and backfilled onto an existing channel that doesn't have a
- * name yet (e.g. one created before this existed) — never overwritten
- * otherwise.
- *
- * Separately, `row`'s own request summary is posted exactly once per
- * request: checked by scanning the channel's already-fetched messages for
- * one whose own custom data carries this request's campaign_id — if none is
- * found (a request that hasn't been posted yet, whether because the channel
- * is brand new or this is a later request in an existing channel), the
- * summary is posted now.
- *
- * Either way, every Lab account's team user is added as a member
- * (ensureLabTeamMembership), so the whole team can see and answer the
- * thread immediately.
+ * The one-time welcome message (postWelcomeMessage) is the one thing that's
+ * NOT part of repair — it's posted only at the moment a channel is actually
+ * created here, never again after that and never for an existing (even if
+ * otherwise-repaired) channel.
  */
-export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ channelId: string }> {
-  const channelId = toSupportChannelId(row.profile_id);
-  const customerStreamUserId = toStreamUserIdForProfile(row.profile_id);
+async function ensureChannelExists(profileId: string): Promise<{ channel: any; isNewChannel: boolean }> {
+  const channelId = toSupportChannelId(profileId);
+  const customerStreamUserId = toStreamUserIdForProfile(profileId);
 
   const existing = await queryStreamChannelById(channelId);
 
@@ -256,18 +261,27 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
   let isNewChannel = false;
 
   if (channel) {
-    if (!(channel.data as any)?.name) {
-      const { name, image } = await resolveChannelDisplay(row.profile_id);
-      await channel.update({ name, image } as Record<string, unknown>);
+    const data = (channel.data as any) ?? {};
+    const update: Record<string, unknown> = {};
+    if (data.kind !== SUPPORT_CHANNEL_KIND) update.kind = SUPPORT_CHANNEL_KIND;
+    if (data.profile_id !== profileId) update.profile_id = profileId;
+    if (!data.name || !data.image) {
+      const { name, image } = await resolveChannelDisplay(profileId);
+      if (!data.name) update.name = name;
+      if (!data.image) update.image = image;
     }
+    if (Object.keys(update).length) {
+      await channel.update(update as Record<string, unknown>);
+    }
+    await ensureMember(channel, customerStreamUserId);
   } else {
-    const { name, image } = await resolveChannelDisplay(row.profile_id);
+    const { name, image } = await resolveChannelDisplay(profileId);
     const client = getStreamServerClient();
     channel = client.channel(STREAM_CHANNEL_TYPE, channelId, {
       created_by_id: customerStreamUserId,
       members: [customerStreamUserId],
       kind: SUPPORT_CHANNEL_KIND,
-      profile_id: row.profile_id,
+      profile_id: profileId,
       name,
       image,
     } as Record<string, unknown>);
@@ -278,6 +292,24 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
   if (isNewChannel) {
     await postWelcomeMessage(channel);
   }
+
+  await ensureLabTeamMembership(channel);
+
+  return { channel, isNewChannel };
+}
+
+/**
+ * Ensures the requesting profile's shared support channel exists/is
+ * repaired (see ensureChannelExists), then posts `row`'s own request
+ * summary exactly once per request: checked by scanning the channel's
+ * already-fetched messages for one whose own custom data carries this
+ * request's campaign_id — if none is found (a request that hasn't been
+ * posted yet, whether because the channel is brand new or this is a later
+ * request in an existing channel), the summary is posted now.
+ */
+export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ channelId: string }> {
+  const channelId = toSupportChannelId(row.profile_id);
+  const { channel, isNewChannel } = await ensureChannelExists(row.profile_id);
 
   // A brand-new channel can never already contain this (or any) request's
   // summary — skip the message scan and post unconditionally. For an
@@ -296,8 +328,17 @@ export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ cha
     await postRequestSummary(channel, row, templateName);
   }
 
-  await ensureLabTeamMembership(channel);
+  return { channelId };
+}
 
+/**
+ * General support (no request) — ensures/repairs the profile's shared
+ * support channel exactly like ensureSupportThread, but never posts a
+ * request summary message (there's no request).
+ */
+export async function ensureSupportChannel(profileId: string): Promise<{ channelId: string }> {
+  const channelId = toSupportChannelId(profileId);
+  await ensureChannelExists(profileId);
   return { channelId };
 }
 
