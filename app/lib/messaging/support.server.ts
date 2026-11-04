@@ -273,7 +273,11 @@ async function ensureChannelExists(profileId: string): Promise<{ channel: any; i
     if (((data.name as string | undefined) ?? "") !== name) update.name = name;
     if (((data.image as string | null | undefined) ?? null) !== image) update.image = image;
     if (Object.keys(update).length) {
-      await channel.update(update as Record<string, unknown>);
+      // updatePartial, not update — channel.update(...) REPLACES all custom
+      // data, so setting only name/image would wipe kind/profile_id (and
+      // repairing kind would wipe name/image). updatePartial only touches
+      // the fields listed in `set`.
+      await channel.updatePartial({ set: update as Record<string, unknown> });
     }
     await ensureMember(channel, customerStreamUserId);
   } else {
