@@ -10,10 +10,14 @@ import {
 } from "~/lib/messaging/support.server";
 
 // Support chat (V1, Sandbox) — see app/lib/messaging/support.server.ts for the
-// full picture. Creates (or returns, if it already exists) the Stream
-// support channel for one of the caller's own contact-template requests
-// (boost_campaigns.is_managed = true). Same dual-auth pattern (Bearer for
-// native, cookie for web) as api.messaging.stream-inquiry.ts.
+// full picture. Input is still one of the caller's own contact-template
+// requests (campaign_id, boost_campaigns.is_managed = true) — that's the
+// request being submitted or (re)opened — but the channel ensureSupportThread
+// creates/returns is now the caller's PROFILE's single shared support
+// channel (one per profile, not one per request): this request's own
+// summary is posted into it if it hasn't been already, same response shape
+// as before. Same dual-auth pattern (Bearer for native, cookie for web) as
+// api.messaging.stream-inquiry.ts.
 export async function action({ request }: { request: Request }) {
   const authHeader = request.headers.get("Authorization");
   const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;

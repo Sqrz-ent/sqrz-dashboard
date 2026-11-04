@@ -6,10 +6,16 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //
 // Receives Stream Chat's `message.new` webhook (fired for every channel in
 // this Stream app) and pushes a notification whenever a message lands in a
-// support-chat channel — one created by app/lib/messaging/support.server.ts
-// as `support_<campaign_id>`, custom channel data
-// { kind: "support", campaign_id, profile_id, template_id }. Every other
-// channel (inquiry threads, anything else) is ignored.
+// support-chat channel — ONE PER PROFILE (not per request), created by
+// app/lib/messaging/support.server.ts as `support_<profile_id>`, custom
+// channel data { kind: "support", profile_id }. Every other channel
+// (inquiry threads, anything else) is ignored.
+//
+// Legacy per-request channels (support_<campaign_id>, from before the
+// per-profile model) are left alone in Stream but excluded here too — they
+// carry a channel-level campaign_id, which a current per-profile channel
+// never does (campaign_id/template_id now only ever live on an individual
+// message's own custom data, not the channel's).
 //
 // Direction of the push:
 //   - sender id starts with "profile_" (the customer — toStreamUserIdForProfile)
@@ -17,8 +23,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 //          the whole team should know a new support message came in.
 //   - sender id starts with "team_" (a Lab team member — toStreamUserIdForTeamAccount)
 //       -> push only the customer profile's owner (the channel's profile_id).
-//   - anything else (notably the server's own two intro "system" messages
-//     posted at thread creation, which have no real sender) -> no push.
+//   - anything else (notably the server's own automated "system" messages,
+//     which have no real sender) -> no push.
 //
 // Reuses the EXISTING push pipeline exactly as-is: this function only ever
 // inserts a row into `notifications` (push_worthy: true) — the already-live
@@ -80,14 +86,14 @@ async function verifySignature(rawBody: string, header: string | null): Promise<
   return diff === 0;
 }
 
-function supportThreadDeepLink(campaignId: string): string {
-  return `/grow/campaigns/${campaignId}`;
+function supportThreadDeepLink(profileId: string): string {
+  return `/support/${profileId}`;
 }
 
 // The customer sent a message -> ONE notification per Lab account, addressed
 // to that account's OLDEST ("main") profile — not every profile it owns.
 // Same "main profile" convention as ensureTeamStreamIdentity.
-async function pushToLabAccounts(campaignId: string): Promise<void> {
+async function pushToLabAccounts(profileId: string): Promise<void> {
   const { data: labAccounts, error: labErr } = await supabase
     .from("accounts")
     .select("id")
@@ -116,11 +122,11 @@ async function pushToLabAccounts(campaignId: string): Promise<void> {
     }
   }
 
-  const rows = [...mainProfileIdByAccount.values()].map((profileId) => ({
-    profile_id: profileId,
+  const rows = [...mainProfileIdByAccount.values()].map((mainProfileId) => ({
+    profile_id: mainProfileId,
     type: SUPPORT_MESSAGE_TYPE,
-    related_id: campaignId,
-    deep_link: supportThreadDeepLink(campaignId),
+    related_id: profileId,
+    deep_link: supportThreadDeepLink(profileId),
     push_worthy: true,
   }));
   if (!rows.length) return;
@@ -131,14 +137,14 @@ async function pushToLabAccounts(campaignId: string): Promise<void> {
   }
 }
 
-// A team member replied -> only the customer profile (the request's own
+// A team member replied -> only the customer profile (the channel's own
 // profile_id) gets notified.
-async function pushToCustomer(profileId: string, campaignId: string): Promise<void> {
+async function pushToCustomer(profileId: string): Promise<void> {
   const { error } = await supabase.from("notifications").insert({
     profile_id: profileId,
     type: SUPPORT_MESSAGE_TYPE,
-    related_id: campaignId,
-    deep_link: supportThreadDeepLink(campaignId),
+    related_id: profileId,
+    deep_link: supportThreadDeepLink(profileId),
     push_worthy: true,
   });
   if (error) {
@@ -170,13 +176,16 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, skipped: "not_support_channel" });
   }
 
-  const campaignId = typeof channel.campaign_id === "string" ? channel.campaign_id : null;
+  // A legacy per-request channel (support_<campaign_id>) carries a
+  // channel-level campaign_id — a current per-profile channel never does.
+  // Left alone in Stream, but excluded from this (current) push path.
+  if (typeof channel.campaign_id === "string") {
+    return json({ ok: true, skipped: "legacy_channel" });
+  }
+
   const profileId = typeof channel.profile_id === "string" ? channel.profile_id : null;
-  if (!campaignId || !profileId) {
-    console.error(
-      "[support-chat-webhook] support channel missing campaign_id/profile_id:",
-      channel.id,
-    );
+  if (!profileId) {
+    console.error("[support-chat-webhook] support channel missing profile_id:", channel.id);
     return json({ ok: true, skipped: "missing_channel_data" });
   }
 
@@ -186,12 +195,12 @@ Deno.serve(async (req: Request) => {
   const senderId = String(topLevelUser.id ?? messageUser.id ?? "");
 
   if (senderId.startsWith("profile_")) {
-    await pushToLabAccounts(campaignId);
+    await pushToLabAccounts(profileId);
   } else if (senderId.startsWith("team_")) {
-    await pushToCustomer(profileId, campaignId);
+    await pushToCustomer(profileId);
   }
-  // Any other sender (notably the server's own intro system messages, which
-  // have no real sender) -> no push, by design.
+  // Any other sender (notably the server's own automated system messages,
+  // which have no real sender) -> no push, by design.
 
   return json({ ok: true });
 });

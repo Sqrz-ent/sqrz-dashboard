@@ -5,11 +5,22 @@ import { createStreamUserToken, toStreamUserIdForProfile } from "~/lib/messaging
 
 // Support chat (V1, Sandbox) — customers (artists who submitted a
 // contact-template / managed campaign request, boost_campaigns.is_managed =
-// true) chat with the SQRZ team about that specific request. One Stream
-// channel per request row: type "messaging", id `support_<campaign_id>`. Any
-// Lab account (accounts.is_lab) can read and answer under their own name —
-// see api.messaging.support-token.ts for how a team member's own Stream
-// identity is minted and added to every support channel.
+// true) chat with the SQRZ team about their requests. ONE Stream channel PER
+// PROFILE (not per request): type "messaging", id `support_<profile_id>`,
+// custom data { kind: "support", profile_id }. Any Lab account
+// (accounts.is_lab) can read and answer under their own name — see
+// api.messaging.support-token.ts for how a team member's own Stream identity
+// is minted and added to every support channel.
+//
+// Each individual request still gets its own one-time summary message in
+// that shared channel (see ensureSupportThread) — campaign_id/template_id
+// live on that MESSAGE's own custom data now, not on the channel, since one
+// channel can span many requests over a profile's lifetime.
+//
+// Per-request channels (support_<campaign_id>) from before this model
+// changed are left exactly as they were in Stream — never migrated/deleted —
+// but are excluded from every new code path here, which all key off the new
+// id/data shape (see EXCLUDE_LEGACY_CHANNEL_FILTER below).
 //
 // Deliberately separate from inquiry.server.ts (visitor <-> artist chat),
 // even though both sit on the same Stream project and both reuse
@@ -20,6 +31,13 @@ import { createStreamUserToken, toStreamUserIdForProfile } from "~/lib/messaging
 
 const STREAM_CHANNEL_TYPE = "messaging";
 const SUPPORT_CHANNEL_KIND = "support";
+
+// A legacy support_<campaign_id> channel carries a channel-level campaign_id
+// (the new support_<profile_id> channels never do — campaign_id now only
+// ever lives on an individual MESSAGE's own custom data, see
+// ensureSupportThread). Spread into any channel-list filter that should see
+// only current, per-profile channels.
+const EXCLUDE_LEGACY_CHANNEL_FILTER = { campaign_id: { $exists: false } } as const;
 
 // The sender for the two automated intro messages below — a real Stream
 // user id is required for a server-side sendMessage call (there's no
@@ -41,8 +59,8 @@ function getStreamServerClient() {
   return StreamChat.getInstance(apiKey, apiSecret);
 }
 
-export function toSupportChannelId(campaignId: string) {
-  return `support_${campaignId}`;
+export function toSupportChannelId(profileId: string) {
+  return `support_${profileId}`;
 }
 
 export function toStreamUserIdForTeamAccount(accountId: string) {
@@ -64,8 +82,8 @@ export type ManagedRequestRow = {
 };
 
 // state: true — ensureSupportThread needs to inspect .state.messages to
-// tell a genuinely-answered thread apart from one left empty by a failed
-// earlier attempt (see its own doc comment).
+// check whether this particular request's summary has already been posted
+// (see its own doc comment).
 async function queryStreamChannelById(channelId: string) {
   const client = getStreamServerClient();
   const channels = await client.queryChannels(
@@ -147,35 +165,11 @@ async function ensureLabTeamMembership(channel: any): Promise<void> {
   }
 }
 
-// Upserts the system sender, then posts the request-summary message and the
-// "thanks, we'll reply" message, both authored by it. `channel` is whatever
-// client.channel(...)/queryChannels returned — both are the same Channel
-// class under the hood, so either is a valid sendMessage target; left as
-// `any` like the rest of this file's Stream SDK interop.
-async function postIntroMessages(
-  channel: any,
-  row: ManagedRequestRow,
-  templateName: string | null,
-): Promise<void> {
-  const client = getStreamServerClient();
-  await client.upsertUsers([{ id: SQRZ_SYSTEM_USER_ID, name: "SQRZ", role: "admin" } as any]);
-
-  await channel.sendMessage({
-    text: summarizeRequest(row, templateName),
-    type: "system",
-    user_id: SQRZ_SYSTEM_USER_ID,
-  } as Record<string, unknown>);
-  await channel.sendMessage({
-    text: "Thanks! A real person from the SQRZ team replies within 24 hours, usually under 12.",
-    type: "system",
-    user_id: SQRZ_SYSTEM_USER_ID,
-  } as Record<string, unknown>);
-}
-
-// The channel's display name ("<profile display name> · <template name>")
+// The channel's display name (the profile's own display name — no template
+// name appended now, since one channel can span many requests over time)
 // and image (the profile's avatar_url). Display name = brand_name, else
 // name, else first + last name.
-async function resolveChannelDisplay(row: ManagedRequestRow, templateName: string | null): Promise<{
+async function resolveChannelDisplay(profileId: string): Promise<{
   name: string;
   image: string | null;
 }> {
@@ -183,85 +177,123 @@ async function resolveChannelDisplay(row: ManagedRequestRow, templateName: strin
   const { data: profile } = await admin
     .from("profiles")
     .select("name, brand_name, first_name, last_name, avatar_url")
-    .eq("id", row.profile_id)
+    .eq("id", profileId)
     .maybeSingle();
 
-  const displayName =
+  const name =
     (profile?.brand_name as string | null) ||
     (profile?.name as string | null) ||
     [profile?.first_name, profile?.last_name].filter(Boolean).join(" ").trim() ||
-    null;
-
-  const name = [displayName, templateName ?? row.campaign_template ?? "Untitled template"]
-    .filter(Boolean)
-    .join(" · ");
+    "";
   const image = (profile?.avatar_url as string | null) ?? null;
   return { name, image };
 }
 
+// Posted exactly once, the moment the profile's channel is first created —
+// never again after that, regardless of how many requests follow.
+async function postWelcomeMessage(channel: any): Promise<void> {
+  const client = getStreamServerClient();
+  await client.upsertUsers([{ id: SQRZ_SYSTEM_USER_ID, name: "SQRZ", role: "admin" } as any]);
+  await channel.sendMessage({
+    text: "Thanks! A real person from the SQRZ team replies within 24 hours, usually under 12.",
+    type: "system",
+    user_id: SQRZ_SYSTEM_USER_ID,
+  } as Record<string, unknown>);
+}
+
+// Posted once per REQUEST (not per channel) — carries campaign_id/
+// template_id as the MESSAGE's own custom data (not the channel's), which is
+// what ensureSupportThread checks to tell whether this particular request's
+// summary has already been posted into the profile's shared channel.
+async function postRequestSummary(
+  channel: any,
+  row: ManagedRequestRow,
+  templateName: string | null,
+): Promise<void> {
+  const client = getStreamServerClient();
+  await client.upsertUsers([{ id: SQRZ_SYSTEM_USER_ID, name: "SQRZ", role: "admin" } as any]);
+  await channel.sendMessage({
+    text: summarizeRequest(row, templateName),
+    type: "system",
+    user_id: SQRZ_SYSTEM_USER_ID,
+    campaign_id: row.id,
+    template_id: row.campaign_template,
+  } as Record<string, unknown>);
+}
+
 /**
- * Creates the support channel for `row` if it doesn't exist yet, or returns
- * the existing one. The caller (api.messaging.support-thread.ts) upserts the
- * customer's own Stream user BEFORE calling this — channel.create() below
- * sets created_by_id/members to that id, which Stream rejects if the user
- * doesn't exist yet.
+ * Ensures the PROFILE's support channel exists (creating it on first use —
+ * the caller, api.messaging.support-thread.ts, upserts the customer's own
+ * Stream user BEFORE calling this, since channel.create() sets
+ * created_by_id/members to that id, which Stream rejects if the user
+ * doesn't exist yet) — or returns the existing one.
  *
- * The two intro messages (request summary + "thanks, we'll reply") are
- * posted on first creation, authored by the sqrz_system Stream user (see
- * postIntroMessages) — never the customer. They're ALSO posted for an
- * existing channel that has zero messages — a leftover from a failed
- * earlier attempt (e.g. the channel got created but a later step threw) —
- * so that thread isn't left silently empty forever. A channel that already
- * has messages is returned unchanged.
+ * On creation only, posts the one-time welcome message (postWelcomeMessage)
+ * — never again after that, no matter how many requests follow in this same
+ * channel. The channel's name/image (resolveChannelDisplay) are set at
+ * creation, and backfilled onto an existing channel that doesn't have a
+ * name yet (e.g. one created before this existed) — never overwritten
+ * otherwise.
  *
- * The channel's name/image (see resolveChannelDisplay) are set at creation,
- * and backfilled onto an existing channel that doesn't have a name yet
- * (e.g. one created before this existed) — never overwritten otherwise.
+ * Separately, `row`'s own request summary is posted exactly once per
+ * request: checked by scanning the channel's already-fetched messages for
+ * one whose own custom data carries this request's campaign_id — if none is
+ * found (a request that hasn't been posted yet, whether because the channel
+ * is brand new or this is a later request in an existing channel), the
+ * summary is posted now.
  *
- * Either way — just created, or an existing one returned — every Lab
- * account's team user is added as a member (ensureLabTeamMembership), so
- * the whole team can see and answer the thread immediately.
+ * Either way, every Lab account's team user is added as a member
+ * (ensureLabTeamMembership), so the whole team can see and answer the
+ * thread immediately.
  */
 export async function ensureSupportThread(row: ManagedRequestRow): Promise<{ channelId: string }> {
-  const channelId = toSupportChannelId(row.id);
+  const channelId = toSupportChannelId(row.profile_id);
   const customerStreamUserId = toStreamUserIdForProfile(row.profile_id);
 
   const existing = await queryStreamChannelById(channelId);
 
-  const admin = createSupabaseAdminClient();
-  const { data: template } = row.campaign_template
-    ? await admin.from("campaign_templates").select("name").eq("id", row.campaign_template).maybeSingle()
-    : { data: null };
-  const templateName = (template as { name: string } | null)?.name ?? null;
-
   let channel = existing;
-  let needsIntroMessages: boolean;
+  let isNewChannel = false;
 
   if (channel) {
-    needsIntroMessages = ((channel.state?.messages ?? []) as unknown[]).length === 0;
     if (!(channel.data as any)?.name) {
-      const { name, image } = await resolveChannelDisplay(row, templateName);
+      const { name, image } = await resolveChannelDisplay(row.profile_id);
       await channel.update({ name, image } as Record<string, unknown>);
     }
   } else {
-    const { name, image } = await resolveChannelDisplay(row, templateName);
+    const { name, image } = await resolveChannelDisplay(row.profile_id);
     const client = getStreamServerClient();
     channel = client.channel(STREAM_CHANNEL_TYPE, channelId, {
       created_by_id: customerStreamUserId,
       members: [customerStreamUserId],
       kind: SUPPORT_CHANNEL_KIND,
-      campaign_id: row.id,
       profile_id: row.profile_id,
-      template_id: row.campaign_template,
       name,
       image,
     } as Record<string, unknown>);
     await channel.create();
-    needsIntroMessages = true;
+    isNewChannel = true;
   }
 
-  if (needsIntroMessages) {
-    await postIntroMessages(channel, row, templateName);
+  if (isNewChannel) {
+    await postWelcomeMessage(channel);
+  }
+
+  // A brand-new channel can never already contain this (or any) request's
+  // summary — skip the message scan and post unconditionally. For an
+  // existing channel, check whether this specific request has already had
+  // its summary posted.
+  const alreadyPosted = isNewChannel
+    ? false
+    : ((channel.state?.messages ?? []) as any[]).some((m) => m?.campaign_id === row.id);
+
+  if (!alreadyPosted) {
+    const admin = createSupabaseAdminClient();
+    const { data: template } = row.campaign_template
+      ? await admin.from("campaign_templates").select("name").eq("id", row.campaign_template).maybeSingle()
+      : { data: null };
+    const templateName = (template as { name: string } | null)?.name ?? null;
+    await postRequestSummary(channel, row, templateName);
   }
 
   await ensureLabTeamMembership(channel);
@@ -288,9 +320,10 @@ export async function ensureCustomerStreamIdentity(profileId: string): Promise<{
 /**
  * Upserts the team's own Stream identity for `accountId` — name = that
  * account's oldest ("main") profile's display name — and adds it as a member
- * of every existing support channel, so a team member who gets Lab access
- * later still sees older threads. Returns a 1-hour Stream token for that
- * identity, same format as createStreamUserToken.
+ * of every existing (current, per-profile — see EXCLUDE_LEGACY_CHANNEL_FILTER)
+ * support channel, so a team member who gets Lab access later still sees
+ * older threads. Returns a 1-hour Stream token for that identity, same
+ * format as createStreamUserToken.
  */
 export async function ensureTeamStreamIdentity(accountId: string): Promise<{
   streamUserId: string;
@@ -319,7 +352,7 @@ export async function ensureTeamStreamIdentity(accountId: string): Promise<{
   ]);
 
   const supportChannels = await client.queryChannels(
-    { type: STREAM_CHANNEL_TYPE, kind: SUPPORT_CHANNEL_KIND } as any,
+    { type: STREAM_CHANNEL_TYPE, kind: SUPPORT_CHANNEL_KIND, ...EXCLUDE_LEGACY_CHANNEL_FILTER } as any,
     [],
     { watch: false, state: true },
   );
